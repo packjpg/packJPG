@@ -1,0 +1,22 @@
+# Project: packJPG
+# Makefile created by Ryan Flynn 2014.02.06
+# Working with Clang 5.1
+
+CC      = cc
+CPP     = c++
+RC      = windres
+CFLAGS  = -I. -DUNIX -DDEV_BUILD -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
+LDFLAGS = 
+DEPS    = bitops.h aricoder.h pjpgtbl.h dct8x8.h Makefile
+OBJ     = bitops.o aricoder.o packjpg.o
+RES     = icon.res
+BIN     = packjpg
+
+%.o: %.cpp $(DEPS)
+	$(CPP) -c -o $@ $< $(CFLAGS)
+
+$(BIN): $(OBJ)
+	$(CPP) -o $@ $^ $(LDFLAGS)
+
+clean:
+	$(RM) $(OBJ)
