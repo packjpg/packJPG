@@ -8,7 +8,7 @@ Source files
 All files needed to compile packJPG as an executable or as a library are 
 included in the 'source' subdirectory': 
 
-- 'Makefile_win' (Windows executable makefile)
+- 'Makefile' (universal makefile)
 - 'aricoder.cpp' (arithmetic coder source file)
 - 'aricoder.h' (arithmetic coder header file)
 - 'bitops.cpp' (bitwise file I/O routines source file)
@@ -21,9 +21,8 @@ included in the 'source' subdirectory':
 These files are included as well, but are not necessarily needed for 
 compiling packJPG: 
 
-- 'Makefile_linux' (Linux makefile)
-- 'Makefile_lib' (library makefile)
-- 'Makefile_dll' (Windows DLL makefile)
+- 'packjpg.spec' (RPM spec file, provided by Bryan Stillwell)
+- 'Makefile_osx' (special OS X Makefile, provided by Ryan Flynn)
 - 'packjpgdll.h' (packJPG DLL header file)
 - 'file_icon.ico' (suggested .pjg icon in .ico format)
 - 'app_icon.ico' (application icon in .ico format)
