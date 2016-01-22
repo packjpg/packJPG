@@ -246,8 +246,7 @@ Prof. Dr. Gerhard Seelmann from Hochschule Aalen supported my
 development of packJPG with his extensive knowledge in the field of data
 compression. Without his advice, packJPG would not be possible.
 
-The official homepage of packJPG is currently maintained by Hochschule 
-Aalen staff. 
+The official developer blog for packJPG is hosted by encode.ru.
 
 packJPG logo and icon are designed by Michael Kaufmann.
 
@@ -255,15 +254,15 @@ packJPG logo and icon are designed by Michael Kaufmann.
 Contact
 ~~~~~~~
 
-The official home of packJPG:
- http://www.elektronik.htw-aalen.de/packjpg/
+The official developer blog for packJPG:
+ http://packjpg.encode.ru/
  
 For questions and bug reports:
- packjpg (at) htw-aalen.de
+ packjpg (at) matthiasstirner.com
 
 
 ____________________________________
-packJPG by Matthias Stirner, 01/2014
+packJPG by Matthias Stirner, 01/2016
 */
 
 #include <stdio.h>
@@ -689,15 +688,15 @@ INTERN unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 	----------------------------------------------- */
 
 INTERN const unsigned char appversion = 25;
-INTERN const char*  subversion   = "j";
+INTERN const char*  subversion   = "k";
 INTERN const char*  apptitle     = "packJPG";
 INTERN const char*  appname      = "packjpg";
-INTERN const char*  versiondate  = "01/15/2014";
+INTERN const char*  versiondate  = "01/22/2016";
 INTERN const char*  author       = "Matthias Stirner / Se";
 #if !defined(BUILD_LIB)
-INTERN const char*  website      = "http://www.elektronik.htw-aalen.de/packjpg/";
-INTERN const char*	copyright    = "2006-2014 HTW Aalen University & Matthias Stirner";
-INTERN const char*  email        = "packjpg (at) htw-aalen.de";
+INTERN const char*  website      = "http://packjpg.encode.ru/";
+INTERN const char*	copyright    = "2006-2016 HTW Aalen University & Matthias Stirner";
+INTERN const char*  email        = "packjpg (at) matthiasstirner.com";
 INTERN const char*  pjg_ext      = "pjg";
 INTERN const char*  jpg_ext      = "jpg";
 #endif
