@@ -28,4 +28,16 @@
 *.app
 
 # Folders to ignore
-backup/
+/zzz_backup/
+
+# Test / output files
+*.jpg
+*.jpeg
+*.pjg
+*.pgm
+*.nfo
+*.hdr
+*.huf
+*.coll?
+*.zdst?
+*.dist
