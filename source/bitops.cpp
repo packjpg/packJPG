@@ -494,9 +494,8 @@ void abytewriter::write_n( unsigned char* byte, int n )
 		}
 	}
 	
-	// copy data from array
-	while ( n-- > 0 )
-		data[ cbyte++ ] = *(byte++);
+	std::copy(byte, byte + n, data + cbyte);
+	cbyte += n;
 }
 
 /* -----------------------------------------------
