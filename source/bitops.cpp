@@ -369,7 +369,6 @@ int abytereader::read( unsigned char* byte )
 int abytereader::read_n( unsigned char* byte, int n )
 {
 	int nl = lbyte - cbyte;
-	int i;
 	
 	if ( nl < n ) {
 		std::copy(data + cbyte, data + cbyte + nl, byte);
