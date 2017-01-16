@@ -202,7 +202,6 @@ abitwriter::abitwriter( int size )
 		return;
 	}
 	
-	// fill buffer with zeroes
 	std::fill(data, data + dsize, unsigned char(0));
 }
 
@@ -373,15 +372,13 @@ int abytereader::read_n( unsigned char* byte, int n )
 	int i;
 	
 	if ( nl < n ) {
-		for ( i = 0; i < nl; i++ )
-			byte[ i ] = data[ cbyte + i ];
+		std::copy(data + cbyte, data + cbyte + nl, byte);
 		cbyte = lbyte;
 		eof = true;
 		return nl;
 	}
 	else {
-		for ( i = 0; i < n; i++ )
-			byte[ i ] = data[ cbyte + i ];
+		std::copy(data + cbyte, data + cbyte + n, byte);
 		cbyte += n;
 		return n;
 	}
