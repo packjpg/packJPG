@@ -6,7 +6,13 @@ reading and writing of arrays
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+
+#if defined(_WIN32) || defined(WIN32)
+#include <io.h>
+#endif
+
 #include "bitops.h"
+#include <algorithm>
 
 #define BUFFER_SIZE 1024 * 1024
 
@@ -183,14 +189,13 @@ void abitreader::rewind_bits( int nbits )
 abitwriter::abitwriter( int size )
 {
 	fillbit = 1;
-	adds    = 65536;
 	cbyte   = 0;
 	cbit    = 8;
 	
 	error = false;
 	fmem  = true;
 	
-	dsize = ( size > 0 ) ? size : adds;
+	dsize = std::max(size, 65536);
 	data = ( unsigned char* ) malloc ( dsize );
 	if ( data == NULL ) {
 		error = true;
@@ -223,7 +228,7 @@ void abitwriter::write( unsigned int val, int nbits )
 	
 	// test if pointer beyond flush treshold
 	if ( cbyte > ( dsize - 5 ) ) {
-		dsize += adds;
+		dsize *= 2;
 		data = (unsigned char*) frealloc( data, dsize );
 		if ( data == NULL ) {
 			error = true;
@@ -261,7 +266,7 @@ void abitwriter::write_bit( unsigned char bit )
 	if ( cbit == 0 ) {
 		// test if pointer beyond flush treshold
 		if ( ++cbyte > ( dsize - 5 ) ) {
-			dsize += adds;
+			dsize *= 2;
 			data = (unsigned char*) frealloc( data, dsize );
 			if ( data == NULL ) {
 				error = true;
@@ -424,13 +429,12 @@ int abytereader::getpos( void )
 
 abytewriter::abytewriter( int size )
 {
-	adds  = 65536;
 	cbyte = 0;
 	
 	error = false;
 	fmem  = true;
 	
-	dsize = ( size > 0 ) ? size : adds;
+	dsize = std::max(size, 65536);
 	data = (unsigned char*) malloc( dsize );
 	if ( data == NULL ) {
 		error = true;
@@ -459,7 +463,7 @@ void abytewriter::write( unsigned char byte )
 	
 	// test if pointer beyond flush threshold
 	if ( cbyte >= ( dsize - 2 ) ) {
-		dsize += adds;
+		dsize *= 2;
 		data = (unsigned char*) frealloc( data, dsize );
 		if ( data == NULL ) {
 			error = true;
@@ -482,7 +486,7 @@ void abytewriter::write_n( unsigned char* byte, int n )
 	
 	// make sure that pointer doesn't get beyond flush threshold
 	while ( ( cbyte + n ) >= ( dsize - 2 ) ) {
-		dsize += adds;
+		dsize *= 2;
 		data = (unsigned char*) frealloc( data, dsize );
 		if ( data == NULL ) {
 			error = true;
@@ -556,9 +560,9 @@ iostream::iostream( void* src, int srctype, int srcsize, int iomode )
 	free_mem_sw = false;
 	
 	// set binary mode for streams
-	#if defined( _WIN32 )				
-		setmode( fileno( stdin ), O_BINARY );
-		setmode( fileno( stdout ), O_BINARY );
+	#if defined(_WIN32) || defined(WIN32)
+		_setmode( _fileno( stdin ), _O_BINARY);
+		_setmode( _fileno( stdout ), _O_BINARY);
 	#endif
 	
 	// open file/mem/stream
