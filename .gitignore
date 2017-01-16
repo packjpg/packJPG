@@ -41,3 +41,11 @@
 *.coll?
 *.zdst?
 *.dist
+/Debug
+/Release
+/packJPG.vcxproj.filters
+/packJPG.vcxproj
+/packJPG.VC.VC.opendb
+/packJPG.VC.db
+/packJPG.sln
+/source/packJPG.vcxproj

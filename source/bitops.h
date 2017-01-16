@@ -70,7 +70,6 @@ public:
 private:
 	unsigned char* data;
 	int dsize;
-	int adds;
 	int cbyte;
 	int cbit;
 	bool fmem;
@@ -120,7 +119,6 @@ public:
 private:
 	unsigned char* data;
 	int dsize;
-	int adds;
 	int cbyte;
 	bool fmem;
 };

@@ -490,8 +490,6 @@ INTERN int dc_coll_predictor( int cmp, int dpos );
 INTERN int dc_1ddct_predictor( int cmp, int dpos );
 #endif
 INTERN inline int plocoi( int a, int b, int c );
-INTERN inline int median_int( int* values, int size );
-INTERN inline float median_float( float* values, int size );
 
 
 /* -----------------------------------------------
@@ -6579,69 +6577,6 @@ INTERN inline int plocoi( int a, int b, int c )
 	if ( c <= min ) return max;
 	
 	return a + b - c;
-}
-
-
-/* -----------------------------------------------
-	calculates median out of an integer array
-	----------------------------------------------- */
-INTERN inline int median_int( int* values, int size )
-{
-	int middle = ( size >> 1 );
-	bool done;
-	int swap;
-	int i;
-	
-	
-	// sort data first
-	done = false;
-	while ( !done ) {
-		done = true;
-		for ( i = 1; i < size; i++ )
-		if ( values[ i ] < values[ i - 1 ] ) {
-			swap = values[ i ];
-			values[ i ] = values[ i - 1 ];
-			values[ i - 1 ] = swap;
-			done = false;
-		}
-	}
-	
-	// return median
-	return ( ( size % 2 ) == 0 ) ?
-		( values[ middle ] + values[ middle - 1 ] ) / 2 : values[ middle ];
-}
-
-
-/* -----------------------------------------------
-	calculates median out of an float array
-	----------------------------------------------- */
-INTERN inline float median_float( float* values, int size )
-{
-	int middle = ( size >> 1 );
-	bool done;
-	float swap;
-	int i;
-	
-	
-	// sort data first
-	done = false;
-	while ( !done ) {
-		done = true;
-		for ( i = 1; i < size; i++ )
-		if ( values[ i ] < values[ i - 1 ] ) {
-			swap = values[ i ];
-			values[ i ] = values[ i - 1 ];
-			values[ i - 1 ] = swap;
-			done = false;
-		}
-	}
-	
-	// return median	
-	if ( ( size % 2 ) == 0 ) {
-		return ( values[ middle ] + values[ middle - 1 ] ) / 2.0;
-	}
-	else
-		return ( values[ middle ] );
 }
 
 /* ----------------------- End of prediction functions -------------------------- */
