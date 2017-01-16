@@ -203,8 +203,7 @@ abitwriter::abitwriter( int size )
 	}
 	
 	// fill buffer with zeroes
-	memset( data, 0, dsize * sizeof( char ) );
-	// for ( int i = 0; i < dsize; i++ ) data[i] = 0;
+	std::fill(data, data + dsize, unsigned char(0));
 }
 
 /* -----------------------------------------------
@@ -234,7 +233,7 @@ void abitwriter::write( unsigned int val, int nbits )
 			error = true;
 			return;
 		}
-		memset( ( data + cbyte + 1 ), 0, ( dsize - ( cbyte + 1 ) ) * sizeof( char ) );
+		std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
 	}
 	
 	// write data
@@ -272,7 +271,7 @@ void abitwriter::write_bit( unsigned char bit )
 				error = true;
 				return;
 			}
-			memset( ( data + cbyte + 1 ), 0, ( dsize - ( cbyte + 1 ) ) * sizeof( char ) );
+			std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
 		}
 		cbit = 8;
 	} 
