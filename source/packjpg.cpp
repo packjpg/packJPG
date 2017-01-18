@@ -1001,7 +1001,6 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	
 	unsigned char buffer[ 2 ];
 	
-	
 	// (re)set errorlevel
 	errorfunction = NULL;
 	errorlevel = 0;
@@ -1009,7 +1008,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	pjgfilesize = 0;
 	
 	// open input stream, check for errors
-	str_in = new iostream( in_src, in_type, in_size, 0 );
+	str_in = new iostream( in_src, StreamType(in_type), in_size, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, "error opening input stream" );
 		errorlevel = 2;
@@ -1017,7 +1016,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}	
 	
 	// open output stream, check for errors
-	str_out = new iostream( out_dest, out_type, 0, 1 );
+	str_out = new iostream( out_dest, StreamType(out_type), 0, StreamMode::kWrite);
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening output stream" );
 		errorlevel = 2;
@@ -1768,7 +1767,7 @@ INTERN bool check_file( void )
 	
 	
 	// open input stream, check for errors
-	str_in = new iostream( (void*) filename, ( !pipe_on ) ? 0 : 2, 0, 0 );
+	str_in = new iostream( (void*) filename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, FRD_ERRMSG, filename );
 		errorlevel = 2;
@@ -1804,7 +1803,7 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDOUT", NULL );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename, ( !pipe_on ) ? 0 : 2, 0, 1 );
+		str_out = new iostream( (void*) pjgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG, pjgfilename );
 			errorlevel = 2;
@@ -1841,7 +1840,7 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDIN", NULL );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename, ( !pipe_on ) ? 0 : 2, 0, 1 );
+		str_out = new iostream( (void*) jpgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG, jpgfilename );
 			errorlevel = 2;
@@ -1883,7 +1882,7 @@ INTERN bool swap_streams( void )
 	str_in->read( dmp, 1, 2 );
 	
 	// open new stream for output / check for errors
-	str_out = new iostream( NULL, 1, 0, 1 );
+	str_out = new iostream( nullptr, StreamType::kMemory, 0, StreamMode::kWrite );
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening comparison stream" );
 		errorlevel = 2;
@@ -2721,13 +2720,13 @@ INTERN bool decode_jpeg( void )
 	}
 	
 	// check for missing data
-	if ( huffr->peof ) {
+	if ( huffr->peof() > 0 ) {
 		sprintf( errormessage, "coded image data truncated / too short" );
 		errorlevel = 1;
 	}
 	
 	// check for surplus data
-	if ( !huffr->eof ) {
+	if ( !huffr->eof()) {
 		sprintf( errormessage, "surplus data found after coded image data" );
 		errorlevel = 1;
 	}
@@ -2766,7 +2765,7 @@ INTERN bool recode_jpeg( void )
 	
 	// open huffman coded image data in abitwriter
 	huffw = new abitwriter( 0 );
-	huffw->fillbit = padbit;
+	huffw->set_fillbit( padbit );
 	
 	// init storage writer
 	storw = new abytewriter( 0 );
@@ -3025,7 +3024,7 @@ INTERN bool recode_jpeg( void )
 			}
 			
 			// pad huffman writer
-			huffw->pad( padbit );
+			huffw->pad();
 			
 			// evaluate status
 			if ( sta == -1 ) { // status -1 means error
@@ -3047,7 +3046,7 @@ INTERN bool recode_jpeg( void )
 	}
 	
 	// safety check for error in huffwriter
-	if ( huffw->error ) {
+	if ( huffw->error ()) {
 		delete huffw;
 		sprintf( errormessage, MEM_ERRMSG );
 		errorlevel = 2;
@@ -5965,7 +5964,7 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	delete( model );
 	
 	// check for out of memory
-	if ( bwrt->error ) {
+	if ( bwrt->error() ) {
 		delete bwrt;
 		sprintf( errormessage, MEM_ERRMSG );
 		errorlevel = 2;
