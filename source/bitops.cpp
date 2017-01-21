@@ -9,6 +9,7 @@ reading and writing of arrays
 #include <array>
 #include <stdio.h>
 #include <stdlib.h>
+#include <vector>
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
@@ -869,7 +870,7 @@ void iostream::open_stream()
 		// read whole stream into memory buffer
 		auto strwrt = std::make_unique<abytewriter>( 0 );
 		constexpr int buffer_capacity = 1024 * 1024;
-		std::array<unsigned char, buffer_capacity> buffer;
+		std::vector<unsigned char> buffer(buffer_capacity);
 
 		int bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
 		while (bytesRead > 0) {
