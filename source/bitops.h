@@ -1,3 +1,6 @@
+#ifndef BITOPS_H
+#define BITOPS_H
+
 #define RBITS( c, n )		( c & ( 0xFF >> (8 - n) ) )
 #define LBITS( c, n )		( c >> (8 - n) )
 #define MBITS( c, l, r )	( RBITS( c,l ) >> r )
@@ -8,6 +11,7 @@
 #define FDIV2( v, p )		( ( v < 0 ) ? -( (-v) >> p ) : ( v >> p ) )
 
 #include <memory>
+#include <vector>
 
 enum StreamType {
 	kFile = 0,
@@ -113,7 +117,7 @@ public:
 	abytewriter( int size );
 	~abytewriter();	
 	void write( unsigned char byte );
-	void write_n( unsigned char* byte, int n );
+	void write_n(const unsigned char* byte, int n );
 	unsigned char* getptr();
 	unsigned char* peekptr();
 	int getpos();
@@ -139,8 +143,10 @@ public:
 	iostream( void* src, StreamType srctype, int srcsize, StreamMode iomode );
 	~iostream();
 	void switch_mode();
-	int read( void* to, int tpsize, int dtsize );
-	int write( void* from, int tpsize, int dtsize );
+	int read(unsigned char* to, int dtsize);
+	bool read_byte(unsigned char* to);
+	int write(const unsigned char* from, int dtsize);
+	int write_byte(unsigned char byte);
 	int flush();
 	int rewind();
 	int getpos();
@@ -154,12 +160,18 @@ private:
 	void open_mem();
 	void open_stream();
 	
-	int write_file( void* from, int tpsize, int dtsize );
-	int read_file( void* to, int tpsize, int dtsize );
-	int write_mem( void* from, int tpsize, int dtsize );
-	int read_mem( void* to, int tpsize, int dtsize );
+	int write_file(const unsigned char* from, int dtsize);
+	int write_file_byte(unsigned char byte);
+	int read_file(unsigned char* to, int dtsize);
+	bool read_file_byte(unsigned char* to);
+	int write_mem(const unsigned char* from, int dtsize );
+	int write_mem_byte(unsigned char byte);
+	int read_mem(unsigned char* to, int dtsize);
+	bool read_mem_byte(unsigned char* to);
 	
 	FILE* fptr;
+	std::vector<char> file_buffer; // Used to replace the default file buffer for reads/writes to improve performance.
+  
 	std::unique_ptr<abytewriter> mwrt;
 	std::unique_ptr<abytereader> mrdr;
 	
@@ -169,3 +181,5 @@ private:
 	StreamType srct;
 	int srcs;
 };
+
+#endif

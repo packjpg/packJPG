@@ -1779,7 +1779,7 @@ INTERN bool check_file( void )
 	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
 	
 	// immediately return error if 2 bytes can't be read
-	if ( str_in->read( fileid, 1, 2 ) != 2 ) { 
+	if ( str_in->read( fileid, 2 ) != 2 ) { 
 		filetype = F_UNK;
 		sprintf( errormessage, "file doesn't contain enough data" );
 		errorlevel = 2;
@@ -1870,7 +1870,7 @@ INTERN bool check_file( void )
 #if !defined(BUILD_LIB)
 INTERN bool swap_streams( void )	
 {
-	char dmp[ 2 ];
+	unsigned char dmp[ 2 ];
 	
 	// store input stream
 	str_str = str_in;
@@ -1879,7 +1879,7 @@ INTERN bool swap_streams( void )
 	// replace input stream by output stream / switch mode for reading / read first bytes
 	str_in = str_out;
 	str_in->switch_mode();
-	str_in->read( dmp, 1, 2 );
+	str_in->read( dmp, 2 );
 	
 	// open new stream for output / check for errors
 	str_out = new iostream( nullptr, StreamType::kMemory, 0, StreamMode::kWrite );
@@ -1946,8 +1946,8 @@ INTERN bool compare_output( void )
 	for ( i = 0; i < dsize; i++ ) {
 		b = i % bsize;
 		if ( b == 0 ) {
-			str_str->read( buff_ori, sizeof( char ), bsize );
-			str_out->read( buff_cmp, sizeof( char ), bsize );
+			str_str->read( buff_ori, bsize );
+			str_out->read( buff_cmp, bsize );
 		}
 		if ( buff_ori[ b ] != buff_cmp[ b ] ) {
 			sprintf( errormessage, "difference found at 0x%X", i );
@@ -2111,7 +2111,7 @@ INTERN bool read_jpeg( void )
 			crst = 0;
 			while ( true ) {
 				// read byte from imagedata
-				if ( str_in->read( &tmp, 1, 1 ) == 0 )
+				if ( str_in->read_byte(&tmp) == 0 )
 					break;
 					
 				// non-0xFF loop
@@ -2119,14 +2119,14 @@ INTERN bool read_jpeg( void )
 					crst = 0;
 					while ( tmp != 0xFF ) {
 						huffw->write( tmp );
-						if ( str_in->read( &tmp, 1, 1 ) == 0 )
+						if ( str_in->read_byte(&tmp) == 0 )
 							break;
 					}
 				}
 				
 				// treatment of 0xFF
 				if ( tmp == 0xFF ) {
-					if ( str_in->read( &tmp, 1, 1 ) == 0 )
+					if ( str_in->read_byte(&tmp) == 0 )
 						break; // read next byte & check
 					if ( tmp == 0x00 ) {
 						crst = 0;
@@ -2181,13 +2181,13 @@ INTERN bool read_jpeg( void )
 		}
 		else {
 			// read in next marker
-			if ( str_in->read( segment, 1, 2 ) != 2 ) break;
+			if ( str_in->read( segment, 2 ) != 2 ) break;
 			if ( segment[ 0 ] != 0xFF ) {
 				// ugly fix for incorrect marker segment sizes
 				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
 				errorlevel = 2;
 				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read( segment, 1, 2 ) != 2 ) break;
+					if ( str_in->read( segment, 2 ) != 2 ) break;
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
@@ -2215,7 +2215,7 @@ INTERN bool read_jpeg( void )
 		}
 		
 		// read in next segments' length and check it
-		if ( str_in->read( segment + 2, 1, 2 ) != 2 ) break;
+		if ( str_in->read( segment + 2, 2 ) != 2 ) break;
 		len = 2 + B_SHORT( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
@@ -2233,7 +2233,7 @@ INTERN bool read_jpeg( void )
 		}
 		
 		// read rest of segment, store back in header writer
-		if ( str_in->read( ( segment + 4 ), 1, ( len - 4 ) ) !=
+		if ( str_in->read( ( segment + 4 ), ( len - 4 ) ) !=
 			( unsigned short ) ( len - 4 ) ) break;
 		hdrw->write_n( segment, len );
 	}
@@ -2251,12 +2251,12 @@ INTERN bool read_jpeg( void )
 	}
 	
 	// store garbage after EOI if needed
-	grbs = str_in->read( &tmp, 1, 1 );	
+	grbs = str_in->read_byte(&tmp);
 	if ( grbs > 0 ) {
 		grbgw = new abytewriter( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
-			len = str_in->read( segment, 1, ssize );
+			len = str_in->read( segment, ssize );
 			if ( len == 0 ) break;
 			grbgw->write_n( segment, len );
 		}
@@ -2304,7 +2304,7 @@ INTERN bool merge_jpeg( void )
 	
 	
 	// write SOI
-	str_out->write( SOI, 1, 2 );
+	str_out->write( SOI, 2 );
 	
 	// JPEG writing loop
 	while ( true )
@@ -2321,7 +2321,7 @@ INTERN bool merge_jpeg( void )
 		}
 		
 		// write header data to file
-		str_out->write( hdrdata + tmp, 1, ( hpos - tmp ) );
+		str_out->write( hdrdata + tmp, ( hpos - tmp ) );
 		
 		// get out if last marker segment type was not SOS
 		if ( type != 0xDA ) break;
@@ -2333,16 +2333,16 @@ INTERN bool merge_jpeg( void )
 		// write & expand huffman coded image data
 		for ( ipos = scnp[ scan - 1 ]; ipos < scnp[ scan ]; ipos++ ) {
 			// write current byte
-			str_out->write( huffdata + ipos, 1, 1 );
+			str_out->write_byte(huffdata[ipos]);
 			// check current byte, stuff if needed
 			if ( huffdata[ ipos ] == 0xFF )
-				str_out->write( &stv, 1, 1 );
+				str_out->write_byte(stv);
 			// insert restart markers if needed
 			if ( rstp != NULL ) {
 				if ( ipos == rstp[ rpos ] ) {
 					rst = 0xD0 + ( cpos % 8 );
-					str_out->write( &mrk, 1, 1 );
-					str_out->write( &rst, 1, 1 );
+					str_out->write_byte(mrk);
+					str_out->write_byte(rst);
 					rpos++; cpos++;
 				}
 			}
@@ -2351,8 +2351,8 @@ INTERN bool merge_jpeg( void )
 		if ( rst_err != NULL ) {
 			while ( rst_err[ scan - 1 ] > 0 ) {
 				rst = 0xD0 + ( cpos % 8 );
-				str_out->write( &mrk, 1, 1 );
-				str_out->write( &rst, 1, 1 );
+				str_out->write_byte(mrk);
+				str_out->write_byte(rst);
 				cpos++;	rst_err[ scan - 1 ]--;
 			}
 		}
@@ -2362,11 +2362,11 @@ INTERN bool merge_jpeg( void )
 	}
 	
 	// write EOI
-	str_out->write( EOI, 1, 2 );
+	str_out->write( EOI, 2 );
 	
 	// write garbage if needed
 	if ( grbs > 0 )
-		str_out->write( grbgdata, 1, grbs );
+		str_out->write( grbgdata, grbs );
 	
 	// errormessage if write error
 	if ( str_out->chkerr() ) {
@@ -3263,23 +3263,23 @@ INTERN bool pack_pjg( void )
 	
 	
 	// PJG-Header
-	str_out->write( (void*) pjg_magic, 1, 2 );
+	str_out->write( reinterpret_cast<const unsigned char*>(pjg_magic), 2 );
 	
 	// store settings if not auto
 	if ( !auto_set ) {
 		hcode = 0x00;
-		str_out->write( &hcode, 1, 1 );
-		str_out->write( nois_trs, 1, 4 );
-		str_out->write( segm_cnt, 1, 4 );
+		str_out->write_byte(hcode);
+		str_out->write( nois_trs, 4 );
+		str_out->write( segm_cnt, 4 );
 	}
 	
 	// store version number
 	hcode = appversion;
-	str_out->write( &hcode, 1, 1 );
+	str_out->write_byte(hcode);
 	
 	
 	// init arithmetic compression
-	encoder = new aricoder( str_out, 1 );
+	encoder = new aricoder(str_out, StreamMode::kWrite);
 	
 	// discard meta information from header if option set
 	if ( disc_meta )
@@ -3390,11 +3390,11 @@ INTERN bool unpack_pjg( void )
 	
 	// check header codes ( maybe position in other function ? )
 	while( true ) {
-		str_in->read( &hcode, 1, 1 );
+		str_in->read_byte(&hcode);
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
-			str_in->read( nois_trs, 1, 4 );
-			str_in->read( segm_cnt, 1, 4 );
+			str_in->read( nois_trs, 4 );
+			str_in->read( segm_cnt, 4 );
 			auto_set = false;
 		}
 		else if ( hcode >= 0x14 ) {
@@ -3416,7 +3416,7 @@ INTERN bool unpack_pjg( void )
 	
 	
 	// init arithmetic compression
-	decoder = new aricoder( str_in, 0 );
+	decoder = new aricoder(str_in, StreamMode::kRead);
 	
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
@@ -4682,7 +4682,7 @@ INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
 	for ( i = 1; i < 64; i++ )
 	{			
 		// reduce range of model
-		model->exclude_symbols( 'a', 64 - i );
+		model->exclude_symbols(64 - i);
 		
 		// compare remaining list to remainnig scan
 		tpos = 0;
@@ -5059,7 +5059,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
-			mod_len->exclude_symbols( 'a', max_len );		
+			mod_len->exclude_symbols(max_len);		
 		
 			// simple treatment if coefficient is zero
 			if ( coeffs[ dpos ] == 0 ) {
@@ -5096,9 +5096,9 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			}
 		}
 		// flush models
-		mod_len->flush_model( 1 );
-		mod_res->flush_model( 1 );
-		mod_sgn->flush_model( 1 );
+		mod_len->flush_model();
+		mod_res->flush_model();
+		mod_sgn->flush_model();
 	}
 	
 	// free memory / clear models
@@ -5219,7 +5219,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
-			mod_len->exclude_symbols( 'a', max_len );			
+			mod_len->exclude_symbols(max_len);			
 			
 			// simple treatment if coefficient is zero
 			if ( coeffs[ dpos ] == 0 ) {
@@ -5261,10 +5261,10 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			}
 		}
 		// flush models
-		mod_len->flush_model( 1 );
-		mod_res->flush_model( 1 );
-		mod_top->flush_model( 1 );
-		mod_sgn->flush_model( 1 );
+		mod_len->flush_model();
+		mod_res->flush_model();
+		mod_top->flush_model();
+		mod_sgn->flush_model();
 	}
 	
 	// free memory / clear models
@@ -5348,7 +5348,7 @@ INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp )
 	for ( i = 1; i < 64; i++ )
 	{			
 		// reduce range of model
-		model->exclude_symbols( 'a', 64 - i );
+		model->exclude_symbols(64 - i);
 		
 		// decode symbol
 		cpos = decode_ari( dec, model );
@@ -5723,7 +5723,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
-			mod_len->exclude_symbols( 'a', max_len );
+			mod_len->exclude_symbols(max_len);
 			
 			// decode bit length of current coefficient
 			clen = decode_ari( dec, mod_len );			
@@ -5760,9 +5760,9 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 			}
 		}
 		// flush models
-		mod_len->flush_model( 1 );
-		mod_res->flush_model( 1 );
-		mod_sgn->flush_model( 1 );
+		mod_len->flush_model();
+		mod_res->flush_model();
+		mod_sgn->flush_model();
 	}
 	
 	// free memory / clear models
@@ -5882,7 +5882,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
-			mod_len->exclude_symbols( 'a', max_len );
+			mod_len->exclude_symbols(max_len);
 			
 			// decode bit length of current coefficient
 			clen = decode_ari( dec, mod_len );
@@ -5923,10 +5923,10 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			}
 		}
 		// flush models
-		mod_len->flush_model( 1 );
-		mod_res->flush_model( 1 );
-		mod_top->flush_model( 1 );
-		mod_sgn->flush_model( 1 );
+		mod_len->flush_model();
+		mod_res->flush_model();
+		mod_top->flush_model();
+		mod_sgn->flush_model();
 	}
 	
 	// free memory / clear models
