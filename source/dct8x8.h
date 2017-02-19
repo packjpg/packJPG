@@ -1,12 +1,17 @@
 #ifndef DCT8X8_H
 #define DCT8X8_H
 
-#define DCT_RSC_FACTOR		8192
-#define DCT_RESCALE( v )	( ( ( v > 0 ) ? ( v + (DCT_RSC_FACTOR/2) ) : ( v - (DCT_RSC_FACTOR/2) ) ) / DCT_RSC_FACTOR )
+#include <array>
+
+constexpr int DCT_RSC_FACTOR = 8192;
+
+constexpr int DCT_RESCALE(int v) {
+	return (v > 0 ? v + DCT_RSC_FACTOR / 2 : v - DCT_RSC_FACTOR / 2) / DCT_RSC_FACTOR;
+}
 
 
-// precalculated int values for 8x8 IDCT, multplied by 8192
-const int icos_idct_8x8[ 4096 ] =
+// Precalculated int values for 8x8 IDCT, multplied by 8192:
+static constexpr std::array<int, 4096> icos_idct_8x8 =
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1420,  1970,  1856,  1670,  1420,  1116,   769,   392, 
@@ -522,8 +527,8 @@ const int icos_idct_8x8[ 4096 ] =
 	 -283,   392,  -369,   332,  -283,   222,  -153,    78, 
 };
 
-// precalculated int base values for 8x8 DCT, multplied by 8192
-const int icos_base_8x8[ 64 ] =
+// Precalculated int base values for 8x8 DCT, multplied by 8192:
+static constexpr std::array<int, 64> icos_base_8x8 =
 {
 	 8192,  8192,  8192,  8192,  8192,  8192,  8192,  8192, 
 	11363,  9633,  6436,  2260, -2260, -6436, -9633, -11363, 
@@ -535,8 +540,8 @@ const int icos_base_8x8[ 64 ] =
 	 2260, -6436,  9633, -11363, 11363, -9633,  6436, -2260, 
 };
 
-// precalculated int values for 1x8 IDCT, multplied by 8192
-const int icos_idct_1x8[ 64 ] =
+// Precalculated int values for 1x8 IDCT, multplied by 8192:
+static constexpr std::array<int, 64> icos_idct_1x8 =
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1024,  1204,   554,  -283, -1024, -1420, -1338,  -805, 
