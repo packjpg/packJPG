@@ -110,6 +110,17 @@ The package is distributed in the hope that it will be useful, but WITHOUT ANY W
 
 If the LGPL v3 license is incompatible with your software project you might contact us and ask for a special permission to use the packJPG library under different conditions. In any case, usage of the packJPG algorithm under the LGPL v3 or above is highly advised and special permissions will only be given where necessary on a case by case basis. This offer is aimed mainly at closed source freeware developers seeking to add PJG support to their software projects. 
 
+##Version Guidelines
+
+
+The program version is composed of a major version number and a minor version string. An example: "packJPG v2.4a", an older version of packJPG, has major version number 2.4 and minor version "a". 
+
+PJG files are required to be compatible between minor versions: 2.4a-compressed PJG files can be extracted by 2.4, 2.4b, 2.4c, and vice versa. PJG files are incompatible across major version numbers. For example, 2.4 can't extract 2.3 compressed .pjg files. 
+
+The minor version string is used to indicate smaller changes that don't break compatibility within a major version. For example, bug fixes or speed improvements. The minor version string can be empty (for the first new main version in a series). For a highly specific change, the minor version string might be given a special name, such as "packJPG v2.5fast". 
+
+The major version number is set directly in the source code via the 'pjgversion' (main version number) and the 'subversion' (subversion string) constants. 
+
 ##History
 
 
