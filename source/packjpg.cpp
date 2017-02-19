@@ -614,7 +614,7 @@ INTERN char*  pjgfilename = NULL;	// name of PJG file
 INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
 INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
-INTERN int    filetype;				// type of current file
+INTERN FileType filetype;				// type of current file
 INTERN iostream* str_in  = NULL;	// input stream
 INTERN iostream* str_out = NULL;	// output stream
 
@@ -932,9 +932,9 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	// copy errormessage / remove files if error (and output is file)
 	if ( errorlevel >= err_tol ) {
 		if ( lib_out_type == 0 ) {
-			if ( filetype == F_JPG ) {
+			if ( filetype == FileType::F_JPG ) {
 				if ( file_exists( pjgfilename ) ) remove( pjgfilename );
-			} else if ( filetype == F_PJG ) {
+			} else if ( filetype == FileType::F_PJG ) {
 				if ( file_exists( jpgfilename ) ) remove( jpgfilename );
 			}
 		}
@@ -950,15 +950,15 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( msg != NULL ) {
 		switch( filetype )
 		{
-			case F_JPG:
+			case FileType::F_JPG:
 				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
 					pjgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
-			case F_PJG:
+			case FileType::F_PJG:
 				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
 					jpgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
-			case F_UNK:
+			case FileType::F_UNK:
 				sprintf( msg, "Unknown filetype" );
 				break;	
 		}
@@ -1031,7 +1031,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	str_in->read( buffer, 1, 2 );
 	if ( ( buffer[0] == 0xFF ) && ( buffer[1] == 0xD8 ) ) {
 		// file is JPEG
-		filetype = F_JPG;
+		filetype = FileType::F_JPG;
 		// copy filenames
 		jpgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
 		pjgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
@@ -1040,7 +1040,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}
 	else if ( (buffer[0] == pjg_magic[0]) && (buffer[1] == pjg_magic[1]) ) {
 		// file is PJG
-		filetype = F_PJG;
+		filetype = FileType::F_PJG;
 		// copy filenames
 		pjgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
 		jpgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
@@ -1049,7 +1049,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}
 	else {
 		// file is neither
-		filetype = F_UNK;
+		filetype = FileType::F_UNK;
 		sprintf( errormessage, "filetype of input stream is unknown" );
 		errorlevel = 2;
 		return;
@@ -1302,9 +1302,9 @@ INTERN void process_ui( void )
 		execute( check_file );
 		
 		// get specific action message
-		if ( filetype == F_UNK ) actionmsg = "unknown filetype";
+		if ( filetype == FileType::F_UNK ) actionmsg = "unknown filetype";
 		else switch ( action ) {
-			case A_COMPRESS:	actionmsg = ( filetype == F_JPG ) ? "Compressing" : "Decompressing";	break;			
+			case A_COMPRESS:	actionmsg = ( filetype == FileType::F_JPG ) ? "Compressing" : "Decompressing";	break;
 			case A_SPLIT_DUMP:	actionmsg = "Splitting"; break;			
 			case A_COLL_DUMP:	actionmsg = "Extracting Colls"; break;
 			case A_FCOLL_DUMP:	actionmsg = "Extracting FColls"; break;
@@ -1338,9 +1338,9 @@ INTERN void process_ui( void )
 	if ( str_str != NULL ) delete( str_str ); str_str = NULL;
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != A_COMPRESS ) ) ) {
-		if ( filetype == F_JPG ) {
+		if ( filetype == FileType::F_JPG ) {
 			if ( file_exists( pjgfilename ) ) remove( pjgfilename );
-		} else if ( filetype == F_PJG ) {
+		} else if ( filetype == FileType::F_PJG ) {
 			if ( file_exists( jpgfilename ) ) remove( jpgfilename );
 		}
 	}
@@ -1535,7 +1535,7 @@ INTERN void show_help( void )
 
 INTERN void process_file( void )
 {	
-	if ( filetype == F_JPG ) {
+	if ( filetype == FileType::F_JPG ) {
 		switch ( action ) {
 			case A_COMPRESS:
 				execute( read_jpeg );
@@ -1617,7 +1617,7 @@ INTERN void process_file( void )
 			#endif
 		}
 	}
-	else if ( filetype == F_PJG )	{
+	else if ( filetype == FileType::F_PJG )	{
 		switch ( action )
 		{
 			case A_COMPRESS:
@@ -1780,7 +1780,7 @@ INTERN bool check_file( void )
 	
 	// immediately return error if 2 bytes can't be read
 	if ( str_in->read( fileid, 2 ) != 2 ) { 
-		filetype = F_UNK;
+		filetype = FileType::F_UNK;
 		sprintf( errormessage, "file doesn't contain enough data" );
 		errorlevel = 2;
 		return false;
@@ -1789,7 +1789,7 @@ INTERN bool check_file( void )
 	// check file id, determine filetype
 	if ( ( fileid[0] == 0xFF ) && ( fileid[1] == 0xD8 ) ) {
 		// file is JPEG
-		filetype = F_JPG;
+		filetype = FileType::F_JPG;
 		// create filenames
 		if ( !pipe_on ) {
 			jpgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
@@ -1826,7 +1826,7 @@ INTERN bool check_file( void )
 	}
 	else if ( ( fileid[0] == pjg_magic[0] ) && ( fileid[1] == pjg_magic[1] ) ) {
 		// file is PJG
-		filetype = F_PJG;
+		filetype = FileType::F_PJG;
 		// create filenames
 		if ( !pipe_on ) {
 			pjgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
@@ -1851,7 +1851,7 @@ INTERN bool check_file( void )
 	}
 	else {
 		// file is neither
-		filetype = F_UNK;
+		filetype = FileType::F_UNK;
 		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename );
 		errorlevel = 2;
 		return false;		

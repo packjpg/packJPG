@@ -9,6 +9,7 @@
 	----------------------------------------------- */
 
 // action defines
+
 #define A_COMPRESS			1
 #define A_SPLIT_DUMP		2
 #define A_COLL_DUMP			3
@@ -18,10 +19,11 @@
 #define A_DIST_INFO			7
 #define A_PGM_DUMP			8
 
-// file type defines
-#define F_JPG				1
-#define F_PJG				2
-#define F_UNK				3
+enum FileType {
+	F_JPG = 1,
+	F_PJG = 2,
+	F_UNK = 3
+};
 
 
 /* -----------------------------------------------
