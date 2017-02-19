@@ -4,7 +4,7 @@
 packJPG losslessly compresses JPEG files to a format labeled PJG, with the capacity to restore the compressed file to the original JPEG format. It typically reduces the file size of a JPEG file by 20%. Different versions of packJPG are incompatible, and the program produces an error message if you try to decompress PJG files with a different version than the one used for the compression.
 
 * Version: 2.5k (older versions are available at http://www.elektronik.htw-aalen.de/packJPG/packjpg_m.htm)
-* License: LGPLv3 (see [docs/lgpl3.txt](lpgp3.txt) for more information)
+* License: LGPLv3 (see [license/lgpl3.txt](lpgp3.txt) for more information)
 * Website: http://packjpg.encode.ru
 * For questions and bug reports, contact packjpg (at) matthiasstirner.com
 * Copyright 2006--2014 by HTW Aalen University and Matthias Stirner.
