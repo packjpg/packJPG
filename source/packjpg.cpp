@@ -314,7 +314,7 @@ packJPG by Matthias Stirner, 01/2016
 #define DIV_INT(v1,v2)	( (v1 < 0) ? (v1 - (v2>>1)) / v2 : (v1 + (v2>>1)) / v2 )
 #define B_SHORT(v1,v2)	( ( ((int) v1) << 8 ) + ((int) v2) )
 #define BITLEN1024P(v)	( pbitlen_0_1024[ v ] )
-#define BITLEN2048N(v)	( (pbitlen_n2048_2047+2048)[ v ] )
+#define BITLEN2048N(v)	( (pbitlen_n2048_2047.data() + 2048)[ v ] )
 #define CLAMPED(l,h,v)	( ( v < l ) ? l : ( v > h ) ? h : v )
 
 #define MEM_ERRMSG	"out of memory error"
@@ -2004,7 +2004,6 @@ INTERN bool reset_buffers( void )
 		eobyhigh[ cmp ] = NULL;
 		zdstxlow[ cmp ] = NULL;
 		zdstylow[ cmp ] = NULL;
-		freqscan[ cmp ] = (unsigned char*) stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			if ( colldata[ cmp ][ bpos ] != NULL ) free( colldata[cmp][bpos] );
@@ -3579,7 +3578,7 @@ INTERN bool jpg_setup_imginfo( void )
 			for ( i = 0;
 				conf_sets[ i ][ cmpnfo[cmp].sid ] > (unsigned int) cmpnfo[ cmp ].bc;
 				i++ );
-			segm_cnt[ cmp ] = conf_segm[ i ][ cmpnfo[cmp].sid ];
+			segm_cnt[ cmp ] = conf_segm;
 			nois_trs[ cmp ] = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
 		}
 	}
@@ -4814,9 +4813,7 @@ INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp )
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
 INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
-{
-	unsigned char* segm_tab;
-	
+{	
 	model_s* mod_len;
 	model_b* mod_sgn;
 	model_b* mod_res;
@@ -4845,7 +4842,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	
 	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const auto segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
 	max_val = MAX_V( cmp, 0 );
@@ -4934,9 +4931,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
 INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
-{
-	unsigned char* segm_tab;
-	
+{	
 	model_s* mod_len;
 	model_b* mod_sgn;
 	model_b* mod_res;
@@ -4974,7 +4969,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 	
 	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const auto segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
@@ -5478,9 +5473,7 @@ INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp )
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
 INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
-{
-	unsigned char* segm_tab;
-	
+{	
 	model_s* mod_len;
 	model_b* mod_sgn;
 	model_b* mod_res;
@@ -5509,7 +5502,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	
 	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const auto segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
 	max_val = MAX_V( cmp, 0 );
@@ -5598,9 +5591,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
 INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
-{
-	unsigned char* segm_tab;
-	
+{	
 	model_s* mod_len;
 	model_b* mod_sgn;
 	model_b* mod_res;
@@ -5638,7 +5629,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 	
 	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const auto segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );

@@ -1,8 +1,11 @@
 #ifndef PJGTBL_H
 #define PJGTBL_H
 
+#include <array>
+#include <cstdint>
+
 /* -----------------------------------------------
-	defines for use in packJPG processing
+	Defines for use in packJPG processing
 	----------------------------------------------- */
 
 // action defines
@@ -22,12 +25,12 @@
 
 
 /* -----------------------------------------------
-	compression helper tables
+	Compression helper tables
 	----------------------------------------------- */
 
-// maxima for each frequency in zigzag order
-// dc maximum is fixed by offset (+4/QUANT)
-static const unsigned short int freqmax[] =
+// Maxima for each frequency in zigzag order
+// DC maximum is fixed by offset (+4/QUANT):
+static constexpr std::array<std::uint16_t, 64> freqmax =
 {
 	1024,  931,  932,  985,  858,  985,  968,  884, 
 	 884,  967, 1020,  841,  871,  840, 1020,  968, 
@@ -39,8 +42,8 @@ static const unsigned short int freqmax[] =
 	 969, 1020,  838, 1020,  838, 1020, 1020,  838
 };
 
-// standard scan = zigzag scan
-static const unsigned char stdscan[] =
+// Standard scan is the zigzag scan:
+static constexpr std::array<std::uint8_t, 64> stdscan =
 {
 	 0,  1,  2,  3,  4,  5,  6,  7,
 	 8,  9, 10, 11, 12, 13, 14, 15,
@@ -52,8 +55,8 @@ static const unsigned char stdscan[] =
 	56, 57, 58, 59, 60, 61, 62, 63
 };
 
-// zigzag scan conversion table
-static const unsigned char zigzag[] =
+// Zigzag scan conversion table:
+static constexpr std::array<std::uint8_t, 64> zigzag =
 {
 	 0,  1,  5,  6, 14, 15, 27, 28,
 	 2,  4,  7, 13, 16, 26, 29, 42,
@@ -65,8 +68,8 @@ static const unsigned char zigzag[] =
 	35, 36, 48, 49, 57, 58, 62, 63
 };
 
-// zigzag scan reverse conversion table
-static const unsigned char unzigzag[] =
+// Zigzag scan reverse conversion table:
+static constexpr std::array<std::uint8_t, 64> unzigzag =
 {
 	 0,  1,  8, 16,  9,  2,  3, 10,
 	17, 24, 32, 25, 18, 11,  4,  5,
@@ -78,8 +81,8 @@ static const unsigned char unzigzag[] =
 	53, 60, 61, 54, 47, 55, 62, 63
 };
 
-// even/uneven zigzag scan conversion table
-static const unsigned char even_zigzag[] =
+// Even/uneven zigzag scan conversion table:
+static constexpr std::array<std::uint8_t, 64> even_zigzag =
 {
 
 	 0,  5, 14, 27,  1,  6, 15, 28, 
@@ -92,8 +95,8 @@ static const unsigned char even_zigzag[] =
 	35, 48, 57, 62, 36, 49, 58, 63, 
 };
 
-// context weighting for each band (luminance) (from POTY 2006/2007)
-static const signed int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
+// Context weighting for each band (luminance) (from POTY 2006/2007):
+static constexpr int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
 {
 	{ // DCT(0/0)
 		{  0,  0,  7,  0,  0, },
@@ -417,8 +420,8 @@ static const signed int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
 	},
 };
 
-// tresholds (size of component) for configuration sets
-static const unsigned int conf_sets[][3] =
+// Thresholds (size of component) for configuration sets:
+static constexpr std::uint32_t conf_sets[6][3] =
 {
 	{ 76800, 19200, 19200 }, // 2480x1920
 	{ 19200,  4800,  4800 }, // 1280x960
@@ -428,19 +431,11 @@ static const unsigned int conf_sets[][3] =
 	{     0,     0,     0 }  // 0x0
 };
 
-// configuration sets for number of segments
-static const unsigned char conf_segm[][3] =
-{
-	{ 10, 10, 10 },
-	{ 10, 10, 10 },
-	{ 10, 10, 10 },
-	{ 10, 10, 10 },
-	{ 10, 10, 10 },
-	{ 10, 10, 10 }
-};
+// Configuration sets for number of segments:
+static constexpr std::uint8_t conf_segm = 10;
 
-// configuration sets for noise thresholds
-static const unsigned char conf_ntrs[][3] =
+// Configuration sets for noise thresholds:
+static constexpr std::uint8_t conf_ntrs[6][3] =
 {
 	{  7,  7,  7 },
 	{  6,  6,  6 },
@@ -451,8 +446,8 @@ static const unsigned char conf_ntrs[][3] =
 };
 
 
-// standard huffman tables, found in JPEG specification, Chapter K.3
-static const unsigned char std_huff_tables[4][272] =
+// Standard huffman tables, found in JPEG specification, Chapter K.3:
+static constexpr std::uint8_t std_huff_tables[4][272] =
 {
 	{	// standard luma dc table (0/0)
 		0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -492,12 +487,12 @@ static const unsigned char std_huff_tables[4][272] =
 	}
 };
 
-// lengths of standard huffmann tables
-static const unsigned char std_huff_lengths[ 4 ] =	{ 28, 28, 178, 178 };
+// :engths of standard huffmann tables:
+static constexpr std::array<std::uint8_t , 4> std_huff_lengths = { 28, 28, 178, 178 };
 
 
-// precalculated bit lengths for values 0...1024
-int pbitlen_0_1024[] =
+// Precalculated bit lengths for values from 0 to 1024:
+static constexpr std::array<int, 1025> pbitlen_0_1024 =
 {
 	 0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // 32
 	 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // 64
@@ -534,8 +529,8 @@ int pbitlen_0_1024[] =
 	11
 };
 
-// precalculated bit lengths for values -2048...2047
-int pbitlen_n2048_2047[] =
+// Precalculated bit lengths for values from -2048 to 2047:
+static constexpr std::array<int, 4096> pbitlen_n2048_2047 =
 {
 	12,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -2016
 	11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -1984
@@ -668,8 +663,8 @@ int pbitlen_n2048_2047[] =
 };
 
 
-// precalculated segmentation settings (the 0th setting corresponds to 1 segments)
-unsigned char segm_tables[ 49 ][ 50 ] =
+// Precalculated segmentation settings (the 0th setting corresponds to 1 segments):
+static constexpr std::uint8_t segm_tables[ 49 ][ 50 ] =
 {
 	{  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
 	   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, }, // s0
