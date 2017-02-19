@@ -330,7 +330,26 @@ static inline void* frealloc( void* ptr, size_t size ) {
 	return n_ptr;
 }
 
+/* -----------------------------------------------
+Enums for use in packJPG processing
+----------------------------------------------- */
 
+enum Action {
+	A_COMPRESS = 1,
+	A_SPLIT_DUMP = 2,
+	A_COLL_DUMP = 3,
+	A_FCOLL_DUMP = 4,
+	A_ZDST_DUMP = 5,
+	A_TXT_INFO = 6,
+	A_DIST_INFO = 7,
+	A_PGM_DUMP = 8
+};
+
+enum FileType {
+	F_JPG = 1,
+	F_PJG = 2,
+	F_UNK = 3
+};
 
 /* -----------------------------------------------
 	struct declarations
@@ -669,7 +688,7 @@ INTERN bool disc_meta  = false;	// discard meta-info yes / no
 
 INTERN bool developer  = false;	// allow developers functions yes/no
 INTERN bool auto_set   = true;	// automatic find best settings yes/no
-INTERN int  action = A_COMPRESS;// what to do with JPEG/PJG files
+INTERN Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
 INTERN FILE*  msgout   = stdout;// stream for output of messages
 INTERN bool   pipe_on  = false;	// use stdin/stdout instead of filelist
@@ -677,7 +696,7 @@ INTERN bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 INTERN int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
 INTERN bool disc_meta  = false;	// discard meta-info yes / no
 INTERN bool auto_set   = true;	// automatic find best settings yes/no
-INTERN int  action = A_COMPRESS;// what to do with JPEG/PJG files
+INTERN Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 #endif
 
 INTERN unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
@@ -741,7 +760,7 @@ int main( int argc, char** argv )
 	
 	// check if user input is wrong, show help screen if it is
 	if ( ( file_cnt == 0 ) ||
-		( ( !developer ) && ( (action != A_COMPRESS) || (!auto_set) || (verify_lv > 1) ) ) ) {
+		( ( !developer ) && ( (action != Action::A_COMPRESS) || (!auto_set) || (verify_lv > 1) ) ) ) {
 		show_help();
 		return -1;
 	}
@@ -810,7 +829,7 @@ int main( int argc, char** argv )
 	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s), %i warning(s)\n",
 		file_cnt, error_cnt, warn_cnt );
 	if ( ( file_cnt > error_cnt ) && ( verbosity != 0 ) &&
-	 ( action == A_COMPRESS ) ) {
+	 ( action == Action::A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0; acc_pjgsize /= 1024.0;
 		total = (double) ( end - begin ) / CLOCKS_PER_SEC; 
 		kbps  = ( total > 0 ) ? ( acc_jpgsize / total ) : acc_jpgsize;
@@ -908,7 +927,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	
 	// (re)set buffers
 	reset_buffers();
-	action = A_COMPRESS;
+	action = Action::A_COMPRESS;
 	
 	// main compression / decompression routines
 	begin = clock();
@@ -1195,31 +1214,31 @@ INTERN void initialize_options( int argc, char** argv )
 			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
 			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
 			collmode = tmp_val;
-			action = A_COLL_DUMP;
+			action = Action::A_COLL_DUMP;
 		}
 		else if ( sscanf( (*argv), "-fcol%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
 			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
 			collmode = tmp_val;
-			action = A_FCOLL_DUMP;
+			action = Action::A_FCOLL_DUMP;
 		}
 		else if ( strcmp((*argv), "-split") == 0 ) {
-			action = A_SPLIT_DUMP;
+			action = Action::A_SPLIT_DUMP;
 		}
 		else if ( strcmp((*argv), "-zdst") == 0 ) {
-			action = A_ZDST_DUMP;
+			action = Action::A_ZDST_DUMP;
 		}	
 		else if ( strcmp((*argv), "-info") == 0 ) {
-			action = A_TXT_INFO;
+			action = Action::A_TXT_INFO;
 		}
 		else if ( strcmp((*argv), "-dist") == 0 ) {
-			action = A_DIST_INFO;
+			action = Action::A_DIST_INFO;
 		}
 		else if ( strcmp((*argv), "-pgm") == 0 ) {
-			action = A_PGM_DUMP;
+			action = Action::A_PGM_DUMP;
 		}
 	   	else if ( ( strcmp((*argv), "-comp") == 0) ) {
-			action = A_COMPRESS;
+			action = Action::A_COMPRESS;
 		}
 		#endif
 		else if ( strcmp((*argv), "-") == 0 ) {
@@ -1279,11 +1298,11 @@ INTERN void process_ui( void )
 	jpgfilesize = 0;
 	pjgfilesize = 0;	
 	#if !defined(DEV_BUILD)
-	action = A_COMPRESS;
+	action = Action::A_COMPRESS;
 	#endif
 	
 	// compare file name, set pipe if needed
-	if ( ( strcmp( filelist[ file_no ], "-" ) == 0 ) && ( action == A_COMPRESS ) ) {
+	if ( ( strcmp( filelist[ file_no ], "-" ) == 0 ) && ( action == Action::A_COMPRESS ) ) {
 		pipe_on = true;
 		filelist[ file_no ] = (char*) "STDIN";
 	}
@@ -1304,14 +1323,14 @@ INTERN void process_ui( void )
 		// get specific action message
 		if ( filetype == FileType::F_UNK ) actionmsg = "unknown filetype";
 		else switch ( action ) {
-			case A_COMPRESS:	actionmsg = ( filetype == FileType::F_JPG ) ? "Compressing" : "Decompressing";	break;
-			case A_SPLIT_DUMP:	actionmsg = "Splitting"; break;			
-			case A_COLL_DUMP:	actionmsg = "Extracting Colls"; break;
-			case A_FCOLL_DUMP:	actionmsg = "Extracting FColls"; break;
-			case A_ZDST_DUMP:	actionmsg = "Extracting ZDST lists"; break;			
-			case A_TXT_INFO:	actionmsg = "Extracting info"; break;		
-			case A_DIST_INFO:	actionmsg = "Extracting distributions";	break;		
-			case A_PGM_DUMP:	actionmsg = "Converting"; break;
+			case Action::A_COMPRESS:	actionmsg = ( filetype == FileType::F_JPG ) ? "Compressing" : "Decompressing";	break;
+			case Action::A_SPLIT_DUMP:	actionmsg = "Splitting"; break;			
+			case Action::A_COLL_DUMP:	actionmsg = "Extracting Colls"; break;
+			case Action::A_FCOLL_DUMP:	actionmsg = "Extracting FColls"; break;
+			case Action::A_ZDST_DUMP:	actionmsg = "Extracting ZDST lists"; break;			
+			case Action::A_TXT_INFO:	actionmsg = "Extracting info"; break;		
+			case Action::A_DIST_INFO:	actionmsg = "Extracting distributions";	break;		
+			case Action::A_PGM_DUMP:	actionmsg = "Converting"; break;
 		}
 		
 		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg );
@@ -1337,7 +1356,7 @@ INTERN void process_ui( void )
 	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
 	if ( str_str != NULL ) delete( str_str ); str_str = NULL;
 	// delete if broken or if output not needed
-	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != A_COMPRESS ) ) ) {
+	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
 		if ( filetype == FileType::F_JPG ) {
 			if ( file_exists( pjgfilename ) ) remove( pjgfilename );
 		} else if ( filetype == FileType::F_PJG ) {
@@ -1361,7 +1380,7 @@ INTERN void process_ui( void )
 		switch ( verbosity ) {
 			case 0:			
 				if ( errorlevel < err_tol ) {
-					if ( action == A_COMPRESS ) fprintf( msgout,  "%.2f%%", cr );
+					if ( action == Action::A_COMPRESS ) fprintf( msgout,  "%.2f%%", cr );
 					else fprintf( msgout, "DONE" );
 				}
 				else fprintf( msgout,  "ERROR" );
@@ -1390,7 +1409,7 @@ INTERN void process_ui( void )
 			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg  );
 			fprintf( msgout, " %s\n", errormessage );
 		}
-		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
+		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == Action::A_COMPRESS) ) {
 			if ( total >= 0 ) {
 				fprintf( msgout,  " time taken  : %7i msec\n", total );
 				fprintf( msgout,  " byte per ms : %7i byte\n", bpms );
@@ -1401,7 +1420,7 @@ INTERN void process_ui( void )
 			}
 			fprintf( msgout,  " comp. ratio : %7.2f %%\n", cr );		
 		}	
-		if ( ( verbosity > 1 ) && ( action == A_COMPRESS ) )
+		if ( ( verbosity > 1 ) && ( action == Action::A_COMPRESS ) )
 			fprintf( msgout,  "\n" );
 	}
 	else { // progress bar UI
@@ -1537,7 +1556,7 @@ INTERN void process_file( void )
 {	
 	if ( filetype == FileType::F_JPG ) {
 		switch ( action ) {
-			case A_COMPRESS:
+			case Action::A_COMPRESS:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( check_value_range );
@@ -1560,19 +1579,19 @@ INTERN void process_file( void )
 				break;
 				
 			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-			case A_SPLIT_DUMP:
+			case Action::A_SPLIT_DUMP:
 				execute( read_jpeg );
 				execute( dump_hdr );
 				execute( dump_huf );
 				break;
 				
-			case A_COLL_DUMP:
+			case Action::A_COLL_DUMP:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( dump_coll );
 				break;
 				
-			case A_FCOLL_DUMP:
+			case Action::A_FCOLL_DUMP:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( check_value_range );
@@ -1581,7 +1600,7 @@ INTERN void process_file( void )
 				execute( dump_coll );
 				break;
 				
-			case A_ZDST_DUMP:
+			case Action::A_ZDST_DUMP:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( check_value_range );
@@ -1591,12 +1610,12 @@ INTERN void process_file( void )
 				execute( dump_zdst );
 				break;
 				
-			case A_TXT_INFO:
+			case Action::A_TXT_INFO:
 				execute( read_jpeg );
 				execute( dump_info );
 				break;
 				
-			case A_DIST_INFO:
+			case Action::A_DIST_INFO:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( check_value_range );
@@ -1605,7 +1624,7 @@ INTERN void process_file( void )
 				execute( dump_dist );
 				break;
 			
-			case A_PGM_DUMP:
+			case Action::A_PGM_DUMP:
 				execute( read_jpeg );
 				execute( decode_jpeg );
 				execute( adapt_icos );
@@ -1620,7 +1639,7 @@ INTERN void process_file( void )
 	else if ( filetype == FileType::F_PJG )	{
 		switch ( action )
 		{
-			case A_COMPRESS:
+			case Action::A_COMPRESS:
 				execute( unpack_pjg );
 				execute( adapt_icos );
 				execute( unpredict_dc );
@@ -1643,7 +1662,7 @@ INTERN void process_file( void )
 				break;
 				
 			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-			case A_SPLIT_DUMP:
+			case Action::A_SPLIT_DUMP:
 				execute( unpack_pjg );
 				execute( adapt_icos );
 				execute( unpredict_dc );
@@ -1652,34 +1671,34 @@ INTERN void process_file( void )
 				execute( dump_huf );
 				break;
 				
-			case A_COLL_DUMP:
+			case Action::A_COLL_DUMP:
 				execute( unpack_pjg );
 				execute( adapt_icos );			
 				execute( unpredict_dc );
 				execute( dump_coll );
 				break;
 				
-			case A_FCOLL_DUMP:				
+			case Action::A_FCOLL_DUMP:				
 				execute( unpack_pjg );
 				execute( dump_coll );
 				break;
 				
-			case A_ZDST_DUMP:
+			case Action::A_ZDST_DUMP:
 				execute( unpack_pjg );
 				execute( dump_zdst );
 				break;
 			
-			case A_TXT_INFO:
+			case Action::A_TXT_INFO:
 				execute( unpack_pjg );
 				execute( dump_info );
 				break;
 			
-			case A_DIST_INFO:
+			case Action::A_DIST_INFO:
 				execute( unpack_pjg );
 				execute( dump_dist );
 				break;
 			
-			case A_PGM_DUMP:
+			case Action::A_PGM_DUMP:
 				execute( unpack_pjg );
 				execute( adapt_icos );
 				execute( unpredict_dc );

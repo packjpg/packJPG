@@ -5,28 +5,6 @@
 #include <cstdint>
 
 /* -----------------------------------------------
-	Defines for use in packJPG processing
-	----------------------------------------------- */
-
-// action defines
-
-#define A_COMPRESS			1
-#define A_SPLIT_DUMP		2
-#define A_COLL_DUMP			3
-#define A_FCOLL_DUMP		4
-#define A_ZDST_DUMP			5
-#define A_TXT_INFO			6
-#define A_DIST_INFO			7
-#define A_PGM_DUMP			8
-
-enum FileType {
-	F_JPG = 1,
-	F_PJG = 2,
-	F_UNK = 3
-};
-
-
-/* -----------------------------------------------
 	Compression helper tables
 	----------------------------------------------- */
 
