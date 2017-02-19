@@ -190,12 +190,10 @@ void aricoder::decode( symbol* s )
 		chigh_local++;
 		ccode_local <<= 1;
 		ccode_local |= read_bit();
-		nrbits = 0;
 	}
 	
 	// e3 scaling, to make sure that theres enough space between low and high
 	while ( (clow_local >= CODER_LIMIT025 ) && (chigh_local < CODER_LIMIT075 ) ) {
-		nrbits++;
 		clow_local &= CODER_LIMIT025 - 1;
 		chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
 		// clow  -= CODER_LIMIT025;
