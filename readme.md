@@ -4,7 +4,7 @@
 packJPG losslessly compresses JPEG files to a format labeled PJG, with the capacity to restore the compressed file to the original JPEG format. It typically reduces the file size of a JPEG file by 20%. Different versions of packJPG are incompatible, and the program produces an error message if you try to decompress PJG files with a different version than the one used for the compression.
 
 * Version: 2.5k (older versions are available at http://www.elektronik.htw-aalen.de/packJPG/packjpg_m.htm)
-* License: LGPLv3 (see [docs/lgpl-3.0.txt](lpgp-3.0.txt) for more information)
+* License: LGPLv3 (see [docs/lgpl3.txt](lpgp3.txt) for more information)
 * Website: http://packjpg.encode.ru
 * For questions and bug reports, contact packjpg (at) matthiasstirner.com
 * Copyright 2006--2014 by HTW Aalen University and Matthias Stirner.
@@ -52,7 +52,6 @@ Usage examples:
  "packJPG -d tiffany.jpg"
  "packJPG -p *.jpg"
 
-
 ##Known Limitations 
 
 
@@ -62,6 +61,36 @@ packJPG is designed specifically to compress JPEG files, so it doesn't compress 
 
 
 If you try to drag and drop to many files at once, there might be a windowed error message about missing privileges. In that case you can try it again with less files or consider using the command prompt. packJPG has been tested to work perfectly with thousands of files from the command line. This issue also happens with drag and drop in other applications, so it might not be a limitation of packJPG but a limitation of Windows.
+
+## Compiling packJPG
+
+
+### Executable
+
+
+#### Unix/Windows (not VS)
+
+
+Makefiles are provided [for Microsoft Windows NT and Unix (Makefile)](source/Makefile) and [for Mac OS X (Makefile_osx)](source/Makefile_osx). Both have been tested and verified to work in GCC v3.4.5, but they should work with other compilers and newer/older versions of the GCC as well.
+
+#### Visual Studio
+
+
+Just create a new project and add the source files to it. 
+
+### Static or Shared Library
+
+
+To compile packJPG as a static or shared library, add the source files to a new static/shared library project. BUILD_LIB must be defined either at the beginning of [packjpg.cpp](source/packjpg.cpp) or from the compilers options. To compile a shared library, BUILD_DLL must also be defined has to be defined (don't define this for a static library!).
+
+The source file [packjpgdll.h](source/packjpgdll.h) contains all public function declarations of the library and can be included in external projects which use the packJPG shared library. 
+
+Developer functions are not available in library builds.
+
+###Compiling with Developer Functions
+
+
+If you want to include developer functions in the packJPG executable, 'DEV_BUILD' has to be defined. Developer functions are not available in library builds. They are not needed in any way for compression and decompression, and so can be omitted out to produce a smaller executable. Read [developer.txt](docs/developer.txt) for more information. 
 
 ##Acknowledgements
 
@@ -73,6 +102,7 @@ Prof. Dr. Gerhard Seelmann from Hochschule Aalen supported the development of pa
 The packJPG logo and icon are designed by Michael Kaufmann.
 
 ## Special Permissions
+
 
 All programs in this package are free software; you can redistribute them and/or modify them under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version. 
 
