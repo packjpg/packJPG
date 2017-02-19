@@ -1,3 +1,6 @@
+#ifndef PACKJPGLIB_H
+#define PACKJPGLIB_H
+
 // packJPGlib.h - function declarations for the packJPG library
 #if defined BUILD_DLL
 	#define EXPORT __declspec( dllexport )
@@ -38,3 +41,5 @@ EXPORT const char* pjglib_short_name( void );
 	in_size -> ignore
 	
 	vice versa for output streams! */
+
+#endif

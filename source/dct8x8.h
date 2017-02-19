@@ -1,3 +1,6 @@
+#ifndef DCT8X8_H
+#define DCT8X8_H
+
 #define DCT_RSC_FACTOR		8192
 #define DCT_RESCALE( v )	( ( ( v > 0 ) ? ( v + (DCT_RSC_FACTOR/2) ) : ( v - (DCT_RSC_FACTOR/2) ) ) / DCT_RSC_FACTOR )
 
@@ -1164,3 +1167,4 @@ inline int fdct_1d_fst_8( unsigned char* f, int iu )
 	return fdct;
 }
 
+#endif

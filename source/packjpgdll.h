@@ -1,3 +1,6 @@
+#ifndef PACKJPGDLL_H
+#define PACKJPGDLL_H
+
 // packJPGdll.h - function import declarations for the packJPG DLL
 #define IMPORT __declspec( dllimport )
 
@@ -34,3 +37,5 @@ IMPORT const char* pjglib_short_name( void );
 	in_size -> ignore
 	
 	vice versa for output streams! */
+
+#endif

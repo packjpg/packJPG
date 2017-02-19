@@ -1,3 +1,6 @@
+#ifndef PJGTBL_H
+#define PJGTBL_H
+
 /* -----------------------------------------------
 	defines for use in packJPG processing
 	----------------------------------------------- */
@@ -1657,3 +1660,5 @@ static const signed int abs_ctx_weights[ 64 ][ 3 ][ 5 ] =
 	},
 };
 */
+
+#endif
