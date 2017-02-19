@@ -127,7 +127,32 @@ Developer functions are not available in library builds.
 ###Compiling with Developer Functions
 
 
-If you want to include developer functions in the packJPG executable, 'DEV_BUILD' has to be defined. Developer functions are not available in library builds. They are not needed in any way for compression and decompression, and so can be omitted out to produce a smaller executable. Read [developer.txt](docs/developer.txt) for more information. 
+If you want to include developer functions in the packJPG executable, 'DEV_BUILD' has to be defined. Developer functions are not available in library builds. They are not needed in any way for compression and decompression, and so can be omitted out to produce a smaller executable.
+
+### Source File Descriptions
+
+These files are necessary for compiling packJPG:
+
+* 'Makefile' (universal makefile)
+* 'aricoder.cpp' (arithmetic coder source file)
+* 'aricoder.h' (arithmetic coder header file)
+* 'bitops.cpp' (bitwise file I/O routines source file)
+* 'bitops.h' (bitwise file I/O routines header file)
+* 'dct8x8.h' (discrete cosine transform header file)
+* 'packjpg.cpp' (packJPG main source file)
+* 'packjpglib.h' (packJPG static library header file)
+* 'pjpgtbl.h' (helper tables header file)
+
+These files are included as well, but are not necessarily needed for compiling packJPG: 
+
+* 'packjpg.spec' (RPM spec file, provided by Bryan Stillwell)
+* 'Makefile_osx' (special OS X Makefile, provided by Ryan Flynn)
+* 'packjpgdll.h' (packJPG DLL header file)
+* 'file_icon.ico' (suggested .pjg icon in .ico format)
+* 'app_icon.ico' (application icon in .ico format)
+* 'icon.res' (application icon in Windows .res format)
+
+Additionally, sample_images.zip contains some sample images to test packJPG with.
 
 ##Acknowledgements
 
