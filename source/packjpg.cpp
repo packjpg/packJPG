@@ -696,11 +696,12 @@ namespace program_info {
 	const std::string website = "http://packjpg.encode.ru/";
 	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
 	const std::string email = "packjpg (at) matthiasstirner.com";
+
 	const std::string pjg_ext = "pjg";
 	const std::string jpg_ext = "jpg";
+	const std::array<std::uint8_t, 2> pjg_magic = { 'J', 'S' };
 #endif
 }
-INTERN const char   pjg_magic[] = { 'J', 'S' };
 
 
 /* -----------------------------------------------
@@ -1030,7 +1031,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		jpgfilename = (in_type == 0) ? (char*)in_src : "JPG in memory";
 		pjgfilename = (out_type == 0) ? (char*)out_dest : "PJG in memory";
 	}
-	else if ( (buffer[0] == pjg_magic[0]) && (buffer[1] == pjg_magic[1]) ) {
+	else if ( (buffer[0] == program_info::pjg_magic[0]) && (buffer[1] == program_info::pjg_magic[1]) ) {
 		// file is PJG
 		filetype = F_PJG;
 		// copy filenames
@@ -1799,7 +1800,7 @@ INTERN bool check_file( void )
 			auto_set = false;
 		}
 	}
-	else if ( ( fileid[0] == pjg_magic[0] ) && ( fileid[1] == pjg_magic[1] ) ) {
+	else if ( ( fileid[0] == program_info::pjg_magic[0] ) && ( fileid[1] == program_info::pjg_magic[1] ) ) {
 		// file is PJG
 		filetype = F_PJG;
 		// create filenames
@@ -3237,7 +3238,7 @@ INTERN bool pack_pjg( void )
 	
 	
 	// PJG-Header
-	str_out->write( reinterpret_cast<const unsigned char*>(pjg_magic), 2 );
+	str_out->write(program_info::pjg_magic.data(), 2 );
 	
 	// store settings if not auto
 	if ( !auto_set ) {
