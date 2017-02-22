@@ -505,7 +505,6 @@ INTERN inline void set_extension( char* filename, const char* extension );
 INTERN inline void add_underscore( char* filename );
 #endif
 static bool file_exists(const std::string& filename);
-INTERN inline bool file_exists( const char* filename );
 
 
 /* -----------------------------------------------
@@ -622,8 +621,7 @@ INTERN iostream* str_out = NULL;	// output stream
 #if !defined(BUILD_LIB)
 INTERN iostream* str_str = NULL;	// storage stream
 
-INTERN char** filelist = NULL;		// list of files to process 
-INTERN int    file_cnt = 0;			// count of files in list
+static std::vector<std::string> filelist; // list of files to process 
 INTERN int    file_no  = 0;			// number of current file
 
 INTERN char** err_list = NULL;		// list of error messages 
@@ -741,7 +739,7 @@ int main( int argc, char** argv )
 	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", copyright );
 	
 	// check if user input is wrong, show help screen if it is
-	if ( ( file_cnt == 0 ) ||
+	if ( filelist.empty() ||
 		( ( !developer ) && ( (action != A_COMPRESS) || (!auto_set) || (verify_lv > 1) ) ) ) {
 		show_help();
 		return -1;
@@ -763,7 +761,7 @@ int main( int argc, char** argv )
 	
 	// process file(s) - this is the main function routine
 	begin = clock();
-	for ( file_no = 0; file_no < file_cnt; file_no++ ) {	
+	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 		// process current file
 		process_ui();
 		// store error message and type if any
@@ -789,9 +787,9 @@ int main( int argc, char** argv )
 		if ( error_cnt > 0 ) {
 			fprintf( stderr, "\n\nfiles with errors:\n" );
 			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
+			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] >= err_tol ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].data(), err_list[ file_no ] );
 				}
 			}
 		}
@@ -799,18 +797,18 @@ int main( int argc, char** argv )
 		if ( warn_cnt > 0 ) {
 			fprintf( stderr, "\n\nfiles with warnings:\n" );
 			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
+			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] == 1 ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].data(), err_list[ file_no ] );
 				}
 			}
 		}
 	}
 	
 	// show statistics
-	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s), %i warning(s)\n",
-		file_cnt, error_cnt, warn_cnt );
-	if ( ( file_cnt > error_cnt ) && ( verbosity != 0 ) &&
+	fprintf( msgout,  "\n\n-> %u file(s) processed, %i error(s), %i warning(s)\n",
+		filelist.size(), error_cnt, warn_cnt );
+	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) &&
 	 ( action == A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0; acc_pjgsize /= 1024.0;
 		total = (double) ( end - begin ) / CLOCKS_PER_SEC; 
@@ -1107,18 +1105,7 @@ EXPORT const char* pjglib_short_name( void )
 INTERN void initialize_options( int argc, char** argv )
 {	
 	int tmp_val;
-	char** tmp_flp;
 	int i;
-	
-	
-	// get memory for filelist & preset with NULL
-	filelist = (char**) calloc( argc, sizeof( char* ) );
-	for ( i = 0; i < argc; i++ )
-		filelist[ i ] = NULL;
-	
-	// preset temporary filelist pointer
-	tmp_flp = filelist;
-	
 	
 	// read in arguments
 	while ( --argc > 0 ) {
@@ -1223,20 +1210,17 @@ INTERN void initialize_options( int argc, char** argv )
 			// switch standard message out stream
 			msgout = stderr;
 			// use "-" as placeholder for stdin
-			*(tmp_flp++) = (char*) "-";
+			filelist.push_back("-");
 		}
 		else {
 			// if argument is not switch, it's a filename
-			*(tmp_flp++) = *argv;
+			filelist.push_back(*argv);
 		}		
 	}
 	
-	// count number of files (or filenames) in filelist
-	for ( file_cnt = 0; filelist[ file_cnt ] != NULL; file_cnt++ );
-	
 	// alloc arrays for error messages and types storage
-	err_list = (char**) calloc( file_cnt, sizeof( char* ) );
-	err_tp   = (int*) calloc( file_cnt, sizeof( int ) );
+	err_list = (char**) calloc( filelist.size(), sizeof( char* ) );
+	err_tp   = (int*) calloc(filelist.size(), sizeof( int ) );
 	
 	// backup settings - needed to restore original setting later
 	if ( !auto_set ) {
@@ -1280,17 +1264,17 @@ INTERN void process_ui( void )
 	#endif
 	
 	// compare file name, set pipe if needed
-	if ( ( strcmp( filelist[ file_no ], "-" ) == 0 ) && ( action == A_COMPRESS ) ) {
+	if ( filelist[ file_no ] == "-" && ( action == A_COMPRESS ) ) {
 		pipe_on = true;
-		filelist[ file_no ] = (char*) "STDIN";
+		filelist[ file_no ] = "STDIN";
 	}
 	else {		
 		pipe_on = false;
 	}
 	
 	if ( verbosity >= 0 ) { // standard UI
-		fprintf( msgout,  "\nProcessing file %i of %i \"%s\" -> ",
-					file_no + 1, file_cnt, filelist[ file_no ] );
+		fprintf( msgout,  "\nProcessing file %i of %u \"%s\" -> ",
+					file_no + 1, filelist.size(), filelist[ file_no ].data() );
 		
 		if ( verbosity > 1 )
 			fprintf( msgout,  "\n----------------------------------------" );
@@ -1315,8 +1299,8 @@ INTERN void process_ui( void )
 	}
 	else { // progress bar UI
 		// update progress message
-		fprintf( msgout, "Processing file %2i of %2i ", file_no + 1, file_cnt );
-		progress_bar( file_no, file_cnt );
+		fprintf( msgout, "Processing file %2i of %2u ", file_no + 1, filelist.size());
+		progress_bar( file_no, filelist.size());
 		fprintf( msgout, "\r" );
 		execute( check_file );
 	}
@@ -1403,9 +1387,9 @@ INTERN void process_ui( void )
 	}
 	else { // progress bar UI
 		// if this is the last file, update progress bar one last time
-		if ( file_no + 1 == file_cnt ) {
+		if ( file_no + 1 == filelist.size()) {
 			// update progress message
-			fprintf( msgout, "Processed %2i of %2i files ", file_no + 1, file_cnt );
+			fprintf( msgout, "Processed %2i of %2u files ", file_no + 1, filelist.size());
 			progress_bar( 1, 1 );
 			fprintf( msgout, "\r" );
 		}	
@@ -1760,13 +1744,13 @@ INTERN void execute( bool (*function)() )
 INTERN bool check_file( void )
 {	
 	unsigned char fileid[ 2 ] = { 0, 0 };
-	const char* filename = filelist[ file_no ];
+	const std::string& filename = filelist[ file_no ];
 	
 	
 	// open input stream, check for errors
-	str_in = new iostream( (void*) filename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
+	str_in = new iostream( (void*) filename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
-		sprintf( errormessage, FRD_ERRMSG, filename );
+		sprintf( errormessage, FRD_ERRMSG, filename.data());
 		errorlevel = 2;
 		return false;
 	}
@@ -1791,8 +1775,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
-				create_filename( filename, (char*) pjg_ext ) :
-				unique_filename( filename, (char*) pjg_ext );
+				create_filename( filename.data(), (char*) pjg_ext ) :
+				unique_filename( filename.data(), (char*) pjg_ext );
 		}
 		else {
 			jpgfilename = create_filename( "STDIN", NULL );
@@ -1827,8 +1811,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
-				create_filename( filename, (char*) jpg_ext ) :
-				unique_filename( filename, (char*) jpg_ext );
+				create_filename( filename.data(), (char*) jpg_ext ) :
+				unique_filename( filename.data(), (char*) jpg_ext );
 		}
 		else {
 			jpgfilename = create_filename( "STDOUT", NULL );
@@ -1837,7 +1821,7 @@ INTERN bool check_file( void )
 		// open output stream, check for errors
 		str_out = new iostream( (void*) jpgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, jpgfilename );
+			sprintf( errormessage, FWR_ERRMSG, jpgfilename.data());
 			errorlevel = 2;
 			return false;
 		}
@@ -1847,7 +1831,7 @@ INTERN bool check_file( void )
 	else {
 		// file is neither
 		filetype = F_UNK;
-		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename );
+		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename.data());
 		errorlevel = 2;
 		return false;		
 	}
@@ -6757,21 +6741,6 @@ INTERN inline void add_underscore( char* filename )
 #endif
 
 /* -----------------------------------------------
-	checks if a file exists
-	----------------------------------------------- */
-INTERN inline bool file_exists( const char* filename )
-{
-	// needed for both, executable and library
-	FILE* fp = fopen( filename, "rb" );
-	
-	if ( fp == NULL ) return false;
-	else {
-		fclose( fp );
-		return true;
-	}
-}
-
-/* -----------------------------------------------
 checks if a file exists
 ----------------------------------------------- */
 static bool file_exists(const std::string& filename) {
@@ -6798,7 +6767,7 @@ static bool file_exists(const std::string& filename) {
 INTERN bool dump_hdr( void )
 {
 	const char* ext = "hdr";
-	const char* basename = filelist[ file_no ];
+	const char* basename = filelist[ file_no ].data();
 	
 	if ( !dump_file( basename, ext, hdrdata, 1, hdrs ) )
 		return false;	
@@ -6815,7 +6784,7 @@ INTERN bool dump_hdr( void )
 INTERN bool dump_huf( void )
 {
 	const char* ext = "huf";
-	const char* basename = filelist[ file_no ];
+	const char* basename = filelist[ file_no ].data();
 	
 	if ( !dump_file( basename, ext, huffdata, 1, hufs ) )
 		return false;
@@ -6843,7 +6812,7 @@ INTERN bool dump_coll( void )
 	ext[1] = "coll1";
 	ext[2] = "coll2";
 	ext[3] = "coll3";
-	base = filelist[ file_no ];
+	base = filelist[ file_no ].data();
 	
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {
@@ -6951,7 +6920,7 @@ INTERN bool dump_zdst( void )
 	ext[1] = "zdst1";
 	ext[2] = "zdst2";
 	ext[3] = "zdst3";
-	basename = filelist[ file_no ];
+	basename = filelist[ file_no ].data();
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ )
 		if ( !dump_file( basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
@@ -7008,10 +6977,10 @@ INTERN bool dump_errfile( void )
 	
 	// create filename based on errorlevel
 	if ( errorlevel == 1 ) {
-		fn = create_filename( filelist[ file_no ], "wrn.nfo" );
+		fn = create_filename( filelist[ file_no ].data(), "wrn.nfo" );
 	}
 	else {
-		fn = create_filename( filelist[ file_no ], "err.nfo" );
+		fn = create_filename( filelist[ file_no ].data(), "err.nfo" );
 	}
 	
 	// open file for output
@@ -7024,7 +6993,7 @@ INTERN bool dump_errfile( void )
 	free( fn );
 	
 	// write status and errormessage to file
-	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ] );
+	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].data());
 	fprintf( fp, "\n" );
 	// write error specification to file
 	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ),
@@ -7058,7 +7027,7 @@ INTERN bool dump_info( void )
 	
 	
 	// create filename
-	fn = create_filename( filelist[ file_no ], "nfo" );
+	fn = create_filename( filelist[ file_no ].data(), "nfo" );
 	
 	// open file for output
 	fp = fopen( fn, "w" );
@@ -7147,7 +7116,7 @@ INTERN bool dump_dist( void )
 	
 	
 	// create filename
-	fn = create_filename( filelist[ file_no ], "dist" );
+	fn = create_filename( filelist[ file_no ].data(), "dist" );
 	
 	// open file for output
 	fp = fopen( fn, "wb" );
@@ -7206,7 +7175,7 @@ INTERN bool dump_pgm( void )
 	for ( cmp = 0; cmp < cmpc; cmp++ )
 	{
 		// create filename
-		fn = create_filename( filelist[ file_no ], ext[ cmp ] );
+		fn = create_filename( filelist[ file_no ].data(), ext[ cmp ] );
 		
 		// open file for output
 		fp = fopen( fn, "wb" );		
