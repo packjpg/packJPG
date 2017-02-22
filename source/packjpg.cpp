@@ -1028,7 +1028,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
 	
 	// check input stream
-	str_in->read( buffer, 1, 2 );
+	str_in->read( buffer, 2 );
 	if ( ( buffer[0] == 0xFF ) && ( buffer[1] == 0xD8 ) ) {
 		// file is JPEG
 		filetype = F_JPG;
