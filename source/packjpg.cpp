@@ -269,11 +269,11 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <chrono>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <ctime>
 
 #include "bitops.h"
 #include "aricoder.h"
@@ -715,19 +715,13 @@ INTERN const char   pjg_magic[] = { 'J', 'S' };
 int main( int argc, char** argv )
 {	
 	sprintf( errormessage, "no errormessage specified" );
-	
-	clock_t begin, end;
-	
+		
 	int error_cnt = 0;
 	int warn_cnt  = 0;
 	
 	double acc_jpgsize = 0;
 	double acc_pjgsize = 0;
-	
-	int kbps;
-	double cr;
-	double total;
-	
+		
 	errorlevel = 0;
 	
 	
@@ -761,7 +755,8 @@ int main( int argc, char** argv )
 	reset_buffers();
 	
 	// process file(s) - this is the main function routine
-	begin = clock();
+
+	auto begin = std::chrono::steady_clock::now();
 	for ( file_no = 0; file_no < file_cnt; file_no++ ) {	
 		// process current file
 		process_ui();
@@ -780,7 +775,7 @@ int main( int argc, char** argv )
 			acc_pjgsize += pjgfilesize;
 		}
 	}
-	end = clock();
+	auto end = std::chrono::steady_clock::now();
 	
 	// errors summary: only needed for -v2 or progress bar
 	if ( ( verbosity == -1 ) || ( verbosity == 2 ) ) {
@@ -812,9 +807,10 @@ int main( int argc, char** argv )
 	if ( ( file_cnt > error_cnt ) && ( verbosity != 0 ) &&
 	 ( action == A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0; acc_pjgsize /= 1024.0;
-		total = (double) ( end - begin ) / CLOCKS_PER_SEC; 
-		kbps  = ( total > 0 ) ? ( acc_jpgsize / total ) : acc_jpgsize;
-		cr    = ( acc_jpgsize > 0 ) ? ( 100.0 * acc_pjgsize / acc_jpgsize ) : 0;
+		std::chrono::duration<double> duration = end - begin;
+		double total = duration.count();
+		int kbps = ( total > 0 ) ? ( acc_jpgsize / total ) : acc_jpgsize;
+		double cr = ( acc_jpgsize > 0 ) ? ( 100.0 * acc_pjgsize / acc_jpgsize ) : 0;
 		
 		fprintf( msgout,  " --------------------------------- \n" );
 		if ( total >= 0 ) {
@@ -894,15 +890,10 @@ EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 /* -----------------------------------------------
 	DLL export converter function
 	----------------------------------------------- */
-	
+
 #if defined(BUILD_LIB)
 EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
 {
-	clock_t begin, end;
-	int total;
-	float cr;	
-	
-	
 	// use automatic settings
 	auto_set = true;
 	
@@ -911,7 +902,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	action = A_COMPRESS;
 	
 	// main compression / decompression routines
-	begin = clock();
+	auto begin = std::chrono::steady_clock::now();
 	
 	// process one file
 	process_file();
@@ -927,7 +918,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( str_in  != NULL ) delete( str_in  ); str_in  = NULL;
 	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
 	
-	end = clock();
+	auto end = std::chrono::steady_clock::now();
 	
 	// copy errormessage / remove files if error (and output is file)
 	if ( errorlevel >= err_tol ) {
@@ -943,19 +934,20 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	}
 	
 	// get compression info
-	total = (int) ( (double) (( end - begin ) * 1000) / CLOCKS_PER_SEC );
-	cr    = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
+	auto duration = end - begin;
+	auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
 	
 	// write success message else
 	if ( msg != NULL ) {
 		switch( filetype )
 		{
 			case F_JPG:
-				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
+				sprintf( msg, "Compressed to %s (%.2f%%) in %lldms",
 					pjgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_PJG:
-				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
+				sprintf( msg, "Decompressed to %s (%.2f%%) in %lldms",
 					jpgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_UNK:
@@ -1267,12 +1259,8 @@ INTERN void initialize_options( int argc, char** argv )
 #if !defined(BUILD_LIB)
 INTERN void process_ui( void )
 {
-	clock_t begin, end;
 	const char* actionmsg  = NULL;
-	const char* errtypemsg = NULL;
-	int total, bpms;
-	float cr;	
-	
+	const char* errtypemsg = NULL;	
 	
 	errorfunction = NULL;
 	errorlevel = 0;
@@ -1327,7 +1315,7 @@ INTERN void process_ui( void )
 	
 	
 	// main function routine
-	begin = clock();
+	auto begin = std::chrono::steady_clock::now();
 	
 	// streams are initiated, start processing file
 	process_file();
@@ -1345,12 +1333,13 @@ INTERN void process_ui( void )
 		}
 	}
 	
-	end = clock();	
+	auto end = std::chrono::steady_clock::now();
 	
 	// speed and compression ratio calculation
-	total = (int) ( (double) (( end - begin ) * 1000) / CLOCKS_PER_SEC );
-	bpms  = ( total > 0 ) ? ( jpgfilesize / total ) : jpgfilesize;
-	cr    = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
+	auto duration = end - begin;
+	auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+	int bpms = ( total > 0 ) ? ( jpgfilesize / total ) : jpgfilesize;
+	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
 
 	
 	if ( verbosity >= 0 ) { // standard UI
@@ -1392,7 +1381,7 @@ INTERN void process_ui( void )
 		}
 		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
 			if ( total >= 0 ) {
-				fprintf( msgout,  " time taken  : %7i msec\n", total );
+				fprintf( msgout,  " time taken  : %7lld msec\n", total );
 				fprintf( msgout,  " byte per ms : %7i byte\n", bpms );
 			}
 			else {
@@ -1709,9 +1698,6 @@ INTERN void execute( bool (*function)() )
 {
 	if ( errorlevel < err_tol ) {
 		#if !defined BUILD_LIB
-		clock_t begin, end;
-		bool success;
-		int total;
 		
 		// write statusmessage
 		if ( verbosity == 2 ) {
@@ -1721,19 +1707,20 @@ INTERN void execute( bool (*function)() )
 		}
 		
 		// set starttime
-		begin = clock();
+		auto begin = std::chrono::steady_clock::now();
 		// call function
-		success = ( *function )();
+		bool success = ( *function )();
 		// set endtime
-		end = clock();
+		auto end = std::chrono::steady_clock::now();
 		
 		if ( ( errorlevel > 0 ) && ( errorfunction == NULL ) )
 			errorfunction = function;
 		
 		// write time or failure notice
 		if ( success ) {
-			total = (int) ( (double) (( end - begin ) * 1000) / CLOCKS_PER_SEC );
-			if ( verbosity == 2 ) fprintf( msgout,  "%6ims", ( total >= 0 ) ? total : -1 );
+			auto duration = end - begin;
+			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+			if ( verbosity == 2 ) fprintf( msgout,  "%7lldms", ( total >= 0 ) ? total : -1 );
 		}
 		else {
 			errorfunction = function;
