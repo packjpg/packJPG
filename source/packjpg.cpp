@@ -269,6 +269,8 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <array>
+#include <vector>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -499,10 +501,8 @@ INTERN inline float median_float( float* values, int size );
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
 INTERN inline void progress_bar( int current, int last );
-INTERN inline char* create_filename( const char* base, const char* extension );
+static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
-INTERN inline void set_extension( char* filename, const char* extension );
-INTERN inline void add_underscore( char* filename );
 #endif
 static bool file_exists(const std::string& filename);
 
@@ -519,7 +519,7 @@ INTERN bool dump_hdr( void );
 INTERN bool dump_huf( void );
 INTERN bool dump_coll( void );
 INTERN bool dump_zdst( void );
-INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, int size );
+INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
 INTERN bool dump_errfile( void );
 INTERN bool dump_info( void );
 INTERN bool dump_dist( void );
@@ -1773,12 +1773,12 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
-				create_filename( filename.data(), pjg_ext.data() ) :
+				create_filename( filename, pjg_ext ) :
 				unique_filename(filename, pjg_ext);
 		}
 		else {
-			jpgfilename = create_filename( "STDIN", NULL );
-			pjgfilename = create_filename( "STDOUT", NULL );
+			jpgfilename = create_filename( "STDIN", "" );
+			pjgfilename = create_filename( "STDOUT", "" );
 		}
 		// open output stream, check for errors
 		str_out = new iostream( (void*) pjgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
@@ -1809,12 +1809,12 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
-				create_filename( filename.data(), jpg_ext.data()) :
+				create_filename( filename, jpg_ext) :
 				unique_filename( filename, jpg_ext);
 		}
 		else {
-			jpgfilename = create_filename( "STDOUT", NULL );
-			pjgfilename = create_filename( "STDIN", NULL );
+			jpgfilename = create_filename( "STDOUT", "" );
+			pjgfilename = create_filename( "STDIN", "" );
 		}
 		// open output stream, check for errors
 		str_out = new iostream( (void*) jpgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
@@ -6654,15 +6654,9 @@ INTERN inline void progress_bar( int current, int last )
 	creates filename, callocs memory for it
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
-INTERN inline char* create_filename( const char* base, const char* extension )
-{
-	int len = strlen( base ) + ( ( extension == NULL ) ? 0 : strlen( extension ) + 1 ) + 1;	
-	char* filename = (char*) calloc( len, sizeof( char ) );	
-	
-	// create a filename from base & extension
-	strcpy( filename, base );
-	set_extension( filename, extension );
-	
+static std::string create_filename(const std::string& oldname, const std::string& new_extension) {
+	auto filename_base = oldname.substr(0, oldname.find_first_of("."));
+	auto filename = filename_base + "." + new_extension;
 	return filename;
 }
 #endif
@@ -6680,55 +6674,6 @@ static std::string unique_filename(const std::string& oldname, const std::string
 		filename = filename_base + "." + new_extension;
 	}
 	return filename;
-}
-#endif
-
-/* -----------------------------------------------
-	changes extension of filename
-	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline void set_extension( char* filename, const char* extension )
-{
-	char* extstr;
-	
-	// find position of extension in filename	
-	extstr = ( strrchr( filename, '.' ) == NULL ) ?
-		strrchr( filename, '\0' ) : strrchr( filename, '.' );
-	
-	// set new extension
-	if ( extension != NULL ) {
-		(*extstr++) = '.';
-		strcpy( extstr, extension );
-	}
-	else
-		(*extstr) = '\0';
-}
-#endif
-
-/* -----------------------------------------------
-	adds underscore after filename
-	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline void add_underscore( char* filename )
-{
-	char* tmpname = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-	char* extstr;
-	
-	// copy filename to tmpname
-	strcpy( tmpname, filename );
-	// search extension in filename
-	extstr = strrchr( filename, '.' );
-	
-	// add underscore before extension
-	if ( extstr != NULL ) {
-		(*extstr++) = '_';
-		strcpy( extstr, strrchr( tmpname, '.' ) );
-	}
-	else
-		sprintf( filename, "%s_", tmpname );
-		
-	// free memory
-	free( tmpname );
 }
 #endif
 
@@ -6758,8 +6703,8 @@ static bool file_exists(const std::string& filename) {
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_hdr( void )
 {
-	const char* ext = "hdr";
-	const char* basename = filelist[ file_no ].data();
+	const std::string ext = "hdr";
+	const auto basename = filelist[ file_no ];
 	
 	if ( !dump_file( basename, ext, hdrdata, 1, hdrs ) )
 		return false;	
@@ -6775,8 +6720,8 @@ INTERN bool dump_hdr( void )
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_huf( void )
 {
-	const char* ext = "huf";
-	const char* basename = filelist[ file_no ].data();
+	const std::string ext = "huf";
+	const auto basename = filelist[ file_no ];
 	
 	if ( !dump_file( basename, ext, huffdata, 1, hufs ) )
 		return false;
@@ -6794,32 +6739,23 @@ INTERN bool dump_coll( void )
 {
 	FILE* fp;
 	
-	char* fn;
-	const char* ext[ 4 ];
-	const char* base;
+	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
 	int cmp, bpos, dpos;
 	int i, j;
-	
-	ext[0] = "coll0";
-	ext[1] = "coll1";
-	ext[2] = "coll2";
-	ext[3] = "coll3";
-	base = filelist[ file_no ].data();
-	
+	const auto& base = filelist[ file_no ];
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {
 		
 		// create filename
-		fn = create_filename( base, ext[ cmp ] );
+		const auto fn = create_filename( base, ext[ cmp ] );
 		
 		// open file for output
-		fp = fopen( fn, "wb" );
+		fp = fopen( fn.data(), "wb" );
 		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn);
+			sprintf( errormessage, FWR_ERRMSG, fn.data());
 			errorlevel = 2;
 			return false;
 		}
-		free( fn );
 		
 		switch ( collmode ) {
 			
@@ -6903,16 +6839,9 @@ INTERN bool dump_coll( void )
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_zdst( void )
 {
-	const char* ext[4];
-	const char* basename;
+	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3"};
 	int cmp;
-	
-	
-	ext[0] = "zdst0";
-	ext[1] = "zdst1";
-	ext[2] = "zdst2";
-	ext[3] = "zdst3";
-	basename = filelist[ file_no ].data();
+	const auto basename = filelist[ file_no ];
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ )
 		if ( !dump_file( basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
@@ -6928,22 +6857,20 @@ INTERN bool dump_zdst( void )
 	Writes to file
 	----------------------------------------------- */
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, int size )
+INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size )
 {	
 	FILE* fp;
-	char* fn;
 	
 	// create filename
-	fn = create_filename( base, ext );
+	const auto fn = create_filename( base, ext );
 	
 	// open file for output
-	fp = fopen( fn, "wb" );	
-	if ( fp == NULL ) {
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	fp = fopen( fn.data(), "wb" );	
+	if ( fp == nullptr ) {
+		sprintf( errormessage, FWR_ERRMSG, fn.data());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
 	
 	// write & close
 	fwrite( data, bpv, size, fp );
@@ -6961,28 +6888,27 @@ INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, i
 INTERN bool dump_errfile( void )
 {
 	FILE* fp;
-	char* fn;
 	
 	
 	// return immediately if theres no error
 	if ( errorlevel == 0 ) return true;
 	
 	// create filename based on errorlevel
+	std::string fn;
 	if ( errorlevel == 1 ) {
-		fn = create_filename( filelist[ file_no ].data(), "wrn.nfo" );
+		fn = create_filename( filelist[ file_no ], "wrn.nfo" );
 	}
 	else {
-		fn = create_filename( filelist[ file_no ].data(), "err.nfo" );
+		fn = create_filename( filelist[ file_no ], "err.nfo" );
 	}
 	
 	// open file for output
-	fp = fopen( fn, "w" );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	fp = fopen( fn.data(), "w" );
+	if ( fp == nullptr ){
+		sprintf( errormessage, FWR_ERRMSG, fn.data());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
 	
 	// write status and errormessage to file
 	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].data());
@@ -7008,7 +6934,6 @@ INTERN bool dump_errfile( void )
 INTERN bool dump_info( void )
 {	
 	FILE* fp;
-	char* fn;
 	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -7019,19 +6944,18 @@ INTERN bool dump_info( void )
 	
 	
 	// create filename
-	fn = create_filename( filelist[ file_no ].data(), "nfo" );
+	const auto fn = create_filename( filelist[ file_no ], "nfo" );
 	
 	// open file for output
-	fp = fopen( fn, "w" );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	fp = fopen( fn.data(), "w" );
+	if ( fp == nullptr ){
+		sprintf( errormessage, FWR_ERRMSG, fn.data());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
 
 	// info about image
-	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename );
+	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.data() );
 	fprintf( fp, "coding process: %s\n", ( jpegtype == 1 ) ? "sequential" : "progressive" );
 	// fprintf( fp, "no of scans: %i\n", scnc );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
@@ -7100,7 +7024,6 @@ INTERN bool dump_info( void )
 INTERN bool dump_dist( void )
 {
 	FILE* fp;
-	char* fn;
 	
 	unsigned int dist[ 1024 + 1 ];
 	int cmp, bpos, dpos;
@@ -7108,13 +7031,12 @@ INTERN bool dump_dist( void )
 	
 	
 	// create filename
-	fn = create_filename( filelist[ file_no ].data(), "dist" );
+	const auto fn = create_filename( filelist[ file_no ], "dist" );
 	
 	// open file for output
-	fp = fopen( fn, "wb" );
-	free( fn );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	fp = fopen( fn.data(), "wb" );
+	if ( fp == nullptr ){
+		sprintf( errormessage, FWR_ERRMSG, fn.data());
 		errorlevel = 2;
 		return false;
 	}
@@ -7149,34 +7071,27 @@ INTERN bool dump_pgm( void )
 	unsigned char* imgdata;
 	
 	FILE* fp;
-	char* fn;
-	const char* ext[4];
 	
 	int cmp, dpos;
 	int pix_v;
 	int xpos, ypos, dcpos;
 	int x, y;
 	
-	
-	ext[0] = "cmp0.pgm";
-	ext[1] = "cmp1.pgm";
-	ext[2] = "cmp2.pgm";
-	ext[3] = "cmp3.pgm";
+	const std::array<std::string, 4> ext = {"cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm"};
 	
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ )
 	{
 		// create filename
-		fn = create_filename( filelist[ file_no ].data(), ext[ cmp ] );
+		const auto fn = create_filename( filelist[ file_no ], ext[ cmp ] );
 		
 		// open file for output
-		fp = fopen( fn, "wb" );		
-		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn );
+		fp = fopen( fn.data(), "wb" );		
+		if ( fp == nullptr ){
+			sprintf( errormessage, FWR_ERRMSG, fn.data());
 			errorlevel = 2;
 			return false;
 		}
-		free( fn );
 		
 		// alloc memory for image data
 		imgdata = (unsigned char*) calloc ( cmpnfo[cmp].bc * 64, sizeof( char ) );
