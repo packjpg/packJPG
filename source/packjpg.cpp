@@ -685,24 +685,21 @@ INTERN unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
 INTERN unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
 
-
-/* -----------------------------------------------
-	global variables: info about program
-	----------------------------------------------- */
-
-INTERN const unsigned char appversion = 25;
-static const std::string subversion = "k";
-static const std::string apptitle = "packJPG";
-static const std::string appname = "packjpg";
-static const std::string versiondate = "01/22/2016";
-static const std::string author = "Matthias Stirner / Se";
+namespace program_info {
+	const unsigned char appversion = 25;
+	const std::string subversion = "k";
+	const std::string apptitle = "packJPG";
+	const std::string appname = "packjpg";
+	const std::string versiondate = "01/22/2016";
+	const std::string author = "Matthias Stirner / Se";
 #if !defined(BUILD_LIB)
-static const std::string website = "http://packjpg.encode.ru/";
-static const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
-static const std::string email = "packjpg (at) matthiasstirner.com";
-static const std::string pjg_ext = "pjg";
-static const std::string jpg_ext = "jpg";
+	const std::string website = "http://packjpg.encode.ru/";
+	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
+	const std::string email = "packjpg (at) matthiasstirner.com";
+	const std::string pjg_ext = "pjg";
+	const std::string jpg_ext = "jpg";
 #endif
+}
 INTERN const char   pjg_magic[] = { 'J', 'S' };
 
 
@@ -735,8 +732,8 @@ int main( int argc, char** argv )
 	
 	// write program info to screen
 	fprintf( msgout,  "\n--> %s v%i.%i%s (%s) by %s <--\n",
-			apptitle.data(), appversion / 10, appversion % 10, subversion.data(), versiondate.data(), author.data());
-	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", copyright.data() );
+	         program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
+	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.data() );
 	
 	// check if user input is wrong, show help screen if it is
 	if ( filelist.empty() ||
@@ -1066,7 +1063,7 @@ EXPORT const char* pjglib_version_info( void )
 	
 	// copy version info to string
 	sprintf( v_info, "--> %s library v%i.%i%s (%s) by %s <--",
-			apptitle.data(), appversion / 10, appversion % 10, subversion.data(), versiondate.data(), author.data());
+		program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
 			
 	return (const char*) v_info;
 }
@@ -1084,7 +1081,7 @@ EXPORT const char* pjglib_short_name( void )
 	
 	// copy version info to string
 	sprintf( v_name, "%s v%i.%i%s",
-			apptitle.data(), appversion / 10, appversion % 10, subversion.data());
+		program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data());
 			
 	return (const char*) v_name;
 }
@@ -1470,10 +1467,10 @@ INTERN inline const char* get_status( bool (*function)() )
 INTERN void show_help( void )
 {	
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Website: %s\n", website.data() );
-	fprintf( msgout, "Email  : %s\n", email.data() );
+	fprintf( msgout, "Website: %s\n", program_info::website.data() );
+	fprintf( msgout, "Email  : %s\n", program_info::email.data() );
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Usage: %s [switches] [filename(s)]", appname.data());
+	fprintf( msgout, "Usage: %s [switches] [filename(s)]", program_info::appname.data());
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-ver]   verify files after processing\n" );
@@ -1502,8 +1499,8 @@ INTERN void show_help( void )
 	}
 	#endif
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", appname.data(), pjg_ext.data() );
-	fprintf( msgout, "          \"%s -p *.%s\"\n", appname.data(), jpg_ext.data() );
+	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.data(), program_info::pjg_ext.data() );
+	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.data(), program_info::jpg_ext.data() );
 }
 #endif
 
@@ -1773,8 +1770,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
-				create_filename( filename, pjg_ext ) :
-				unique_filename(filename, pjg_ext);
+				create_filename( filename, program_info::pjg_ext ) :
+				unique_filename(filename, program_info::pjg_ext);
 		}
 		else {
 			jpgfilename = create_filename( "STDIN", "" );
@@ -1809,8 +1806,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
-				create_filename( filename, jpg_ext) :
-				unique_filename( filename, jpg_ext);
+				create_filename( filename, program_info::jpg_ext) :
+				unique_filename( filename, program_info::jpg_ext);
 		}
 		else {
 			jpgfilename = create_filename( "STDOUT", "" );
@@ -3251,7 +3248,7 @@ INTERN bool pack_pjg( void )
 	}
 	
 	// store version number
-	hcode = appversion;
+	hcode = program_info::appversion;
 	str_out->write_byte(hcode);
 	
 	
@@ -3376,16 +3373,16 @@ INTERN bool unpack_pjg( void )
 		}
 		else if ( hcode >= 0x14 ) {
 			// compare version number
-			if ( hcode != appversion ) {
+			if ( hcode != program_info::appversion ) {
 				sprintf( errormessage, "incompatible file, use %s v%i.%i",
-					appname.data(), hcode / 10, hcode % 10 );
+					program_info::appname.data(), hcode / 10, hcode % 10 );
 				errorlevel = 2;
 				return false;
 			}
 			else break;
 		}
 		else {
-			sprintf( errormessage, "unknown header code, use newer version of %s", appname.data());
+			sprintf( errormessage, "unknown header code, use newer version of %s", program_info::appname.data());
 			errorlevel = 2;
 			return false;
 		}
@@ -7123,7 +7120,7 @@ INTERN bool dump_pgm( void )
 		// write PGM header
 		fprintf( fp, "P5\n" );
 		fprintf( fp, "# created by %s v%i.%i%s (%s) by %s\n",
-			apptitle.data(), appversion / 10, appversion % 10, subversion.data(), versiondate.data(), author.data());
+			program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
 		fprintf( fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8 );
 		fprintf( fp, "255\n" );
 		
