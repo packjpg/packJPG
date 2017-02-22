@@ -806,22 +806,22 @@ int main( int argc, char** argv )
 		file_cnt, error_cnt, warn_cnt );
 	if ( ( file_cnt > error_cnt ) && ( verbosity != 0 ) &&
 	 ( action == A_COMPRESS ) ) {
-		acc_jpgsize /= 1024.0; acc_pjgsize /= 1024.0;
+		acc_jpgsize /= 1024.0;
+		acc_pjgsize /= 1024.0;
 		std::chrono::duration<double> duration = end - begin;
 		double total = duration.count();
-		int kbps = ( total > 0 ) ? ( acc_jpgsize / total ) : acc_jpgsize;
-		double cr = ( acc_jpgsize > 0 ) ? ( 100.0 * acc_pjgsize / acc_jpgsize ) : 0;
 		
 		fprintf( msgout,  " --------------------------------- \n" );
-		if ( total >= 0 ) {
-			fprintf( msgout,  " total time        : %8.2f sec\n", total );
-			fprintf( msgout,  " avrg. kbyte per s : %8i byte\n", kbps );
+		if ( total > 0 ) {
+			fprintf( msgout,  " total time       : %8.2f sec\n", total );
+			int kbps = acc_jpgsize / total;
+			fprintf( msgout,  " avg. kbyte per s : %8i byte\n", kbps );
+		} else {
+			fprintf( msgout,  " total time       : %8s sec\n", "N/A" );
+			fprintf( msgout,  " avg. kbyte per s : %8s byte\n", "N/A" );
 		}
-		else {
-			fprintf( msgout,  " total time        : %8s sec\n", "N/A" );
-			fprintf( msgout,  " avrg. kbyte per s : %8s byte\n", "N/A" );
-		}
-		fprintf( msgout,  " avrg. comp. ratio : %8.2f %%\n", cr );		
+		double cr = (acc_jpgsize > 0) ? (100.0 * acc_pjgsize / acc_jpgsize) : 0;
+		fprintf( msgout,  " avg. comp. ratio  : %8.2f %%\n", cr );		
 		fprintf( msgout,  " --------------------------------- \n" );
 		#if defined(DEV_INFOS)
 		if ( acc_jpgsize > 0 ) { 
@@ -1336,11 +1336,7 @@ INTERN void process_ui( void )
 	auto end = std::chrono::steady_clock::now();
 	
 	// speed and compression ratio calculation
-	auto duration = end - begin;
-	auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-	int bpms = ( total > 0 ) ? ( jpgfilesize / total ) : jpgfilesize;
 	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
-
 	
 	if ( verbosity >= 0 ) { // standard UI
 		if ( verbosity > 1 )
@@ -1380,8 +1376,11 @@ INTERN void process_ui( void )
 			fprintf( msgout, " %s\n", errormessage );
 		}
 		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
+			auto duration = end - begin;
+			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 			if ( total >= 0 ) {
 				fprintf( msgout,  " time taken  : %7lld msec\n", total );
+				int bpms = (total > 0) ? (jpgfilesize / total) : jpgfilesize;
 				fprintf( msgout,  " byte per ms : %7i byte\n", bpms );
 			}
 			else {
