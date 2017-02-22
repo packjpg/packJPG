@@ -504,6 +504,7 @@ INTERN inline char* unique_filename( const char* base, const char* extension );
 INTERN inline void set_extension( char* filename, const char* extension );
 INTERN inline void add_underscore( char* filename );
 #endif
+static bool file_exists(const std::string& filename);
 INTERN inline bool file_exists( const char* filename );
 
 
@@ -609,8 +610,8 @@ INTERN int cs_sal       =   0  ; // successive approximation bit pos low
 	global variables: info about files
 	----------------------------------------------- */
 	
-INTERN char*  jpgfilename = NULL;	// name of JPEG file
-INTERN char*  pjgfilename = NULL;	// name of PJG file
+INTERN std::string jpgfilename;	// name of JPEG file
+INTERN std::string pjgfilename;	// name of PJG file
 INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
 INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
@@ -933,9 +934,9 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( errorlevel >= err_tol ) {
 		if ( lib_out_type == 0 ) {
 			if ( filetype == F_JPG ) {
-				if ( file_exists( pjgfilename ) ) remove( pjgfilename );
+				if ( file_exists( pjgfilename ) ) remove( pjgfilename.data());
 			} else if ( filetype == F_PJG ) {
-				if ( file_exists( jpgfilename ) ) remove( jpgfilename );
+				if ( file_exists( jpgfilename ) ) remove( jpgfilename.data());
 			}
 		}
 		if ( msg != NULL ) strcpy( msg, errormessage );
@@ -952,11 +953,11 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 		{
 			case F_JPG:
 				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
-					pjgfilename, cr, ( total >= 0 ) ? total : -1 );
+					pjgfilename.data(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_PJG:
 				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
-					jpgfilename, cr, ( total >= 0 ) ? total : -1 );
+					jpgfilename.data(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_UNK:
 				sprintf( msg, "Unknown filetype" );
@@ -1023,29 +1024,25 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		return;
 	}
 	
-	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	// clear filenames if needed
+	jpgfilename = "";
+	pjgfilename = "";
 	
 	// check input stream
-	str_in->read( buffer, 1, 2 );
+	str_in->read( buffer, 2 );
 	if ( ( buffer[0] == 0xFF ) && ( buffer[1] == 0xD8 ) ) {
 		// file is JPEG
 		filetype = F_JPG;
 		// copy filenames
-		jpgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
-		pjgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
-		strcpy( jpgfilename, (  in_type == 0 ) ? (char*) in_src   : "JPG in memory" );
-		strcpy( pjgfilename, ( out_type == 0 ) ? (char*) out_dest : "PJG in memory" );
+		jpgfilename = (in_type == 0) ? (char*)in_src : "JPG in memory";
+		pjgfilename = (out_type == 0) ? (char*)out_dest : "PJG in memory";
 	}
 	else if ( (buffer[0] == pjg_magic[0]) && (buffer[1] == pjg_magic[1]) ) {
 		// file is PJG
 		filetype = F_PJG;
 		// copy filenames
-		pjgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
-		jpgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
-		strcpy( pjgfilename, (  in_type == 0 ) ? (char*) in_src   : "PJG in memory" );
-		strcpy( jpgfilename, ( out_type == 0 ) ? (char*) out_dest : "JPG in memory" );
+		pjgfilename = (in_type == 0) ? (char*)in_src : "PJG in memory";
+		jpgfilename = (out_type == 0) ? (char*)out_dest : "JPG in memory";
 	}
 	else {
 		// file is neither
@@ -1339,9 +1336,9 @@ INTERN void process_ui( void )
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != A_COMPRESS ) ) ) {
 		if ( filetype == F_JPG ) {
-			if ( file_exists( pjgfilename ) ) remove( pjgfilename );
+			if ( file_exists( pjgfilename ) ) remove( pjgfilename.data() );
 		} else if ( filetype == F_PJG ) {
-			if ( file_exists( jpgfilename ) ) remove( jpgfilename );
+			if ( file_exists( jpgfilename ) ) remove( jpgfilename.data());
 		}
 	}
 	
@@ -1775,8 +1772,8 @@ INTERN bool check_file( void )
 	}
 	
 	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	jpgfilename = "";
+	pjgfilename = "";
 	
 	// immediately return error if 2 bytes can't be read
 	if ( str_in->read( fileid, 2 ) != 2 ) { 
@@ -1792,8 +1789,7 @@ INTERN bool check_file( void )
 		filetype = F_JPG;
 		// create filenames
 		if ( !pipe_on ) {
-			jpgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-			strcpy( jpgfilename, filename );
+			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
 				create_filename( filename, (char*) pjg_ext ) :
 				unique_filename( filename, (char*) pjg_ext );
@@ -1803,9 +1799,9 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDOUT", NULL );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) pjgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, pjgfilename );
+			sprintf( errormessage, FWR_ERRMSG, pjgfilename.data() );
 			errorlevel = 2;
 			return false;
 		}
@@ -1829,8 +1825,7 @@ INTERN bool check_file( void )
 		filetype = F_PJG;
 		// create filenames
 		if ( !pipe_on ) {
-			pjgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-			strcpy( pjgfilename, filename );
+			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
 				create_filename( filename, (char*) jpg_ext ) :
 				unique_filename( filename, (char*) jpg_ext );
@@ -1840,7 +1835,7 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDIN", NULL );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) jpgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG, jpgfilename );
 			errorlevel = 2;
@@ -6772,6 +6767,21 @@ INTERN inline bool file_exists( const char* filename )
 	if ( fp == NULL ) return false;
 	else {
 		fclose( fp );
+		return true;
+	}
+}
+
+/* -----------------------------------------------
+checks if a file exists
+----------------------------------------------- */
+static bool file_exists(const std::string& filename) {
+	// needed for both, executable and library
+	FILE* fp = fopen(filename.data(), "rb");
+
+	if (fp == nullptr) {
+		return false;
+	} else {
+		fclose(fp);
 		return true;
 	}
 }
