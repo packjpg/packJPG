@@ -1,33 +1,34 @@
-#packJPG
+# packJPG
 
 
-packJPG losslessly compresses JPEG files to a format labeled PJG, with the capacity to restore the compressed file to the original JPEG format. It typically reduces the file size of a JPEG file by 20%. Different versions of packJPG are incompatible, and the program produces an error message if you try to decompress PJG files with a different version than the one used for the compression.
+packJPG performs lossless compression of JPEG files to a format labeled PJG, and can decompress a PJG file back to its original JPEG format. It typically reduces the file size of a JPEG file by 20%. Different versions of packJPG are incompatible, and the program produces an error message if you try to decompress PJG files with a different version than the one used for the compression.
 
 * Version: 2.5k (older versions are available at http://www.elektronik.htw-aalen.de/packJPG/packjpg_m.htm)
-* License: LGPLv3 (see [LICENSE](LICENSE) for more information)
+* License: LGPLv3 (see [LGPL3.0](https://opensource.org/licenses/lgpl-3.0.html) for more information)
 * Website: http://packjpg.encode.ru
 * For questions and bug reports, contact packjpg (at) matthiasstirner.com
-* Copyright 2006--2014 by HTW Aalen University and Matthias Stirner.
+* Copyright 2006—2014 by HTW Aalen University and Matthias Stirner.
 
-##Command Line Use
+## Command Line Use
 
 
 ```
-  Syntax: packjpg [file(s)] [options]
+  Syntax: packjpg [options] [file(s)]
   Allowed options:
-    -ver                       verify files after processing
-    -v?                        level of verbosity; 0,1 or 2 is allowed (default 0)
+    -ver                       verify files after processing (converts the output back
+                               to the input format, and compares)
+    -v?                        level of verbosity; 0, 1, or 2 is allowed (default 0)
     -np                        no pause after processing files
-    -o                         overwrite existing files
+    -o                         output overwrites an existing file if it exists
     -p                         proceed on warnings
     -d                         discard image metadata.
 ```
 
-File type is determined by file content, not by file extension.
+The program processes jpg and pjg files, but file type is determined by file content, not by file extension, and so a mislabeled file will not be incorrectly processed (or incorrectly not processed).
 
-Wildcards like "*.*" are supported, as is drag and drop of multiple files. Filenames for output files are created automatically. In default mode, files are never overwritten. If a filename is already in use, packJPG creates a new filename by adding underscores.
+Wildcard file names are supported. Filenames for output files are generated automatically, with the convention being that for filename.jpg, filename.pjg is selected if it is available; otherwise, underscores are repeatedly appended until an unused filename is found (i.e. filename_.pjg, filename__.pjg, ...). If the overwrite option is used (-o), then filename.jpg's output will be written to filename.pjg. The same holds for a filename.pjg being converted to filename.jpg.
 
-A file from stdin is denoted by the special name "-". In this case, output is written to stdout.
+A file from stdin may be denoted by the special name "-". In this case, output is written to stdout.
 
 Some usage examples:
 ```
@@ -37,22 +38,24 @@ Some usage examples:
  packJPG - < sail.pjg > sail.jpg
  ```
  
-The program has a low error tolerance for images is a low error tolerance. Some JPEG files might not work with packJPG even if they work perfectly with other image processing software. By default, compression is cancelled on warnings. If warnings are skipped by using "-p", most files with warnings can also be compressed, but JPEG files reconstructed from PJG files might not be bitwise identical with the original JPEG files. There won't be any loss to image data or quality however.
+The program has a low error tolerance for images; some JPEG files might not work with packJPG even if they work perfectly with other image processing software. By default, compression is cancelled on warnings. If warnings are skipped by using the -p option, most files with warnings can also be compressed, but the JPEG files reconstructed from PJG files might not be bitwise identical to the original JPEG files. However, there won't be any loss to image data or quality.
 
-Unnecessary meta information can be discarded using "-d". This reduces compressed files' sizes. Be warned though, reconstructed files won't be bitwise identical with the original files and meta information will be lost forever. As with "-p" there won't be any loss to image data or quality. 
+Image metadata can be discarded with the -d option, which can reduce a file's size. However, subsequently reconverted files will no longer contain the metadata information, and so not be bitwise identical with the original file. As with the -p option, this will not affect image data or quality.
 
-There is no known case in which a file compressed by packJPG (without the "-p" option, see above) couldn't be reconstructed to exactly the state it was before. If you want an additional layer of safety you can also use the verify option "-ver". In this mode, files are compressed, then decompressed and the decompressed file compared to the original file. If this test doesn't pass there will be an error message and the compressed file won't be written to the drive. 
+There is no known case in which a file compressed by packJPG (without the -p option, see above) couldn't be reconstructed to exactly the state it was before. If you want an additional layer of safety you can also use the verify option -ver. In this mode, files are compressed, then decompressed and the decompressed file compared to the original file. If this test doesn't pass there will be an error message and the compressed file won't be written to the drive. 
 
-Please note that the "-ver" option should never be used in conjunction with the "-d" and/or "-p" options. As stated above, the "-p" and "-d" options will most likely lead to reconstructed JPG files not being bitwise identical to the original JPG files. In turn, the verification process may fail on various files although nothing actually went wrong. 
+The -ver option should not be used in conjunction with the -d and/or -p options, as the reconstructed files may not be bitwise identical with the original files, producing a false positive for errors.
 
 Usage examples:
 
- "packJPG -v1 -o baboon.pjg"
- "packJPG -ver lena.jpg"
- "packJPG -d tiffany.jpg"
- "packJPG -p *.jpg"
+```
+ packJPG -v1 -o baboon.pjg
+ packJPG -ver lena.jpg
+ packJPG -d tiffany.jpg
+ packJPG -p *.jpg
+ ```
  
-### Developer Options
+### Developer Command Line Options
 ```
  -dev    needed to enable any of the switches bewlow
  
@@ -89,15 +92,10 @@ The developer switch "-dev" is needed the enable any developer function. Other d
 
 "-t?" and "-s?" control specific compression settings. By manipulating these parameters, you might achieve higher compression. By default, these values are set automatically. The default for segmentation ("-s?") is 10. The default for the noise threshold ("-t?") is dependant on the size of the input file. Higher sizes mean higher t - theres more data for the statistical model to learn in bigger files, so less has to be considered noise. 
 
-##Known Limitations 
+### Drag and Drop (Windows)
 
 
-packJPG is designed specifically to compress JPEG files, so it doesn't compress other file types.
-
-### Drag and Drop
-
-
-If you try to drag and drop to many files at once, there might be a windowed error message about missing privileges. In that case you can try it again with less files or consider using the command prompt. packJPG has been tested to work perfectly with thousands of files from the command line. This issue also happens with drag and drop in other applications, so it might not be a limitation of packJPG but a limitation of Windows.
+If you try to drag and drop too many files, there might be a windowed error message about missing privileges. In that case you can try it again with less files or consider using the command prompt. The program works perfectly with thousands of input files on the command line interface. Since this issue also happens with drag and drop in other applications, it might not be a limitation of packJPG, but rather a limitation of Windows.
 
 ## Compiling packJPG
 
@@ -124,7 +122,7 @@ The source file [packjpgdll.h](source/packjpgdll.h) contains all public function
 
 Developer functions are not available in library builds.
 
-###Compiling with Developer Functions
+### Compiling with Developer Functions
 
 
 If you want to include developer functions in the packJPG executable, 'DEV_BUILD' has to be defined. Developer functions are not available in library builds. They are not needed in any way for compression and decompression, and so can be omitted out to produce a smaller executable.
@@ -154,7 +152,7 @@ These files are included as well, but are not necessarily needed for compiling p
 
 Additionally, sample_images.zip contains some sample images to test packJPG with.
 
-##Acknowledgements
+## Acknowledgements
 
 
 packJPG is the result of countless hours of research and development. It is part of Matthias Stirner final year project for Hochschule Aalen.
@@ -172,14 +170,14 @@ The package is distributed in the hope that it will be useful, but WITHOUT ANY W
 
 If the LGPL v3 license is incompatible with your software project you might contact us and ask for a special permission to use the packJPG library under different conditions. In any case, usage of the packJPG algorithm under the LGPL v3 or above is highly advised and special permissions will only be given where necessary on a case by case basis. This offer is aimed mainly at closed source freeware developers seeking to add PJG support to their software projects. 
 
-##Version Guidelines
+## Version Naming Convention
 
 
-The program version is composed of a major version number and a minor version string. An example: "packJPG v2.4a", an older version of packJPG, has major version number 2.4 and minor version "a". 
+The program version is composed of a major version number and a minor version string. For example, 2.4a, an older version of packJPG, has major version number 2.4 and minor version "a".
 
-PJG files are required to be compatible between minor versions: 2.4a-compressed PJG files can be extracted by 2.4, 2.4b, 2.4c, and vice versa. PJG files are incompatible across major version numbers. For example, 2.4 can't extract 2.3 compressed .pjg files. 
+PJG files are compatible between minor versions. For example, 2.4a-compressed PJG files can be extracted by 2.4, 2.4b, 2.4c. PJG files are incompatible across major version numbers. For example, 2.4 can't extract 2.3 compressed .pjg files. 
 
-The minor version string is used to indicate smaller changes that don't break compatibility within a major version. For example, bug fixes or speed improvements. The minor version string can be empty (for the first new main version in a series). For a highly specific change, the minor version string might be given a special name, such as "packJPG v2.5fast". 
+The minor version is used to indicate smaller changes that don't break compatibility within a major version, such as bug fixes or speed improvements. The minor version can be empty for the first new main version in a series. For a highly specific change, the minor version might be a special name, such as "2.5fast". 
 
 The major version number is set directly in the source code via the 'pjgversion' (main version number) and the 'subversion' (subversion string) constants. 
 
