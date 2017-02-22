@@ -500,7 +500,7 @@ INTERN inline float median_float( float* values, int size );
 #if !defined( BUILD_LIB )
 INTERN inline void progress_bar( int current, int last );
 INTERN inline char* create_filename( const char* base, const char* extension );
-INTERN inline char* unique_filename( const char* base, const char* extension );
+static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 INTERN inline void set_extension( char* filename, const char* extension );
 INTERN inline void add_underscore( char* filename );
 #endif
@@ -1774,7 +1774,7 @@ INTERN bool check_file( void )
 			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
 				create_filename( filename.data(), pjg_ext.data() ) :
-				unique_filename( filename.data(), pjg_ext.data() );
+				unique_filename(filename, pjg_ext);
 		}
 		else {
 			jpgfilename = create_filename( "STDIN", NULL );
@@ -1810,7 +1810,7 @@ INTERN bool check_file( void )
 			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
 				create_filename( filename.data(), jpg_ext.data()) :
-				unique_filename( filename.data(), jpg_ext.data());
+				unique_filename( filename, jpg_ext);
 		}
 		else {
 			jpgfilename = create_filename( "STDOUT", NULL );
@@ -6671,20 +6671,14 @@ INTERN inline char* create_filename( const char* base, const char* extension )
 	creates filename, callocs memory for it
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
-INTERN inline char* unique_filename( const char* base, const char* extension )
-{
-	int len = strlen( base ) + ( ( extension == NULL ) ? 0 : strlen( extension ) + 1 ) + 1;	
-	char* filename = (char*) calloc( len, sizeof( char ) );	
-	
-	// create a unique filename using underscores
-	strcpy( filename, base );
-	set_extension( filename, extension );
-	while ( file_exists( filename ) ) {
-		len += sizeof( char );
-		filename = (char*) realloc( filename, len );
-		add_underscore( filename );
+
+static std::string unique_filename(const std::string& oldname, const std::string& new_extension) {
+	auto filename_base = oldname.substr(0, oldname.find_first_of("."));
+	auto filename = filename_base + "." + new_extension;
+	while (file_exists(filename)) {
+		filename_base += "_";
+		filename = filename_base + "." + new_extension;
 	}
-	
 	return filename;
 }
 #endif
