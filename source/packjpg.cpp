@@ -700,8 +700,8 @@ INTERN const char*  author       = "Matthias Stirner / Se";
 INTERN const char*  website      = "http://packjpg.encode.ru/";
 INTERN const char*	copyright    = "2006-2016 HTW Aalen University & Matthias Stirner";
 INTERN const char*  email        = "packjpg (at) matthiasstirner.com";
-INTERN const char*  pjg_ext      = "pjg";
-INTERN const char*  jpg_ext      = "jpg";
+static const std::string pjg_ext = "pjg";
+static const std::string jpg_ext = "jpg";
 #endif
 INTERN const char   pjg_magic[] = { 'J', 'S' };
 
@@ -1504,8 +1504,8 @@ INTERN void show_help( void )
 	}
 	#endif
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", appname, pjg_ext );
-	fprintf( msgout, "          \"%s -p *.%s\"\n", appname, jpg_ext );	
+	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", appname, pjg_ext.data() );
+	fprintf( msgout, "          \"%s -p *.%s\"\n", appname, jpg_ext.data() );	
 }
 #endif
 
@@ -1775,8 +1775,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
-				create_filename( filename.data(), (char*) pjg_ext ) :
-				unique_filename( filename.data(), (char*) pjg_ext );
+				create_filename( filename.data(), pjg_ext.data() ) :
+				unique_filename( filename.data(), pjg_ext.data() );
 		}
 		else {
 			jpgfilename = create_filename( "STDIN", NULL );
@@ -1811,8 +1811,8 @@ INTERN bool check_file( void )
 		if ( !pipe_on ) {
 			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
-				create_filename( filename.data(), (char*) jpg_ext ) :
-				unique_filename( filename.data(), (char*) jpg_ext );
+				create_filename( filename.data(), jpg_ext.data()) :
+				unique_filename( filename.data(), jpg_ext.data());
 		}
 		else {
 			jpgfilename = create_filename( "STDOUT", NULL );
