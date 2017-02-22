@@ -6651,23 +6651,25 @@ INTERN inline void progress_bar( int current, int last )
 #endif
 
 /* -----------------------------------------------
-	creates filename, callocs memory for it
+	Replaces the file extension of oldname (if any) with new_extension.
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
 static std::string create_filename(const std::string& oldname, const std::string& new_extension) {
-	auto filename_base = oldname.substr(0, oldname.find_first_of("."));
+	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
 	return filename;
 }
 #endif
 
 /* -----------------------------------------------
-	creates filename, callocs memory for it
+	Replaces the file extension of oldname (if any) with new_extension.
+	If such a file already exists, then underscores are appended to the filename (e.g., filename_.ext)
+	until the filename chosen does not already exist.
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
 
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension) {
-	auto filename_base = oldname.substr(0, oldname.find_first_of("."));
+	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
 	while (file_exists(filename)) {
 		filename_base += "_";
