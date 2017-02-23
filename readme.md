@@ -1,5 +1,6 @@
 # packJPG
 
+[![GitHub license](http://img.shields.io/badge/license-LGPLv3-blue.svg?style=flat)](http://www.gnu.org/copyleft/lgpl.html)
 
 packJPG performs lossless compression of JPEG files to a format labeled PJG, and can decompress a PJG file back to its original JPEG format. It typically reduces the file size of a JPEG file by 20%. Different versions of packJPG are incompatible, and the program produces an error message if you try to decompress PJG files with a different version than the one used for the compression.
 
