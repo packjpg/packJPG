@@ -1246,11 +1246,8 @@ INTERN void initialize_options( int argc, char** argv )
 INTERN void process_ui( void )
 {
 	clock_t begin, end;
-	const char* actionmsg  = NULL;
-	const char* errtypemsg = NULL;
 	int total, bpms;
-	float cr;	
-	
+	float cr;
 	
 	errorfunction = NULL;
 	errorlevel = 0;
@@ -1268,7 +1265,8 @@ INTERN void process_ui( void )
 	else {		
 		pipe_on = false;
 	}
-	
+
+	std::string actionmsg;
 	if ( verbosity >= 0 ) { // standard UI
 		fprintf( msgout,  "\nProcessing file %i of %u \"%s\" -> ",
 					file_no + 1, filelist.size(), filelist[ file_no ].c_str() );
@@ -1292,7 +1290,7 @@ INTERN void process_ui( void )
 			case A_PGM_DUMP:	actionmsg = "Converting"; break;
 		}
 		
-		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg );
+		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg.c_str() );
 	}
 	else { // progress bar UI
 		// update progress message
@@ -1336,6 +1334,7 @@ INTERN void process_ui( void )
 			fprintf( msgout,  "\n----------------------------------------" );
 		
 		// display success/failure message
+		std::string errtypemsg;
 		switch ( verbosity ) {
 			case 0:			
 				if ( errorlevel < err_tol ) {
@@ -1351,8 +1350,8 @@ INTERN void process_ui( void )
 				break;
 			
 			case 2:
-				if ( errorlevel < err_tol ) fprintf( msgout,  "\n-> %s OK\n", actionmsg );
-				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg );
+				if ( errorlevel < err_tol ) fprintf( msgout,  "\n-> %s OK\n", actionmsg.c_str());
+				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg.c_str());
 				break;
 		}
 		
@@ -1365,7 +1364,7 @@ INTERN void process_ui( void )
 		
 		// error/ warning message
 		if ( errorlevel > 0 ) {
-			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg  );
+			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg.c_str());
 			fprintf( msgout, " %s\n", errormessage );
 		}
 		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
