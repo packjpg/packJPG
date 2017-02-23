@@ -733,8 +733,8 @@ int main( int argc, char** argv )
 	
 	// write program info to screen
 	fprintf( msgout,  "\n--> %s v%i.%i%s (%s) by %s <--\n",
-	         program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
-	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.data() );
+	         program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
+	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str() );
 	
 	// check if user input is wrong, show help screen if it is
 	if ( filelist.empty() ||
@@ -785,7 +785,7 @@ int main( int argc, char** argv )
 			fprintf( stderr, "------------------\n" );
 			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] >= err_tol ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].data(), err_list[ file_no ].data());
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
 				}
 			}
 		}
@@ -795,7 +795,7 @@ int main( int argc, char** argv )
 			fprintf( stderr, "------------------\n" );
 			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] == 1 ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].data(), err_list[ file_no ].data());
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
 				}
 			}
 		}
@@ -928,9 +928,9 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( errorlevel >= err_tol ) {
 		if ( lib_out_type == 0 ) {
 			if ( filetype == F_JPG ) {
-				if ( file_exists( pjgfilename ) ) remove( pjgfilename.data());
+				if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str());
 			} else if ( filetype == F_PJG ) {
-				if ( file_exists( jpgfilename ) ) remove( jpgfilename.data());
+				if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
 			}
 		}
 		if ( msg != NULL ) strcpy( msg, errormessage );
@@ -947,11 +947,11 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 		{
 			case F_JPG:
 				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
-					pjgfilename.data(), cr, ( total >= 0 ) ? total : -1 );
+					pjgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_PJG:
 				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
-					jpgfilename.data(), cr, ( total >= 0 ) ? total : -1 );
+					jpgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_UNK:
 				sprintf( msg, "Unknown filetype" );
@@ -1064,7 +1064,7 @@ EXPORT const char* pjglib_version_info( void )
 	
 	// copy version info to string
 	sprintf( v_info, "--> %s library v%i.%i%s (%s) by %s <--",
-		program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
+		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
 			
 	return (const char*) v_info;
 }
@@ -1082,7 +1082,7 @@ EXPORT const char* pjglib_short_name( void )
 	
 	// copy version info to string
 	sprintf( v_name, "%s v%i.%i%s",
-		program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data());
+		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str());
 			
 	return (const char*) v_name;
 }
@@ -1270,7 +1270,7 @@ INTERN void process_ui( void )
 	
 	if ( verbosity >= 0 ) { // standard UI
 		fprintf( msgout,  "\nProcessing file %i of %u \"%s\" -> ",
-					file_no + 1, filelist.size(), filelist[ file_no ].data() );
+					file_no + 1, filelist.size(), filelist[ file_no ].c_str() );
 		
 		if ( verbosity > 1 )
 			fprintf( msgout,  "\n----------------------------------------" );
@@ -1316,9 +1316,9 @@ INTERN void process_ui( void )
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != A_COMPRESS ) ) ) {
 		if ( filetype == F_JPG ) {
-			if ( file_exists( pjgfilename ) ) remove( pjgfilename.data() );
+			if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str() );
 		} else if ( filetype == F_PJG ) {
-			if ( file_exists( jpgfilename ) ) remove( jpgfilename.data());
+			if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
 		}
 	}
 	
@@ -1468,10 +1468,10 @@ INTERN inline const char* get_status( bool (*function)() )
 INTERN void show_help( void )
 {	
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Website: %s\n", program_info::website.data() );
-	fprintf( msgout, "Email  : %s\n", program_info::email.data() );
+	fprintf( msgout, "Website: %s\n", program_info::website.c_str() );
+	fprintf( msgout, "Email  : %s\n", program_info::email.c_str() );
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Usage: %s [switches] [filename(s)]", program_info::appname.data());
+	fprintf( msgout, "Usage: %s [switches] [filename(s)]", program_info::appname.c_str());
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-ver]   verify files after processing\n" );
@@ -1500,8 +1500,8 @@ INTERN void show_help( void )
 	}
 	#endif
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.data(), program_info::pjg_ext.data() );
-	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.data(), program_info::jpg_ext.data() );
+	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.c_str(), program_info::pjg_ext.c_str() );
+	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.c_str(), program_info::jpg_ext.c_str() );
 }
 #endif
 
@@ -1744,9 +1744,9 @@ INTERN bool check_file( void )
 	
 	
 	// open input stream, check for errors
-	str_in = new iostream( (void*) filename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
+	str_in = new iostream( (void*) filename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
-		sprintf( errormessage, FRD_ERRMSG, filename.data());
+		sprintf( errormessage, FRD_ERRMSG, filename.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -1779,9 +1779,9 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDOUT", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) pjgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, pjgfilename.data() );
+			sprintf( errormessage, FWR_ERRMSG, pjgfilename.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -1815,9 +1815,9 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDIN", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename.data(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) jpgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, jpgfilename.data());
+			sprintf( errormessage, FWR_ERRMSG, jpgfilename.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -1827,7 +1827,7 @@ INTERN bool check_file( void )
 	else {
 		// file is neither
 		filetype = F_UNK;
-		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename.data());
+		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename.c_str());
 		errorlevel = 2;
 		return false;		
 	}
@@ -3376,14 +3376,14 @@ INTERN bool unpack_pjg( void )
 			// compare version number
 			if ( hcode != program_info::appversion ) {
 				sprintf( errormessage, "incompatible file, use %s v%i.%i",
-					program_info::appname.data(), hcode / 10, hcode % 10 );
+					program_info::appname.c_str(), hcode / 10, hcode % 10 );
 				errorlevel = 2;
 				return false;
 			}
 			else break;
 		}
 		else {
-			sprintf( errormessage, "unknown header code, use newer version of %s", program_info::appname.data());
+			sprintf( errormessage, "unknown header code, use newer version of %s", program_info::appname.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -6682,7 +6682,7 @@ checks if a file exists
 ----------------------------------------------- */
 static bool file_exists(const std::string& filename) {
 	// needed for both, executable and library
-	FILE* fp = fopen(filename.data(), "rb");
+	FILE* fp = fopen(filename.c_str(), "rb");
 
 	if (fp == nullptr) {
 		return false;
@@ -6750,9 +6750,9 @@ INTERN bool dump_coll( void )
 		const auto fn = create_filename( base, ext[ cmp ] );
 		
 		// open file for output
-		fp = fopen( fn.data(), "wb" );
+		fp = fopen( fn.c_str(), "wb" );
 		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn.data());
+			sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -6865,9 +6865,9 @@ INTERN bool dump_file( const std::string& base, const std::string& ext, void* da
 	const auto fn = create_filename( base, ext );
 	
 	// open file for output
-	fp = fopen( fn.data(), "wb" );	
+	fp = fopen( fn.c_str(), "wb" );
 	if ( fp == nullptr ) {
-		sprintf( errormessage, FWR_ERRMSG, fn.data());
+		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -6903,15 +6903,15 @@ INTERN bool dump_errfile( void )
 	}
 	
 	// open file for output
-	fp = fopen( fn.data(), "w" );
+	fp = fopen( fn.c_str(), "w" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.data());
+		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
 	
 	// write status and errormessage to file
-	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].data());
+	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].c_str());
 	fprintf( fp, "\n" );
 	// write error specification to file
 	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ),
@@ -6947,15 +6947,15 @@ INTERN bool dump_info( void )
 	const auto fn = create_filename( filelist[ file_no ], "nfo" );
 	
 	// open file for output
-	fp = fopen( fn.data(), "w" );
+	fp = fopen( fn.c_str(), "w" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.data());
+		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
 
 	// info about image
-	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.data() );
+	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str() );
 	fprintf( fp, "coding process: %s\n", ( jpegtype == 1 ) ? "sequential" : "progressive" );
 	// fprintf( fp, "no of scans: %i\n", scnc );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
@@ -7034,9 +7034,9 @@ INTERN bool dump_dist( void )
 	const auto fn = create_filename( filelist[ file_no ], "dist" );
 	
 	// open file for output
-	fp = fopen( fn.data(), "wb" );
+	fp = fopen( fn.c_str(), "wb" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.data());
+		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -7086,9 +7086,9 @@ INTERN bool dump_pgm( void )
 		const auto fn = create_filename( filelist[ file_no ], ext[ cmp ] );
 		
 		// open file for output
-		fp = fopen( fn.data(), "wb" );		
+		fp = fopen( fn.c_str(), "wb" );
 		if ( fp == nullptr ){
-			sprintf( errormessage, FWR_ERRMSG, fn.data());
+			sprintf( errormessage, FWR_ERRMSG, fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -7121,7 +7121,7 @@ INTERN bool dump_pgm( void )
 		// write PGM header
 		fprintf( fp, "P5\n" );
 		fprintf( fp, "# created by %s v%i.%i%s (%s) by %s\n",
-			program_info::apptitle.data(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.data(), program_info::versiondate.data(), program_info::author.data());
+			program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
 		fprintf( fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8 );
 		fprintf( fp, "255\n" );
 		
