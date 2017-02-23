@@ -1106,38 +1106,39 @@ INTERN void initialize_options( int argc, char** argv )
 	// read in arguments
 	while ( --argc > 0 ) {
 		argv++;
+		std::string arg = *argv;
 		// switches begin with '-'
-		if ( strcmp((*argv), "-p" ) == 0 ) {
+		if (arg == "-p") {
 			err_tol = 2;
 		}
-		else if ( strcmp((*argv), "-d" ) == 0 ) {
+		else if (arg == "-d") {
 			disc_meta = true;
 		}		
-		else if ( strcmp((*argv), "-ver" ) == 0 ) {
+		else if (arg == "-ver") {
 			verify_lv = ( verify_lv < 1 ) ? 1 : verify_lv;
 		}
-		else if ( sscanf( (*argv), "-v%i", &tmp_val ) == 1 ){
+		else if ( sscanf(arg.c_str(), "-v%i", &tmp_val ) == 1 ){
 			verbosity = tmp_val;
 			verbosity = ( verbosity < 0 ) ? 0 : verbosity;
 			verbosity = ( verbosity > 2 ) ? 2 : verbosity;			
 		}
-		else if ( strcmp((*argv), "-vp" ) == 0 ) {
+		else if (arg == "-vp") {
 			verbosity = -1;
 		}
-		else if ( strcmp((*argv), "-np" ) == 0 ) {
+		else if (arg == "-np") {
 			wait_exit = false;
 		}
-		else if ( strcmp((*argv), "-o" ) == 0 ) {
+		else if (arg == "-o") {
 			overwrite = true;
 		}
 		#if defined(DEV_BUILD)
-		else if ( strcmp((*argv), "-dev") == 0 ) {
+		else if (arg == "-dev") {
 			developer = true;
 		}
-		else if ( strcmp((*argv), "-test") == 0 ) {
+		else if (arg == "-test") {
 			verify_lv = 2;
 		}
-		else if ( sscanf( (*argv), "-t%i,%i", &i, &tmp_val ) == 2 ) {			
+		else if ( sscanf(arg.c_str(), "-t%i,%i", &i, &tmp_val ) == 2 ) {
 			i = ( i < 0 ) ? 0 : i;
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
@@ -1145,7 +1146,7 @@ INTERN void initialize_options( int argc, char** argv )
 			nois_trs[ i ] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-s%i,%i", &i, &tmp_val ) == 2 ) {
+		else if ( sscanf(arg.c_str(), "-s%i,%i", &i, &tmp_val ) == 2 ) {
 			i = ( i < 0 ) ? 0 : i;
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
@@ -1153,7 +1154,7 @@ INTERN void initialize_options( int argc, char** argv )
 			segm_cnt[ i ] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-t%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-t%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
 			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
 			nois_trs[0] = tmp_val;
@@ -1162,7 +1163,7 @@ INTERN void initialize_options( int argc, char** argv )
 			nois_trs[3] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-s%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-s%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
 			tmp_val = ( tmp_val > 64 ) ? 64 : tmp_val;
 			segm_cnt[0] = tmp_val;
@@ -1171,38 +1172,38 @@ INTERN void initialize_options( int argc, char** argv )
 			segm_cnt[3] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-coll%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
 			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
 			collmode = tmp_val;
 			action = A_COLL_DUMP;
 		}
-		else if ( sscanf( (*argv), "-fcol%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-fcol%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
 			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
 			collmode = tmp_val;
 			action = A_FCOLL_DUMP;
 		}
-		else if ( strcmp((*argv), "-split") == 0 ) {
+		else if (arg == "-split") {
 			action = A_SPLIT_DUMP;
 		}
-		else if ( strcmp((*argv), "-zdst") == 0 ) {
+		else if (arg == "-zdst") {
 			action = A_ZDST_DUMP;
 		}	
-		else if ( strcmp((*argv), "-info") == 0 ) {
+		else if (arg == "-info") {
 			action = A_TXT_INFO;
 		}
-		else if ( strcmp((*argv), "-dist") == 0 ) {
+		else if (arg == "-dist") {
 			action = A_DIST_INFO;
 		}
-		else if ( strcmp((*argv), "-pgm") == 0 ) {
+		else if (arg == "-pgm") {
 			action = A_PGM_DUMP;
 		}
-	   	else if ( ( strcmp((*argv), "-comp") == 0) ) {
+	   	else if (arg == "-comp") {
 			action = A_COMPRESS;
 		}
 		#endif
-		else if ( strcmp((*argv), "-") == 0 ) {
+		else if (arg == "-") {
 			// switch standard message out stream
 			msgout = stderr;
 			// use "-" as placeholder for stdin
@@ -1210,7 +1211,7 @@ INTERN void initialize_options( int argc, char** argv )
 		}
 		else {
 			// if argument is not switch, it's a filename
-			filelist.push_back(*argv);
+			filelist.push_back(arg);
 		}		
 	}
 	
