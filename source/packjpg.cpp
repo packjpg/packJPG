@@ -373,7 +373,7 @@ struct huffTree {
 #if !defined( BUILD_LIB )
 INTERN void initialize_options( int argc, char** argv );
 INTERN void process_ui( void );
-INTERN inline const char* get_status( bool (*function)() );
+static std::string get_status( bool (*function)() );
 INTERN void show_help( void );
 #endif
 INTERN void process_file( void );
@@ -1364,7 +1364,7 @@ INTERN void process_ui( void )
 		
 		// error/ warning message
 		if ( errorlevel > 0 ) {
-			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg.c_str());
+			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ).c_str(), errtypemsg.c_str());
 			fprintf( msgout, " %s\n", errormessage );
 		}
 		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
@@ -1399,9 +1399,9 @@ INTERN void process_ui( void )
 	----------------------------------------------- */
 	
 #if !defined(BUILD_LIB)
-INTERN inline const char* get_status( bool (*function)() )
+INTERN inline std::string get_status( bool (*function)() )
 {	
-	if ( function == NULL ) {
+	if ( function == nullptr ) {
 		return "unknown action";
 	} else if ( function == *check_file ) {
 		return "Determining filetype";
@@ -1692,8 +1692,8 @@ INTERN void execute( bool (*function)() )
 		
 		// write statusmessage
 		if ( verbosity == 2 ) {
-			fprintf( msgout,  "\n%s ", get_status( function ) );
-			for ( int i = strlen( get_status( function ) ); i <= 30; i++ )
+			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
+			for ( int i = strlen( get_status( function ).c_str()); i <= 30; i++ )
 				fprintf( msgout,  " " );			
 		}
 		
@@ -6914,7 +6914,7 @@ INTERN bool dump_errfile( void )
 	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].c_str());
 	fprintf( fp, "\n" );
 	// write error specification to file
-	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ),
+	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ).c_str(),
 			( errorlevel == 1 ) ? "warning" : "error" );
 	fprintf( fp, " %s\n", errormessage );
 	
