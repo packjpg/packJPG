@@ -357,7 +357,7 @@ struct componentInfo {
 struct huffCodes {
 	std::array<std::uint16_t, 256> cval = { 0 };
 	std::array<std::uint16_t, 256> clen = { 0 };
-	std::uint16_t max_eobrun;
+	std::uint16_t max_eobrun = 0;
 };
 
 struct huffTree {
@@ -435,8 +435,8 @@ INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, i
 INTERN int jpg_next_mcuposn( int* cmp, int* dpos, int* rstw );
 INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun );
 
-INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
-				huffCodes *hc, huffTree *ht );
+static huffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
+static huffTree build_hufftree(const huffCodes& codes);
 
 /* -----------------------------------------------
 	function declarations: pjg-specific
@@ -3614,8 +3614,8 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 					
 				hpos++;
 				// build huffman codes & trees
-				jpg_build_huffcodes( &(segment[ hpos + 0 ]), &(segment[ hpos + 16 ]),
-					&(hcodes[ lval ][ rval ]), &(htrees[ lval ][ rval ]) );
+				hcodes[lval][rval] = build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
+				htrees[lval][rval] = build_hufftree(hcodes[lval][rval]);
 				htset[ lval ][ rval ] = 1;
 				
 				skip = 16;
@@ -4574,28 +4574,19 @@ INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun )
 	return 0;
 }
 
-
 /* -----------------------------------------------
-	creates huffman-codes & -trees from dht-data
-	----------------------------------------------- */
-INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffCodes *hc, huffTree *ht )
-{
-	int nextfree;	
-	int code;
-	int node;
-	int i, j, k;
-	
-	// 1st part -> build huffman codes
-	
-	// creating huffman-codes	
-	k = 0;
-	code = 0;	
+creates huffman-codes from dht-data
+----------------------------------------------- */
+static huffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
+	huffCodes codes;
+	int k = 0;
+	int code = 0;
 	
 	// symbol-value of code is its position in the table
-	for( i = 0; i < 16; i++ ) {
-		for( j = 0; j < (int) clen[ i ]; j++ ) {
-			hc->clen[ (int) cval[k] ] = 1 + i;
-			hc->cval[ (int) cval[k] ] = code;
+	for(int i = 0; i < 16; i++ ) {
+		for(int j = 0; j < (int) clen[ i ]; j++ ) {
+			codes.clen[ (int) cval[k] ] = 1 + i;
+			codes.cval[ (int) cval[k] ] = code;
 			
 			k++;			
 			code++;
@@ -4604,44 +4595,46 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 	}
 	
 	// find out eobrun max value
-	hc->max_eobrun = 0;
-	for ( i = 14; i >= 0; i-- ) {
-		if ( hc->clen[ i << 4 ] > 0 ) {
-			hc->max_eobrun = ( 2 << i ) - 1;
+	for (int i = 14; i >= 0; i-- ) {
+		if (codes.clen[ i << 4 ] > 0 ) {
+			codes.max_eobrun = ( 2 << i ) - 1;
 			break;
 		}
 	}
-	
-	// 2nd -> part use codes to build the coding tree
-	
+	return codes;
+}
+
+static huffTree build_hufftree(const huffCodes& hc) {
+	huffTree tree;
 	// initial value for next free place
-	nextfree = 1;
+	int nextfree = 1;
 
 	// work through every code creating links between the nodes (represented through ints)
-	for ( i = 0; i < 256; i++ )	{
+	for (int i = 0; i < 256; i++ )	{
 		// (re)set current node
-		node = 0;   		   		
+		int node = 0;   		   		
 		// go through each code & store path
-		for ( j = hc->clen[ i ] - 1; j > 0; j-- ) {
-			if ( BITN( hc->cval[ i ], j ) == 1 ) {
-				if ( ht->r[ node ] == 0 )
-					 ht->r[ node ] = nextfree++;
-				node = ht->r[ node ];
+		for (int j = hc.clen[ i ] - 1; j > 0; j-- ) {
+			if ( BITN( hc.cval[ i ], j ) == 1 ) {
+				if (tree.r[ node ] == 0 )
+					tree.r[ node ] = nextfree++;
+				node = tree.r[ node ];
 			}
 			else{
-				if ( ht->l[ node ] == 0 )
-					ht->l[ node ] = nextfree++;
-				node = ht->l[ node ];
+				if (tree.l[ node ] == 0 )
+					tree.l[ node ] = nextfree++;
+				node = tree.l[ node ];
 			}   					
 		}
 		// last link is number of targetvalue + 256
-		if ( hc->clen[ i ] > 0 ) {
-			if ( BITN( hc->cval[ i ], 0 ) == 1 )
-				ht->r[ node ] = i + 256;
+		if ( hc.clen[ i ] > 0 ) {
+			if ( BITN( hc.cval[ i ], 0 ) == 1 )
+				tree.r[ node ] = i + 256;
 			else
-				ht->l[ node ] = i + 256;
+				tree.l[ node ] = i + 256;
 		}	   	
 	}
+	return tree;
 }
 
 /* ----------------------- End of JPEG specific functions -------------------------- */
