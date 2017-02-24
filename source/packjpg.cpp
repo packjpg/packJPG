@@ -397,6 +397,13 @@ INTERN bool unpack_pjg( void );
 
 namespace jpg {
 
+enum CodingStatus {
+	OKAY = 0,
+	RESTART = 1,
+	ERROR = -1,
+	DONE = 2
+};
+
 bool setup_imginfo();
 bool rebuild_header();
 
@@ -405,8 +412,8 @@ bool parse_jfif(unsigned char type, unsigned int len, unsigned char* segment);
 HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
 HuffTree build_hufftree(const HuffCodes& codes);
 
-int next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
-int next_mcuposn(int* cmp, int* dpos, int* rstw);
+jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+jpg::CodingStatus next_mcuposn(int* cmp, int* dpos, int* rstw);
 
 namespace encode {
 bool recode();
@@ -416,7 +423,7 @@ int block_seq(abitwriter* huffw, const HuffCodes& dctbl, const HuffCodes& actbl,
 void dc_prg_fs(abitwriter* huffw, const HuffCodes& dctbl, short* block);
 int ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* block,
               int* eobrun, int from, int to);
-int dc_prg_sa(abitwriter* huffw, short* block);
+void dc_prg_sa(abitwriter* huffw, short* block);
 int ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCodes& actbl,
               short* block, int* eobrun, int from, int to);
 int eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun);
@@ -429,15 +436,15 @@ bool decode();
 bool check_value_range();
 
 int block_seq(abitreader* huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
-int dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block);
+jpg::CodingStatus dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block);
 int ac_prg_fs(abitreader* huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
-int dc_prg_sa(abitreader* huffr, short* block);
+void dc_prg_sa(abitreader* huffr, short* block);
 int ac_prg_sa(abitreader* huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
 int eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to);
 
-int skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun);
+jpg::CodingStatus skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun);
 
 int next_huffcode(abitreader* huffr, const HuffTree& ctree);
 }
@@ -2409,7 +2416,7 @@ bool jpg::decode::decode()
 	
 	int cmp, bpos, dpos;
 	int mcu, sub, csc;
-	int eob, sta;
+	int eob;
 	
 	
 	// open huffman coded image data for input in abitreader
@@ -2468,7 +2475,7 @@ bool jpg::decode::decode()
 			
 			// (re)set status
 			eob = 0;
-			sta = 0;
+			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
 			eobrun  = 0;
@@ -2482,7 +2489,7 @@ bool jpg::decode::decode()
 			{				
 				if ( jpegtype == 1 ) {
 					// ---> sequential interleaved decoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
 						eob = jpg::decode::block_seq( huffr,
 						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
@@ -2504,17 +2511,17 @@ bool jpg::decode::decode()
 							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else if ( cs_sah == 0 ) {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
-					while ( sta == 0 ) {
-						sta = jpg::decode::dc_prg_fs( huffr,
-													htrees[0][cmpnfo[cmp].huffdc],
-						                            block );
+					while ( status == jpg::CodingStatus::OKAY ) {
+						status = jpg::decode::dc_prg_fs( huffr,
+						                              htrees[0][cmpnfo[cmp].huffdc],
+						                              block );
 						
 						// fix dc for diff coding
 						colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2524,24 +2531,21 @@ bool jpg::decode::decode()
 						colldata[cmp][0][dpos] <<= cs_sal;
 						
 						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( status != jpg::CodingStatus::ERROR )
+							status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 				else {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation later stage <---					
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode next bit
-						sta = jpg::decode::dc_prg_sa( huffr,
-							block );
+						jpg::decode::dc_prg_sa(huffr, block);
 						
 						// shift in next bit
 						colldata[cmp][0][dpos] += block[0] << cs_sal;
 						
-						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -2549,7 +2553,7 @@ bool jpg::decode::decode()
 			{
 				if ( jpegtype == 1 ) {
 					// ---> sequential non interleaved decoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
 						eob = jpg::decode::block_seq( huffr,
 						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
@@ -2571,18 +2575,18 @@ bool jpg::decode::decode()
 							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 					}
 				}
 				else if ( cs_to == 0 ) {					
 					if ( cs_sah == 0 ) {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
-							sta = jpg::decode::dc_prg_fs( huffr,
-							                            htrees[0][cmpnfo[cmp].huffdc],
-							                            block );
+						while ( status == jpg::CodingStatus::OKAY ) {
+							status = jpg::decode::dc_prg_fs( huffr,
+							                              htrees[0][cmpnfo[cmp].huffdc],
+							                              block );
 								
 							// fix dc for diff coding
 							colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2592,24 +2596,22 @@ bool jpg::decode::decode()
 							colldata[cmp][0][dpos] <<= cs_sal;
 							
 							// check for errors, increment dpos otherwise
-							if ( sta != -1 )
-								sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							if ( status != jpg::CodingStatus::ERROR )
+								status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation later stage <---
-						while( sta == 0 ) {
+						while( status == jpg::CodingStatus::OKAY ) {
 							// decode next bit
-							sta = jpg::decode::dc_prg_sa( huffr,
-								block );
+							jpg::decode::dc_prg_sa(huffr, block);
 							
 							// shift in next bit
 							colldata[cmp][0][dpos] += block[0] << cs_sal;
 							
-							// check for errors, increment dpos otherwise
-							if ( sta != -1 )
-								sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							// increment dpos
+							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2617,7 +2619,7 @@ bool jpg::decode::decode()
 					if ( cs_sah == 0 ) {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
 								eob = jpg::decode::ac_prg_fs( huffr,
@@ -2642,18 +2644,18 @@ bool jpg::decode::decode()
 							} else eobrun--;
 							
 							// check for errors
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg::decode::skip_eobrun( &cmp, &dpos, &rstw, &eobrun );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::decode::skip_eobrun(&cmp, &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
-							if ( sta == 0 )
-								sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							if ( status == jpg::CodingStatus::OKAY )
+								status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
@@ -2690,8 +2692,8 @@ bool jpg::decode::decode()
 								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
 							
 							// proceed only if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2710,18 +2712,17 @@ bool jpg::decode::decode()
 			}
 			
 			// evaluate status
-			if ( sta == -1 ) { // status -1 means error
+			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
 				delete huffr;
 				errorlevel = 2;
 				return false;
 			}
-			else if ( sta == 2 ) { // status 2/3 means done
+			else if ( status == jpg::CodingStatus::DONE ) {
 				scnc++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
-			// else if ( sta == 1 ); // status 1 means restart - so stay in the loop
 		}
 	}
 	
@@ -2765,7 +2766,7 @@ bool jpg::encode::recode()
 	
 	int cmp, bpos, dpos;
 	int mcu, sub, csc;
-	int eob, sta;
+	int eob;
 	int tmp;
 	
 	
@@ -2846,7 +2847,7 @@ bool jpg::encode::recode()
 			lastdc[ 3 ] = 0;
 			
 			// (re)set status
-			sta = 0;
+			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
 			eobrun = 0;
@@ -2859,7 +2860,7 @@ bool jpg::encode::recode()
 			{				
 				if ( jpegtype == 1 ) {
 					// ---> sequential interleaved encoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
 						for ( bpos = 0; bpos < 64; bpos++ )
 							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
@@ -2875,14 +2876,14 @@ bool jpg::encode::recode()
 						                            block );
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 				else if ( cs_sah == 0 ) {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation first stage <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
 						tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
@@ -2894,22 +2895,20 @@ bool jpg::encode::recode()
 						                     block);
 						
 						// next mcupos
-						sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 				else {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation later stage <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
 						block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
 						
 						// encode dc correction bit
-						sta = jpg::encode::dc_prg_sa( huffw, block );
+						jpg::encode::dc_prg_sa(huffw, block);
 						
-						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 			}
@@ -2917,7 +2916,7 @@ bool jpg::encode::recode()
 			{
 				if ( jpegtype == 1 ) {
 					// ---> sequential non interleaved encoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
 						for ( bpos = 0; bpos < 64; bpos++ )
 							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
@@ -2933,15 +2932,15 @@ bool jpg::encode::recode()
 						                            block );
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );	
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcuposn( &cmp, &dpos, &rstw );	
 					}
 				}
 				else if ( cs_to == 0 ) {
 					if ( cs_sah == 0 ) {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
 							tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
@@ -2953,22 +2952,21 @@ bool jpg::encode::recode()
 							                     block);							
 							
 							// check for errors, increment dpos otherwise
-							sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
 							block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
 							
 							// encode dc correction bit
-							sta = jpg::encode::dc_prg_sa( huffw, block );
+							jpg::encode::dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							if ( sta != -1 )
-								sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2976,7 +2974,7 @@ bool jpg::encode::recode()
 					if ( cs_sah == 0 ) {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
@@ -2988,8 +2986,8 @@ bool jpg::encode::recode()
 							                            block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3000,7 +2998,7 @@ bool jpg::encode::recode()
 					else {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
@@ -3012,8 +3010,8 @@ bool jpg::encode::recode()
 							                            block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg::next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3031,18 +3029,18 @@ bool jpg::encode::recode()
 			huffw->pad();
 			
 			// evaluate status
-			if ( sta == -1 ) { // status -1 means error
+			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
 				delete huffw;
 				errorlevel = 2;
 				return false;
 			}
-			else if ( sta == 2 ) { // status 2 means done
+			else if ( status == jpg::CodingStatus::DONE ) {
 				scnc++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
-			else if ( sta == 1 ) { // status 1 means restart
+			else if ( status == jpg::CodingStatus::RESTART ) {
 				if ( rsti > 0 ) // store rstp & stay in the loop
 					rstp[ rstc++ ] = huffw->getpos() - 1;
 			}
@@ -4017,19 +4015,19 @@ int jpg::encode::block_seq(abitwriter* huffw, const HuffCodes& dctbl, const Huff
 /* -----------------------------------------------
 	progressive DC decoding routine
 	----------------------------------------------- */
-int jpg::decode::dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block)
+jpg::CodingStatus jpg::decode::dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block)
 {
 	// decode dc
 	int hc = jpg::decode::next_huffcode(huffr, dctree);
 	if (hc < 0) {
-		return -1; // return error
+		return jpg::CodingStatus::ERROR; // return error
 	}
 	int s = hc;
 	std::uint16_t n = huffr->read(s);
 	block[0] = DEVLI( s, n );
 
 	// return 0 if everything is ok
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
 
@@ -4155,26 +4153,20 @@ int jpg::encode::ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* blo
 /* -----------------------------------------------
 	progressive DC SA decoding routine
 	----------------------------------------------- */
-int jpg::decode::dc_prg_sa( abitreader* huffr, short* block )
+void jpg::decode::dc_prg_sa(abitreader* huffr, short* block)
 {
 	// decode next bit of dc coefficient
 	block[ 0 ] = huffr->read( 1 );
-	
-	// return 0 if everything is ok
-	return 0;
 }
 
 
 /* -----------------------------------------------
 	progressive DC SA encoding routine
 	----------------------------------------------- */
-int jpg::encode::dc_prg_sa( abitwriter* huffw, short* block )
+void jpg::encode::dc_prg_sa(abitwriter* huffw, short* block)
 {
 	// enocode next bit of dc coefficient
 	huffw->write( block[ 0 ], 1 );
-	
-	// return 0 if everything is ok
-	return 0;
 }
 
 
@@ -4435,9 +4427,9 @@ int jpg::decode::next_huffcode(abitreader *huffr, const HuffTree& ctree)
 /* -----------------------------------------------
 	calculates next position for MCU
 	----------------------------------------------- */
-int jpg::next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw )
+jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
-	int sta = 0; // status
+	jpg::CodingStatus sta = jpg::CodingStatus::OKAY;
 	
 	
 	// increment all counts where needed
@@ -4448,9 +4440,9 @@ int jpg::next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rs
 			(*csc) = 0;
 			(*cmp) = cs_cmp[ 0 ];
 			(*mcu)++;
-			if ( (*mcu) >= mcuc ) sta = 2;
+			if ( (*mcu) >= mcuc ) sta = jpg::CodingStatus::DONE;
 			else if ( rsti > 0 )
-				if ( --(*rstw) == 0 ) sta = 1;
+				if ( --(*rstw) == 0 ) sta = jpg::CodingStatus::RESTART;
 		}
 		else {
 			(*cmp) = cs_cmp[(*csc)];
@@ -4480,7 +4472,7 @@ int jpg::next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rs
 /* -----------------------------------------------
 	calculates next position (non interleaved)
 	----------------------------------------------- */
-int jpg::next_mcuposn( int* cmp, int* dpos, int* rstw )
+jpg::CodingStatus jpg::next_mcuposn(int* cmp, int* dpos, int* rstw)
 {
 	// increment position
 	(*dpos)++;
@@ -4498,26 +4490,26 @@ int jpg::next_mcuposn( int* cmp, int* dpos, int* rstw )
 	}
 	
 	// check position
-	if ( (*dpos) >= cmpnfo[(*cmp)].bc ) return 2;
+	if ( (*dpos) >= cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::DONE;
 	else if ( rsti > 0 )
-		if ( --(*rstw) == 0 ) return 1;
+		if ( --(*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	
 
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
 
 /* -----------------------------------------------
 	skips the eobrun, calculates next position
 	----------------------------------------------- */
-int jpg::decode::skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun )
+jpg::CodingStatus jpg::decode::skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
 		// compare rst wait counter if needed
 		if ( rsti > 0 ) {
 			if ( (*eobrun) > (*rstw) )
-				return -1;
+				return jpg::CodingStatus::ERROR;
 			else
 				(*rstw) -= (*eobrun);
 		}
@@ -4542,13 +4534,13 @@ int jpg::decode::skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun )
 		(*eobrun) = 0;
 		
 		// check position
-		if ( (*dpos) == cmpnfo[(*cmp)].bc ) return 2;
-		else if ( (*dpos) > cmpnfo[(*cmp)].bc ) return -1;
+		if ( (*dpos) == cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::DONE;
+		else if ( (*dpos) > cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::ERROR;
 		else if ( rsti > 0 ) 
-			if ( (*rstw) == 0 ) return 1;
+			if ( (*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	}
 	
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
 /* -----------------------------------------------
