@@ -542,9 +542,9 @@ INTERN int lib_out_type = -1;
 	----------------------------------------------- */
 
 INTERN unsigned short qtables[4][64];				// quantization tables
-INTERN huffCodes      hcodes[2][4];				// huffman codes
-INTERN huffTree       htrees[2][4];				// huffman decoding trees
-INTERN unsigned char  htset[2][4];					// 1 if huffman table is set
+static huffCodes hcodes[2][4]; // huffman codes
+static huffTree htrees[2][4]; // huffman decoding trees
+static bool htset[2][4]; // 1 if huffman table is set
 
 INTERN unsigned char* grbgdata		   =   NULL;	// garbage data
 INTERN unsigned char* hdrdata          =   NULL;   // header data
@@ -2049,8 +2049,8 @@ INTERN bool reset_buffers( void )
 	
 	// reset quantization / huffman tables
 	for ( i = 0; i < 4; i++ ) {
-		htset[ 0 ][ i ] = 0;
-		htset[ 1 ][ i ] = 0;
+		htset[ 0 ][ i ] = false;
+		htset[ 1 ][ i ] = false;
 		for ( bpos = 0; bpos < 64; bpos++ )
 			qtables[ i ][ bpos ] = 0;
 	}
@@ -2435,8 +2435,8 @@ INTERN bool decode_jpeg( void )
 		// check if huffman tables are available
 		for ( csc = 0; csc < cs_cmpc; csc++ ) {
 			cmp = cs_cmp[ csc ];
-			if ( ( ( cs_sal == 0 ) && ( htset[ 0 ][ cmpnfo[cmp].huffdc ] == 0 ) ) ||
-				 ( ( cs_sah >  0 ) && ( htset[ 1 ][ cmpnfo[cmp].huffac ] == 0 ) ) ) {
+			if ( ( ( cs_sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
+				 ( ( cs_sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", scnc );
 				delete huffr;
 				errorlevel = 2;
@@ -3616,7 +3616,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 				// build huffman codes & trees
 				hcodes[lval][rval] = build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
 				htrees[lval][rval] = build_hufftree(hcodes[lval][rval]);
-				htset[ lval ][ rval ] = 1;
+				htset[lval][rval] = true;
 				
 				skip = 16;
 				for ( i = 0; i < 16; i++ )		
@@ -4583,21 +4583,21 @@ static huffCodes build_huffcodes(const unsigned char* clen, const unsigned char*
 	int code = 0;
 	
 	// symbol-value of code is its position in the table
-	for(int i = 0; i < 16; i++ ) {
-		for(int j = 0; j < (int) clen[ i ]; j++ ) {
-			codes.clen[ (int) cval[k] ] = 1 + i;
-			codes.cval[ (int) cval[k] ] = code;
-			
-			k++;			
+	for (int i = 0; i < 16; i++) {
+		for (int j = 0; j < (int)clen[i]; j++) {
+			codes.clen[(int)cval[k]] = 1 + i;
+			codes.cval[(int)cval[k]] = code;
+
+			k++;
 			code++;
-		}		
+		}
 		code = code << 1;
 	}
 	
 	// find out eobrun max value
-	for (int i = 14; i >= 0; i-- ) {
-		if (codes.clen[ i << 4 ] > 0 ) {
-			codes.max_eobrun = ( 2 << i ) - 1;
+	for (int i = 14; i >= 0; i--) {
+		if (codes.clen[i << 4] > 0) {
+			codes.max_eobrun = (2 << i) - 1;
 			break;
 		}
 	}
@@ -4610,29 +4610,31 @@ static huffTree build_hufftree(const huffCodes& hc) {
 	int nextfree = 1;
 
 	// work through every code creating links between the nodes (represented through ints)
-	for (int i = 0; i < 256; i++ )	{
+	for (int i = 0; i < 256; i++) {
 		// (re)set current node
-		int node = 0;   		   		
+		int node = 0;
 		// go through each code & store path
-		for (int j = hc.clen[ i ] - 1; j > 0; j-- ) {
-			if ( BITN( hc.cval[ i ], j ) == 1 ) {
-				if (tree.r[ node ] == 0 )
-					tree.r[ node ] = nextfree++;
-				node = tree.r[ node ];
+		for (int j = hc.clen[i] - 1; j > 0; j--) {
+			if (BITN(hc.cval[i], j) == 1) {
+				if (tree.r[node] == 0) {
+					tree.r[node] = nextfree++;
+				}
+				node = tree.r[node];
+			} else {
+				if (tree.l[node] == 0) {
+					tree.l[node] = nextfree++;
+				}
+				node = tree.l[node];
 			}
-			else{
-				if (tree.l[ node ] == 0 )
-					tree.l[ node ] = nextfree++;
-				node = tree.l[ node ];
-			}   					
 		}
 		// last link is number of targetvalue + 256
-		if ( hc.clen[ i ] > 0 ) {
-			if ( BITN( hc.cval[ i ], 0 ) == 1 )
-				tree.r[ node ] = i + 256;
-			else
-				tree.l[ node ] = i + 256;
-		}	   	
+		if (hc.clen[i] > 0) {
+			if (BITN(hc.cval[i], 0) == 1) {
+				tree.r[node] = i + 256;
+			} else {
+				tree.l[node] = i + 256;
+			}
+		}
 	}
 	return tree;
 }
