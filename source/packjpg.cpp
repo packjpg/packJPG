@@ -409,28 +409,28 @@ INTERN bool jpg_setup_imginfo( void );
 INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char* segment );
 INTERN bool jpg_rebuild_header( void );
 
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block );
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block );
+INTERN int jpg_decode_block_seq(abitreader* huffr, const huffTree& dctree, const huffTree& actree, short* block);
+INTERN int jpg_encode_block_seq(abitwriter* huffw, const huffCodes& dctbl, const huffCodes& actbl, short* block);
 
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block );
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block );
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block,
-						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block,
-						int* eobrun, int from, int to );
+INTERN int jpg_decode_dc_prg_fs(abitreader* huffr, const huffTree& dctree, short* block);
+INTERN int jpg_encode_dc_prg_fs(abitwriter* huffw, const huffCodes& dctbl, short* block);
+INTERN int jpg_decode_ac_prg_fs(abitreader* huffr, const huffTree& actree, short* block,
+                                int* eobrun, int from, int to);
+INTERN int jpg_encode_ac_prg_fs(abitwriter* huffw, const huffCodes& actbl, short* block,
+                                int* eobrun, int from, int to);
 
 INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block );
 INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block );
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block,
-						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl,
-						short* block, int* eobrun, int from, int to );
+INTERN int jpg_decode_ac_prg_sa(abitreader* huffr, const huffTree& actree, short* block,
+                                int* eobrun, int from, int to);
+INTERN int jpg_encode_ac_prg_sa(abitwriter* huffw, abytewriter* storw, const huffCodes& actbl,
+                                short* block, int* eobrun, int from, int to);
 
 INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to );
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun );
+INTERN int jpg_encode_eobrun(abitwriter* huffw, const huffCodes& actbl, int* eobrun);
 INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw );
 
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree );
+INTERN int jpg_next_huffcode(abitreader *huffw, const huffTree& ctree);
 INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw );
 INTERN int jpg_next_mcuposn( int* cmp, int* dpos, int* rstw );
 INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun );
@@ -2480,9 +2480,9 @@ INTERN bool decode_jpeg( void )
 					while ( sta == 0 ) {
 						// decode block
 						eob = jpg_decode_block_seq( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							&(htrees[ 1 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+													htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                            block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2508,8 +2508,8 @@ INTERN bool decode_jpeg( void )
 					// ---> succesive approximation first stage <---
 					while ( sta == 0 ) {
 						sta = jpg_decode_dc_prg_fs( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							block );
+													htrees[0][cmpnfo[cmp].huffdc],
+						                            block );
 						
 						// fix dc for diff coding
 						colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2547,9 +2547,9 @@ INTERN bool decode_jpeg( void )
 					while ( sta == 0 ) {
 						// decode block
 						eob = jpg_decode_block_seq( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							&(htrees[ 1 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+						                            htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                            block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2576,8 +2576,8 @@ INTERN bool decode_jpeg( void )
 						// ---> succesive approximation first stage <---
 						while ( sta == 0 ) {
 							sta = jpg_decode_dc_prg_fs( huffr,
-								&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-								block );
+							                            htrees[0][cmpnfo[cmp].huffdc],
+							                            block );
 								
 							// fix dc for diff coding
 							colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2616,8 +2616,8 @@ INTERN bool decode_jpeg( void )
 							if ( eobrun == 0 ) {
 								// decode block
 								eob = jpg_decode_ac_prg_fs( huffr,
-									&(htrees[ 1 ][ cmpnfo[cmp].huffac ]),
-									block, &eobrun, cs_from, cs_to );
+								                            htrees[1][cmpnfo[cmp].huffac],
+								                            block, &eobrun, cs_from, cs_to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2656,8 +2656,8 @@ INTERN bool decode_jpeg( void )
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
 								eob = jpg_decode_ac_prg_sa( huffr,
-									&(htrees[ 1 ][ cmpnfo[cmp].huffac ]),
-									block, &eobrun, cs_from, cs_to );
+								                            htrees[1][cmpnfo[cmp].huffac],
+								                            block, &eobrun, cs_from, cs_to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2865,9 +2865,9 @@ INTERN bool recode_jpeg( void )
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							block );
+						                            hcodes[0][cmpnfo[cmp].huffac],
+						                            hcodes[1][cmpnfo[cmp].huffac],
+						                            block );
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) sta = -1;
@@ -2885,8 +2885,8 @@ INTERN bool recode_jpeg( void )
 						
 						// encode dc
 						sta = jpg_encode_dc_prg_fs( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						                            hcodes[0][cmpnfo[cmp].huffdc],
+						                            block );
 						
 						// next mcupos if no error happened
 						if ( sta != -1 )
@@ -2924,9 +2924,9 @@ INTERN bool recode_jpeg( void )
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							block );
+						                            hcodes[0][cmpnfo[cmp].huffac],
+						                            hcodes[1][cmpnfo[cmp].huffac],
+						                            block );
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) sta = -1;
@@ -2945,8 +2945,8 @@ INTERN bool recode_jpeg( void )
 							
 							// encode dc
 							sta = jpg_encode_dc_prg_fs( huffw,
-								&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
-								block );							
+							                            hcodes[0][cmpnfo[cmp].huffdc],
+							                            block );							
 							
 							// check for errors, increment dpos otherwise
 							if ( sta != -1 )
@@ -2981,8 +2981,8 @@ INTERN bool recode_jpeg( void )
 							
 							// encode block
 							eob = jpg_encode_ac_prg_fs( huffw,
-								&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-								block, &eobrun, cs_from, cs_to );
+							                            hcodes[1][cmpnfo[cmp].huffac],
+							                            block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) sta = -1;
@@ -2991,8 +2991,8 @@ INTERN bool recode_jpeg( void )
 						
 						// encode remaining eobrun
 						jpg_encode_eobrun( huffw,
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							&eobrun );
+						                   hcodes[1][cmpnfo[cmp].huffac],
+						                   &eobrun );
 					}
 					else {
 						// ---> progressive non interleaved AC encoding <---
@@ -3005,8 +3005,8 @@ INTERN bool recode_jpeg( void )
 							
 							// encode block
 							eob = jpg_encode_ac_prg_sa( huffw, storw,
-								&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-								block, &eobrun, cs_from, cs_to );
+							                            hcodes[1][cmpnfo[cmp].huffac],
+							                            block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) sta = -1;
@@ -3015,8 +3015,8 @@ INTERN bool recode_jpeg( void )
 						
 						// encode remaining eobrun
 						jpg_encode_eobrun( huffw,
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							&eobrun );
+						                   hcodes[1][cmpnfo[cmp].huffac],
+						                   &eobrun );
 							
 						// encode remaining correction bits
 						jpg_encode_crbits( huffw, storw );
@@ -3921,7 +3921,7 @@ INTERN bool jpg_rebuild_header( void )
 /* -----------------------------------------------
 	sequential block decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block )
+INTERN int jpg_decode_block_seq(abitreader* huffr, const huffTree& dctree, const huffTree& actree, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3976,7 +3976,7 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 /* -----------------------------------------------
 	sequential block encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block )
+INTERN int jpg_encode_block_seq(abitwriter* huffw, const huffCodes& dctbl, const huffCodes& actbl, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3988,7 +3988,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 	// encode DC
 	s = BITLEN2048N( block[ 0 ] );
 	n = ENVLI( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
+	huffw->write( dctbl.cval[ s ], dctbl.clen[ s ] );
 	huffw->write( n, s );
 	
 	// encode AC
@@ -3999,7 +3999,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 		if ( block[ bpos ] != 0 ) {
 			// write remaining zeroes
 			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
 				z -= 16;
 			}			
 			// vli encode
@@ -4007,7 +4007,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 			huffw->write( n, s );
 			// reset zeroes
 			z = 0;
@@ -4018,7 +4018,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 	}
 	// write eob if needed
 	if ( z > 0 )
-		huffw->write( actbl->cval[ 0x00 ], actbl->clen[ 0x00 ] );
+		huffw->write( actbl.cval[ 0x00 ], actbl.clen[ 0x00 ] );
 		
 	
 	return 64 - z;
@@ -4028,7 +4028,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 /* -----------------------------------------------
 	progressive DC decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block )
+INTERN int jpg_decode_dc_prg_fs(abitreader* huffr, const huffTree& dctree, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4051,7 +4051,7 @@ INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* blo
 /* -----------------------------------------------
 	progressive DC encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block )
+INTERN int jpg_encode_dc_prg_fs(abitwriter* huffw, const huffCodes& dctbl, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4060,7 +4060,7 @@ INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* blo
 	// encode DC	
 	s = BITLEN2048N( block[ 0 ] );
 	n = ENVLI( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
+	huffw->write( dctbl.cval[ s ], dctbl.clen[ s ] );
 	huffw->write( n, s );
 	
 	
@@ -4072,7 +4072,7 @@ INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* blo
 /* -----------------------------------------------
 	progressive AC decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+INTERN int jpg_decode_ac_prg_fs(abitreader* huffr, const huffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4125,7 +4125,7 @@ INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* blo
 /* -----------------------------------------------
 	progressive AC encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+INTERN int jpg_encode_ac_prg_fs(abitwriter* huffw, const huffCodes& actbl, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4143,7 +4143,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 			jpg_encode_eobrun( huffw, actbl, eobrun );
 			// write remaining zeroes
 			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
 				z -= 16;
 			}			
 			// vli encode
@@ -4151,7 +4151,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 			huffw->write( n, s );
 			// reset zeroes
 			z = 0;
@@ -4165,7 +4165,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 	if ( z > 0 ) {
 		(*eobrun)++;
 		// check eobrun, encode if needed
-		if ( (*eobrun) == actbl->max_eobrun )
+		if ( (*eobrun) == actbl.max_eobrun )
 			jpg_encode_eobrun( huffw, actbl, eobrun );
 		return 1 + to - z;		
 	}
@@ -4204,7 +4204,7 @@ INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block )
 /* -----------------------------------------------
 	progressive AC SA decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+INTERN int jpg_decode_ac_prg_sa(abitreader* huffr, const huffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4278,7 +4278,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 /* -----------------------------------------------
 	progressive AC SA encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+INTERN int jpg_encode_ac_prg_sa(abitwriter* huffw, abytewriter* storw, const huffCodes& actbl, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4309,7 +4309,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 		if ( block[ bpos ] == 0 ) {
 			z++; // increment zero counter
 			if ( z == 16 ) { // write zeroes if needed
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
 				jpg_encode_crbits( huffw, storw );
 				z = 0;
 			}
@@ -4321,7 +4321,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 			huffw->write( n, s );
 			// write correction bits
 			jpg_encode_crbits( huffw, storw );
@@ -4347,7 +4347,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 	if ( eob <= to ) {
 		(*eobrun)++;	
 		// check eobrun, encode if needed
-		if ( (*eobrun) == actbl->max_eobrun ) {
+		if ( (*eobrun) == actbl.max_eobrun ) {
 			jpg_encode_eobrun( huffw, actbl, eobrun );
 			jpg_encode_crbits( huffw, storw );		
 		}
@@ -4383,7 +4383,7 @@ INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, i
 /* -----------------------------------------------
 	run of EOB encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
+INTERN int jpg_encode_eobrun(abitwriter* huffw, const huffCodes& actbl, int* eobrun)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4391,16 +4391,16 @@ INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
 	
 	
 	if ( (*eobrun) > 0 ) {
-		while ( (*eobrun) > actbl->max_eobrun ) {
-			huffw->write( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
+		while ( (*eobrun) > actbl.max_eobrun ) {
+			huffw->write( actbl.cval[ 0xE0 ], actbl.clen[ 0xE0 ] );
 			huffw->write( E_ENVLI( 14, 32767 ), 14 );
-			(*eobrun) -= actbl->max_eobrun;
+			(*eobrun) -= actbl.max_eobrun;
 		}
 		BITLEN( s, (*eobrun) );
 		s--;
 		n = E_ENVLI( s, (*eobrun) );
 		hc = ( s << 4 );
-		huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+		huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 		huffw->write( n, s );
 		(*eobrun) = 0;
 	}
@@ -4440,14 +4440,14 @@ INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw )
 /* -----------------------------------------------
 	returns next code (from huffman-tree & -data)
 	----------------------------------------------- */
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree )
+INTERN int jpg_next_huffcode(abitreader *huffw, const huffTree& ctree)
 {	
 	int node = 0;
 	
 	
 	while ( node < 256 ) {
 		node = ( huffw->read( 1 ) == 1 ) ?
-				ctree->r[ node ] : ctree->l[ node ];
+				ctree.r[ node ] : ctree.l[ node ];
 		if ( node == 0 ) break;
 	}
 	
