@@ -426,8 +426,8 @@ int ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* block,
 void dc_prg_sa(abitwriter* huffw, short* block);
 int ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCodes& actbl,
               short* block, int* eobrun, int from, int to);
-int eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun);
-int crbits(abitwriter* huffw, abytewriter* storw);
+void eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun);
+void crbits(abitwriter* huffw, abytewriter* storw);
 }
 
 namespace decode {
@@ -442,7 +442,7 @@ int ac_prg_fs(abitreader* huffr, const HuffTree& actree, short* block,
 void dc_prg_sa(abitreader* huffr, short* block);
 int ac_prg_sa(abitreader* huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
-int eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to);
+void eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to);
 
 jpg::CodingStatus skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun);
 
@@ -2682,8 +2682,8 @@ bool jpg::decode::decode()
 							}
 							else {
 								// decode block (short routine)
-								eob = jpg::decode::eobrun_sa( huffr,
-									block, &eobrun, cs_from, cs_to );
+								jpg::decode::eobrun_sa(huffr, block, &eobrun, cs_from, cs_to);
+								eob = 0;
 								eobrun--;
 							}
 								
@@ -2991,9 +2991,7 @@ bool jpg::encode::recode()
 						}						
 						
 						// encode remaining eobrun
-						jpg::encode::eobrun( huffw,
-						                   hcodes[1][cmpnfo[cmp].huffac],
-						                   &eobrun );
+						jpg::encode::eobrun(huffw, hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 					}
 					else {
 						// ---> progressive non interleaved AC encoding <---
@@ -3015,9 +3013,7 @@ bool jpg::encode::recode()
 						}						
 						
 						// encode remaining eobrun
-						jpg::encode::eobrun( huffw,
-						                   hcodes[1][cmpnfo[cmp].huffac],
-						                   &eobrun );
+						jpg::encode::eobrun(huffw, hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 							
 						// encode remaining correction bits
 						jpg::encode::crbits( huffw, storw );
@@ -4115,7 +4111,7 @@ int jpg::encode::ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* blo
 		// if nonzero is encountered
 		if ( block[ bpos ] != 0 ) {
 			// encode eobrun
-			jpg::encode::eobrun( huffw, actbl, eobrun );
+			jpg::encode::eobrun(huffw, actbl, eobrun);
 			// write remaining zeroes
 			while ( z >= 16 ) {
 				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
@@ -4141,7 +4137,7 @@ int jpg::encode::ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* blo
 		(*eobrun)++;
 		// check eobrun, encode if needed
 		if ( (*eobrun) == actbl.max_eobrun )
-			jpg::encode::eobrun( huffw, actbl, eobrun );
+			jpg::encode::eobrun(huffw, actbl, eobrun);
 		return 1 + to - z;		
 	}
 	else {
@@ -4266,7 +4262,7 @@ int jpg::encode::ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCode
 	
 	// encode eobrun if needed
 	if ( ( eob > from ) && ( (*eobrun) > 0 ) ) {
-		jpg::encode::eobrun( huffw, actbl, eobrun );
+		jpg::encode::eobrun(huffw, actbl, eobrun);
 		jpg::encode::crbits( huffw, storw );
 	}
 	
@@ -4317,7 +4313,7 @@ int jpg::encode::ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCode
 		(*eobrun)++;	
 		// check eobrun, encode if needed
 		if ( (*eobrun) == actbl.max_eobrun ) {
-			jpg::encode::eobrun( huffw, actbl, eobrun );
+			jpg::encode::eobrun(huffw, actbl, eobrun);
 			jpg::encode::crbits( huffw, storw );		
 		}
 	}	
@@ -4330,7 +4326,7 @@ int jpg::encode::ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCode
 /* -----------------------------------------------
 	run of EOB SA decoding routine
 	----------------------------------------------- */
-int jpg::decode::eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to )
+void jpg::decode::eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	int bpos;
@@ -4343,16 +4339,13 @@ int jpg::decode::eobrun_sa( abitreader* huffr, short* block, int* eobrun, int fr
 			block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 		}
 	}
-	
-	
-	return 0;
 }
 
 
 /* -----------------------------------------------
 	run of EOB encoding routine
 	----------------------------------------------- */
-int jpg::encode::eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun)
+void jpg::encode::eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4373,16 +4366,13 @@ int jpg::encode::eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun)
 		huffw->write( n, s );
 		(*eobrun) = 0;
 	}
-
-	
-	return 0;
 }
 
 
 /* -----------------------------------------------
 	correction bits encoding routine
 	----------------------------------------------- */
-int jpg::encode::crbits( abitwriter* huffw, abytewriter* storw )
+void jpg::encode::crbits(abitwriter* huffw, abytewriter* storw)
 {	
 	unsigned char* data;
 	int len;
@@ -4391,7 +4381,7 @@ int jpg::encode::crbits( abitwriter* huffw, abytewriter* storw )
 	
 	// peek into data from abytewriter	
 	len = storw->getpos();
-	if ( len == 0 ) return 0;
+	if ( len == 0 ) return;
 	data = storw->peekptr();
 	
 	// write bits to huffwriter
@@ -4400,9 +4390,6 @@ int jpg::encode::crbits( abitwriter* huffw, abytewriter* storw )
 	
 	// reset abytewriter, discard data
 	storw->reset();
-	
-	
-	return 0;
 }
 
 
