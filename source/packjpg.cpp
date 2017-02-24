@@ -3932,11 +3932,9 @@ INTERN int jpg_decode_block_seq(abitreader* huffr, const huffTree& dctree, const
 	
 	
 	// decode dc
-	hc = jpg_next_huffcode( huffr, dctree );
-	if ( hc < 0 ) return -1; // return error
-	else s = ( unsigned char ) hc;
-	n = huffr->read( s );	
-	block[ 0 ] = DEVLI( s, n );
+	if (jpg_decode_dc_prg_fs(huffr, dctree, block) == -1) {
+		return -1; // Return error
+	}
 	
 	// decode ac
 	for ( bpos = 1; bpos < 64; )
@@ -3986,10 +3984,7 @@ INTERN int jpg_encode_block_seq(abitwriter* huffw, const huffCodes& dctbl, const
 	
 	
 	// encode DC
-	s = BITLEN2048N( block[ 0 ] );
-	n = ENVLI( s, block[ 0 ] );
-	huffw->write( dctbl.cval[ s ], dctbl.clen[ s ] );
-	huffw->write( n, s );
+	jpg_encode_dc_prg_fs(huffw, dctbl, block);
 	
 	// encode AC
 	z = 0;
