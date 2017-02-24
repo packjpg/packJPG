@@ -269,6 +269,7 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <array>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -354,14 +355,14 @@ struct componentInfo {
 };
 
 struct huffCodes {
-	unsigned short cval[ 256 ];
-	unsigned short clen[ 256 ];
-	unsigned short max_eobrun;
+	std::array<std::uint16_t, 256> cval = { 0 };
+	std::array<std::uint16_t, 256> clen = { 0 };
+	std::uint16_t max_eobrun;
 };
 
 struct huffTree {
-	unsigned short l[ 256 ];
-	unsigned short r[ 256 ];
+	std::array<std::uint16_t, 256> l = { 0 };
+	std::array<std::uint16_t, 256> r = { 0 };
 };
 
 
@@ -4583,13 +4584,6 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 	int code;
 	int node;
 	int i, j, k;
-	
-	
-	// fill with zeroes
-	memset( hc->clen, 0, 256 * sizeof( short ) );
-	memset( hc->cval, 0, 256 * sizeof( short ) );
-	memset( ht->l, 0, 256 * sizeof( short ) );
-	memset( ht->r, 0, 256 * sizeof( short ) );
 	
 	// 1st part -> build huffman codes
 	
