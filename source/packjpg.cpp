@@ -366,6 +366,12 @@ struct HuffTree {
 	std::array<std::uint16_t, 256> r = { 0 };
 };
 
+enum JpegType {
+	UNKNOWN = 0,
+	SEQUENTIAL = 1,
+	PROGRESSIVE = 2
+};
+
 
 /* -----------------------------------------------
 	function declarations: main interface
@@ -627,7 +633,7 @@ INTERN char*  jpgfilename = NULL;	// name of JPEG file
 INTERN char*  pjgfilename = NULL;	// name of PJG file
 INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
-INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
+static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
 INTERN int    filetype;				// type of current file
 INTERN iostream* str_in  = NULL;	// input stream
 INTERN iostream* str_out = NULL;	// output stream
@@ -2069,7 +2075,7 @@ INTERN bool reset_buffers( void )
 	}
 	
 	// preset jpegtype
-	jpegtype  = 0;
+	jpegtype  = JpegType::UNKNOWN;
 	
 	// reset padbit
 	padbit = -1;
@@ -2471,7 +2477,7 @@ bool jpg::decode::decode()
 			// decoding for interleaved data
 			if ( cs_cmpc > 1 )
 			{				
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved decoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
@@ -2535,7 +2541,7 @@ bool jpg::decode::decode()
 			}
 			else // decoding for non interleaved data
 			{
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved decoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
@@ -2835,7 +2841,7 @@ bool jpg::encode::recode()
 			// encoding for interleaved data
 			if ( cs_cmpc > 1 )
 			{				
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
@@ -2891,7 +2897,7 @@ bool jpg::encode::recode()
 			}
 			else // encoding for non interleaved data
 			{
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved encoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
@@ -3479,7 +3485,7 @@ bool jpg::setup_imginfo( void )
 			 ( cmpnfo[cmp].sfh == 0 ) ||
 			 ( cmpnfo[cmp].qtable == NULL ) ||
 			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
-			 ( jpegtype == 0 ) ) {
+			 ( jpegtype == JpegType::UNKNOWN ) ) {
 			sprintf( errormessage, "header information is incomplete" );
 			errorlevel = 2;
 			return false;
@@ -3694,9 +3700,9 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 			
 			// set JPEG coding type
 			if ( type == 0xC2 )
-				jpegtype = 2;
+				jpegtype = JpegType::PROGRESSIVE;
 			else
-				jpegtype = 1;
+				jpegtype = JpegType::SEQUENTIAL;
 				
 			// check data precision, only 8 bit is allowed
 			lval = segment[ hpos ];
@@ -6973,7 +6979,7 @@ INTERN bool dump_info( void )
 
 	// info about image
 	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename );
-	fprintf( fp, "coding process: %s\n", ( jpegtype == 1 ) ? "sequential" : "progressive" );
+	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
 	// fprintf( fp, "no of scans: %i\n", scnc );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
 	fprintf( fp, "component count: %i\n", cmpc );
