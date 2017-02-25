@@ -269,6 +269,7 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -297,18 +298,49 @@ packJPG by Matthias Stirner, 01/2016
 // #define DEV_BUILD // uncomment to include developer functions
 // #define DEV_INFOS // uncomment to include developer information
 
-#define QUANT(cm,bp)	( cmpnfo[cm].qtable[ bp ] )
-#define MAX_V(cm,bp)	( ( QUANT(cm,bp) > 0 ) ? ( ( freqmax[bp] + QUANT(cm,bp) - 1 ) /  QUANT(cm,bp) ) : 0 )
+int bitlen(int v) {
+	int length = 0;
+	while ((v >> length) != 0) {
+		length++;
+	}
+	return length;
+}
 
-#define ENVLI(s,v)		( ( v > 0 ) ? v : ( v - 1 ) + ( 1 << s ) )
-#define DEVLI(s,n)		( ( n >= ( 1 << (s - 1) ) ) ? n : n + 1 - ( 1 << s ) )
-#define E_ENVLI(s,v)	( v - ( 1 << s ) )
-#define E_DEVLI(s,n)	( n + ( 1 << s ) )
+constexpr std::int16_t fdiv2(std::int16_t v, int p) {
+	return (v < 0) ? -((-v) >> p) : (v >> p);
+}
 
-#define B_SHORT(v1,v2)	( ( ((int) v1) << 8 ) + ((int) v2) )
-#define BITLEN1024P(v)	( pbitlen_0_1024[ v ] )
-#define BITLEN2048N(v)	( (pbitlen_n2048_2047.data() + 2048)[ v ] )
-#define CLAMPED(l,h,v)	( ( v < l ) ? l : ( v > h ) ? h : v )
+constexpr int envli(int s, int v) {
+	return (v > 0) ? v : v - 1 + (1 << s);
+}
+
+constexpr int devli(int s, int n) {
+	return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
+}
+
+constexpr int e_envli(int s, int v) {
+	return v - (1 << s);
+}
+
+constexpr int e_devli(int s, int n) {
+	return n + (1 << s);
+}
+
+constexpr int pack(std::uint8_t left, std::uint8_t right) {
+	return (int(left) << 8) + int(right);
+}
+
+constexpr int bitlen1024p(int v) {
+	return pbitlen_0_1024[v];
+}
+
+constexpr int bitlen2048n(int v) {
+	return pbitlen_n2048_2047[v + 2048];
+}
+
+constexpr int clamp(int val, int lo, int hi) {
+	return (val < lo) ? lo : (val > hi ? hi : val);
+}
 
 #define MEM_ERRMSG	"out of memory error"
 #define FRD_ERRMSG	"could not read file / file not found: %s"
@@ -591,6 +623,14 @@ INTERN int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ];	// precalculated/adapted values 
 
 // seperate info for each color component
 INTERN componentInfo cmpnfo[ 4 ];
+
+constexpr int QUANT(int cm, int bp) {
+	return cmpnfo[cm].qtable[bp];
+}
+
+constexpr int MAX_V(int cm, int bp) {
+	return (QUANT(cm, bp) > 0) ? (freqmax[bp] + QUANT(cm, bp) - 1) / QUANT(cm, bp) : 0;
+}
 
 INTERN int cmpc        = 0; // component count
 INTERN int imgwidth    = 0; // width of image
@@ -2225,7 +2265,7 @@ INTERN bool read_jpeg( void )
 		
 		// read in next segments' length and check it
 		if ( str_in->read( segment + 2, 2 ) != 2 ) break;
-		len = 2 + B_SHORT( segment[ 2 ], segment[ 3 ] );
+		len = 2 + pack( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
 		// realloc segment data if needed
@@ -2325,7 +2365,7 @@ INTERN bool merge_jpeg( void )
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 			hpos += len;
 		}
 		
@@ -2428,7 +2468,7 @@ INTERN bool decode_jpeg( void )
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2790,7 +2830,7 @@ INTERN bool recode_jpeg( void )
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2985,7 +3025,7 @@ INTERN bool recode_jpeg( void )
 							// copy from colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
-									FDIV2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									fdiv2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
 							
 							// encode block
 							eob = jpg_encode_ac_prg_fs( huffw,
@@ -3009,7 +3049,7 @@ INTERN bool recode_jpeg( void )
 							// copy from colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
-									FDIV2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									fdiv2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
 							
 							// encode block
 							eob = jpg_encode_ac_prg_sa( huffw, storw,
@@ -3499,7 +3539,7 @@ INTERN bool jpg_setup_imginfo( void )
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
 		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// do not parse DHT & DRI
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
 			if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
@@ -3658,7 +3698,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 				else { // 16 bit precision
 					for ( i = 0; i < 64; i++ ) {
 						qtables[ rval ][ i ] =
-							B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
+							pack( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
 						if ( qtables[ rval ][ i ] == 0 ) break;
 					}
 					hpos += 128;
@@ -3675,7 +3715,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			
 		case 0xDD: // DRI segment
 			// define restart interval
-			rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );			
+			rsti = pack( segment[ hpos ], segment[ hpos + 1 ] );			
 			return true;
 			
 		case 0xDA: // SOS segment
@@ -3747,8 +3787,8 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			}
 			
 			// image size, height & component count
-			imgheight = B_SHORT( segment[ hpos + 1 ], segment[ hpos + 2 ] );
-			imgwidth  = B_SHORT( segment[ hpos + 3 ], segment[ hpos + 4 ] );
+			imgheight = pack( segment[ hpos + 1 ], segment[ hpos + 2 ] );
+			imgwidth  = pack( segment[ hpos + 3 ], segment[ hpos + 4 ] );
 			cmpc      = segment[ hpos + 5 ];
 			if ( ( imgwidth == 0 ) || ( imgheight == 0 ) ) {
 				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", imgwidth, imgheight );
@@ -3905,7 +3945,7 @@ INTERN bool jpg_rebuild_header( void )
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
 		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// discard any unneeded meta info
 		if ( ( type == 0xDA ) || ( type == 0xC4 ) || ( type == 0xDB ) ||
 			 ( type == 0xC0 ) || ( type == 0xC1 ) || ( type == 0xC2 ) ||
@@ -3944,7 +3984,7 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 	if ( hc < 0 ) return -1; // return error
 	else s = ( unsigned char ) hc;
 	n = huffr->read( s );	
-	block[ 0 ] = DEVLI( s, n );
+	block[ 0 ] = devli( s, n );
 	
 	// decode ac
 	for ( bpos = 1; bpos < 64; )
@@ -3962,7 +4002,7 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 				block[ bpos++ ] = 0;
 				z--;
 			}
-			block[ bpos++ ] = ( short ) DEVLI( s, n ); // decode cvli
+			block[ bpos++ ] = ( short ) devli( s, n ); // decode cvli
 		}
 		else if ( hc == 0 ) { // EOB
 			eob = bpos;			
@@ -3994,8 +4034,8 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 	
 	
 	// encode DC
-	s = BITLEN2048N( block[ 0 ] );
-	n = ENVLI( s, block[ 0 ] );
+	s = bitlen2048n( block[ 0 ] );
+	n = envli( s, block[ 0 ] );
 	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
 	huffw->write( n, s );
 	
@@ -4011,8 +4051,8 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 				z -= 16;
 			}			
 			// vli encode
-			s = BITLEN2048N( block[ bpos ] );
-			n = ENVLI( s, block[ bpos ] );
+			s = bitlen2048n( block[ bpos ] );
+			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
 			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
@@ -4048,7 +4088,7 @@ INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* blo
 	if ( hc < 0 ) return -1; // return error
 	else s = ( unsigned char ) hc;
 	n = huffr->read( s );	
-	block[ 0 ] = DEVLI( s, n );
+	block[ 0 ] = devli( s, n );
 	
 	
 	// return 0 if everything is ok
@@ -4066,8 +4106,8 @@ INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* blo
 	
 	
 	// encode DC	
-	s = BITLEN2048N( block[ 0 ] );
-	n = ENVLI( s, block[ 0 ] );
+	s = bitlen2048n( block[ 0 ] );
+	n = envli( s, block[ 0 ] );
 	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
 	huffw->write( n, s );
 	
@@ -4111,13 +4151,13 @@ INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* blo
 				block[ bpos++ ] = 0;
 				z--;
 			}			
-			block[ bpos++ ] = ( short ) DEVLI( s, n ); // decode cvli
+			block[ bpos++ ] = ( short ) devli( s, n ); // decode cvli
 		}
 		else { // decode eobrun
 			eob = bpos;
 			s = l;
 			n = huffr->read( s );
-			(*eobrun) = E_DEVLI( s, n );			
+			(*eobrun) = e_devli( s, n );			
 			// while( bpos <= to ) // fill remaining block with zeroes
 			//	block[ bpos++ ] = 0;
 			break;
@@ -4155,8 +4195,8 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 				z -= 16;
 			}			
 			// vli encode
-			s = BITLEN2048N( block[ bpos ] );
-			n = ENVLI( s, block[ bpos ] );
+			s = bitlen2048n( block[ bpos ] );
+			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
 			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
@@ -4263,7 +4303,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 			eob = bpos;
 			s = l;
 			n = huffr->read( s );
-			(*eobrun) = E_DEVLI( s, n );
+			(*eobrun) = e_devli( s, n );
 			break;
 		}
 	}
@@ -4325,8 +4365,8 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 		// if nonzero is encountered
 		else if ( ( block[ bpos ] == 1 ) || ( block[ bpos ] == -1 ) ) {
 			// vli encode			
-			s = BITLEN2048N( block[ bpos ] );
-			n = ENVLI( s, block[ bpos ] );
+			s = bitlen2048n( block[ bpos ] );
+			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
 			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
@@ -4401,12 +4441,12 @@ INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
 	if ( (*eobrun) > 0 ) {
 		while ( (*eobrun) > actbl->max_eobrun ) {
 			huffw->write( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
-			huffw->write( E_ENVLI( 14, 32767 ), 14 );
+			huffw->write( e_envli( 14, 32767 ), 14 );
 			(*eobrun) -= actbl->max_eobrun;
 		}
-		BITLEN( s, (*eobrun) );
+		s = bitlen((*eobrun));
 		s--;
-		n = E_ENVLI( s, (*eobrun) );
+		n = e_envli( s, (*eobrun) );
 		hc = ( s << 4 );
 		huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
 		huffw->write( n, s );
@@ -4856,7 +4896,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	
 	// get max absolute value/bit length
 	max_val = MAX_V( cmp, 0 );
-	max_len = BITLEN1024P( max_val );
+	max_len = bitlen1024p( max_val );
 	
 	// init models for bitlenghts and -patterns	
 	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
@@ -4895,7 +4935,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 		snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
 		ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context
+		ctx_len = bitlen1024p( ctx_avr ); // BITLENGTH context
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
 		
@@ -4907,7 +4947,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 		else {
 			// get absolute val, sign & bit length for current coefficient
 			absv = std::abs( coeffs[dpos] );
-			clen = BITLEN1024P( absv );
+			clen = bitlen1024p( absv );
 			sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 			// encode bit length of current coefficient
 			encode_ari( enc, mod_len, clen );
@@ -5042,7 +5082,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 		
 		// get max bit length
 		max_val = MAX_V( cmp, bpos );
-		max_len = BITLEN1024P( max_val );
+		max_len = bitlen1024p( max_val );
 		
 		// arithmetic compression loo
 		for ( dpos = 0; dpos < bc; dpos++ )
@@ -5061,7 +5101,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
 			ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+			ctx_len = bitlen1024p( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
 			mod_len->exclude_symbols(max_len);		
@@ -5074,7 +5114,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			else {
 				// get absolute val, sign & bit length for current coefficient
 				absv = std::abs( coeffs[dpos] );
-				clen = BITLEN1024P( absv );
+				clen = bitlen1024p( absv );
 				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient				
 				encode_ari( enc, mod_len, clen );
@@ -5201,7 +5241,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 		// get max bit length / other info
 		max_valp = MAX_V( cmp, bpos );
 		max_valn = -max_valp;
-		max_len = BITLEN1024P( max_valp );
+		max_len = bitlen1024p( max_valp );
 		thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0;
 		
 		// arithmetic compression loop
@@ -5219,8 +5259,8 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			if ( (*edge_c) > 0 )
 				ctx_lak = pjg_lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
-			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
-			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context
+			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
+			ctx_len = bitlen2048n( ctx_lak ); // BITLENGTH context
 			
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
@@ -5234,7 +5274,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			else {
 				// get absolute val, sign & bit length for current coefficient
 				absv = std::abs( coeffs[dpos] );
-				clen = BITLEN2048N( absv );
+				clen = bitlen2048n( absv );
 				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient
 				encode_ari( enc, mod_len, clen );
@@ -5516,7 +5556,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	
 	// get max absolute value/bit length
 	max_val = MAX_V( cmp, 0 );
-	max_len = BITLEN1024P( max_val );
+	max_len = bitlen1024p( max_val );
 	
 	// init models for bitlenghts and -patterns
 	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
@@ -5555,7 +5595,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 		snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
 		ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+		ctx_len = bitlen1024p( ctx_avr ); // BITLENGTH context				
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
 		// decode bit length of current coefficient
@@ -5702,7 +5742,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 		
 		// get max bit length
 		max_val = MAX_V( cmp, bpos );
-		max_len = BITLEN1024P( max_val );
+		max_len = bitlen1024p( max_val );
 		
 		// arithmetic compression loop
 		for ( dpos = 0; dpos < bc; dpos++ )
@@ -5721,7 +5761,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 			snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
 			ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+			ctx_len = bitlen1024p( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
 			mod_len->exclude_symbols(max_len);
@@ -5861,7 +5901,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 		// get max bit length / other info
 		max_valp = MAX_V( cmp, bpos );
 		max_valn = -max_valp;
-		max_len = BITLEN1024P( max_valp );
+		max_len = bitlen1024p( max_valp );
 		thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0;
 		
 		// arithmetic compression loop
@@ -5879,8 +5919,8 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			if ( (*edge_c) > 0 )
 				ctx_lak = pjg_lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
-			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
-			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context				
+			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
+			ctx_len = bitlen2048n( ctx_lak ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
 			mod_len->exclude_symbols(max_len);
@@ -6062,7 +6102,7 @@ INTERN bool pjg_optimize_header( void )
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
 		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		if ( type == 0xC4 ) { // for DHT
 			fpos = hpos + len; // reassign length to end position
 			hpos += 4; // skip marker & length
@@ -6141,7 +6181,7 @@ INTERN bool pjg_unoptimize_header( void )
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
 		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		
 		if ( type == 0xC4 ) { // for DHT
 			fpos = hpos + len; // reassign length to end position
@@ -6554,7 +6594,7 @@ INTERN int dc_1ddct_predictor( int cmp, int dpos )
 	colldata[ cmp ][ 0 ][ dpos ] = swap;	
 	
 	// clamp and quantize predictor
-	pred = CLAMPED( -( 1024 * DCT_RSC_FACTOR ), ( 1016 * DCT_RSC_FACTOR ), pred );
+	pred = clamp(pred, -( 1024 * DCT_RSC_FACTOR ), ( 1016 * DCT_RSC_FACTOR ));
 	pred = pred / QUANT( cmp, 0 );
 	pred = DCT_RESCALE( pred );
 	
@@ -7165,7 +7205,7 @@ INTERN bool dump_pgm( void )
 					pix_v = idct_2d_fst_8x8( cmp, dpos, x, y );
 					pix_v = DCT_RESCALE( pix_v );
 					pix_v = pix_v + 128;
-					imgdata[ xpos ] = ( unsigned char ) CLAMPED( 0, 255, pix_v );
+					imgdata[ xpos ] = ( unsigned char ) clamp(pix_v, 0, 255);
 				}
 			}			
 		}
