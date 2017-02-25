@@ -319,11 +319,9 @@ packJPG by Matthias Stirner, 01/2016
 #define BITLEN2048N(v)	( (pbitlen_n2048_2047+2048)[ v ] )
 #define CLAMPED(l,h,v)	( ( v < l ) ? l : ( v > h ) ? h : v )
 
-#define MEM_ERRMSG	"out of memory error"
-#define FRD_ERRMSG	"could not read file / file not found: %s"
-#define FWR_ERRMSG	"could not write file / file write-protected: %s"
-#define MSG_SIZE	128
-#define BARLEN		36
+const std::string MEM_ERRMSG("out of memory error");
+const std::string FRD_ERRMSG("could not read file / file not found: %s");
+const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
 
 // special realloc with guaranteed free() of previous memory
 static inline void* frealloc( void* ptr, size_t size ) {
@@ -331,8 +329,6 @@ static inline void* frealloc( void* ptr, size_t size ) {
 	if ( n_ptr == NULL ) free( ptr );
 	return n_ptr;
 }
-
-
 
 /* -----------------------------------------------
 	struct declarations
@@ -644,7 +640,7 @@ INTERN int    dev_size_zdl[ 4 ] = { 0 };
 	global variables: messages
 	----------------------------------------------- */
 
-INTERN char errormessage [ MSG_SIZE ];
+INTERN char errormessage [ 128 ];
 INTERN bool (*errorfunction)();
 INTERN int  errorlevel;
 // meaning of errorlevel:
@@ -1746,7 +1742,7 @@ INTERN bool check_file( void )
 	// open input stream, check for errors
 	str_in = new iostream( (void*) filename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
-		sprintf( errormessage, FRD_ERRMSG, filename.c_str());
+		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -1781,7 +1777,7 @@ INTERN bool check_file( void )
 		// open output stream, check for errors
 		str_out = new iostream( (void*) pjgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, pjgfilename.c_str() );
+			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -1817,7 +1813,7 @@ INTERN bool check_file( void )
 		// open output stream, check for errors
 		str_out = new iostream( (void*) jpgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, jpgfilename.c_str());
+			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -1890,7 +1886,7 @@ INTERN bool compare_output( void )
 	if ( ( buff_ori == NULL ) || ( buff_cmp == NULL ) ) {
 		if ( buff_ori != NULL ) free( buff_ori );
 		if ( buff_cmp != NULL ) free( buff_cmp );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -2073,7 +2069,7 @@ INTERN bool read_jpeg( void )
 	// alloc memory for segment data first
 	segment = ( unsigned char* ) calloc( ssize, sizeof( char ) );
 	if ( segment == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -2119,7 +2115,7 @@ INTERN bool read_jpeg( void )
 							if ( rst_err == NULL ) {
 								rst_err = (unsigned char*) calloc( scnc + 1, sizeof( char ) );
 								if ( rst_err == NULL ) {
-									sprintf( errormessage, MEM_ERRMSG );
+									sprintf( errormessage, MEM_ERRMSG.c_str() );
 									errorlevel = 2;
 									return false;
 								}
@@ -2129,7 +2125,7 @@ INTERN bool read_jpeg( void )
 							// realloc and set only if needed
 							rst_err = ( unsigned char* ) frealloc( rst_err, ( scnc + 1 ) * sizeof( char ) );
 							if ( rst_err == NULL ) {
-								sprintf( errormessage, MEM_ERRMSG );
+								sprintf( errormessage, MEM_ERRMSG.c_str() );
 								errorlevel = 2;
 								return false;
 							}
@@ -2198,7 +2194,7 @@ INTERN bool read_jpeg( void )
 		if ( ssize < len ) {
 			segment = ( unsigned char* ) frealloc( segment, len );
 			if ( segment == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				delete ( hdrw );
 				delete ( huffw );
@@ -2777,7 +2773,7 @@ INTERN bool recode_jpeg( void )
 		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
 		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
 		if ( scnp == NULL ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			sprintf( errormessage, MEM_ERRMSG.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -2789,7 +2785,7 @@ INTERN bool recode_jpeg( void )
 			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
 			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
 			if ( rstp == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				return false;
 			}
@@ -3023,7 +3019,7 @@ INTERN bool recode_jpeg( void )
 	// safety check for error in huffwriter
 	if ( huffw->error ()) {
 		delete huffw;
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -3527,7 +3523,7 @@ INTERN bool jpg_setup_imginfo( void )
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
 			if (colldata[cmp][bpos] == NULL) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				return false;
 			}
@@ -3542,7 +3538,7 @@ INTERN bool jpg_setup_imginfo( void )
 		if ( ( zdstdata[cmp] == NULL ) ||
 			( eobxhigh[cmp] == NULL ) || ( eobyhigh[cmp] == NULL ) ||
 			( zdstxlow[cmp] == NULL ) || ( zdstylow[cmp] == NULL ) ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			sprintf( errormessage, MEM_ERRMSG.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -4838,7 +4834,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	// allocate memory for absolute values storage
 	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
 	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -4968,7 +4964,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 		if ( absv_store != NULL ) free( absv_store );
 		if ( sgn_store != NULL ) free( sgn_store );
 		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5502,7 +5498,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	// allocate memory for absolute values storage
 	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
 	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5632,7 +5628,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 		if ( absv_store != NULL ) free( absv_store );
 		if ( sgn_store != NULL ) free( sgn_store );
 		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5941,7 +5937,7 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	// check for out of memory
 	if ( bwrt->error() ) {
 		delete bwrt;
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -6629,6 +6625,7 @@ INTERN inline float median_float( float* values, int size )
 #if !defined(BUILD_LIB)
 INTERN inline void progress_bar( int current, int last )
 {
+	constexpr int BARLEN = 36;
 	int barpos = ( ( current * BARLEN ) + ( last / 2 ) ) / last;
 	int i;
 	
@@ -6752,7 +6749,7 @@ INTERN bool dump_coll( void )
 		// open file for output
 		fp = fopen( fn.c_str(), "wb" );
 		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+			sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -6867,7 +6864,7 @@ INTERN bool dump_file( const std::string& base, const std::string& ext, void* da
 	// open file for output
 	fp = fopen( fn.c_str(), "wb" );
 	if ( fp == nullptr ) {
-		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -6905,7 +6902,7 @@ INTERN bool dump_errfile( void )
 	// open file for output
 	fp = fopen( fn.c_str(), "w" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -6949,7 +6946,7 @@ INTERN bool dump_info( void )
 	// open file for output
 	fp = fopen( fn.c_str(), "w" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -7036,7 +7033,7 @@ INTERN bool dump_dist( void )
 	// open file for output
 	fp = fopen( fn.c_str(), "wb" );
 	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
@@ -7088,7 +7085,7 @@ INTERN bool dump_pgm( void )
 		// open file for output
 		fp = fopen( fn.c_str(), "wb" );
 		if ( fp == nullptr ){
-			sprintf( errormessage, FWR_ERRMSG, fn.c_str());
+			sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -7097,7 +7094,7 @@ INTERN bool dump_pgm( void )
 		imgdata = (unsigned char*) calloc ( cmpnfo[cmp].bc * 64, sizeof( char ) );
 		if ( imgdata == NULL ) {
 			fclose( fp );
-			sprintf( errormessage, MEM_ERRMSG );
+			sprintf( errormessage, MEM_ERRMSG.c_str() );
 			errorlevel = 2;
 			return false;
 		}
