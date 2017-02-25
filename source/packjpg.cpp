@@ -299,19 +299,12 @@ packJPG by Matthias Stirner, 01/2016
 
 #define QUANT(cm,bp)	( cmpnfo[cm].qtable[ bp ] )
 #define MAX_V(cm,bp)	( ( QUANT(cm,bp) > 0 ) ? ( ( freqmax[bp] + QUANT(cm,bp) - 1 ) /  QUANT(cm,bp) ) : 0 )
-// #define QUN_V(v,cm,bp)	( ( QUANT(cm,bp) > 0 ) ? ( ( v > 0 ) ? ( v + (QUANT(cm,bp)/2) ) /  QUANT(cm,bp) : ( v - (QUANT(cm,bp)/2) ) /  QUANT(cm,bp) ) : 0 )
 
 #define ENVLI(s,v)		( ( v > 0 ) ? v : ( v - 1 ) + ( 1 << s ) )
 #define DEVLI(s,n)		( ( n >= ( 1 << (s - 1) ) ) ? n : n + 1 - ( 1 << s ) )
 #define E_ENVLI(s,v)	( v - ( 1 << s ) )
 #define E_DEVLI(s,n)	( n + ( 1 << s ) )
 
-#define ABS(v1)			( (v1 < 0) ? -v1 : v1 )
-#define ABSDIFF(v1,v2)	( (v1 > v2) ? (v1 - v2) : (v2 - v1) )
-#define IPOS(w,v,h)		( ( v * w ) + h )
-#define NPOS(n1,n2,p)	( ( ( p / n1 ) * n2 ) + ( p % n1 ) )
-#define ROUND_F(v1)		( (v1 < 0) ? (int) (v1 - 0.5) : (int) (v1 + 0.5) )
-#define DIV_INT(v1,v2)	( (v1 < 0) ? (v1 - (v2>>1)) / v2 : (v1 + (v2>>1)) / v2 )
 #define B_SHORT(v1,v2)	( ( ((int) v1) << 8 ) + ((int) v2) )
 #define BITLEN1024P(v)	( pbitlen_0_1024[ v ] )
 #define BITLEN2048N(v)	( (pbitlen_n2048_2047.data() + 2048)[ v ] )
@@ -509,8 +502,6 @@ INTERN int dc_coll_predictor( int cmp, int dpos );
 INTERN int dc_1ddct_predictor( int cmp, int dpos );
 #endif
 INTERN inline int plocoi( int a, int b, int c );
-INTERN inline int median_int( int* values, int size );
-INTERN inline float median_float( float* values, int size );
 
 
 /* -----------------------------------------------
@@ -4915,7 +4906,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 		}
 		else {
 			// get absolute val, sign & bit length for current coefficient
-			absv = ABS( coeffs[dpos] );
+			absv = std::abs( coeffs[dpos] );
 			clen = BITLEN1024P( absv );
 			sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 			// encode bit length of current coefficient
@@ -5082,7 +5073,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			}
 			else {
 				// get absolute val, sign & bit length for current coefficient
-				absv = ABS( coeffs[dpos] );
+				absv = std::abs( coeffs[dpos] );
 				clen = BITLEN1024P( absv );
 				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient				
@@ -5242,7 +5233,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			}
 			else {
 				// get absolute val, sign & bit length for current coefficient
-				absv = ABS( coeffs[dpos] );
+				absv = std::abs( coeffs[dpos] );
 				clen = BITLEN2048N( absv );
 				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient
@@ -5250,7 +5241,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 				// encoding of residual
 				bp = clen - 2; // first set bit must be 1, so we start at clen - 2
 				ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				ctx_abs = ABS( ctx_lak );
+				ctx_abs = std::abs( ctx_lak );
 				ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2;
 				for ( ; bp >= thrs_bp; bp-- ) {						
 					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp ); // shift in 3 contexts
@@ -5904,7 +5895,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 				// decoding of residual
 				bp = clen - 2; // first set bit must be 1, so we start at clen - 2
 				ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				ctx_abs = ABS( ctx_lak );
+				ctx_abs = std::abs( ctx_lak );
 				ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2;
 				for ( ; bp >= thrs_bp; bp-- ) {						
 					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp ); // shift in 3 contexts
@@ -6590,69 +6581,6 @@ INTERN inline int plocoi( int a, int b, int c )
 	return a + b - c;
 }
 
-
-/* -----------------------------------------------
-	calculates median out of an integer array
-	----------------------------------------------- */
-INTERN inline int median_int( int* values, int size )
-{
-	int middle = ( size >> 1 );
-	bool done;
-	int swap;
-	int i;
-	
-	
-	// sort data first
-	done = false;
-	while ( !done ) {
-		done = true;
-		for ( i = 1; i < size; i++ )
-		if ( values[ i ] < values[ i - 1 ] ) {
-			swap = values[ i ];
-			values[ i ] = values[ i - 1 ];
-			values[ i - 1 ] = swap;
-			done = false;
-		}
-	}
-	
-	// return median
-	return ( ( size % 2 ) == 0 ) ?
-		( values[ middle ] + values[ middle - 1 ] ) / 2 : values[ middle ];
-}
-
-
-/* -----------------------------------------------
-	calculates median out of an float array
-	----------------------------------------------- */
-INTERN inline float median_float( float* values, int size )
-{
-	int middle = ( size >> 1 );
-	bool done;
-	float swap;
-	int i;
-	
-	
-	// sort data first
-	done = false;
-	while ( !done ) {
-		done = true;
-		for ( i = 1; i < size; i++ )
-		if ( values[ i ] < values[ i - 1 ] ) {
-			swap = values[ i ];
-			values[ i ] = values[ i - 1 ];
-			values[ i - 1 ] = swap;
-			done = false;
-		}
-	}
-	
-	// return median	
-	if ( ( size % 2 ) == 0 ) {
-		return ( values[ middle ] + values[ middle - 1 ] ) / 2.0;
-	}
-	else
-		return ( values[ middle ] );
-}
-
 /* ----------------------- End of prediction functions -------------------------- */
 
 /* ----------------------- Begin of miscellaneous helper functions -------------------------- */
@@ -7165,7 +7093,7 @@ INTERN bool dump_dist( void )
 		for ( i = 0; i <= 1024; i++ ) dist[ i ] = 0;
 		// get distribution
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-			dist[ ABS( colldata[cmp][bpos][dpos] ) ]++;
+			dist[ std::abs( colldata[cmp][bpos][dpos] ) ]++;
 		// write to file
 		fwrite( dist, sizeof( int ), 1024 + 1, fp );
 	}
