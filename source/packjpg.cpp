@@ -4119,7 +4119,7 @@ int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block)
 {
 	// decode next bit of dc coefficient
-	block[ 0 ] = huffr->read( 1 );
+	block[ 0 ] = huffr->read_bit();
 }
 
 
@@ -4163,7 +4163,7 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 			s = r;
 			if ( s == 0 ) v = 0;
 			else if ( s == 1 ) {
-				n = huffr->read( 1 );
+				n = huffr->read_bit();
 				v = ( n == 0 ) ? -1 : 1; // fast decode vli
 			}
 			else return -1; // decoding error
@@ -4177,7 +4177,7 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 					}
 				}
 				else { // read correction bit
-					n = huffr->read( 1 );
+					n = huffr->read_bit();
 					block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 				}
 				if ( bpos++ >= to ) return -1; // error check					
@@ -4196,7 +4196,7 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 	if ( (*eobrun) > 0 ) {
 		for ( ; bpos <= to; bpos++ ) {
 			if ( block[ bpos ] != 0 ) {
-				n = huffr->read( 1 );
+				n = huffr->read_bit();
 				block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 			}
 		}
@@ -4302,7 +4302,7 @@ void jpg::decode::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* blo
 	// fast eobrun decoding routine for succesive approximation
 	for ( bpos = from; bpos <= to; bpos++ ) {
 		if ( block[ bpos ] != 0 ) {
-			n = huffr->read( 1 );
+			n = huffr->read_bit();
 			block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 		}
 	}
@@ -4369,7 +4369,7 @@ int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const H
 	
 	
 	while ( node < 256 ) {
-		node = ( huffr->read( 1 ) == 1 ) ?
+		node = ( huffr->read_bit() == 1 ) ?
 				ctree.r[ node ] : ctree.l[ node ];
 		if ( node == 0 ) break;
 	}
