@@ -3929,7 +3929,7 @@ int jpg::decode::block_seq(abitreader* huffr, const HuffTree& dctree, const Huff
 	
 	
 	// decode dc
-	if (jpg::decode::dc_prg_fs(huffr, dctree, block) == -1) {
+	if (jpg::decode::dc_prg_fs(huffr, dctree, block) == jpg::CodingStatus::ERROR) {
 		return -1; // Return error
 	}
 	
