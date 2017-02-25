@@ -419,15 +419,15 @@ namespace encode {
 bool recode();
 bool merge();
 
-int block_seq(abitwriter* huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block);
-void dc_prg_fs(abitwriter* huffw, const HuffCodes& dctbl, short* block);
-int ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* block,
+int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block);
+void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, short* block);
+int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, short* block,
               int* eobrun, int from, int to);
-void dc_prg_sa(abitwriter* huffw, short* block);
-int ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCodes& actbl,
+void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, short* block);
+int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl,
               short* block, int* eobrun, int from, int to);
-void eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun);
-void crbits(abitwriter* huffw, abytewriter* storw);
+void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
+void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
 }
 
 namespace decode {
@@ -435,18 +435,18 @@ bool read();
 bool decode();
 bool check_value_range();
 
-int block_seq(abitreader* huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
-jpg::CodingStatus dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block);
-int ac_prg_fs(abitreader* huffr, const HuffTree& actree, short* block,
+int block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
+jpg::CodingStatus dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block);
+int ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
-void dc_prg_sa(abitreader* huffr, short* block);
-int ac_prg_sa(abitreader* huffr, const HuffTree& actree, short* block,
+void dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block);
+int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
-void eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to);
+void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
 
 jpg::CodingStatus skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun);
 
-int next_huffcode(abitreader* huffr, const HuffTree& ctree);
+int next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree);
 }
 }
 
@@ -2401,9 +2401,7 @@ bool jpg::encode::merge()
 	----------------------------------------------- */
 
 bool jpg::decode::decode()
-{
-	abitreader* huffr; // bitwise reader for image data
-	
+{	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // current position in header
@@ -2420,7 +2418,7 @@ bool jpg::decode::decode()
 	
 	
 	// open huffman coded image data for input in abitreader
-	huffr = new abitreader( huffdata, hufs );
+	auto huffr = std::make_unique<abitreader>(huffdata, hufs); // bitwise reader for image data
 	
 	// preset count of scans
 	scnc = 0;
@@ -2450,7 +2448,6 @@ bool jpg::decode::decode()
 			if ( ( ( cs_sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
 				 ( ( cs_sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", scnc );
-				delete huffr;
 				errorlevel = 2;
 				return false;
 			}
@@ -2492,9 +2489,9 @@ bool jpg::decode::decode()
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
 						eob = jpg::decode::block_seq( huffr,
-						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
-													htrees[ 1 ][ cmpnfo[cmp].huffdc ],
-						                            block );
+						                              htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+						                              htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                              block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2520,8 +2517,8 @@ bool jpg::decode::decode()
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						status = jpg::decode::dc_prg_fs( huffr,
-						                              htrees[0][cmpnfo[cmp].huffdc],
-						                              block );
+						                                 htrees[0][cmpnfo[cmp].huffdc],
+						                                 block );
 						
 						// fix dc for diff coding
 						colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2556,9 +2553,9 @@ bool jpg::decode::decode()
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
 						eob = jpg::decode::block_seq( huffr,
-						                            htrees[ 0 ][ cmpnfo[cmp].huffdc ],
-						                            htrees[ 1 ][ cmpnfo[cmp].huffdc ],
-						                            block );
+						                              htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+						                              htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                              block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2585,8 +2582,8 @@ bool jpg::decode::decode()
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							status = jpg::decode::dc_prg_fs( huffr,
-							                              htrees[0][cmpnfo[cmp].huffdc],
-							                              block );
+							                                 htrees[0][cmpnfo[cmp].huffdc],
+							                                 block );
 								
 							// fix dc for diff coding
 							colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
@@ -2623,8 +2620,8 @@ bool jpg::decode::decode()
 							if ( eobrun == 0 ) {
 								// decode block
 								eob = jpg::decode::ac_prg_fs( huffr,
-								                            htrees[1][cmpnfo[cmp].huffac],
-								                            block, &eobrun, cs_from, cs_to );
+								                              htrees[1][cmpnfo[cmp].huffac],
+								                              block, &eobrun, cs_from, cs_to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2663,8 +2660,8 @@ bool jpg::decode::decode()
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
 								eob = jpg::decode::ac_prg_sa( huffr,
-								                            htrees[1][cmpnfo[cmp].huffac],
-								                            block, &eobrun, cs_from, cs_to );
+								                              htrees[1][cmpnfo[cmp].huffac],
+								                              block, &eobrun, cs_from, cs_to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2715,7 +2712,6 @@ bool jpg::decode::decode()
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffr;
 				errorlevel = 2;
 				return false;
 			}
@@ -2738,9 +2734,6 @@ bool jpg::decode::decode()
 		errorlevel = 1;
 	}
 	
-	// clean up
-	delete( huffr );
-	
 	
 	return true;
 }
@@ -2751,10 +2744,7 @@ bool jpg::decode::decode()
 	----------------------------------------------- */
 
 bool jpg::encode::recode()
-{
-	abitwriter*  huffw; // bitwise writer for image data
-	abytewriter* storw; // bytewise writer for storage of correction bits
-	
+{	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // current position in header
@@ -2771,11 +2761,11 @@ bool jpg::encode::recode()
 	
 	
 	// open huffman coded image data in abitwriter
-	huffw = new abitwriter( 0 );
+	auto huffw = std::make_unique<abitwriter>(0); // bitwise writer for image data
 	huffw->set_fillbit( padbit );
 	
 	// init storage writer
-	storw = new abytewriter( 0 );
+	auto storw = std::make_unique<abytewriter>(0); // bytewise writer for storage of correction bits
 	
 	// preset count of scans and restarts
 	scnc = 0;
@@ -2871,9 +2861,9 @@ bool jpg::encode::recode()
 						
 						// encode block
 						eob = jpg::encode::block_seq( huffw,
-						                            hcodes[0][cmpnfo[cmp].huffac],
-						                            hcodes[1][cmpnfo[cmp].huffac],
-						                            block );
+						                              hcodes[0][cmpnfo[cmp].huffac],
+						                              hcodes[1][cmpnfo[cmp].huffac],
+						                              block );
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2891,8 +2881,8 @@ bool jpg::encode::recode()
 						
 						// encode dc
 						jpg::encode::dc_prg_fs(huffw,
-						                     hcodes[0][cmpnfo[cmp].huffdc],
-						                     block);
+						                       hcodes[0][cmpnfo[cmp].huffdc],
+						                       block);
 						
 						// next mcupos
 						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
@@ -2927,9 +2917,9 @@ bool jpg::encode::recode()
 						
 						// encode block
 						eob = jpg::encode::block_seq( huffw,
-						                            hcodes[0][cmpnfo[cmp].huffac],
-						                            hcodes[1][cmpnfo[cmp].huffac],
-						                            block );
+						                              hcodes[0][cmpnfo[cmp].huffac],
+						                              hcodes[1][cmpnfo[cmp].huffac],
+						                              block );
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2948,8 +2938,8 @@ bool jpg::encode::recode()
 							
 							// encode dc
 							jpg::encode::dc_prg_fs(huffw,
-							                     hcodes[0][cmpnfo[cmp].huffdc],
-							                     block);							
+							                       hcodes[0][cmpnfo[cmp].huffdc],
+							                       block);							
 							
 							// check for errors, increment dpos otherwise
 							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
@@ -2982,8 +2972,8 @@ bool jpg::encode::recode()
 							
 							// encode block
 							eob = jpg::encode::ac_prg_fs( huffw,
-							                            hcodes[1][cmpnfo[cmp].huffac],
-							                            block, &eobrun, cs_from, cs_to );
+							                              hcodes[1][cmpnfo[cmp].huffac],
+							                              block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -3004,8 +2994,8 @@ bool jpg::encode::recode()
 							
 							// encode block
 							eob = jpg::encode::ac_prg_sa( huffw, storw,
-							                            hcodes[1][cmpnfo[cmp].huffac],
-							                            block, &eobrun, cs_from, cs_to );
+							                              hcodes[1][cmpnfo[cmp].huffac],
+							                              block, &eobrun, cs_from, cs_to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -3028,7 +3018,6 @@ bool jpg::encode::recode()
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffw;
 				errorlevel = 2;
 				return false;
 			}
@@ -3045,7 +3034,6 @@ bool jpg::encode::recode()
 	
 	// safety check for error in huffwriter
 	if ( huffw->error ()) {
-		delete huffw;
 		sprintf( errormessage, MEM_ERRMSG );
 		errorlevel = 2;
 		return false;
@@ -3053,11 +3041,7 @@ bool jpg::encode::recode()
 	
 	// get data into huffdata
 	huffdata = huffw->getptr();
-	hufs = huffw->getpos();	
-	delete huffw;
-	
-	// remove storage writer
-	delete storw;
+	hufs = huffw->getpos();
 	
 	// store last scan & restart positions
 	scnp[ scnc ] = hufs;
@@ -3918,7 +3902,7 @@ bool jpg::rebuild_header()
 /* -----------------------------------------------
 	sequential block decoding routine
 	----------------------------------------------- */
-int jpg::decode::block_seq(abitreader* huffr, const HuffTree& dctree, const HuffTree& actree, short* block)
+int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3971,7 +3955,7 @@ int jpg::decode::block_seq(abitreader* huffr, const HuffTree& dctree, const Huff
 /* -----------------------------------------------
 	sequential block encoding routine
 	----------------------------------------------- */
-int jpg::encode::block_seq(abitwriter* huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block)
+int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block)
 {
 	// encode DC
 	jpg::encode::dc_prg_fs(huffw, dctbl, block);
@@ -4011,7 +3995,7 @@ int jpg::encode::block_seq(abitwriter* huffw, const HuffCodes& dctbl, const Huff
 /* -----------------------------------------------
 	progressive DC decoding routine
 	----------------------------------------------- */
-jpg::CodingStatus jpg::decode::dc_prg_fs(abitreader* huffr, const HuffTree& dctree, short* block)
+jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block)
 {
 	// decode dc
 	int hc = jpg::decode::next_huffcode(huffr, dctree);
@@ -4030,7 +4014,7 @@ jpg::CodingStatus jpg::decode::dc_prg_fs(abitreader* huffr, const HuffTree& dctr
 /* -----------------------------------------------
 	progressive DC encoding routine
 	----------------------------------------------- */
-void jpg::encode::dc_prg_fs(abitwriter* huffw, const HuffCodes& dctbl, short* block)
+void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, short* block)
 {
 	// encode DC	
 	int s = BITLEN2048N( block[ 0 ] );
@@ -4043,7 +4027,7 @@ void jpg::encode::dc_prg_fs(abitwriter* huffw, const HuffCodes& dctbl, short* bl
 /* -----------------------------------------------
 	progressive AC decoding routine
 	----------------------------------------------- */
-int jpg::decode::ac_prg_fs(abitreader* huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
+int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4096,7 +4080,7 @@ int jpg::decode::ac_prg_fs(abitreader* huffr, const HuffTree& actree, short* blo
 /* -----------------------------------------------
 	progressive AC encoding routine
 	----------------------------------------------- */
-int jpg::encode::ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
+int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4149,7 +4133,7 @@ int jpg::encode::ac_prg_fs(abitwriter* huffw, const HuffCodes& actbl, short* blo
 /* -----------------------------------------------
 	progressive DC SA decoding routine
 	----------------------------------------------- */
-void jpg::decode::dc_prg_sa(abitreader* huffr, short* block)
+void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block)
 {
 	// decode next bit of dc coefficient
 	block[ 0 ] = huffr->read( 1 );
@@ -4159,7 +4143,7 @@ void jpg::decode::dc_prg_sa(abitreader* huffr, short* block)
 /* -----------------------------------------------
 	progressive DC SA encoding routine
 	----------------------------------------------- */
-void jpg::encode::dc_prg_sa(abitwriter* huffw, short* block)
+void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, short* block)
 {
 	// enocode next bit of dc coefficient
 	huffw->write( block[ 0 ], 1 );
@@ -4169,7 +4153,7 @@ void jpg::encode::dc_prg_sa(abitwriter* huffw, short* block)
 /* -----------------------------------------------
 	progressive AC SA decoding routine
 	----------------------------------------------- */
-int jpg::decode::ac_prg_sa(abitreader* huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
+int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4243,7 +4227,7 @@ int jpg::decode::ac_prg_sa(abitreader* huffr, const HuffTree& actree, short* blo
 /* -----------------------------------------------
 	progressive AC SA encoding routine
 	----------------------------------------------- */
-int jpg::encode::ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
+int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4326,7 +4310,7 @@ int jpg::encode::ac_prg_sa(abitwriter* huffw, abytewriter* storw, const HuffCode
 /* -----------------------------------------------
 	run of EOB SA decoding routine
 	----------------------------------------------- */
-void jpg::decode::eobrun_sa(abitreader* huffr, short* block, int* eobrun, int from, int to)
+void jpg::decode::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	int bpos;
@@ -4345,7 +4329,7 @@ void jpg::decode::eobrun_sa(abitreader* huffr, short* block, int* eobrun, int fr
 /* -----------------------------------------------
 	run of EOB encoding routine
 	----------------------------------------------- */
-void jpg::encode::eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun)
+void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4372,7 +4356,7 @@ void jpg::encode::eobrun(abitwriter* huffw, const HuffCodes& actbl, int* eobrun)
 /* -----------------------------------------------
 	correction bits encoding routine
 	----------------------------------------------- */
-void jpg::encode::crbits(abitwriter* huffw, abytewriter* storw)
+void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw)
 {	
 	unsigned char* data;
 	int len;
@@ -4396,7 +4380,7 @@ void jpg::encode::crbits(abitwriter* huffw, abytewriter* storw)
 /* -----------------------------------------------
 	returns next code (from huffman-tree & -data)
 	----------------------------------------------- */
-int jpg::decode::next_huffcode(abitreader *huffr, const HuffTree& ctree)
+int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree)
 {	
 	int node = 0;
 	
