@@ -270,6 +270,7 @@ packJPG by Matthias Stirner, 01/2016
 */
 
 #include <array>
+#include <memory>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -413,19 +414,19 @@ HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
 HuffTree build_hufftree(const HuffCodes& codes);
 
 jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
-jpg::CodingStatus next_mcuposn(int* cmp, int* dpos, int* rstw);
+jpg::CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
 
 namespace encode {
 bool recode();
 bool merge();
 
-int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block);
-void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, short* block);
-int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, short* block,
+int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
+int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
               int* eobrun, int from, int to);
-void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, short* block);
+void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block);
 int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl,
-              short* block, int* eobrun, int from, int to);
+              const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to);
 void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
 void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
 }
@@ -444,7 +445,7 @@ int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, 
               int* eobrun, int from, int to);
 void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
 
-jpg::CodingStatus skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun);
+jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
 
 int next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree);
 }
@@ -2092,20 +2093,15 @@ bool jpg::decode::read()
 	unsigned int   cpos = 0; // rst marker counter
 	unsigned char  tmp;	
 	
-	abytewriter* huffw;	
-	abytewriter* hdrw;
-	abytewriter* grbgw;	
-	
-	
 	// preset count of scans
 	scnc = 0;
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	auto hdrw = std::make_unique<abytewriter>(4096);
 	hdrs = 0; // size of header data, start with 0
 	
 	// start huffman writer
-	huffw = new abytewriter( 0 );
+	auto huffw = std::make_unique<abytewriter>(0);
 	hufs  = 0; // size of image data, start with 0
 	
 	// alloc memory for segment data first
@@ -2204,8 +2200,6 @@ bool jpg::decode::read()
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
-					delete ( hdrw );
-					delete ( huffw );
 					free ( segment );
 					return false;
 				}
@@ -2238,8 +2232,6 @@ bool jpg::decode::read()
 			if ( segment == NULL ) {
 				sprintf( errormessage, MEM_ERRMSG );
 				errorlevel = 2;
-				delete ( hdrw );
-				delete ( huffw );
 				return false;
 			}
 			ssize = len;
@@ -2252,10 +2244,6 @@ bool jpg::decode::read()
 	}
 	// JPEG reader loop end
 	
-	// free writers
-	delete ( hdrw );
-	delete ( huffw );
-	
 	// check if everything went OK
 	if ( ( hdrs == 0 ) || ( hufs == 0 ) ) {
 		sprintf( errormessage, "unexpected end of data encountered" );
@@ -2266,7 +2254,7 @@ bool jpg::decode::read()
 	// store garbage after EOI if needed
 	grbs = str_in->read_byte(&tmp);
 	if ( grbs > 0 ) {
-		grbgw = new abytewriter( 1024 );
+		auto grbgw = std::make_unique<abytewriter>( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
 			len = str_in->read( segment, ssize );
@@ -2275,7 +2263,6 @@ bool jpg::decode::read()
 		}
 		grbgdata = grbgw->getptr();
 		grbs     = grbgw->getpos();
-		delete ( grbgw );
 	}
 	
 	// free segment
@@ -2573,7 +2560,7 @@ bool jpg::decode::decode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 					}
 				}
 				else if ( cs_to == 0 ) {					
@@ -2594,7 +2581,7 @@ bool jpg::decode::decode()
 							
 							// check for errors, increment dpos otherwise
 							if ( status != jpg::CodingStatus::ERROR )
-								status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2608,7 +2595,7 @@ bool jpg::decode::decode()
 							colldata[cmp][0][dpos] += block[0] << cs_sal;
 							
 							// increment dpos
-							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2642,11 +2629,11 @@ bool jpg::decode::decode()
 							
 							// check for errors
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-							else status = jpg::decode::skip_eobrun(&cmp, &dpos, &rstw, &eobrun);
+							else status = jpg::decode::skip_eobrun(cmp, &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
 							if ( status == jpg::CodingStatus::OKAY )
-								status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2690,7 +2677,7 @@ bool jpg::decode::decode()
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2750,7 +2737,7 @@ bool jpg::encode::recode()
 	unsigned int   hpos = 0; // current position in header
 		
 	int lastdc[ 4 ]; // last dc for each component0
-	short block[ 64 ]; // store block for coeffs
+	std::array<std::int16_t, 64> block; // store block for coeffs
 	int eobrun; // run of eobs
 	int rstw; // restart wait counter
 	
@@ -2923,7 +2910,7 @@ bool jpg::encode::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-						else status = jpg::next_mcuposn( &cmp, &dpos, &rstw );	
+						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);	
 					}
 				}
 				else if ( cs_to == 0 ) {
@@ -2942,7 +2929,7 @@ bool jpg::encode::recode()
 							                       block);							
 							
 							// check for errors, increment dpos otherwise
-							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2956,7 +2943,7 @@ bool jpg::encode::recode()
 							jpg::encode::dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
@@ -2977,7 +2964,7 @@ bool jpg::encode::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -2999,7 +2986,7 @@ bool jpg::encode::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(&cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3864,16 +3851,14 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 	JFIF header rebuilding routine
 	----------------------------------------------- */
 bool jpg::rebuild_header()
-{	
-	abytewriter* hdrw; // new header writer
-	
+{		
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // position in header	
 	
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	auto hdrw = std::make_unique<abytewriter>( 4096 ); // new header writer
 	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
@@ -3891,9 +3876,7 @@ bool jpg::rebuild_header()
 	// replace current header with the new one
 	free( hdrdata );
 	hdrdata = hdrw->getptr();
-	hdrs    = hdrw->getpos();
-	delete( hdrw );
-	
+	hdrs    = hdrw->getpos();	
 	
 	return true;
 }
@@ -3955,7 +3938,7 @@ int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffT
 /* -----------------------------------------------
 	sequential block encoding routine
 	----------------------------------------------- */
-int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, short* block)
+int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block)
 {
 	// encode DC
 	jpg::encode::dc_prg_fs(huffw, dctbl, block);
@@ -4014,7 +3997,7 @@ jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huff
 /* -----------------------------------------------
 	progressive DC encoding routine
 	----------------------------------------------- */
-void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, short* block)
+void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block)
 {
 	// encode DC	
 	int s = BITLEN2048N( block[ 0 ] );
@@ -4080,7 +4063,7 @@ int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffT
 /* -----------------------------------------------
 	progressive AC encoding routine
 	----------------------------------------------- */
-int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
+int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4143,7 +4126,7 @@ void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* blo
 /* -----------------------------------------------
 	progressive DC SA encoding routine
 	----------------------------------------------- */
-void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, short* block)
+void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block)
 {
 	// enocode next bit of dc coefficient
 	huffw->write( block[ 0 ], 1 );
@@ -4227,7 +4210,7 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 /* -----------------------------------------------
 	progressive AC SA encoding routine
 	----------------------------------------------- */
-int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, short* block, int* eobrun, int from, int to)
+int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4443,25 +4426,25 @@ jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* 
 /* -----------------------------------------------
 	calculates next position (non interleaved)
 	----------------------------------------------- */
-jpg::CodingStatus jpg::next_mcuposn(int* cmp, int* dpos, int* rstw)
+jpg::CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 {
 	// increment position
 	(*dpos)++;
 	
 	// fix for non interleaved mcu - horizontal
-	if ( cmpnfo[(*cmp)].bch != cmpnfo[(*cmp)].nch ) {
-		if ( (*dpos) % cmpnfo[(*cmp)].bch == cmpnfo[(*cmp)].nch )
-			(*dpos) += ( cmpnfo[(*cmp)].bch - cmpnfo[(*cmp)].nch );
+	if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
+		if ( (*dpos) % cmpnfo[cmpt].bch == cmpnfo[cmpt].nch )
+			(*dpos) += ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
 	}
 	
 	// fix for non interleaved mcu - vertical
-	if ( cmpnfo[(*cmp)].bcv != cmpnfo[(*cmp)].ncv ) {
-		if ( (*dpos) / cmpnfo[(*cmp)].bch == cmpnfo[(*cmp)].ncv )
-			(*dpos) = cmpnfo[(*cmp)].bc;
+	if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
+		if ( (*dpos) / cmpnfo[cmpt].bch == cmpnfo[cmpt].ncv )
+			(*dpos) = cmpnfo[cmpt].bc;
 	}
 	
 	// check position
-	if ( (*dpos) >= cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::DONE;
+	if ( (*dpos) >= cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
 	else if ( rsti > 0 )
 		if ( --(*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	
@@ -4473,7 +4456,7 @@ jpg::CodingStatus jpg::next_mcuposn(int* cmp, int* dpos, int* rstw)
 /* -----------------------------------------------
 	skips the eobrun, calculates next position
 	----------------------------------------------- */
-jpg::CodingStatus jpg::decode::skip_eobrun(int* cmp, int* dpos, int* rstw, int* eobrun)
+jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
@@ -4486,16 +4469,16 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int* cmp, int* dpos, int* rstw, int* 
 		}
 		
 		// fix for non interleaved mcu - horizontal
-		if ( cmpnfo[(*cmp)].bch != cmpnfo[(*cmp)].nch ) {
-			(*dpos) += ( ( ( (*dpos) % cmpnfo[(*cmp)].bch ) + (*eobrun) ) /
-						cmpnfo[(*cmp)].nch ) * ( cmpnfo[(*cmp)].bch - cmpnfo[(*cmp)].nch );
+		if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
+			(*dpos) += ( ( ( (*dpos) % cmpnfo[cmpt].bch ) + (*eobrun) ) /
+						cmpnfo[cmpt].nch ) * ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
 		}
 		
 		// fix for non interleaved mcu - vertical
-		if ( cmpnfo[(*cmp)].bcv != cmpnfo[(*cmp)].ncv ) {
-			if ( (*dpos) / cmpnfo[(*cmp)].bch >= cmpnfo[(*cmp)].ncv )
-				(*dpos) += ( cmpnfo[(*cmp)].bcv - cmpnfo[(*cmp)].ncv ) *
-						cmpnfo[(*cmp)].bch;
+		if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
+			if ( (*dpos) / cmpnfo[cmpt].bch >= cmpnfo[cmpt].ncv )
+				(*dpos) += ( cmpnfo[cmpt].bcv - cmpnfo[cmpt].ncv ) *
+						cmpnfo[cmpt].bch;
 		}		
 		
 		// skip blocks 
@@ -4505,8 +4488,8 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int* cmp, int* dpos, int* rstw, int* 
 		(*eobrun) = 0;
 		
 		// check position
-		if ( (*dpos) == cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::DONE;
-		else if ( (*dpos) > cmpnfo[(*cmp)].bc ) return jpg::CodingStatus::ERROR;
+		if ( (*dpos) == cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
+		else if ( (*dpos) > cmpnfo[cmpt].bc ) return jpg::CodingStatus::ERROR;
 		else if ( rsti > 0 ) 
 			if ( (*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	}
