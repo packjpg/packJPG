@@ -599,30 +599,34 @@ INTERN int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ];	// precalculated/adapted values 
 	global variables: info about image
 	----------------------------------------------- */
 
-// seperate info for each color component
+// separate info for each color component
 INTERN componentInfo cmpnfo[ 4 ];
 
-INTERN int cmpc        = 0; // component count
-INTERN int imgwidth    = 0; // width of image
-INTERN int imgheight   = 0; // height of image
+namespace image {
+int cmpc = 0; // component count
+int imgwidth = 0; // width of image
+int imgheight = 0; // height of image
 
-INTERN int sfhm        = 0; // max horizontal sample factor
-INTERN int sfvm        = 0; // max verical sample factor
-INTERN int mcuv        = 0; // mcus per line
-INTERN int mcuh        = 0; // mcus per collumn
-INTERN int mcuc        = 0; // count of mcus
+int sfhm = 0; // max horizontal sample factor
+int sfvm = 0; // max verical sample factor
+int mcuv = 0; // mcus per line
+int mcuh = 0; // mcus per collumn
+int mcuc = 0; // count of mcus
+}
 
 
 /* -----------------------------------------------
 	global variables: info about current scan
 	----------------------------------------------- */
 
-INTERN int cs_cmpc      =   0  ; // component count in current scan
-INTERN int cs_cmp[ 4 ]  = { 0 }; // component numbers  in current scan
-INTERN int cs_from      =   0  ; // begin - band of current scan ( inclusive )
-INTERN int cs_to        =   0  ; // end - band of current scan ( inclusive )
-INTERN int cs_sah       =   0  ; // successive approximation bit pos high
-INTERN int cs_sal       =   0  ; // successive approximation bit pos low
+namespace curr_scan {
+int cmpc = 0; // component count in current scan
+std::array<int, 4> cmp = {0}; // component numbers  in current scan
+int from = 0; // begin - band of current scan ( inclusive )
+int to = 0; // end - band of current scan ( inclusive )
+int sah = 0; // successive approximation bit pos high
+int sal = 0; // successive approximation bit pos low
+}
 	
 
 /* -----------------------------------------------
@@ -2054,16 +2058,16 @@ INTERN bool reset_buffers( void )
 	}
 	
 	// preset imgwidth / imgheight / component count 
-	imgwidth  = 0;
-	imgheight = 0;
-	cmpc      = 0;
+	image::imgwidth  = 0;
+	image::imgheight = 0;
+	image::cmpc      = 0;
 	
 	// preset mcu info variables / restart interval
-	sfhm      = 0;
-	sfvm      = 0;
-	mcuc      = 0;
-	mcuh      = 0;
-	mcuv      = 0;
+	image::sfhm      = 0;
+	image::sfvm      = 0;
+	image::mcuc      = 0;
+	image::mcuh      = 0;
+	image::mcuv      = 0;
 	rsti      = 0;
 	
 	// reset quantization / huffman tables
@@ -2436,10 +2440,10 @@ bool jpg::decode::decode()
 		if ( type != 0xDA ) break;
 		
 		// check if huffman tables are available
-		for ( csc = 0; csc < cs_cmpc; csc++ ) {
-			cmp = cs_cmp[ csc ];
-			if ( ( ( cs_sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
-				 ( ( cs_sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
+		for ( csc = 0; csc < curr_scan::cmpc; csc++ ) {
+			cmp = curr_scan::cmp[ csc ];
+			if ( ( ( curr_scan::sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
+				 ( ( curr_scan::sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", scnc );
 				errorlevel = 2;
 				return false;
@@ -2448,7 +2452,7 @@ bool jpg::decode::decode()
 		
 		
 		// intial variables set for decoding
-		cmp  = cs_cmp[ 0 ];
+		cmp  = curr_scan::cmp[ 0 ];
 		csc  = 0;
 		mcu  = 0;
 		sub  = 0;
@@ -2475,7 +2479,7 @@ bool jpg::decode::decode()
 			rstw = rsti;
 			
 			// decoding for interleaved data
-			if ( cs_cmpc > 1 )
+			if ( curr_scan::cmpc > 1 )
 			{				
 				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved decoding <---
@@ -2505,7 +2509,7 @@ bool jpg::decode::decode()
 						else status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-				else if ( cs_sah == 0 ) {
+				else if ( curr_scan::sah == 0 ) {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
@@ -2518,7 +2522,7 @@ bool jpg::decode::decode()
 						lastdc[ cmp ] = colldata[cmp][0][dpos];
 						
 						// bitshift for succesive approximation
-						colldata[cmp][0][dpos] <<= cs_sal;
+						colldata[cmp][0][dpos] <<= curr_scan::sal;
 						
 						// next mcupos if no error happened
 						if ( status != jpg::CodingStatus::ERROR )
@@ -2533,7 +2537,7 @@ bool jpg::decode::decode()
 						jpg::decode::dc_prg_sa(huffr, block);
 						
 						// shift in next bit
-						colldata[cmp][0][dpos] += block[0] << cs_sal;
+						colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
 						
 						status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
@@ -2569,8 +2573,8 @@ bool jpg::decode::decode()
 						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 					}
 				}
-				else if ( cs_to == 0 ) {					
-					if ( cs_sah == 0 ) {
+				else if ( curr_scan::to == 0 ) {					
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
@@ -2583,7 +2587,7 @@ bool jpg::decode::decode()
 							lastdc[ cmp ] = colldata[cmp][0][dpos];
 							
 							// bitshift for succesive approximation
-							colldata[cmp][0][dpos] <<= cs_sal;
+							colldata[cmp][0][dpos] <<= curr_scan::sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( status != jpg::CodingStatus::ERROR )
@@ -2598,7 +2602,7 @@ bool jpg::decode::decode()
 							jpg::decode::dc_prg_sa(huffr, block);
 							
 							// shift in next bit
-							colldata[cmp][0][dpos] += block[0] << cs_sal;
+							colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
 							
 							// increment dpos
 							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
@@ -2606,7 +2610,7 @@ bool jpg::decode::decode()
 					}
 				}
 				else {
-					if ( cs_sah == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
@@ -2614,11 +2618,11 @@ bool jpg::decode::decode()
 								// decode block
 								eob = jpg::decode::ac_prg_fs( huffr,
 								                              htrees[1][cmpnfo[cmp].huffac],
-								                              block, &eobrun, cs_from, cs_to );
+								                              block, &eobrun, curr_scan::from, curr_scan::to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == cs_from )  && ( peobrun > 0 ) &&
+									if ( ( eob == curr_scan::from )  && ( peobrun > 0 ) &&
 										( peobrun <	hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
@@ -2629,8 +2633,8 @@ bool jpg::decode::decode()
 								} else peobrun = 0;
 							
 								// copy to colldata
-								for ( bpos = cs_from; bpos < eob; bpos++ )
-									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << cs_sal;
+								for ( bpos = curr_scan::from; bpos < eob; bpos++ )
+									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
 							} else eobrun--;
 							
 							// check for errors
@@ -2647,18 +2651,18 @@ bool jpg::decode::decode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
 								block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
 								eob = jpg::decode::ac_prg_sa( huffr,
 								                              htrees[1][cmpnfo[cmp].huffac],
-								                              block, &eobrun, cs_from, cs_to );
+								                              block, &eobrun, curr_scan::from, curr_scan::to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == cs_from ) && ( peobrun > 0 ) &&
+									if ( ( eob == curr_scan::from ) && ( peobrun > 0 ) &&
 										( peobrun < hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
@@ -2672,14 +2676,14 @@ bool jpg::decode::decode()
 							}
 							else {
 								// decode block (short routine)
-								jpg::decode::eobrun_sa(huffr, block, &eobrun, cs_from, cs_to);
+								jpg::decode::eobrun_sa(huffr, block, &eobrun, curr_scan::from, curr_scan::to);
 								eob = 0;
 								eobrun--;
 							}
 								
 							// copy back to colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
-								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
+							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
+								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2704,7 +2708,7 @@ bool jpg::decode::decode()
 			// evaluate status
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
-					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
+					scnc, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
@@ -2799,8 +2803,8 @@ bool jpg::encode::recode()
 		
 		// (re)alloc restart marker positons array if needed
 		if ( rsti > 0 ) {
-			tmp = rstc + ( ( cs_cmpc > 1 ) ?
-				( mcuc / rsti ) : ( cmpnfo[ cs_cmp[ 0 ] ].bc / rsti ) );
+			tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
+				( image::mcuc / rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / rsti ) );
 			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
 			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
 			if ( rstp == NULL ) {
@@ -2811,7 +2815,7 @@ bool jpg::encode::recode()
 		}		
 		
 		// intial variables set for encoding
-		cmp  = cs_cmp[ 0 ];
+		cmp  = curr_scan::cmp[ 0 ];
 		csc  = 0;
 		mcu  = 0;
 		sub  = 0;
@@ -2839,7 +2843,7 @@ bool jpg::encode::recode()
 			rstw = rsti;
 			
 			// encoding for interleaved data
-			if ( cs_cmpc > 1 )
+			if ( curr_scan::cmpc > 1 )
 			{				
 				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
@@ -2863,12 +2867,12 @@ bool jpg::encode::recode()
 						else status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
-				else if ( cs_sah == 0 ) {
+				else if ( curr_scan::sah == 0 ) {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+						tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2886,7 +2890,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation later stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+						block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 						
 						// encode dc correction bit
 						jpg::encode::dc_prg_sa(huffw, block);
@@ -2919,13 +2923,13 @@ bool jpg::encode::recode()
 						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);	
 					}
 				}
-				else if ( cs_to == 0 ) {
-					if ( cs_sah == 0 ) {
+				else if ( curr_scan::to == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+							tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
@@ -2943,7 +2947,7 @@ bool jpg::encode::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+							block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 							
 							// encode dc correction bit
 							jpg::encode::dc_prg_sa(huffw, block);
@@ -2954,19 +2958,19 @@ bool jpg::encode::recode()
 					}
 				}
 				else {
-					if ( cs_sah == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
 								block[ bpos ] =
-									FDIV2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									FDIV2( colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							eob = jpg::encode::ac_prg_fs( huffw,
 							                              hcodes[1][cmpnfo[cmp].huffac],
-							                              block, &eobrun, cs_from, cs_to );
+							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2981,14 +2985,14 @@ bool jpg::encode::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
 								block[ bpos ] =
-									FDIV2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									FDIV2( colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							eob = jpg::encode::ac_prg_sa( huffw, storw,
 							                              hcodes[1][cmpnfo[cmp].huffac],
-							                              block, &eobrun, cs_from, cs_to );
+							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -3010,7 +3014,7 @@ bool jpg::encode::recode()
 			// evaluate status
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
-					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
+					scnc, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
@@ -3057,7 +3061,7 @@ INTERN bool adapt_icos( void )
 	int cmp;
 	
 	
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// make a local copy of the quantization values, check
 		for ( ipos = 0; ipos < 64; ipos++ ) {
 			quant[ ipos ] = QUANT( cmp, zigzag[ ipos ] );
@@ -3094,7 +3098,7 @@ INTERN bool predict_dc( void )
 	
 	
 	// apply prediction, store prediction error instead of DC
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		absmaxp = MAX_V( cmp, 0 );
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
@@ -3131,7 +3135,7 @@ INTERN bool unpredict_dc( void )
 	
 	
 	// remove prediction, store DC instead of prediction error
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		absmaxp = MAX_V( cmp, 0 );
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
@@ -3165,7 +3169,7 @@ INTERN bool jpg::decode::check_value_range()
 	int cmp, bpos, dpos;
 	
 	// out of range should never happen with unmodified JPEGs
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	for ( bpos = 0; bpos < 64; bpos++ ) {
 		absmax = MAX_V( cmp, bpos );
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
@@ -3194,7 +3198,7 @@ INTERN bool calc_zdst_lists( void )
 	
 	
 	// this functions counts, for each DCT block, the number of non-zero coefficients
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	{
 		// preset zdstlist
 		memset( zdstdata[cmp], 0, cmpnfo[cmp].bc * sizeof( char ) );
@@ -3281,7 +3285,7 @@ INTERN bool pack_pjg( void )
 		if ( !pjg_encode_generic( encoder, rst_err, scnc ) ) return false;
 	
 	// encode actual components data
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
 		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;
@@ -3412,7 +3416,7 @@ INTERN bool unpack_pjg( void )
 	if ( !jpg::setup_imginfo() ) return false;
 	
 	// decode actual components data
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// decode frequency scan ('zero-sort-scan')
 		if ( !pjg_decode_zstscan( decoder, cmp ) ) return false;		
 		// decode zero-distribution-lists for higher (7x7) ACs
@@ -3475,12 +3479,12 @@ bool jpg::setup_imginfo( void )
 	}
 	
 	// check if information is complete
-	if ( cmpc == 0 ) {
+	if (image::cmpc == 0 ) {
 		sprintf( errormessage, "header contains incomplete information" );
 		errorlevel = 2;
 		return false;
 	}
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		if ( ( cmpnfo[cmp].sfv == 0 ) ||
 			 ( cmpnfo[cmp].sfh == 0 ) ||
 			 ( cmpnfo[cmp].qtable == NULL ) ||
@@ -3493,35 +3497,35 @@ bool jpg::setup_imginfo( void )
 	}
 	
 	// do all remaining component info calculations
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		if ( cmpnfo[ cmp ].sfh > sfhm ) sfhm = cmpnfo[ cmp ].sfh;
-		if ( cmpnfo[ cmp ].sfv > sfvm ) sfvm = cmpnfo[ cmp ].sfv;
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
+		if ( cmpnfo[ cmp ].sfh > image::sfhm ) image::sfhm = cmpnfo[ cmp ].sfh;
+		if ( cmpnfo[ cmp ].sfv > image::sfvm ) image::sfvm = cmpnfo[ cmp ].sfv;
 	}
-	mcuv = ( int ) ceil( (float) imgheight / (float) ( 8 * sfhm ) );
-	mcuh = ( int ) ceil( (float) imgwidth  / (float) ( 8 * sfvm ) );
-	mcuc  = mcuv * mcuh;
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	image::mcuv = ( int ) ceil( (float)image::imgheight / (float) ( 8 * image::sfhm ) );
+	image::mcuh = ( int ) ceil( (float)image::imgwidth  / (float) ( 8 * image::sfvm ) );
+	image::mcuc  = image::mcuv * image::mcuh;
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		cmpnfo[ cmp ].mbs = cmpnfo[ cmp ].sfv * cmpnfo[ cmp ].sfh;		
-		cmpnfo[ cmp ].bcv = mcuv * cmpnfo[ cmp ].sfh;
-		cmpnfo[ cmp ].bch = mcuh * cmpnfo[ cmp ].sfv;
+		cmpnfo[ cmp ].bcv = image::mcuv * cmpnfo[ cmp ].sfh;
+		cmpnfo[ cmp ].bch = image::mcuh * cmpnfo[ cmp ].sfv;
 		cmpnfo[ cmp ].bc  = cmpnfo[ cmp ].bcv * cmpnfo[ cmp ].bch;
-		cmpnfo[ cmp ].ncv = ( int ) ceil( (float) imgheight * 
-							( (float) cmpnfo[ cmp ].sfh / ( 8.0 * sfhm ) ) );
-		cmpnfo[ cmp ].nch = ( int ) ceil( (float) imgwidth * 
-							( (float) cmpnfo[ cmp ].sfv / ( 8.0 * sfvm ) ) );
+		cmpnfo[ cmp ].ncv = ( int ) ceil( (float)image::imgheight *
+							( (float) cmpnfo[ cmp ].sfh / ( 8.0 * image::sfhm ) ) );
+		cmpnfo[ cmp ].nch = ( int ) ceil( (float)image::imgwidth *
+							( (float) cmpnfo[ cmp ].sfv / ( 8.0 * image::sfvm ) ) );
 		cmpnfo[ cmp ].nc  = cmpnfo[ cmp ].ncv * cmpnfo[ cmp ].nch;
 	}
 	
 	// decide components' statistical ids
-	if ( cmpc <= 3 ) {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) cmpnfo[ cmp ].sid = cmp;
+	if (image::cmpc <= 3 ) {
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = cmp;
 	}
 	else {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) cmpnfo[ cmp ].sid = 0;
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = 0;
 	}
 	
 	// alloc memory for further operations
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	{
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
@@ -3550,7 +3554,7 @@ bool jpg::setup_imginfo( void )
 	
 	// also decide automatic settings here
 	if ( auto_set ) {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) {
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 			for ( i = 0;
 				conf_sets[ i ][ cmpnfo[cmp].sid ] > (unsigned int) cmpnfo[ cmp ].bc;
 				i++ );
@@ -3646,22 +3650,22 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
-			cs_cmpc = segment[ hpos ];
-			if ( cs_cmpc > cmpc ) {
+			curr_scan::cmpc = segment[ hpos ];
+			if ( curr_scan::cmpc > image::cmpc ) {
 				sprintf( errormessage, "%i components in scan, only %i are allowed",
-							cs_cmpc, cmpc );
+							curr_scan::cmpc, image::cmpc );
 				errorlevel = 2;
 				return false;
 			}
 			hpos++;
-			for ( i = 0; i < cs_cmpc; i++ ) {
-				for ( cmp = 0; ( segment[ hpos ] != cmpnfo[ cmp ].jid ) && ( cmp < cmpc ); cmp++ );
-				if ( cmp == cmpc ) {
+			for ( i = 0; i < curr_scan::cmpc; i++ ) {
+				for ( cmp = 0; ( segment[ hpos ] != cmpnfo[ cmp ].jid ) && ( cmp < image::cmpc ); cmp++ );
+				if ( cmp == image::cmpc ) {
 					sprintf( errormessage, "component id mismatch in start-of-scan" );
 					errorlevel = 2;
 					return false;
 				}
-				cs_cmp[ i ] = cmp;
+				curr_scan::cmp[ i ] = cmp;
 				cmpnfo[ cmp ].huffdc = LBITS( segment[ hpos + 1 ], 4 );
 				cmpnfo[ cmp ].huffac = RBITS( segment[ hpos + 1 ], 4 );
 				if ( ( cmpnfo[ cmp ].huffdc < 0 ) || ( cmpnfo[ cmp ].huffdc >= 4 ) ||
@@ -3672,17 +3676,17 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 				}
 				hpos += 2;
 			}
-			cs_from = segment[ hpos + 0 ];
-			cs_to   = segment[ hpos + 1 ];
-			cs_sah  = LBITS( segment[ hpos + 2 ], 4 );
-			cs_sal  = RBITS( segment[ hpos + 2 ], 4 );
+			curr_scan::from = segment[ hpos + 0 ];
+			curr_scan::to   = segment[ hpos + 1 ];
+			curr_scan::sah  = LBITS( segment[ hpos + 2 ], 4 );
+			curr_scan::sal  = RBITS( segment[ hpos + 2 ], 4 );
 			// check for errors
-			if ( ( cs_from > cs_to ) || ( cs_from > 63 ) || ( cs_to > 63 ) ) {
+			if ( ( curr_scan::from > curr_scan::to ) || ( curr_scan::from > 63 ) || ( curr_scan::to > 63 ) ) {
 				sprintf( errormessage, "spectral selection parameter out of range" );
 				errorlevel = 2;
 				return false;
 			}
-			if ( ( cs_sah >= 12 ) || ( cs_sal >= 12 ) ) {
+			if ( ( curr_scan::sah >= 12 ) || ( curr_scan::sal >= 12 ) ) {
 				sprintf( errormessage, "successive approximation parameter out of range" );
 				errorlevel = 2;
 				return false;
@@ -3713,23 +3717,23 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 			}
 			
 			// image size, height & component count
-			imgheight = B_SHORT( segment[ hpos + 1 ], segment[ hpos + 2 ] );
-			imgwidth  = B_SHORT( segment[ hpos + 3 ], segment[ hpos + 4 ] );
-			cmpc      = segment[ hpos + 5 ];
-			if ( ( imgwidth == 0 ) || ( imgheight == 0 ) ) {
-				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", imgwidth, imgheight );
+			image::imgheight = B_SHORT( segment[ hpos + 1 ], segment[ hpos + 2 ] );
+			image::imgwidth  = B_SHORT( segment[ hpos + 3 ], segment[ hpos + 4 ] );
+			image::cmpc      = segment[ hpos + 5 ];
+			if ( (image::imgwidth == 0 ) || (image::imgheight == 0 ) ) {
+				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight );
 				errorlevel = 2;
 				return false;
 			}
-			if ( cmpc > 4 ) {
-				sprintf( errormessage, "image has %i components, max 4 are supported", cmpc );
+			if (image::cmpc > 4 ) {
+				sprintf( errormessage, "image has %i components, max 4 are supported", image::cmpc );
 				errorlevel = 2;
 				return false;
 			}
 			
 			hpos += 6;
 			// components contained in image
-			for ( cmp = 0; cmp < cmpc; cmp++ ) {
+			for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 				cmpnfo[ cmp ].jid = segment[ hpos ];
 				cmpnfo[ cmp ].sfv = LBITS( segment[ hpos + 1 ], 4 );
 				cmpnfo[ cmp ].sfh = RBITS( segment[ hpos + 1 ], 4 );				
@@ -4396,24 +4400,24 @@ jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* 
 	if ( ( ++(*sub) ) >= cmpnfo[(*cmp)].mbs ) {
 		(*sub) = 0;
 		
-		if ( ( ++(*csc) ) >= cs_cmpc ) {
+		if ( ( ++(*csc) ) >= curr_scan::cmpc ) {
 			(*csc) = 0;
-			(*cmp) = cs_cmp[ 0 ];
+			(*cmp) = curr_scan::cmp[ 0 ];
 			(*mcu)++;
-			if ( (*mcu) >= mcuc ) sta = jpg::CodingStatus::DONE;
+			if ( (*mcu) >= image::mcuc ) sta = jpg::CodingStatus::DONE;
 			else if ( rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = jpg::CodingStatus::RESTART;
 		}
 		else {
-			(*cmp) = cs_cmp[(*csc)];
+			(*cmp) = curr_scan::cmp[(*csc)];
 		}
 	}
 	
 	// get correct position in image ( x & y )
 	if ( cmpnfo[(*cmp)].sfh > 1 ) { // to fix mcu order
-		(*dpos)  = ( (*mcu) / mcuh ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
+		(*dpos)  = ( (*mcu) / image::mcuh ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
 		(*dpos) *= cmpnfo[(*cmp)].bch;
-		(*dpos) += ( (*mcu) % mcuh ) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
+		(*dpos) += ( (*mcu) % image::mcuh ) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
 	}
 	else if ( cmpnfo[(*cmp)].sfv > 1 ) {
 		// simple calculation to speed up things if simple fixing is enough
@@ -6983,7 +6987,7 @@ INTERN bool dump_info( void )
 	// fprintf( fp, "no of scans: %i\n", scnc );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
 	fprintf( fp, "component count: %i\n", cmpc );
-	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh );
+	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
 	
 	// info about header
 	fprintf( fp, "\nfile header structure:\n" );
