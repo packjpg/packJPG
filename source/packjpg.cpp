@@ -4129,7 +4129,7 @@ void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* blo
 void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block)
 {
 	// enocode next bit of dc coefficient
-	huffw->write( block[ 0 ], 1 );
+	huffw->write_bit(block[0]);
 }
 
 
@@ -4353,7 +4353,7 @@ void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::un
 	
 	// write bits to huffwriter
 	for ( i = 0; i < len; i++ )
-		huffw->write( data[ i ], 1 );
+		huffw->write_bit(data[i]);
 	
 	// reset abytewriter, discard data
 	storw->reset();
