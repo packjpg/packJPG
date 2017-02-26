@@ -411,56 +411,87 @@ enum CodingStatus {
 	DONE = 2
 };
 
+// Parses header for imageinfo.
 bool setup_imginfo();
+// JFIF header rebuilding routine.
 bool rebuild_header();
 
+// Calculates next position for MCU.
 jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+// Calculates next position (non interleaved).
 jpg::CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
 
 namespace jfif {
+// Parses JFIF segment, returning true if the segment is valid in packjpg and the parse was successful, false otherwise.
 bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
 
+// Helper function that parses DHT segments, returning true if the parse succeeds.
 bool parse_dht(unsigned char type, unsigned int len, const unsigned char* segment);
+// Constructs Huffman codes from DHT data.
 HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
+// Constructs a Huffman tree from the given Huffman codes.
 HuffTree build_hufftree(const HuffCodes& codes);
 
+// Helper function that parses DQT segments, returning true if the parse succeeds.
 bool parse_dqt(unsigned len, const unsigned char* segment);
+// Helper function that parses SOS segments, returning true if the parse succeeds.
 bool parse_sos(const unsigned char* segment);
+// Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
 bool parse_sof(unsigned char type, const unsigned char* segment);
+// Helper function that parses DRI segments.
 void parse_dri(const unsigned char* segment);
 }
 
 namespace encode {
+// JPEG encoding routine.
 bool recode();
+// Merges header & image data to jpeg.
 bool merge();
 
+// Sequential block encoding routine.
 int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+// Progressive DC encoding routine.
 void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
+// Progressive AC encoding routine.
 int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
               int* eobrun, int from, int to);
+// Progressive DC SA encoding routine.
 void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block);
+// Progressive AC SA encoding routine.
 int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl,
               const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to);
+// Run of EOB encoding routine.
 void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
+// Correction bits encoding routine.
 void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
 }
 
 namespace decode {
+// Read in header and image data.
 bool read();
+// JPEG decoding routine.
 bool decode();
+// Checks range of values, error if out of bounds.
 bool check_value_range();
 
+// Sequential block decoding routine.
 int block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
+// Progressive DC decoding routine.
 jpg::CodingStatus dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block);
+// Progressive AC decoding routine.
 int ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
+// Progressive DC SA decoding routine.
 void dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block);
+// Progressive AC SA decoding routine.
 int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
               int* eobrun, int from, int to);
+// Run of EOB SA decoding routine.
 void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
 
+// Skips the eobrun, calculates next position.
 jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
-
+// Returns next the next code(from huffman tree and data).
 int next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree);
 }
 }
@@ -2095,11 +2126,6 @@ INTERN bool reset_buffers( void )
 	
 	return true;
 }
-
-
-/* -----------------------------------------------
-	Read in header & image data
-	----------------------------------------------- */
 	
 bool jpg::decode::read()
 {
@@ -2298,11 +2324,6 @@ bool jpg::decode::read()
 	return true;
 }
 
-
-/* -----------------------------------------------
-	Merges header & image data to jpeg
-	----------------------------------------------- */
-	
 bool jpg::encode::merge()
 {
 	unsigned char SOI[ 2 ] = { 0xFF, 0xD8 }; // SOI segment
@@ -2399,11 +2420,6 @@ bool jpg::encode::merge()
 	
 	return true;
 }
-
-
-/* -----------------------------------------------
-	JPEG decoding routine
-	----------------------------------------------- */
 
 bool jpg::decode::decode()
 {	
@@ -2742,11 +2758,6 @@ bool jpg::decode::decode()
 	
 	return true;
 }
-
-
-/* -----------------------------------------------
-	JPEG encoding routine
-	----------------------------------------------- */
 
 bool jpg::encode::recode()
 {	
@@ -3166,11 +3177,6 @@ INTERN bool unpredict_dc( void )
 	return true;
 }
 
-
-/* -----------------------------------------------
-	checks range of values, error if out of bounds
-	----------------------------------------------- */
-
 INTERN bool jpg::decode::check_value_range()
 {
 	int absmax;
@@ -3461,10 +3467,6 @@ INTERN bool unpack_pjg( void )
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
 
-
-/* -----------------------------------------------
-	Parses header for imageinfo
-	----------------------------------------------- */
 bool jpg::setup_imginfo( void )
 {
 	unsigned char  type = 0x00; // type of current marker segment
@@ -3749,9 +3751,6 @@ bool jpg::jfif::parse_sos(const unsigned char* segment) {
 	return true;
 }
 
-/* -----------------------------------------------
-	Parse routines for JFIF segments
-	----------------------------------------------- */
 bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment)
 {
 	
@@ -3895,10 +3894,6 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 	}
 }
 
-
-/* -----------------------------------------------
-	JFIF header rebuilding routine
-	----------------------------------------------- */
 bool jpg::rebuild_header()
 {		
 	unsigned char  type = 0x00; // type of current marker segment
@@ -3930,10 +3925,6 @@ bool jpg::rebuild_header()
 	return true;
 }
 
-
-/* -----------------------------------------------
-	sequential block decoding routine
-	----------------------------------------------- */
 int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block)
 {
 	unsigned short n;
@@ -3983,10 +3974,6 @@ int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffT
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	sequential block encoding routine
-	----------------------------------------------- */
 int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block)
 {
 	// encode DC
@@ -4023,10 +4010,6 @@ int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffC
 	return 64 - z;
 }
 
-
-/* -----------------------------------------------
-	progressive DC decoding routine
-	----------------------------------------------- */
 jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block)
 {
 	// decode dc
@@ -4042,10 +4025,6 @@ jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huff
 	return jpg::CodingStatus::OKAY;
 }
 
-
-/* -----------------------------------------------
-	progressive DC encoding routine
-	----------------------------------------------- */
 void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block)
 {
 	// encode DC	
@@ -4055,10 +4034,6 @@ void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const Huff
 	huffw->write(n, s);
 }
 
-
-/* -----------------------------------------------
-	progressive AC decoding routine
-	----------------------------------------------- */
 int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
@@ -4108,10 +4083,6 @@ int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffT
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	progressive AC encoding routine
-	----------------------------------------------- */
 int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
@@ -4161,30 +4132,18 @@ int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 	}
 }
 
-
-/* -----------------------------------------------
-	progressive DC SA decoding routine
-	----------------------------------------------- */
 void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block)
 {
 	// decode next bit of dc coefficient
 	block[ 0 ] = huffr->read_bit();
 }
 
-
-/* -----------------------------------------------
-	progressive DC SA encoding routine
-	----------------------------------------------- */
 void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block)
 {
 	// enocode next bit of dc coefficient
 	huffw->write_bit(block[0]);
 }
 
-
-/* -----------------------------------------------
-	progressive AC SA decoding routine
-	----------------------------------------------- */
 int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
@@ -4255,10 +4214,6 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	progressive AC SA encoding routine
-	----------------------------------------------- */
 int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
@@ -4338,10 +4293,6 @@ int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	run of EOB SA decoding routine
-	----------------------------------------------- */
 void jpg::decode::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
@@ -4357,10 +4308,6 @@ void jpg::decode::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* blo
 	}
 }
 
-
-/* -----------------------------------------------
-	run of EOB encoding routine
-	----------------------------------------------- */
 void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun)
 {
 	unsigned short n;
@@ -4384,10 +4331,6 @@ void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCod
 	}
 }
 
-
-/* -----------------------------------------------
-	correction bits encoding routine
-	----------------------------------------------- */
 void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw)
 {	
 	unsigned char* data;
@@ -4408,10 +4351,6 @@ void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::un
 	storw->reset();
 }
 
-
-/* -----------------------------------------------
-	returns next code (from huffman-tree & -data)
-	----------------------------------------------- */
 int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree)
 {	
 	int node = 0;
@@ -4426,10 +4365,6 @@ int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const H
 	return ( node - 256 );
 }
 
-
-/* -----------------------------------------------
-	calculates next position for MCU
-	----------------------------------------------- */
 jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
 	jpg::CodingStatus sta = jpg::CodingStatus::OKAY;
@@ -4471,10 +4406,6 @@ jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* 
 	return sta;
 }
 
-
-/* -----------------------------------------------
-	calculates next position (non interleaved)
-	----------------------------------------------- */
 jpg::CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 {
 	// increment position
@@ -4501,10 +4432,6 @@ jpg::CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 	return jpg::CodingStatus::OKAY;
 }
 
-
-/* -----------------------------------------------
-	skips the eobrun, calculates next position
-	----------------------------------------------- */
 jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
@@ -4546,9 +4473,6 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 	return jpg::CodingStatus::OKAY;
 }
 
-/* -----------------------------------------------
-creates huffman-codes from dht-data
------------------------------------------------ */
 static HuffCodes jpg::jfif::build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
 	HuffCodes codes;
 	int k = 0;
