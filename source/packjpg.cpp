@@ -396,8 +396,6 @@ INTERN bool predict_dc( void );
 INTERN bool unpredict_dc( void );
 INTERN bool check_value_range( void );
 INTERN bool calc_zdst_lists( void );
-INTERN bool pack_pjg( void );
-INTERN bool unpack_pjg( void );
 
 
 /* -----------------------------------------------
@@ -440,33 +438,46 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
 /* -----------------------------------------------
 	function declarations: pjg-specific
 	----------------------------------------------- */
-	
-INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp );
-INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp );
-INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp );
-INTERN bool pjg_encode_dc( aricoder* enc, int cmp );
-INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp );
-INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp );
-INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len );
-INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit );
 
-INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp );
-INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp );
-INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp );
-INTERN bool pjg_decode_dc( aricoder* dec, int cmp );
-INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp );
-INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp );
-INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len );
-INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit );
+namespace pjg {
+	namespace encode {
+		bool encode();
 
-INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp );
-INTERN bool pjg_optimize_header( void );
-INTERN bool pjg_unoptimize_header( void );
+		bool optimize_header();
 
-INTERN void pjg_aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp );
-INTERN int pjg_aavrg_context( unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x );
-INTERN int pjg_lakh_context( signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos );
-INTERN void get_context_nnb( int pos, int w, int *a, int *b );
+		bool zstscan(aricoder* enc, int cmp);
+		bool zdst_high(aricoder* enc, int cmp);
+		bool zdst_low(aricoder* enc, int cmp);
+		bool dc(aricoder* enc, int cmp);
+		bool ac_high(aricoder* enc, int cmp);
+		bool ac_low(aricoder* enc, int cmp);
+		bool generic(aricoder* enc, unsigned char* data, int len);
+		bool bit(aricoder* enc, unsigned char bit);
+
+		void get_zerosort_scan(unsigned char* sv, int cmp);
+
+	}
+
+	namespace decode {
+		bool decode();
+
+		bool unoptimize_header();
+
+		bool zstscan(aricoder* dec, int cmp);
+		bool zdst_high(aricoder* dec, int cmp);
+		bool zdst_low(aricoder* dec, int cmp);
+		bool dc(aricoder* dec, int cmp);
+		bool ac_high(aricoder* dec, int cmp);
+		bool ac_low(aricoder* dec, int cmp);
+		bool generic(aricoder* dec, unsigned char** data, int* len);
+		bool bit(aricoder* dec, unsigned char* bit);
+	}
+
+	void aavrg_prepare(unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp);
+	int aavrg_context(unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x);
+	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
+	void get_context_nnb(int pos, int w, int *a, int *b);
+}
 
 
 /* -----------------------------------------------
@@ -1446,9 +1457,9 @@ INTERN inline const char* get_status( bool (*function)() )
 		return "Checking values range";
 	} else if ( function == *calc_zdst_lists ) {
 		return "Calculating zero dist lists";
-	} else if ( function == *pack_pjg ) {
+	} else if ( function == *pjg::encode::encode ) {
 		return "Compressing data to PJG";
-	} else if ( function == *unpack_pjg ) {
+	} else if ( function == *pjg::decode::decode ) {
 		return "Uncompressing data from PJG";
 	} else if ( function == *swap_streams ) {
 		return "Swapping input/output streams";
@@ -1544,12 +1555,12 @@ INTERN void process_file( void )
 				execute( adapt_icos );
 				execute( predict_dc );
 				execute( calc_zdst_lists );
-				execute( pack_pjg );
+				execute( pjg::encode::encode );
 				#if !defined(BUILD_LIB)	
 				if ( verify_lv > 0 ) { // verifcation
 					execute( reset_buffers );
 					execute( swap_streams );
-					execute( unpack_pjg );
+					execute( pjg::decode::decode );
 					execute( adapt_icos );
 					execute( unpredict_dc );
 					execute( recode_jpeg );
@@ -1621,7 +1632,7 @@ INTERN void process_file( void )
 		switch ( action )
 		{
 			case A_COMPRESS:
-				execute( unpack_pjg );
+				execute( pjg::decode::decode );
 				execute( adapt_icos );
 				execute( unpredict_dc );
 				execute( recode_jpeg );
@@ -1636,7 +1647,7 @@ INTERN void process_file( void )
 					execute( adapt_icos );
 					execute( predict_dc );
 					execute( calc_zdst_lists );
-					execute( pack_pjg );
+					execute( pjg::encode::encode );
 					execute( compare_output );
 				}
 				#endif
@@ -1644,7 +1655,7 @@ INTERN void process_file( void )
 				
 			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 			case A_SPLIT_DUMP:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( adapt_icos );
 				execute( unpredict_dc );
 				execute( recode_jpeg );
@@ -1653,34 +1664,34 @@ INTERN void process_file( void )
 				break;
 				
 			case A_COLL_DUMP:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( adapt_icos );			
 				execute( unpredict_dc );
 				execute( dump_coll );
 				break;
 				
 			case A_FCOLL_DUMP:				
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( dump_coll );
 				break;
 				
 			case A_ZDST_DUMP:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( dump_zdst );
 				break;
 			
 			case A_TXT_INFO:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( dump_info );
 				break;
 			
 			case A_DIST_INFO:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( dump_dist );
 				break;
 			
 			case A_PGM_DUMP:
-				execute( unpack_pjg );
+				execute( pjg::decode::unpack );
 				execute( adapt_icos );
 				execute( unpredict_dc );
 				execute( dump_pgm );
@@ -3252,7 +3263,7 @@ INTERN bool calc_zdst_lists( void )
 	packs all parts to compressed pjg
 	----------------------------------------------- */
 	
-INTERN bool pack_pjg( void )
+bool pjg::encode::encode()
 {
 	aricoder* encoder;
 	unsigned char hcode;
@@ -3285,65 +3296,65 @@ INTERN bool pack_pjg( void )
 	if ( disc_meta )
 		if ( !jpg_rebuild_header() ) return false;	
 	// optimize header for compression
-	if ( !pjg_optimize_header() ) return false;	
+	if ( !pjg::encode::optimize_header() ) return false;	
 	// set padbit to 1 if previously unset
 	if ( padbit == -1 )	padbit = 1;
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
-	if ( !pjg_encode_generic( encoder, hdrdata, hdrs ) ) return false;
+	if ( !pjg::encode::generic( encoder, hdrdata, hdrs ) ) return false;
 	#else
 	dev_size = str_out->getpos();
-	if ( !pjg_encode_generic( encoder, hdrdata, hdrs ) ) return false;
+	if ( !pjg::encode::generic( encoder, hdrdata, hdrs ) ) return false;
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
 	// store padbit (padbit can't be retrieved from the header)
-	if ( !pjg_encode_bit( encoder, padbit ) ) return false;	
+	if ( !pjg::encode::bit( encoder, padbit ) ) return false;	
 	// also encode one bit to signal false/correct use of RST markers
-	if ( !pjg_encode_bit( encoder, ( rst_err == NULL ) ? 0 : 1 ) ) return false;
+	if ( !pjg::encode::bit( encoder, ( rst_err == NULL ) ? 0 : 1 ) ) return false;
 	// encode # of false set RST markers per scan
 	if ( rst_err != NULL )
-		if ( !pjg_encode_generic( encoder, rst_err, scnc ) ) return false;
+		if ( !pjg::encode::generic( encoder, rst_err, scnc ) ) return false;
 	
 	// encode actual components data
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;
+		if ( !pjg::encode::zstscan( encoder, cmp ) ) return false;
 		// encode zero-distribution-lists for higher (7x7) ACs
-		if ( !pjg_encode_zdst_high( encoder, cmp ) ) return false;
+		if ( !pjg::encode::zdst_high( encoder, cmp ) ) return false;
 		// encode coefficients for higher (7x7) ACs
-		if ( !pjg_encode_ac_high( encoder, cmp ) ) return false;
+		if ( !pjg::encode::ac_high( encoder, cmp ) ) return false;
 		// encode zero-distribution-lists for lower ACs
-		if ( !pjg_encode_zdst_low( encoder, cmp ) ) return false;
+		if ( !pjg::encode::zdst_low( encoder, cmp ) ) return false;
 		// encode coefficients for first row / collumn ACs
-		if ( !pjg_encode_ac_low( encoder, cmp ) ) return false;
+		if ( !pjg::encode::ac_low( encoder, cmp ) ) return false;
 		// encode coefficients for DC
-		if ( !pjg_encode_dc( encoder, cmp ) ) return false;		
+		if ( !pjg::encode::dc( encoder, cmp ) ) return false;		
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;		
+		if ( !pjg::encode::zstscan( encoder, cmp ) ) return false;		
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
-		if ( !pjg_encode_zdst_high( encoder, cmp ) ) return false;
+		if ( !pjg::encode::zdst_high( encoder, cmp ) ) return false;
 		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for higher (7x7) ACs
-		if ( !pjg_encode_ac_high( encoder, cmp ) ) return false;
+		if ( !pjg::encode::ac_high( encoder, cmp ) ) return false;
 		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for lower ACs
-		if ( !pjg_encode_zdst_low( encoder, cmp ) ) return false;
+		if ( !pjg::encode::zdst_low( encoder, cmp ) ) return false;
 		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for first row / collumn ACs
-		if ( !pjg_encode_ac_low( encoder, cmp ) ) return false;
+		if ( !pjg::encode::ac_low( encoder, cmp ) ) return false;
 		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for DC
-		if ( !pjg_encode_dc( encoder, cmp ) ) return false;
+		if ( !pjg::encode::dc( encoder, cmp ) ) return false;
 		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
 		dev_size_cmp[ cmp ] = 
 			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
@@ -3352,10 +3363,10 @@ INTERN bool pack_pjg( void )
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	if ( !pjg_encode_bit( encoder, ( grbs > 0 ) ? 1 : 0 ) ) return false;
+	if ( !pjg::encode::bit( encoder, ( grbs > 0 ) ? 1 : 0 ) ) return false;
 	// encode garbage data only if needed
 	if ( grbs > 0 )
-		if ( !pjg_encode_generic( encoder, grbgdata, grbs ) ) return false;
+		if ( !pjg::encode::generic( encoder, grbgdata, grbs ) ) return false;
 	
 	// finalize arithmetic compression
 	delete( encoder );
@@ -3380,7 +3391,7 @@ INTERN bool pack_pjg( void )
 	unpacks compressed pjg to colldata
 	----------------------------------------------- */
 	
-INTERN bool unpack_pjg( void )
+INTERN bool pjg::decode::decode()
 {
 	aricoder* decoder;
 	unsigned char hcode;
@@ -3419,17 +3430,17 @@ INTERN bool unpack_pjg( void )
 	decoder = new aricoder(str_in, StreamMode::kRead);
 	
 	// decode JPG header
-	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
+	if ( !pjg::decode::generic( decoder, &hdrdata, &hdrs ) ) return false;
 	// retrieve padbit from stream
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false; padbit = cb;
+	if ( !pjg::decode::bit( decoder, &cb ) ) return false; padbit = cb;
 	// decode one bit that signals false /correct use of RST markers
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
+	if ( !pjg::decode::bit( decoder, &cb ) ) return false;
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 )
-		if ( !pjg_decode_generic( decoder, &rst_err, NULL ) ) return false;
+		if ( !pjg::decode::generic( decoder, &rst_err, NULL ) ) return false;
 	
 	// undo header optimizations
-	if ( !pjg_unoptimize_header() )	return false;	
+	if ( !pjg::decode::unoptimize_header() )	return false;	
 	// discard meta information from header if option set
 	if ( disc_meta )
 		if ( !jpg_rebuild_header() ) return false;
@@ -3439,25 +3450,25 @@ INTERN bool unpack_pjg( void )
 	// decode actual components data
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
 		// decode frequency scan ('zero-sort-scan')
-		if ( !pjg_decode_zstscan( decoder, cmp ) ) return false;		
+		if ( !pjg::decode::zstscan( decoder, cmp ) ) return false;		
 		// decode zero-distribution-lists for higher (7x7) ACs
-		if ( !pjg_decode_zdst_high( decoder, cmp ) ) return false;
+		if ( !pjg::decode::zdst_high( decoder, cmp ) ) return false;
 		// decode coefficients for higher (7x7) ACs
-		if ( !pjg_decode_ac_high( decoder, cmp ) ) return false;
+		if ( !pjg::decode::ac_high( decoder, cmp ) ) return false;
 		// decode zero-distribution-lists for lower ACs
-		if ( !pjg_decode_zdst_low( decoder, cmp ) ) return false;
+		if ( !pjg::decode::zdst_low( decoder, cmp ) ) return false;
 		// decode coefficients for first row / collumn ACs
-		if ( !pjg_decode_ac_low( decoder, cmp ) ) return false;	
+		if ( !pjg::decode::ac_low( decoder, cmp ) ) return false;	
 		// decode coefficients for DC
-		if ( !pjg_decode_dc( decoder, cmp ) ) return false;	
+		if ( !pjg::decode::dc( decoder, cmp ) ) return false;	
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
+	if ( !pjg::decode::bit( decoder, &cb ) ) return false;
 	
 	// decode garbage data only if available
 	if ( cb == 0 ) grbs = 0;
-	else if ( !pjg_decode_generic( decoder, &grbgdata, &grbs ) ) return false;
+	else if ( !pjg::decode::generic( decoder, &grbgdata, &grbs ) ) return false;
 	
 	// finalize arithmetic compression
 	delete( decoder );
@@ -4658,7 +4669,7 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
+bool pjg::encode::zstscan( aricoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4669,7 +4680,7 @@ INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
 	
 	
 	// calculate zero sort scan
-	pjg_get_zerosort_scan( zsrtscan[cmp], cmp );
+	pjg::encode::get_zerosort_scan( zsrtscan[cmp], cmp );
 	
 	// preset freqlist
 	for ( i = 0; i < 64; i++ )
@@ -4726,7 +4737,7 @@ INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (high)
 	----------------------------------------------- */	
-INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp )
+bool pjg::encode::zdst_high( aricoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4766,7 +4777,7 @@ INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (low)
 	----------------------------------------------- */	
-INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp )
+bool pjg::encode::zdst_low( aricoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4813,7 +4824,7 @@ INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
+bool pjg::encode::dc( aricoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -4869,7 +4880,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	}
 	
 	// set up context quick access array
-	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
+	pjg::aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
 	coeffs = colldata[ cmp ][ 0 ];
@@ -4887,7 +4898,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 		// get segment-number from zero distribution list and segmentation set
 		snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
+		ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
 		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
@@ -4933,7 +4944,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
+bool pjg::encode::ac_high( aricoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5030,7 +5041,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 		memset( sgn_store, 0x00, bc * sizeof( char ) );
 		
 		// set up average context quick access arrays
-		pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
+		pjg::aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 		
 		// locally store pointer to coefficients
 		coeffs = colldata[ cmp ][ bpos ];
@@ -5055,7 +5066,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 			// get segment-number from zero distribution list and segmentation set
 			snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
+			ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
 			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
@@ -5117,7 +5128,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes first row/col AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
+bool pjg::encode::ac_low( aricoder* enc, int cmp )
 {
 	model_s* mod_len;
 	model_b* mod_sgn;
@@ -5212,7 +5223,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			
 			// edge treatment / calculate LAKHANI context
 			if ( (*edge_c) > 0 )
-				ctx_lak = pjg_lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
+				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
 			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
 			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context
@@ -5281,7 +5292,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes a stream of generic (8bit) data to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len )
+bool pjg::encode::generic( aricoder* enc, unsigned char* data, int len )
 {
 	model_s* model;
 	int i;
@@ -5306,7 +5317,7 @@ INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len )
 /* -----------------------------------------------
 	encodes one bit to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit )
+bool pjg::encode::bit( aricoder* enc, unsigned char bit )
 {
 	model_b* model;
 	
@@ -5324,7 +5335,7 @@ INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit )
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp )
+bool pjg::decode::zstscan( aricoder* dec, int cmp )
 {	
 	model_s* model;;
 	
@@ -5390,7 +5401,7 @@ INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (high)
 	----------------------------------------------- */
-INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp )
+bool pjg::decode::zdst_high( aricoder* dec, int cmp )
 {
 	model_s* model;
 	
@@ -5430,7 +5441,7 @@ INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (low)
 	----------------------------------------------- */	
-INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp )
+bool pjg::decode::zdst_low( aricoder* dec, int cmp )
 {
 	model_s* model;
 	
@@ -5477,7 +5488,7 @@ INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
+bool pjg::decode::dc( aricoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5533,7 +5544,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	}
 	
 	// set up context quick access array
-	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
+	pjg::aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
 	coeffs = colldata[ cmp ][ 0 ];
@@ -5551,7 +5562,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 		// get segment-number from zero distribution list and segmentation set
 		snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
+		ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
 		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
@@ -5597,7 +5608,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
+bool pjg::decode::ac_high( aricoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5694,7 +5705,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 		memset( sgn_store, 0x00, bc * sizeof( char ) );
 		
 		// set up average context quick access arrays
-		pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
+		pjg::aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 		
 		// locally store pointer to coefficients
 		coeffs = colldata[ cmp ][ bpos ];
@@ -5719,7 +5730,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 			// get segment-number from zero distribution list and segmentation set
 			snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			ctx_avr = pjg_aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
+			ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
 			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
@@ -5781,7 +5792,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
+bool pjg::decode::ac_low( aricoder* dec, int cmp )
 {
 	model_s* mod_len;
 	model_b* mod_sgn;
@@ -5876,7 +5887,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			
 			// edge treatment / calculate LAKHANI context
 			if ( (*edge_c) > 0 )
-				ctx_lak = pjg_lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
+				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
 			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
 			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context				
@@ -5943,7 +5954,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	deodes a stream of generic (8bit) data from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
+bool pjg::decode::generic( aricoder* dec, unsigned char** data, int* len )
 {
 	abytewriter* bwrt;
 	model_s* model;
@@ -5984,7 +5995,7 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 /* -----------------------------------------------
 	decodes one bit from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit )
+bool pjg::decode::bit( aricoder* dec, unsigned char* bit )
 {
 	model_b* model;
 	
@@ -6001,7 +6012,7 @@ INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit )
 /* -----------------------------------------------
 	get zero sort frequency scan vector
 	----------------------------------------------- */
-INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp )
+void pjg::encode::get_zerosort_scan( unsigned char* sv, int cmp )
 {
 	unsigned int zdist[ 64 ]; // distributions of zeroes per band
 	int bc = cmpnfo[cmp].bc;
@@ -6045,7 +6056,7 @@ INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp )
 /* -----------------------------------------------
 	optimizes JFIF header for compression
 	----------------------------------------------- */
-INTERN bool pjg_optimize_header( void )
+bool pjg::encode::optimize_header()
 {
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -6124,7 +6135,7 @@ INTERN bool pjg_optimize_header( void )
 /* -----------------------------------------------
 	undoes the header optimizations
 	----------------------------------------------- */
-INTERN bool pjg_unoptimize_header( void )
+bool pjg::decode::unoptimize_header()
 {
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -6193,7 +6204,7 @@ INTERN bool pjg_unoptimize_header( void )
 /* -----------------------------------------------
 	preparations for special average context
 	----------------------------------------------- */
-INTERN void pjg_aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp )
+void pjg::aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp )
 {
 	int w = cmpnfo[cmp].bch;
 	
@@ -6217,7 +6228,7 @@ INTERN void pjg_aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsign
 /* -----------------------------------------------
 	special average context used in coeff encoding
 	----------------------------------------------- */
-INTERN int pjg_aavrg_context( unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x )
+int pjg::aavrg_context( unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x )
 {
 	int ctx_avr = 0; // AVERAGE context
 	int w_ctx = 0; // accumulated weight of context
@@ -6274,7 +6285,7 @@ INTERN int pjg_aavrg_context( unsigned short** abs_coeffs, int* weights, int pos
 /* -----------------------------------------------
 	lakhani ac context used in coeff encoding
 	----------------------------------------------- */
-INTERN int pjg_lakh_context( signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos )
+int pjg::lakh_context( signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos )
 {
 	int pred = 0;
 	
@@ -6298,7 +6309,7 @@ INTERN int pjg_lakh_context( signed short** coeffs_x, signed short** coeffs_a, i
 /* -----------------------------------------------
 	Calculates coordinates for nearest neighbor context
 	----------------------------------------------- */
-INTERN void get_context_nnb( int pos, int w, int *a, int *b )
+void pjg::get_context_nnb( int pos, int w, int *a, int *b )
 {
 	// this function calculates and returns coordinates for
 	// a simple 2D context
