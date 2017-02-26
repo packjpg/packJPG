@@ -414,13 +414,21 @@ enum CodingStatus {
 bool setup_imginfo();
 bool rebuild_header();
 
-bool parse_jfif(unsigned char type, unsigned int len, unsigned char* segment);
+jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+jpg::CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
 
+namespace jfif {
+bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
+
+bool parse_dht(unsigned char type, unsigned int len, const unsigned char* segment);
 HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
 HuffTree build_hufftree(const HuffCodes& codes);
 
-jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
-jpg::CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
+bool parse_dqt(unsigned len, const unsigned char* segment);
+bool parse_sos(const unsigned char* segment);
+bool parse_sof(unsigned char type, const unsigned char* segment);
+void parse_dri(const unsigned char* segment);
+}
 
 namespace encode {
 bool recode();
@@ -2429,7 +2437,7 @@ bool jpg::decode::decode()
 			type = hdrdata[ hpos + 1 ];
 			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
+				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
 			}
@@ -2777,7 +2785,7 @@ bool jpg::encode::recode()
 			type = hdrdata[ hpos + 1 ];
 			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
+				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
 				hpos += len;
@@ -3472,7 +3480,7 @@ bool jpg::setup_imginfo( void )
 		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// do not parse DHT & DRI
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
-			if ( !jpg::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
+			if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
 				return false;
 		}
 		hpos += len;
@@ -3567,131 +3575,201 @@ bool jpg::setup_imginfo( void )
 	return true;
 }
 
+// Builds Huffman trees and codes.
+bool jpg::jfif::parse_dht(unsigned char type, unsigned int len, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	// build huffman trees & codes
+	while (hpos < len) {
+		int lval = LBITS(segment[hpos], 4);
+		int rval = RBITS(segment[hpos], 4);
+		if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
+			break;
+		}
+
+		hpos++;
+		// build huffman codes & trees
+		hcodes[lval][rval] = jpg::jfif::build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
+		htrees[lval][rval] = jpg::jfif::build_hufftree(hcodes[lval][rval]);
+		htset[lval][rval] = true;
+
+		int skip = 16;
+		for (int i = 0; i < 16; i++) {
+			skip += (int)segment[hpos + i];
+		}
+		hpos += skip;
+	}
+
+	if (hpos != len) {
+		// if we get here, something went wrong
+		sprintf(errormessage, "size mismatch in dht marker");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+// Copy quantization tables to internal memory
+bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	while (hpos < len) {
+		int lval = LBITS( segment[ hpos ], 4 );
+		int rval = RBITS( segment[ hpos ], 4 );
+		if (lval < 0 || lval >= 2) {
+			break;
+		}
+		if (rval < 0 || rval >= 4) {
+			break;
+		}
+		hpos++;
+		if (lval == 0) { // 8 bit precision
+			for (int i = 0; i < 64; i++) {
+				qtables[rval][i] = (unsigned short) segment[hpos + i];
+				if (qtables[rval][i] == 0) {
+					break;
+				}
+			}
+			hpos += 64;
+		} else { // 16 bit precision
+			for (int i = 0; i < 64; i++) {
+				qtables[rval][i] =
+					B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
+				if (qtables[rval][i] == 0) {
+					break;
+				}
+			}
+			hpos += 128;
+		}
+	}
+
+	if (hpos != len) {
+		// if we get here, something went wrong
+		sprintf(errormessage, "size mismatch in dqt marker");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+// define restart interval
+void jpg::jfif::parse_dri(const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );
+}
+
+bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+
+	// set JPEG coding type
+	if (type == 0xC2) {
+		jpegtype = JpegType::PROGRESSIVE;
+	} else {
+		jpegtype = JpegType::SEQUENTIAL;
+	}
+
+	// check data precision, only 8 bit is allowed
+	int lval = segment[hpos];
+	if (lval != 8) {
+		sprintf(errormessage, "%i bit data precision is not supported", lval);
+		errorlevel = 2;
+		return false;
+	}
+
+	// image size, height & component count
+	image::imgheight = B_SHORT(segment[hpos + 1], segment[hpos + 2]);
+	image::imgwidth = B_SHORT(segment[hpos + 3], segment[hpos + 4]);
+	image::cmpc = segment[hpos + 5];
+	if ((image::imgwidth == 0) || (image::imgheight == 0)) {
+		sprintf(errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight);
+		errorlevel = 2;
+		return false;
+	}
+	if (image::cmpc > 4) {
+		sprintf(errormessage, "image has %i components, max 4 are supported", image::cmpc);
+		errorlevel = 2;
+		return false;
+	}
+
+	hpos += 6;
+	// components contained in image
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+		cmpnfo[cmp].jid = segment[hpos];
+		cmpnfo[cmp].sfv = LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].sfh = RBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].qtable = qtables[segment[hpos + 2]];
+		hpos += 3;
+	}
+
+	return true;
+}
+
+bool jpg::jfif::parse_sos(const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	curr_scan::cmpc = segment[hpos];
+	if (curr_scan::cmpc > image::cmpc) {
+		sprintf(errormessage, "%i components in scan, only %i are allowed",
+			curr_scan::cmpc, image::cmpc);
+		errorlevel = 2;
+		return false;
+	}
+	hpos++;
+	for (int i = 0; i < curr_scan::cmpc; i++) {
+		int cmp;
+		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < image::cmpc); cmp++);
+		if (cmp == image::cmpc) {
+			sprintf(errormessage, "component id mismatch in start-of-scan");
+			errorlevel = 2;
+			return false;
+		}
+		curr_scan::cmp[i] = cmp;
+		cmpnfo[cmp].huffdc = LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].huffac = RBITS(segment[hpos + 1], 4);
+		if ((cmpnfo[cmp].huffdc < 0) || (cmpnfo[cmp].huffdc >= 4) ||
+			(cmpnfo[cmp].huffac < 0) || (cmpnfo[cmp].huffac >= 4)) {
+			sprintf(errormessage, "huffman table number mismatch");
+			errorlevel = 2;
+			return false;
+		}
+		hpos += 2;
+	}
+	curr_scan::from = segment[hpos + 0];
+	curr_scan::to = segment[hpos + 1];
+	curr_scan::sah = LBITS(segment[hpos + 2], 4);
+	curr_scan::sal = RBITS(segment[hpos + 2], 4);
+	// check for errors
+	if ((curr_scan::from > curr_scan::to) || (curr_scan::from > 63) || (curr_scan::to > 63)) {
+		sprintf(errormessage, "spectral selection parameter out of range");
+		errorlevel = 2;
+		return false;
+	}
+	if ((curr_scan::sah >= 12) || (curr_scan::sal >= 12)) {
+		sprintf(errormessage, "successive approximation parameter out of range");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
 
 /* -----------------------------------------------
 	Parse routines for JFIF segments
 	----------------------------------------------- */
-bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segment )
+bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment)
 {
-	unsigned int hpos = 4; // current position in segment, start after segment header
-	int lval, rval; // temporary variables
-	int skip;
-	int cmp;
-	int i;
-	
 	
 	switch ( type )
 	{
 		case 0xC4: // DHT segment
-			// build huffman trees & codes
-			while ( hpos < len ) {
-				lval = LBITS( segment[ hpos ], 4 );
-				rval = RBITS( segment[ hpos ], 4 );
-				if ( ((lval < 0) || (lval >= 2)) || ((rval < 0) || (rval >= 4)) )
-					break;
-					
-				hpos++;
-				// build huffman codes & trees
-				hcodes[lval][rval] = jpg::build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
-				htrees[lval][rval] = jpg::build_hufftree(hcodes[lval][rval]);
-				htset[lval][rval] = true;
-				
-				skip = 16;
-				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) segment[ hpos + i ];				
-				hpos += skip;
-			}
-			
-			if ( hpos != len ) {
-				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dht marker" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_dht(type, len, segment);
 		
 		case 0xDB: // DQT segment
-			// copy quantization tables to internal memory
-			while ( hpos < len ) {
-				lval = LBITS( segment[ hpos ], 4 );
-				rval = RBITS( segment[ hpos ], 4 );
-				if ( (lval < 0) || (lval >= 2) ) break;
-				if ( (rval < 0) || (rval >= 4) ) break;
-				hpos++;				
-				if ( lval == 0 ) { // 8 bit precision
-					for ( i = 0; i < 64; i++ ) {
-						qtables[ rval ][ i ] = ( unsigned short ) segment[ hpos + i ];
-						if ( qtables[ rval ][ i ] == 0 ) break;
-					}
-					hpos += 64;
-				}
-				else { // 16 bit precision
-					for ( i = 0; i < 64; i++ ) {
-						qtables[ rval ][ i ] =
-							B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
-						if ( qtables[ rval ][ i ] == 0 ) break;
-					}
-					hpos += 128;
-				}
-			}
-			
-			if ( hpos != len ) {
-				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dqt marker" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_dqt(len, segment);
 			
 		case 0xDD: // DRI segment
-			// define restart interval
-			rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );			
+			jpg::jfif::parse_dri(segment);
 			return true;
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
-			curr_scan::cmpc = segment[ hpos ];
-			if ( curr_scan::cmpc > image::cmpc ) {
-				sprintf( errormessage, "%i components in scan, only %i are allowed",
-							curr_scan::cmpc, image::cmpc );
-				errorlevel = 2;
-				return false;
-			}
-			hpos++;
-			for ( i = 0; i < curr_scan::cmpc; i++ ) {
-				for ( cmp = 0; ( segment[ hpos ] != cmpnfo[ cmp ].jid ) && ( cmp < image::cmpc ); cmp++ );
-				if ( cmp == image::cmpc ) {
-					sprintf( errormessage, "component id mismatch in start-of-scan" );
-					errorlevel = 2;
-					return false;
-				}
-				curr_scan::cmp[ i ] = cmp;
-				cmpnfo[ cmp ].huffdc = LBITS( segment[ hpos + 1 ], 4 );
-				cmpnfo[ cmp ].huffac = RBITS( segment[ hpos + 1 ], 4 );
-				if ( ( cmpnfo[ cmp ].huffdc < 0 ) || ( cmpnfo[ cmp ].huffdc >= 4 ) ||
-					 ( cmpnfo[ cmp ].huffac < 0 ) || ( cmpnfo[ cmp ].huffac >= 4 ) ) {
-					sprintf( errormessage, "huffman table number mismatch" );
-					errorlevel = 2;
-					return false;
-				}
-				hpos += 2;
-			}
-			curr_scan::from = segment[ hpos + 0 ];
-			curr_scan::to   = segment[ hpos + 1 ];
-			curr_scan::sah  = LBITS( segment[ hpos + 2 ], 4 );
-			curr_scan::sal  = RBITS( segment[ hpos + 2 ], 4 );
-			// check for errors
-			if ( ( curr_scan::from > curr_scan::to ) || ( curr_scan::from > 63 ) || ( curr_scan::to > 63 ) ) {
-				sprintf( errormessage, "spectral selection parameter out of range" );
-				errorlevel = 2;
-				return false;
-			}
-			if ( ( curr_scan::sah >= 12 ) || ( curr_scan::sal >= 12 ) ) {
-				sprintf( errormessage, "successive approximation parameter out of range" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_sos(segment);
 		
 		case 0xC0: // SOF0 segment
 			// coding process: baseline DCT
@@ -3701,47 +3779,8 @@ bool jpg::parse_jfif( unsigned char type, unsigned int len, unsigned char* segme
 		
 		case 0xC2: // SOF2 segment
 			// coding process: progressive DCT
-			
-			// set JPEG coding type
-			if ( type == 0xC2 )
-				jpegtype = JpegType::PROGRESSIVE;
-			else
-				jpegtype = JpegType::SEQUENTIAL;
-				
-			// check data precision, only 8 bit is allowed
-			lval = segment[ hpos ];
-			if ( lval != 8 ) {
-				sprintf( errormessage, "%i bit data precision is not supported", lval );
-				errorlevel = 2;
-				return false;
-			}
-			
-			// image size, height & component count
-			image::imgheight = B_SHORT( segment[ hpos + 1 ], segment[ hpos + 2 ] );
-			image::imgwidth  = B_SHORT( segment[ hpos + 3 ], segment[ hpos + 4 ] );
-			image::cmpc      = segment[ hpos + 5 ];
-			if ( (image::imgwidth == 0 ) || (image::imgheight == 0 ) ) {
-				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight );
-				errorlevel = 2;
-				return false;
-			}
-			if (image::cmpc > 4 ) {
-				sprintf( errormessage, "image has %i components, max 4 are supported", image::cmpc );
-				errorlevel = 2;
-				return false;
-			}
-			
-			hpos += 6;
-			// components contained in image
-			for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-				cmpnfo[ cmp ].jid = segment[ hpos ];
-				cmpnfo[ cmp ].sfv = LBITS( segment[ hpos + 1 ], 4 );
-				cmpnfo[ cmp ].sfh = RBITS( segment[ hpos + 1 ], 4 );				
-				cmpnfo[ cmp ].qtable = qtables[ segment[ hpos + 2 ] ];
-				hpos += 3;
-			}
-			
-			return true;
+
+			return jpg::jfif::parse_sof(type, segment);
 		
 		case 0xC3: // SOF3 segment
 			// coding process: lossless sequential
@@ -4510,7 +4549,7 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 /* -----------------------------------------------
 creates huffman-codes from dht-data
 ----------------------------------------------- */
-static HuffCodes jpg::build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
+static HuffCodes jpg::jfif::build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
 	HuffCodes codes;
 	int k = 0;
 	int code = 0;
@@ -4537,7 +4576,7 @@ static HuffCodes jpg::build_huffcodes(const unsigned char* clen, const unsigned 
 	return codes;
 }
 
-static HuffTree jpg::build_hufftree(const HuffCodes& hc) {
+static HuffTree jpg::jfif::build_hufftree(const HuffCodes& hc) {
 	HuffTree tree;
 	// initial value for next free place
 	int nextfree = 1;
