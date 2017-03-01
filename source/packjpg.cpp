@@ -598,8 +598,7 @@ static bool htset[2][4]; // 1 if huffman table is set
 
 INTERN unsigned char* grbgdata		   =   NULL;	// garbage data
 INTERN unsigned char* hdrdata          =   NULL;   // header data
-INTERN unsigned char* huffdata         =   NULL;   // huffman coded data
-INTERN int            hufs             =    0  ;   // size of huffman data
+static std::vector<std::uint8_t> huffdata; // huffman coded data
 INTERN int            hdrs             =    0  ;   // size of header
 INTERN int            grbs             =    0  ;   // size of garbage
 
@@ -2035,13 +2034,12 @@ INTERN bool reset_buffers( void )
 	
 	// free buffers & set pointers NULL
 	if ( hdrdata  != NULL ) free ( hdrdata );
-	if ( huffdata != NULL ) free ( huffdata );
+	huffdata.clear();
 	if ( grbgdata != NULL ) free ( grbgdata );
 	rst_err.clear();
 	rstp.clear();
 	scnp.clear();
 	hdrdata   = NULL;
-	huffdata  = NULL;
 	grbgdata  = NULL;
 	
 	// free image arrays
@@ -2133,7 +2131,6 @@ bool jpg::decode::read()
 	
 	// start huffman writer
 	auto huffw = std::make_unique<abytewriter>(0);
-	hufs  = 0; // size of image data, start with 0
 	
 	// alloc memory for segment data first
 	std::vector<std::uint8_t> segment(1024);
@@ -2230,8 +2227,9 @@ bool jpg::decode::read()
 			hdrdata  = hdrw->getptr();
 			hdrs     = hdrw->getpos();
 			// get pointer for huffman data & size
-			huffdata = huffw->getptr();
-			hufs     = huffw->getpos();
+			auto hdata = huffw->getptr();
+			auto hdata_length = huffw->getpos();
+			huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
 			// everything is done here now
 			break;			
 		}
@@ -2254,7 +2252,7 @@ bool jpg::decode::read()
 	// JPEG reader loop end
 	
 	// check if everything went OK
-	if ( ( hdrs == 0 ) || ( hufs == 0 ) ) {
+	if ( ( hdrs == 0 ) || huffdata.empty() ) {
 		sprintf( errormessage, "unexpected end of data encountered" );
 		errorlevel = 2;
 		return false;
@@ -2402,7 +2400,7 @@ bool jpg::decode::decode()
 	
 	
 	// open huffman coded image data for input in abitreader
-	auto huffr = std::make_unique<abitreader>(huffdata, hufs); // bitwise reader for image data
+	auto huffr = std::make_unique<abitreader>(huffdata.data(), huffdata.size()); // bitwise reader for image data
 	
 	// preset count of scans
 	scnc = 0;
@@ -3007,13 +3005,14 @@ bool jpg::encode::recode()
 	}
 	
 	// get data into huffdata
-	huffdata = huffw->getptr();
-	hufs = huffw->getpos();
+	auto hdata = huffw->getptr();
+	auto hdata_length = huffw->getpos();
+	huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
 	
 	// store last scan & restart positions
-	scnp[ scnc ] = hufs;
+	scnp[ scnc ] = huffdata.size();
 	if (!rstp.empty()) {
-		rstp[rstc] = hufs;
+		rstp[rstc] = huffdata.size();
 	}
 	
 	
