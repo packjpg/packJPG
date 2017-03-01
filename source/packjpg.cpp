@@ -516,6 +516,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp );
 INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp );
 INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp );
 INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len );
+static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec);
 INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit );
 
 INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp );
@@ -611,13 +612,13 @@ INTERN int            hufs             =    0  ;   // size of huffman data
 INTERN int            hdrs             =    0  ;   // size of header
 INTERN int            grbs             =    0  ;   // size of garbage
 
-INTERN unsigned int*  rstp             =   NULL;   // restart markers positions in huffdata
-INTERN unsigned int*  scnp             =   NULL;   // scan start positions in huffdata
+static std::vector<std::uint32_t> rstp;   // restart markers positions in huffdata
+static std::vector<std::uint32_t> scnp;   // scan start positions in huffdata
 INTERN int            rstc             =    0  ;   // count of restart markers
 INTERN int            scnc             =    0  ;   // count of scans
 INTERN int            rsti             =    0  ;   // restart interval
 INTERN char           padbit           =    -1 ;   // padbit (for huffman coding)
-INTERN unsigned char* rst_err          =   NULL;   // number of wrong-set RST markers per scan
+static std::vector<std::uint8_t> rst_err;   // number of wrong-set RST markers per scan
 
 INTERN unsigned char* zdstdata[4]      = { NULL }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
 INTERN unsigned char* eobxhigh[4]      = { NULL }; // eob in x direction (for higher 7x7 block)
@@ -2045,15 +2046,12 @@ INTERN bool reset_buffers( void )
 	if ( hdrdata  != NULL ) free ( hdrdata );
 	if ( huffdata != NULL ) free ( huffdata );
 	if ( grbgdata != NULL ) free ( grbgdata );
-	if ( rst_err  != NULL ) free ( rst_err );
-	if ( rstp     != NULL ) free ( rstp );
-	if ( scnp     != NULL ) free ( scnp );
+	rst_err.clear();
+	rstp.clear();
+	scnp.clear();
 	hdrdata   = NULL;
 	huffdata  = NULL;
 	grbgdata  = NULL;
-	rst_err   = NULL;
-	rstp      = NULL;
-	scnp      = NULL;
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
@@ -2129,8 +2127,6 @@ INTERN bool reset_buffers( void )
 	
 bool jpg::decode::read()
 {
-	unsigned char* segment = NULL; // storage for current segment
-	unsigned int   ssize = 1024; // current size of segment array
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   crst = 0; // current rst marker counter
@@ -2149,12 +2145,7 @@ bool jpg::decode::read()
 	hufs  = 0; // size of image data, start with 0
 	
 	// alloc memory for segment data first
-	segment = ( unsigned char* ) calloc( ssize, sizeof( char ) );
-	if ( segment == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<std::uint8_t> segment(1024);
 	
 	// JPEG reader loop
 	while ( true ) {
@@ -2194,23 +2185,13 @@ bool jpg::decode::read()
 					else { // in all other cases leave it to the header parser routines
 						// store number of wrongly set rst markers
 						if ( crst > 0 ) {
-							if ( rst_err == NULL ) {
-								rst_err = (unsigned char*) calloc( scnc + 1, sizeof( char ) );
-								if ( rst_err == NULL ) {
-									sprintf( errormessage, MEM_ERRMSG );
-									errorlevel = 2;
-									return false;
-								}
+							if (rst_err.empty()) {
+								rst_err.resize(scnc + 1);
 							}
 						}
-						if ( rst_err != NULL ) {
+						if (!rst_err.empty()) {
 							// realloc and set only if needed
-							rst_err = ( unsigned char* ) frealloc( rst_err, ( scnc + 1 ) * sizeof( char ) );
-							if ( rst_err == NULL ) {
-								sprintf( errormessage, MEM_ERRMSG );
-								errorlevel = 2;
-								return false;
-							}
+							rst_err.resize(scnc + 1);
 							if ( crst > 255 ) {
 								sprintf( errormessage, "Severe false use of RST markers (%i)", (int) crst );
 								errorlevel = 1;
@@ -2234,17 +2215,16 @@ bool jpg::decode::read()
 		}
 		else {
 			// read in next marker
-			if ( str_in->read( segment, 2 ) != 2 ) break;
+			if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 			if ( segment[ 0 ] != 0xFF ) {
 				// ugly fix for incorrect marker segment sizes
 				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
 				errorlevel = 2;
 				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read( segment, 2 ) != 2 ) break;
+					if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
-					free ( segment );
 					return false;
 				}
 			}
@@ -2266,25 +2246,19 @@ bool jpg::decode::read()
 		}
 		
 		// read in next segments' length and check it
-		if ( str_in->read( segment + 2, 2 ) != 2 ) break;
+		if ( str_in->read( segment.data() + 2, 2 ) != 2 ) break;
 		len = 2 + B_SHORT( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
 		// realloc segment data if needed
-		if ( ssize < len ) {
-			segment = ( unsigned char* ) frealloc( segment, len );
-			if ( segment == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
-				errorlevel = 2;
-				return false;
-			}
-			ssize = len;
+		if ( segment.size() < len ) {
+			segment.resize(len);
 		}
 		
 		// read rest of segment, store back in header writer
-		if ( str_in->read( ( segment + 4 ), ( len - 4 ) ) !=
+		if ( str_in->read( ( segment.data() + 4 ), ( len - 4 ) ) !=
 			( unsigned short ) ( len - 4 ) ) break;
-		hdrw->write_n( segment, len );
+		hdrw->write_n( segment.data(), len );
 	}
 	// JPEG reader loop end
 	
@@ -2301,16 +2275,13 @@ bool jpg::decode::read()
 		auto grbgw = std::make_unique<abytewriter>( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
-			len = str_in->read( segment, ssize );
+			len = str_in->read( segment.data(), segment.capacity() );
 			if ( len == 0 ) break;
-			grbgw->write_n( segment, len );
+			grbgw->write_n( segment.data(), len );
 		}
 		grbgdata = grbgw->getptr();
 		grbs     = grbgw->getpos();
 	}
-	
-	// free segment
-	free( segment );
 	
 	// get filesize
 	jpgfilesize = str_in->getsize();	
@@ -2377,7 +2348,7 @@ bool jpg::encode::merge()
 			if ( huffdata[ ipos ] == 0xFF )
 				str_out->write_byte(stv);
 			// insert restart markers if needed
-			if ( rstp != NULL ) {
+			if ( !rstp.empty() ) {
 				if ( ipos == rstp[ rpos ] ) {
 					rst = 0xD0 + ( cpos % 8 );
 					str_out->write_byte(mrk);
@@ -2387,12 +2358,13 @@ bool jpg::encode::merge()
 			}
 		}
 		// insert false rst markers at end if needed
-		if ( rst_err != NULL ) {
+		if ( !rst_err.empty() ) {
 			while ( rst_err[ scan - 1 ] > 0 ) {
 				rst = 0xD0 + ( cpos % 8 );
 				str_out->write_byte(mrk);
 				str_out->write_byte(rst);
-				cpos++;	rst_err[ scan - 1 ]--;
+				cpos++;
+				rst_err[ scan - 1 ]--;
 			}
 		}
 
@@ -2812,25 +2784,13 @@ bool jpg::encode::recode()
 		
 		
 		// (re)alloc scan positons array
-		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
-		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
-		if ( scnp == NULL ) {
-			sprintf( errormessage, MEM_ERRMSG );
-			errorlevel = 2;
-			return false;
-		}
+		scnp.resize(scnc + 2);
 		
 		// (re)alloc restart marker positons array if needed
 		if ( rsti > 0 ) {
 			tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
 				( image::mcuc / rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / rsti ) );
-			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
-			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
-			if ( rstp == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
-				errorlevel = 2;
-				return false;
-			}
+			rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
@@ -3061,8 +3021,9 @@ bool jpg::encode::recode()
 	
 	// store last scan & restart positions
 	scnp[ scnc ] = hufs;
-	if ( rstp != NULL )
-		rstp[ rstc ] = hufs;
+	if (!rstp.empty()) {
+		rstp[rstc] = hufs;
+	}
 	
 	
 	return true;
@@ -3293,10 +3254,10 @@ INTERN bool pack_pjg( void )
 	// store padbit (padbit can't be retrieved from the header)
 	if ( !pjg_encode_bit( encoder, padbit ) ) return false;	
 	// also encode one bit to signal false/correct use of RST markers
-	if ( !pjg_encode_bit( encoder, ( rst_err == NULL ) ? 0 : 1 ) ) return false;
+	if ( !pjg_encode_bit( encoder, rst_err.empty()  ? 0 : 1 ) ) return false;
 	// encode # of false set RST markers per scan
-	if ( rst_err != NULL )
-		if ( !pjg_encode_generic( encoder, rst_err, scnc ) ) return false;
+	if ( !rst_err.empty() )
+		if ( !pjg_encode_generic( encoder, rst_err.data(), scnc ) ) return false;
 	
 	// encode actual components data
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
@@ -3418,8 +3379,9 @@ INTERN bool unpack_pjg( void )
 	// decode one bit that signals false /correct use of RST markers
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	// decode # of false set RST markers per scan only if available
-	if ( cb == 1 )
-		if ( !pjg_decode_generic( decoder, &rst_err, NULL ) ) return false;
+	if ( cb == 1 ) {
+		rst_err = pjg_decode_generic(decoder);
+	}
 	
 	// undo header optimizations
 	if ( !pjg_unoptimize_header() )	return false;	
@@ -5863,6 +5825,31 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	
 	
 	return true;
+}
+
+static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec) {
+	auto bwrt = std::make_unique<abytewriter>(1024);
+	auto model = INIT_MODEL_S(256 + 1, 256, 1);
+	while (true) {
+		int c = decode_ari(dec, model);
+		if (c == 256) {
+			break;
+		}
+		bwrt->write((unsigned char)c);
+		model->shift_context(c);
+	}
+
+	// check for out of memory
+	if (bwrt->error()) {
+		sprintf(errormessage, MEM_ERRMSG);
+		errorlevel = 2;
+		return std::vector<std::uint8_t>();
+	}
+
+	auto data = bwrt->getptr();
+	auto length = bwrt->getpos();
+	return std::vector<std::uint8_t>(data, data + length);
+
 }
 
 
