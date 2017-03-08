@@ -3138,13 +3138,13 @@ bool dct::adapt_icos()
 		}
 		// adapt idct 8x8 table
 		for ( ipos = 0; ipos < 64 * 64; ipos++ )
-			dct::adpt_idct_8x8[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+			dct::adpt_idct_8x8[ cmp ][ ipos ] = dct::icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
 		// adapt idct 1x8 table
 		for ( ipos = 0; ipos < 8 * 8; ipos++ )
-			dct::adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
+			dct::adpt_idct_1x8[ cmp ][ ipos ] = dct::icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
 		// adapt idct 8x1 table
 		for ( ipos = 0; ipos < 8 * 8; ipos++ )
-			dct::adpt_idct_8x1[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ipos % 8 ];
+			dct::adpt_idct_8x1[ cmp ][ ipos ] = dct::icos_idct_1x8[ ipos ] * quant[ ipos % 8 ];
 	}
 	
 	
@@ -5221,7 +5221,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
-				pred_cf[ b_x ] = icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
 			zdstls = zdstylow[ cmp ];
 			edge_c = &p_x;
@@ -5230,7 +5230,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 			for ( ; b_y < 8; b_y++ ) {
 				coeffs_x[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
-				pred_cf[ b_y ] = icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
 			zdstls = zdstxlow[ cmp ];
 			edge_c = &p_y;
@@ -5881,7 +5881,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
-				pred_cf[ b_x ] = icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
 			zdstls = zdstylow[ cmp ];
 			edge_c = &p_x;
@@ -5890,7 +5890,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 			for ( ; b_y < 8; b_y++ ) {
 				coeffs_x[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
-				pred_cf[ b_y ] = icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
 			zdstls = zdstxlow[ cmp ];
 			edge_c = &p_y;
@@ -6592,9 +6592,9 @@ int predictor::dc_1ddct_predictor( int cmp, int dpos )
 	colldata[ cmp ][ 0 ][ dpos ] = swap;	
 	
 	// clamp and quantize predictor
-	pred = clamp(pred, -( 1024 * DCT_RSC_FACTOR ), ( 1016 * DCT_RSC_FACTOR ));
+	pred = clamp(pred, -( 1024 * dct::DCT_RSC_FACTOR ), ( 1016 * dct::DCT_RSC_FACTOR ));
 	pred = pred / QUANT( cmp, 0 );
-	pred = DCT_RESCALE( pred );
+	pred = dct::DCT_RESCALE( pred );
 	
 	
 	return pred;
@@ -7201,7 +7201,7 @@ INTERN bool dump_pgm( void )
 				for ( x = 0; x < 8; x++ ) {
 					xpos = ypos + x;
 					pix_v = dct::idct_2d_fst_8x8( cmp, dpos, x, y );
-					pix_v = DCT_RESCALE( pix_v );
+					pix_v = dct::DCT_RESCALE( pix_v );
 					pix_v = pix_v + 128;
 					imgdata[ xpos ] = ( unsigned char ) clamp(pix_v, 0, 255);
 				}
