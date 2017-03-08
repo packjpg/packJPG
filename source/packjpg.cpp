@@ -495,7 +495,7 @@ INTERN inline float median_float( float* values, int size );
 /* -----------------------------------------------
 	function declarations: miscelaneous helpers
 	----------------------------------------------- */
-#if !defined( BUILD_LIB )
+#if !defined(BUILD_LIB)
 static void progress_bar(int current, int last);
 static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
@@ -654,7 +654,7 @@ INTERN int  errorlevel;
 	global variables: settings
 	----------------------------------------------- */
 
-#if !defined( BUILD_LIB )
+#if !defined(BUILD_LIB)
 INTERN int  verbosity  = -1;	// level of verbosity
 INTERN bool overwrite  = false;	// overwrite files yes / no
 INTERN bool wait_exit  = true;	// pause after finished yes / no
@@ -677,7 +677,7 @@ INTERN int  action = A_COMPRESS;// what to do with JPEG/PJG files
 
 INTERN unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
 INTERN unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
-#if !defined( BUILD_LIB )
+#if !defined(BUILD_LIB)
 INTERN unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
 
@@ -863,14 +863,10 @@ EXPORT bool pjglib_convert_stream2stream( char* msg )
 	// process in main function
 	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export converter function
 	----------------------------------------------- */
-
-#if defined(BUILD_LIB)
 EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 {
 	// init streams
@@ -879,14 +875,10 @@ EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 	// process in main function
 	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export converter function
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
 {
 	clock_t begin, end;
@@ -958,14 +950,10 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export init input (file/mem)
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* out_dest, int out_type )
 {
 	/* a short reminder about input/output stream types:
@@ -1046,14 +1034,10 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	lib_in_type  = in_type;
 	lib_out_type = out_type;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT const char* pjglib_version_info( void )
 {
 	static char v_info[ 256 ];
@@ -1064,14 +1048,10 @@ EXPORT const char* pjglib_version_info( void )
 			
 	return (const char*) v_info;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT const char* pjglib_short_name( void )
 {
 	static char v_name[ 256 ];
@@ -1231,14 +1211,10 @@ INTERN void initialize_options( int argc, char** argv )
 			orig_set[ i ] = 0;
 	}	
 }
-#endif
-
 
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
 INTERN void process_ui( void )
 {
 	clock_t begin, end;
@@ -1387,14 +1363,10 @@ INTERN void process_ui( void )
 		}	
 	}
 }
-#endif
-
 
 /* -----------------------------------------------
 	gets statusmessage for function
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
 INTERN inline std::string get_status( bool (*function)() )
 {	
 	if ( function == nullptr ) {
@@ -1453,14 +1425,10 @@ INTERN inline std::string get_status( bool (*function)() )
 		return "Function description missing!";
 	}
 }
-#endif
-
 
 /* -----------------------------------------------
 	shows help in case of wrong input
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
 INTERN void show_help( void )
 {	
 	fprintf( msgout, "\n" );
@@ -1831,14 +1799,11 @@ INTERN bool check_file( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	swap streams / init verification
 	----------------------------------------------- */
 	
-#if !defined(BUILD_LIB)
 INTERN bool swap_streams( void )	
 {
 	unsigned char dmp[ 2 ];
@@ -1863,14 +1828,11 @@ INTERN bool swap_streams( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	comparison between input & output
 	----------------------------------------------- */
 
-#if !defined(BUILD_LIB)
 INTERN bool compare_output( void )
 {
 	unsigned char* buff_ori;
@@ -6473,13 +6435,12 @@ INTERN int dc_coll_predictor( int cmp, int dpos )
 	
 	return plocoi( a, b, c );
 }
-#endif
+#else
 
 
 /* -----------------------------------------------
 	1D DCT predictor for DC coefficients
 	----------------------------------------------- */
-#if !defined(USE_PLOCOI)
 INTERN int dc_1ddct_predictor( int cmp, int dpos )
 {
 	int w  = cmpnfo[cmp].bch;
@@ -6643,25 +6604,22 @@ static void progress_bar( int current, int last )
 	}
 	fprintf(msgout, "]");
 }
-#endif
 
 /* -----------------------------------------------
 	Replaces the file extension of oldname (if any) with new_extension.
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
+
 static std::string create_filename(const std::string& oldname, const std::string& new_extension) {
 	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
 	return filename;
 }
-#endif
 
 /* -----------------------------------------------
 	Replaces the file extension of oldname (if any) with new_extension.
 	If such a file already exists, then underscores are appended to the filename (e.g., filename_.ext)
 	until the filename chosen does not already exist.
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
 
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension) {
 	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
@@ -6708,13 +6666,10 @@ INTERN bool dump_hdr( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes huffman coded file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_huf( void )
 {
 	const std::string ext = "huf";
@@ -6725,13 +6680,10 @@ INTERN bool dump_huf( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes collections of DCT coefficients
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_coll( void )
 {
 	FILE* fp;
@@ -6827,13 +6779,10 @@ INTERN bool dump_coll( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes zero distribution data to file;
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_zdst( void )
 {
 	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3"};
@@ -6847,13 +6796,10 @@ INTERN bool dump_zdst( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes to file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size )
 {	
 	FILE* fp;
@@ -6875,13 +6821,10 @@ INTERN bool dump_file( const std::string& base, const std::string& ext, void* da
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes error info file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_errfile( void )
 {
 	FILE* fp;
@@ -6921,13 +6864,10 @@ INTERN bool dump_errfile( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes info to textfile
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_info( void )
 {	
 	FILE* fp;
@@ -7011,13 +6951,10 @@ INTERN bool dump_info( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes distribution for use in valdist.h
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_dist( void )
 {
 	FILE* fp;
@@ -7056,13 +6993,10 @@ INTERN bool dump_dist( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Do inverse DCT and write pgms
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 INTERN bool dump_pgm( void )
 {	
 	unsigned char* imgdata;
