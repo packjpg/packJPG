@@ -516,6 +516,8 @@ INTERN void get_context_nnb( int pos, int w, int *a, int *b );
 *
 */
 namespace dct {
+	short* colldata[4][64] = { { nullptr } }; // Collection sorted DCT coefficients.
+
 	int adpt_idct_8x8[4][8 * 8 * 8 * 8]; // precalculated/adapted values for idct (8x8)
 	int adpt_idct_1x8[4][1 * 1 * 8 * 8]; // precalculated/adapted values for idct (1x8)
 	int adpt_idct_8x1[4][8 * 8 * 1 * 1]; // precalculated/adapted values for idct (8x1)
@@ -616,7 +618,6 @@ INTERN unsigned char* eobxhigh[4]      = { NULL }; // eob in x direction (for hi
 INTERN unsigned char* eobyhigh[4]      = { NULL }; // eob in y direction (for higher 7x7 block)
 INTERN unsigned char* zdstxlow[4]		= { NULL }; // # of non zeroes for first row
 INTERN unsigned char* zdstylow[4]		= { NULL }; // # of non zeroes for first collumn
-INTERN signed short*  colldata[4][64]  = {{NULL}}; // collection sorted DCT coefficients
 
 INTERN unsigned char* freqscan[4]      = { NULL }; // optimized order for frequency scans (only pointers to scans)
 INTERN unsigned char  zsrtscan[4][64];				// zero optimized frequency scan
@@ -2060,8 +2061,8 @@ INTERN bool reset_buffers( void )
 		zdstylow[ cmp ] = NULL;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			if ( colldata[ cmp ][ bpos ] != NULL ) free( colldata[cmp][bpos] );
-			colldata[ cmp ][ bpos ] = NULL;
+			if ( dct::colldata[ cmp ][ bpos ] != NULL ) free( dct::colldata[cmp][bpos] );
+			dct::colldata[ cmp ][ bpos ] = NULL;
 		}		
 	}
 	
@@ -2546,9 +2547,9 @@ INTERN bool decode_jpeg( void )
 						block[ 0 ] += lastdc[ cmp ];
 						lastdc[ cmp ] = block[ 0 ];
 						
-						// copy to colldata
+						// copy to dct::colldata
 						for ( bpos = 0; bpos < eob; bpos++ )
-							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
+							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) sta = -1;
@@ -2564,11 +2565,11 @@ INTERN bool decode_jpeg( void )
 							block );
 						
 						// fix dc for diff coding
-						colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
-						lastdc[ cmp ] = colldata[cmp][0][dpos];
+						dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
+						lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
 						
 						// bitshift for succesive approximation
-						colldata[cmp][0][dpos] <<= cs_sal;
+						dct::colldata[cmp][0][dpos] <<= cs_sal;
 						
 						// next mcupos if no error happened
 						if ( sta != -1 )
@@ -2584,7 +2585,7 @@ INTERN bool decode_jpeg( void )
 							block );
 						
 						// shift in next bit
-						colldata[cmp][0][dpos] += block[0] << cs_sal;
+						dct::colldata[cmp][0][dpos] += block[0] << cs_sal;
 						
 						// next mcupos if no error happened
 						if ( sta != -1 )
@@ -2613,9 +2614,9 @@ INTERN bool decode_jpeg( void )
 						block[ 0 ] += lastdc[ cmp ];
 						lastdc[ cmp ] = block[ 0 ];
 						
-						// copy to colldata
+						// copy to dct::colldata
 						for ( bpos = 0; bpos < eob; bpos++ )
-							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
+							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) sta = -1;
@@ -2632,11 +2633,11 @@ INTERN bool decode_jpeg( void )
 								block );
 								
 							// fix dc for diff coding
-							colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
-							lastdc[ cmp ] = colldata[cmp][0][dpos];
+							dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
+							lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
 							
 							// bitshift for succesive approximation
-							colldata[cmp][0][dpos] <<= cs_sal;
+							dct::colldata[cmp][0][dpos] <<= cs_sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( sta != -1 )
@@ -2652,7 +2653,7 @@ INTERN bool decode_jpeg( void )
 								block );
 							
 							// shift in next bit
-							colldata[cmp][0][dpos] += block[0] << cs_sal;
+							dct::colldata[cmp][0][dpos] += block[0] << cs_sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( sta != -1 )
@@ -2683,9 +2684,9 @@ INTERN bool decode_jpeg( void )
 									eobrun--;
 								} else peobrun = 0;
 							
-								// copy to colldata
+								// copy to dct::colldata
 								for ( bpos = cs_from; bpos < eob; bpos++ )
-									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << cs_sal;
+									dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << cs_sal;
 							} else eobrun--;
 							
 							// check for errors
@@ -2701,9 +2702,9 @@ INTERN bool decode_jpeg( void )
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation later stage <---
 						while ( sta == 0 ) {
-							// copy from colldata
+							// copy from dct::colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
-								block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
+								block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
@@ -2732,9 +2733,9 @@ INTERN bool decode_jpeg( void )
 								eobrun--;
 							}
 								
-							// copy back to colldata
+							// copy back to dct::colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
-								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
+								dct::colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) sta = -1;
@@ -2907,13 +2908,13 @@ INTERN bool recode_jpeg( void )
 				if ( jpegtype == 1 ) {
 					// ---> sequential interleaved encoding <---
 					while ( sta == 0 ) {
-						// copy from colldata
+						// copy from dct::colldata
 						for ( bpos = 0; bpos < 64; bpos++ )
-							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
+							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = colldata[ cmp ][ 0 ][ dpos ];
+						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
@@ -2931,7 +2932,7 @@ INTERN bool recode_jpeg( void )
 					// ---> succesive approximation first stage <---
 					while ( sta == 0 ) {
 						// diff coding & bitshifting for dc 
-						tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+						tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2950,7 +2951,7 @@ INTERN bool recode_jpeg( void )
 					// ---> succesive approximation later stage <---
 					while ( sta == 0 ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+						block[ 0 ] = BITN( dct::colldata[ cmp ][ 0 ][ dpos ], cs_sal );
 						
 						// encode dc correction bit
 						sta = jpg_encode_dc_prg_sa( huffw, block );
@@ -2966,13 +2967,13 @@ INTERN bool recode_jpeg( void )
 				if ( jpegtype == 1 ) {
 					// ---> sequential non interleaved encoding <---
 					while ( sta == 0 ) {
-						// copy from colldata
+						// copy from dct::colldata
 						for ( bpos = 0; bpos < 64; bpos++ )
-							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
+							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = colldata[ cmp ][ 0 ][ dpos ];
+						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
@@ -2991,7 +2992,7 @@ INTERN bool recode_jpeg( void )
 						// ---> succesive approximation first stage <---
 						while ( sta == 0 ) {
 							// diff coding & bitshifting for dc 
-							tmp = colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+							tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
@@ -3010,7 +3011,7 @@ INTERN bool recode_jpeg( void )
 						// ---> succesive approximation later stage <---
 						while ( sta == 0 ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = BITN( colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+							block[ 0 ] = BITN( dct::colldata[ cmp ][ 0 ][ dpos ], cs_sal );
 							
 							// encode dc correction bit
 							sta = jpg_encode_dc_prg_sa( huffw, block );
@@ -3026,10 +3027,10 @@ INTERN bool recode_jpeg( void )
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
 						while ( sta == 0 ) {
-							// copy from colldata
+							// copy from dct::colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
-									fdiv2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									fdiv2( dct::colldata[ cmp ][ bpos ][ dpos ], cs_sal );
 							
 							// encode block
 							eob = jpg_encode_ac_prg_fs( huffw,
@@ -3050,10 +3051,10 @@ INTERN bool recode_jpeg( void )
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation later stage <---
 						while ( sta == 0 ) {
-							// copy from colldata
+							// copy from dct::colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
 								block[ bpos ] =
-									fdiv2( colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									fdiv2( dct::colldata[ cmp ][ bpos ][ dpos ], cs_sal );
 							
 							// encode block
 							eob = jpg_encode_ac_prg_sa( huffw, storw,
@@ -3130,29 +3131,29 @@ INTERN bool recode_jpeg( void )
 	
 bool dct::adapt_icos()
 {
-	unsigned short quant[ 64 ]; // local copy of quantization
-	int ipos;
-	int cmp;
+	std::array<std::uint16_t, 64> quant; // local copy of quantization	
 	
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for (int cmp = 0; cmp < cmpc; cmp++) {
 		// make a local copy of the quantization values, check
-		for ( ipos = 0; ipos < 64; ipos++ ) {
-			quant[ ipos ] = QUANT( cmp, zigzag[ ipos ] );
-			if ( quant[ ipos ] >= 2048 ) // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
-				quant[ ipos ] = 0;
+		for (int ipos = 0; ipos < 64; ipos++) {
+			quant[ipos] = QUANT(cmp, zigzag[ipos]);
+			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
+				quant[ipos] = 0;
+			}
 		}
 		// adapt idct 8x8 table
-		for ( ipos = 0; ipos < 64 * 64; ipos++ )
-			dct::adpt_idct_8x8[ cmp ][ ipos ] = dct::icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+		for (int ipos = 0; ipos < 64 * 64; ipos++) {
+			dct::adpt_idct_8x8[cmp][ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
+		}
 		// adapt idct 1x8 table
-		for ( ipos = 0; ipos < 8 * 8; ipos++ )
-			dct::adpt_idct_1x8[ cmp ][ ipos ] = dct::icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
+		for (int ipos = 0; ipos < 8 * 8; ipos++) {
+			dct::adpt_idct_1x8[cmp][ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
+		}
 		// adapt idct 8x1 table
-		for ( ipos = 0; ipos < 8 * 8; ipos++ )
-			dct::adpt_idct_8x1[ cmp ][ ipos ] = dct::icos_idct_1x8[ ipos ] * quant[ ipos % 8 ];
+		for (int ipos = 0; ipos < 8 * 8; ipos++) {
+			dct::adpt_idct_8x1[cmp][ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
+		}
 	}
-	
 	
 	return true;
 }
@@ -3178,7 +3179,7 @@ INTERN bool predict_dc( void )
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
 		for ( dpos = cmpnfo[cmp].bc - 1; dpos > 0; dpos-- )	{
-			coef = &(colldata[cmp][0][dpos]);
+			coef = &(dct::colldata[cmp][0][dpos]);
 			#if defined( USE_PLOCOI )
 			(*coef) -= predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
 			#else
@@ -3215,7 +3216,7 @@ INTERN bool unpredict_dc( void )
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
 		for ( dpos = 1; dpos < cmpnfo[cmp].bc; dpos++ ) {
-			coef = &(colldata[cmp][0][dpos]);
+			coef = &(dct::colldata[cmp][0][dpos]);
 			#if defined( USE_PLOCOI )
 			(*coef) += predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
 			#else
@@ -3247,10 +3248,10 @@ INTERN bool check_value_range( void )
 	for ( bpos = 0; bpos < 64; bpos++ ) {
 		absmax = MAX_V( cmp, bpos );
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-		if ( ( colldata[cmp][bpos][dpos] > absmax ) ||
-			 ( colldata[cmp][bpos][dpos] < -absmax ) ) {
+		if ( ( dct::colldata[cmp][bpos][dpos] > absmax ) ||
+			 ( dct::colldata[cmp][bpos][dpos] < -absmax ) ) {
 			sprintf( errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
-					cmp, bpos, colldata[cmp][bpos][dpos], absmax );
+					cmp, bpos, dct::colldata[cmp][bpos][dpos], absmax );
 			errorlevel = 2;
 			return false;
 		}
@@ -3283,15 +3284,15 @@ INTERN bool calc_zdst_lists( void )
 			b_y = unzigzag[ bpos ] / 8;
 			if ( b_x == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstylow[cmp][dpos]++;
+					if ( dct::colldata[cmp][bpos][dpos] != 0 ) zdstylow[cmp][dpos]++;
 			}
 			else if ( b_y == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstxlow[cmp][dpos]++;
+					if ( dct::colldata[cmp][bpos][dpos] != 0 ) zdstxlow[cmp][dpos]++;
 			}
 			else {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstdata[cmp][dpos]++;
+					if ( dct::colldata[cmp][bpos][dpos] != 0 ) zdstdata[cmp][dpos]++;
 			}
 		}
 	}
@@ -3430,7 +3431,7 @@ INTERN bool pack_pjg( void )
 
 
 /* -----------------------------------------------
-	unpacks compressed pjg to colldata
+	unpacks compressed pjg to dct::colldata
 	----------------------------------------------- */
 	
 INTERN bool unpack_pjg( void )
@@ -3603,8 +3604,8 @@ INTERN bool jpg_setup_imginfo( void )
 	{
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
-			if (colldata[cmp][bpos] == NULL) {
+			dct::colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
+			if (dct::colldata[cmp][bpos] == NULL) {
 				sprintf( errormessage, MEM_ERRMSG );
 				errorlevel = 2;
 				return false;
@@ -4923,7 +4924,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	coeffs = colldata[ cmp ][ 0 ];
+	coeffs = dct::colldata[ cmp ][ 0 ];
 	zdstls = zdstdata[ cmp ];	
 	
 	// arithmetic compression loop
@@ -5082,7 +5083,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 		pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 		
 		// locally store pointer to coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		coeffs = dct::colldata[ cmp ][ bpos ];
 		
 		// get max bit length
 		max_val = MAX_V( cmp, bpos );
@@ -5221,12 +5222,12 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 		bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		coeffs = dct::colldata[ cmp ][ bpos ];
 		// store pointers to prediction coefficients
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
+				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
+				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
 			zdstls = zdstylow[ cmp ];
@@ -5234,8 +5235,8 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
+				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
+				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
 			zdstls = zdstxlow[ cmp ];
@@ -5583,7 +5584,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	coeffs = colldata[ cmp ][ 0 ];
+	coeffs = dct::colldata[ cmp ][ 0 ];
 	zdstls = zdstdata[ cmp ];	
 	
 	// arithmetic compression loop
@@ -5623,7 +5624,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 			}
 			// decode sign
 			sgn = decode_ari( dec, mod_sgn );
-			// copy to colldata
+			// copy to dct::colldata
 			coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 			// store absolute value/sign
 			absv_store[ dpos ] = absv;
@@ -5742,7 +5743,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 		pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
 		
 		// locally store pointer to coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		coeffs = dct::colldata[ cmp ][ bpos ];
 		
 		// get max bit length
 		max_val = MAX_V( cmp, bpos );
@@ -5793,7 +5794,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 				if ( p_y > 0 ) ctx_sgn += 3 * sgn_nbv[ dpos ]; // IMPROVE! !!!!!!!!!!!
 				mod_sgn->shift_context( ctx_sgn );
 				sgn = decode_ari( dec, mod_sgn );
-				// copy to colldata
+				// copy to dct::colldata
 				coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
 				absv_store[ dpos ] = absv;
@@ -5881,12 +5882,12 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 		bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		coeffs = dct::colldata[ cmp ][ bpos ];
 		// store pointers to prediction coefficients
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
+				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
+				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
 			zdstls = zdstylow[ cmp ];
@@ -5894,8 +5895,8 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
+				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
+				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
 			zdstls = zdstxlow[ cmp ];
@@ -5961,7 +5962,7 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 				// decode sign
 				shift_model( mod_sgn, zdstls[ dpos ], ctx_sgn );
 				sgn = decode_ari( dec, mod_sgn );
-				// copy to colldata
+				// copy to dct::colldata
 				coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 				// decrement # of non zeroes
 				zdstls[ dpos ]--;
@@ -6065,7 +6066,7 @@ INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp )
 	// count zeroes for each frequency
 	for ( bpos = 0; bpos < 64; bpos++ )
 	for ( dpos = 0; dpos < bc; dpos++ )			
-		if ( colldata[cmp][bpos][dpos] == 0 ) zdist[ bpos ]++;
+		if ( dct::colldata[cmp][bpos][dpos] == 0 ) zdist[ bpos ]++;
 	
 	// bubble sort according to count of zeroes (descending order)
 	while ( !done ) {
@@ -6382,70 +6383,70 @@ int dct::idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy) {
 
 	// begin transform
 	int idct = 0;
-	idct += colldata[cmp][0][dpos] * dct::adpt_idct_8x8[cmp][ixy + 0];
-	idct += colldata[cmp][1][dpos] * dct::adpt_idct_8x8[cmp][ixy + 1];
-	idct += colldata[cmp][5][dpos] * dct::adpt_idct_8x8[cmp][ixy + 2];
-	idct += colldata[cmp][6][dpos] * dct::adpt_idct_8x8[cmp][ixy + 3];
-	idct += colldata[cmp][14][dpos] * dct::adpt_idct_8x8[cmp][ixy + 4];
-	idct += colldata[cmp][15][dpos] * dct::adpt_idct_8x8[cmp][ixy + 5];
-	idct += colldata[cmp][27][dpos] * dct::adpt_idct_8x8[cmp][ixy + 6];
-	idct += colldata[cmp][28][dpos] * dct::adpt_idct_8x8[cmp][ixy + 7];
-	idct += colldata[cmp][2][dpos] * dct::adpt_idct_8x8[cmp][ixy + 8];
-	idct += colldata[cmp][4][dpos] * dct::adpt_idct_8x8[cmp][ixy + 9];
-	idct += colldata[cmp][7][dpos] * dct::adpt_idct_8x8[cmp][ixy + 10];
-	idct += colldata[cmp][13][dpos] * dct::adpt_idct_8x8[cmp][ixy + 11];
-	idct += colldata[cmp][16][dpos] * dct::adpt_idct_8x8[cmp][ixy + 12];
-	idct += colldata[cmp][26][dpos] * dct::adpt_idct_8x8[cmp][ixy + 13];
-	idct += colldata[cmp][29][dpos] * dct::adpt_idct_8x8[cmp][ixy + 14];
-	idct += colldata[cmp][42][dpos] * dct::adpt_idct_8x8[cmp][ixy + 15];
-	idct += colldata[cmp][3][dpos] * dct::adpt_idct_8x8[cmp][ixy + 16];
-	idct += colldata[cmp][8][dpos] * dct::adpt_idct_8x8[cmp][ixy + 17];
-	idct += colldata[cmp][12][dpos] * dct::adpt_idct_8x8[cmp][ixy + 18];
-	idct += colldata[cmp][17][dpos] * dct::adpt_idct_8x8[cmp][ixy + 19];
-	idct += colldata[cmp][25][dpos] * dct::adpt_idct_8x8[cmp][ixy + 20];
-	idct += colldata[cmp][30][dpos] * dct::adpt_idct_8x8[cmp][ixy + 21];
-	idct += colldata[cmp][41][dpos] * dct::adpt_idct_8x8[cmp][ixy + 22];
-	idct += colldata[cmp][43][dpos] * dct::adpt_idct_8x8[cmp][ixy + 23];
-	idct += colldata[cmp][9][dpos] * dct::adpt_idct_8x8[cmp][ixy + 24];
-	idct += colldata[cmp][11][dpos] * dct::adpt_idct_8x8[cmp][ixy + 25];
-	idct += colldata[cmp][18][dpos] * dct::adpt_idct_8x8[cmp][ixy + 26];
-	idct += colldata[cmp][24][dpos] * dct::adpt_idct_8x8[cmp][ixy + 27];
-	idct += colldata[cmp][31][dpos] * dct::adpt_idct_8x8[cmp][ixy + 28];
-	idct += colldata[cmp][40][dpos] * dct::adpt_idct_8x8[cmp][ixy + 29];
-	idct += colldata[cmp][44][dpos] * dct::adpt_idct_8x8[cmp][ixy + 30];
-	idct += colldata[cmp][53][dpos] * dct::adpt_idct_8x8[cmp][ixy + 31];
-	idct += colldata[cmp][10][dpos] * dct::adpt_idct_8x8[cmp][ixy + 32];
-	idct += colldata[cmp][19][dpos] * dct::adpt_idct_8x8[cmp][ixy + 33];
-	idct += colldata[cmp][23][dpos] * dct::adpt_idct_8x8[cmp][ixy + 34];
-	idct += colldata[cmp][32][dpos] * dct::adpt_idct_8x8[cmp][ixy + 35];
-	idct += colldata[cmp][39][dpos] * dct::adpt_idct_8x8[cmp][ixy + 36];
-	idct += colldata[cmp][45][dpos] * dct::adpt_idct_8x8[cmp][ixy + 37];
-	idct += colldata[cmp][52][dpos] * dct::adpt_idct_8x8[cmp][ixy + 38];
-	idct += colldata[cmp][54][dpos] * dct::adpt_idct_8x8[cmp][ixy + 39];
-	idct += colldata[cmp][20][dpos] * dct::adpt_idct_8x8[cmp][ixy + 40];
-	idct += colldata[cmp][22][dpos] * dct::adpt_idct_8x8[cmp][ixy + 41];
-	idct += colldata[cmp][33][dpos] * dct::adpt_idct_8x8[cmp][ixy + 42];
-	idct += colldata[cmp][38][dpos] * dct::adpt_idct_8x8[cmp][ixy + 43];
-	idct += colldata[cmp][46][dpos] * dct::adpt_idct_8x8[cmp][ixy + 44];
-	idct += colldata[cmp][51][dpos] * dct::adpt_idct_8x8[cmp][ixy + 45];
-	idct += colldata[cmp][55][dpos] * dct::adpt_idct_8x8[cmp][ixy + 46];
-	idct += colldata[cmp][60][dpos] * dct::adpt_idct_8x8[cmp][ixy + 47];
-	idct += colldata[cmp][21][dpos] * dct::adpt_idct_8x8[cmp][ixy + 48];
-	idct += colldata[cmp][34][dpos] * dct::adpt_idct_8x8[cmp][ixy + 49];
-	idct += colldata[cmp][37][dpos] * dct::adpt_idct_8x8[cmp][ixy + 50];
-	idct += colldata[cmp][47][dpos] * dct::adpt_idct_8x8[cmp][ixy + 51];
-	idct += colldata[cmp][50][dpos] * dct::adpt_idct_8x8[cmp][ixy + 52];
-	idct += colldata[cmp][56][dpos] * dct::adpt_idct_8x8[cmp][ixy + 53];
-	idct += colldata[cmp][59][dpos] * dct::adpt_idct_8x8[cmp][ixy + 54];
-	idct += colldata[cmp][61][dpos] * dct::adpt_idct_8x8[cmp][ixy + 55];
-	idct += colldata[cmp][35][dpos] * dct::adpt_idct_8x8[cmp][ixy + 56];
-	idct += colldata[cmp][36][dpos] * dct::adpt_idct_8x8[cmp][ixy + 57];
-	idct += colldata[cmp][48][dpos] * dct::adpt_idct_8x8[cmp][ixy + 58];
-	idct += colldata[cmp][49][dpos] * dct::adpt_idct_8x8[cmp][ixy + 59];
-	idct += colldata[cmp][57][dpos] * dct::adpt_idct_8x8[cmp][ixy + 60];
-	idct += colldata[cmp][58][dpos] * dct::adpt_idct_8x8[cmp][ixy + 61];
-	idct += colldata[cmp][62][dpos] * dct::adpt_idct_8x8[cmp][ixy + 62];
-	idct += colldata[cmp][63][dpos] * dct::adpt_idct_8x8[cmp][ixy + 63];
+	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_8x8[cmp][ixy + 0];
+	idct += dct::colldata[cmp][1][dpos] * dct::adpt_idct_8x8[cmp][ixy + 1];
+	idct += dct::colldata[cmp][5][dpos] * dct::adpt_idct_8x8[cmp][ixy + 2];
+	idct += dct::colldata[cmp][6][dpos] * dct::adpt_idct_8x8[cmp][ixy + 3];
+	idct += dct::colldata[cmp][14][dpos] * dct::adpt_idct_8x8[cmp][ixy + 4];
+	idct += dct::colldata[cmp][15][dpos] * dct::adpt_idct_8x8[cmp][ixy + 5];
+	idct += dct::colldata[cmp][27][dpos] * dct::adpt_idct_8x8[cmp][ixy + 6];
+	idct += dct::colldata[cmp][28][dpos] * dct::adpt_idct_8x8[cmp][ixy + 7];
+	idct += dct::colldata[cmp][2][dpos] * dct::adpt_idct_8x8[cmp][ixy + 8];
+	idct += dct::colldata[cmp][4][dpos] * dct::adpt_idct_8x8[cmp][ixy + 9];
+	idct += dct::colldata[cmp][7][dpos] * dct::adpt_idct_8x8[cmp][ixy + 10];
+	idct += dct::colldata[cmp][13][dpos] * dct::adpt_idct_8x8[cmp][ixy + 11];
+	idct += dct::colldata[cmp][16][dpos] * dct::adpt_idct_8x8[cmp][ixy + 12];
+	idct += dct::colldata[cmp][26][dpos] * dct::adpt_idct_8x8[cmp][ixy + 13];
+	idct += dct::colldata[cmp][29][dpos] * dct::adpt_idct_8x8[cmp][ixy + 14];
+	idct += dct::colldata[cmp][42][dpos] * dct::adpt_idct_8x8[cmp][ixy + 15];
+	idct += dct::colldata[cmp][3][dpos] * dct::adpt_idct_8x8[cmp][ixy + 16];
+	idct += dct::colldata[cmp][8][dpos] * dct::adpt_idct_8x8[cmp][ixy + 17];
+	idct += dct::colldata[cmp][12][dpos] * dct::adpt_idct_8x8[cmp][ixy + 18];
+	idct += dct::colldata[cmp][17][dpos] * dct::adpt_idct_8x8[cmp][ixy + 19];
+	idct += dct::colldata[cmp][25][dpos] * dct::adpt_idct_8x8[cmp][ixy + 20];
+	idct += dct::colldata[cmp][30][dpos] * dct::adpt_idct_8x8[cmp][ixy + 21];
+	idct += dct::colldata[cmp][41][dpos] * dct::adpt_idct_8x8[cmp][ixy + 22];
+	idct += dct::colldata[cmp][43][dpos] * dct::adpt_idct_8x8[cmp][ixy + 23];
+	idct += dct::colldata[cmp][9][dpos] * dct::adpt_idct_8x8[cmp][ixy + 24];
+	idct += dct::colldata[cmp][11][dpos] * dct::adpt_idct_8x8[cmp][ixy + 25];
+	idct += dct::colldata[cmp][18][dpos] * dct::adpt_idct_8x8[cmp][ixy + 26];
+	idct += dct::colldata[cmp][24][dpos] * dct::adpt_idct_8x8[cmp][ixy + 27];
+	idct += dct::colldata[cmp][31][dpos] * dct::adpt_idct_8x8[cmp][ixy + 28];
+	idct += dct::colldata[cmp][40][dpos] * dct::adpt_idct_8x8[cmp][ixy + 29];
+	idct += dct::colldata[cmp][44][dpos] * dct::adpt_idct_8x8[cmp][ixy + 30];
+	idct += dct::colldata[cmp][53][dpos] * dct::adpt_idct_8x8[cmp][ixy + 31];
+	idct += dct::colldata[cmp][10][dpos] * dct::adpt_idct_8x8[cmp][ixy + 32];
+	idct += dct::colldata[cmp][19][dpos] * dct::adpt_idct_8x8[cmp][ixy + 33];
+	idct += dct::colldata[cmp][23][dpos] * dct::adpt_idct_8x8[cmp][ixy + 34];
+	idct += dct::colldata[cmp][32][dpos] * dct::adpt_idct_8x8[cmp][ixy + 35];
+	idct += dct::colldata[cmp][39][dpos] * dct::adpt_idct_8x8[cmp][ixy + 36];
+	idct += dct::colldata[cmp][45][dpos] * dct::adpt_idct_8x8[cmp][ixy + 37];
+	idct += dct::colldata[cmp][52][dpos] * dct::adpt_idct_8x8[cmp][ixy + 38];
+	idct += dct::colldata[cmp][54][dpos] * dct::adpt_idct_8x8[cmp][ixy + 39];
+	idct += dct::colldata[cmp][20][dpos] * dct::adpt_idct_8x8[cmp][ixy + 40];
+	idct += dct::colldata[cmp][22][dpos] * dct::adpt_idct_8x8[cmp][ixy + 41];
+	idct += dct::colldata[cmp][33][dpos] * dct::adpt_idct_8x8[cmp][ixy + 42];
+	idct += dct::colldata[cmp][38][dpos] * dct::adpt_idct_8x8[cmp][ixy + 43];
+	idct += dct::colldata[cmp][46][dpos] * dct::adpt_idct_8x8[cmp][ixy + 44];
+	idct += dct::colldata[cmp][51][dpos] * dct::adpt_idct_8x8[cmp][ixy + 45];
+	idct += dct::colldata[cmp][55][dpos] * dct::adpt_idct_8x8[cmp][ixy + 46];
+	idct += dct::colldata[cmp][60][dpos] * dct::adpt_idct_8x8[cmp][ixy + 47];
+	idct += dct::colldata[cmp][21][dpos] * dct::adpt_idct_8x8[cmp][ixy + 48];
+	idct += dct::colldata[cmp][34][dpos] * dct::adpt_idct_8x8[cmp][ixy + 49];
+	idct += dct::colldata[cmp][37][dpos] * dct::adpt_idct_8x8[cmp][ixy + 50];
+	idct += dct::colldata[cmp][47][dpos] * dct::adpt_idct_8x8[cmp][ixy + 51];
+	idct += dct::colldata[cmp][50][dpos] * dct::adpt_idct_8x8[cmp][ixy + 52];
+	idct += dct::colldata[cmp][56][dpos] * dct::adpt_idct_8x8[cmp][ixy + 53];
+	idct += dct::colldata[cmp][59][dpos] * dct::adpt_idct_8x8[cmp][ixy + 54];
+	idct += dct::colldata[cmp][61][dpos] * dct::adpt_idct_8x8[cmp][ixy + 55];
+	idct += dct::colldata[cmp][35][dpos] * dct::adpt_idct_8x8[cmp][ixy + 56];
+	idct += dct::colldata[cmp][36][dpos] * dct::adpt_idct_8x8[cmp][ixy + 57];
+	idct += dct::colldata[cmp][48][dpos] * dct::adpt_idct_8x8[cmp][ixy + 58];
+	idct += dct::colldata[cmp][49][dpos] * dct::adpt_idct_8x8[cmp][ixy + 59];
+	idct += dct::colldata[cmp][57][dpos] * dct::adpt_idct_8x8[cmp][ixy + 60];
+	idct += dct::colldata[cmp][58][dpos] * dct::adpt_idct_8x8[cmp][ixy + 61];
+	idct += dct::colldata[cmp][62][dpos] * dct::adpt_idct_8x8[cmp][ixy + 62];
+	idct += dct::colldata[cmp][63][dpos] * dct::adpt_idct_8x8[cmp][ixy + 63];
 
 	return idct;
 }
@@ -6457,14 +6458,14 @@ int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy) {
 
 	// begin transform
 	int idct = 0;
-	idct += colldata[cmp][0][dpos] * dct::adpt_idct_8x1[cmp][ixy + 0];
-	idct += colldata[cmp][1][dpos] * dct::adpt_idct_8x1[cmp][ixy + 1];
-	idct += colldata[cmp][5][dpos] * dct::adpt_idct_8x1[cmp][ixy + 2];
-	idct += colldata[cmp][6][dpos] * dct::adpt_idct_8x1[cmp][ixy + 3];
-	idct += colldata[cmp][14][dpos] * dct::adpt_idct_8x1[cmp][ixy + 4];
-	idct += colldata[cmp][15][dpos] * dct::adpt_idct_8x1[cmp][ixy + 5];
-	idct += colldata[cmp][27][dpos] * dct::adpt_idct_8x1[cmp][ixy + 6];
-	idct += colldata[cmp][28][dpos] * dct::adpt_idct_8x1[cmp][ixy + 7];
+	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_8x1[cmp][ixy + 0];
+	idct += dct::colldata[cmp][1][dpos] * dct::adpt_idct_8x1[cmp][ixy + 1];
+	idct += dct::colldata[cmp][5][dpos] * dct::adpt_idct_8x1[cmp][ixy + 2];
+	idct += dct::colldata[cmp][6][dpos] * dct::adpt_idct_8x1[cmp][ixy + 3];
+	idct += dct::colldata[cmp][14][dpos] * dct::adpt_idct_8x1[cmp][ixy + 4];
+	idct += dct::colldata[cmp][15][dpos] * dct::adpt_idct_8x1[cmp][ixy + 5];
+	idct += dct::colldata[cmp][27][dpos] * dct::adpt_idct_8x1[cmp][ixy + 6];
+	idct += dct::colldata[cmp][28][dpos] * dct::adpt_idct_8x1[cmp][ixy + 7];
 
 	return idct;
 }
@@ -6475,14 +6476,14 @@ int dct::idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy) {
 
 	// begin transform
 	int idct = 0;
-	idct += colldata[cmp][0][dpos] * dct::adpt_idct_1x8[cmp][ixy + 0];
-	idct += colldata[cmp][2][dpos] * dct::adpt_idct_1x8[cmp][ixy + 1];
-	idct += colldata[cmp][3][dpos] * dct::adpt_idct_1x8[cmp][ixy + 2];
-	idct += colldata[cmp][9][dpos] * dct::adpt_idct_1x8[cmp][ixy + 3];
-	idct += colldata[cmp][10][dpos] * dct::adpt_idct_1x8[cmp][ixy + 4];
-	idct += colldata[cmp][20][dpos] * dct::adpt_idct_1x8[cmp][ixy + 5];
-	idct += colldata[cmp][21][dpos] * dct::adpt_idct_1x8[cmp][ixy + 6];
-	idct += colldata[cmp][35][dpos] * dct::adpt_idct_1x8[cmp][ixy + 7];
+	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_1x8[cmp][ixy + 0];
+	idct += dct::colldata[cmp][2][dpos] * dct::adpt_idct_1x8[cmp][ixy + 1];
+	idct += dct::colldata[cmp][3][dpos] * dct::adpt_idct_1x8[cmp][ixy + 2];
+	idct += dct::colldata[cmp][9][dpos] * dct::adpt_idct_1x8[cmp][ixy + 3];
+	idct += dct::colldata[cmp][10][dpos] * dct::adpt_idct_1x8[cmp][ixy + 4];
+	idct += dct::colldata[cmp][20][dpos] * dct::adpt_idct_1x8[cmp][ixy + 5];
+	idct += dct::colldata[cmp][21][dpos] * dct::adpt_idct_1x8[cmp][ixy + 6];
+	idct += dct::colldata[cmp][35][dpos] * dct::adpt_idct_1x8[cmp][ixy + 7];
 
 	return idct;
 }
@@ -6494,7 +6495,7 @@ int dct::idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy) {
 #if defined(USE_PLOCOI)
 int predictor::dc_coll_predictor(int cmp, int dpos)
 {
-	const short* coeffs = colldata[cmp][0];
+	const short* coeffs = dct::colldata[cmp][0];
 	const int w = cmpnfo[cmp].bch;
 	int a = 0;
 	int b = 0;
@@ -6535,8 +6536,8 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	const int py = dpos / w;
 
 	// Store current block DC coefficient:
-	const short swap = colldata[cmp][0][dpos];
-	colldata[cmp][0][dpos] = short(0);
+	const short swap = dct::colldata[cmp][0][dpos];
+	dct::colldata[cmp][0][dpos] = short(0);
 
 	// Calculate prediction:
 	int pred = 0;
@@ -6561,7 +6562,7 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	}
 
 	// Write back current DCT coefficient:
-	colldata[cmp][0][dpos] = swap;
+	dct::colldata[cmp][0][dpos] = swap;
 
 	// Clamp and quantize predictor:
 	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
@@ -6783,20 +6784,20 @@ INTERN bool dump_coll( void )
 			
 			case 0: // standard collections
 				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( colldata[cmp][bpos], sizeof( short ), cmpnfo[cmp].bc, fp );
+					fwrite( dct::colldata[cmp][bpos], sizeof( short ), cmpnfo[cmp].bc, fp );
 				break;
 				
 			case 1: // sequential order collections, 'dhufs'
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
 				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
 				break;
 				
 			case 2: // square collections
 				dpos = 0;
 				for ( i = 0; i < 64; ) {
 					bpos = zigzag[ i++ ];
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ),
+					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ),
 						cmpnfo[cmp].bch, fp );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += cmpnfo[cmp].bch;
@@ -6815,7 +6816,7 @@ INTERN bool dump_coll( void )
 				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
 					bpos = zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
 				}
 				break;
 				
@@ -6823,7 +6824,7 @@ INTERN bool dump_coll( void )
 				dpos = 0;
 				for ( i = 0; i < 64; ) {
 					bpos = even_zigzag[ i++ ];
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ),
+					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ),
 						cmpnfo[cmp].bch, fp );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += cmpnfo[cmp].bch;
@@ -6842,7 +6843,7 @@ INTERN bool dump_coll( void )
 				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
 					bpos = even_zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
 				}
 				break;
 		}
@@ -7084,7 +7085,7 @@ INTERN bool dump_dist( void )
 		for ( i = 0; i <= 1024; i++ ) dist[ i ] = 0;
 		// get distribution
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-			dist[ std::abs( colldata[cmp][bpos][dpos] ) ]++;
+			dist[ std::abs( dct::colldata[cmp][bpos][dpos] ) ]++;
 		// write to file
 		fwrite( dist, sizeof( int ), 1024 + 1, fp );
 	}
