@@ -2384,20 +2384,9 @@ bool jpg::encode::merge()
 
 bool jpg::decode::decode()
 {	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
+	unsigned int hpos = 0; // current position in header
 	
-	int lastdc[ 4 ]; // last dc for each component
-	short block[ 64 ]; // store block for coeffs
-	int peobrun; // previous eobrun
-	int eobrun; // run of eobs
-	int rstw; // restart wait counter
-	
-	int cmp, bpos, dpos;
-	int mcu, sub, csc;
-	int eob;
-	
+	short block[64]; // store block for coeffs
 	
 	// open huffman coded image data for input in abitreader
 	auto huffr = std::make_unique<abitreader>(huffdata.data(), huffdata.size()); // bitwise reader for image data
@@ -2409,10 +2398,11 @@ bool jpg::decode::decode()
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
+		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			std::uint32_t len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2425,8 +2415,8 @@ bool jpg::decode::decode()
 		if ( type != 0xDA ) break;
 		
 		// check if huffman tables are available
-		for ( csc = 0; csc < curr_scan::cmpc; csc++ ) {
-			cmp = curr_scan::cmp[ csc ];
+		for (int csc = 0; csc < curr_scan::cmpc; csc++) {
+			int cmp = curr_scan::cmp[ csc ];
 			if ( ( ( curr_scan::sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
 				 ( ( curr_scan::sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", scnc );
@@ -2437,31 +2427,28 @@ bool jpg::decode::decode()
 		
 		
 		// intial variables set for decoding
-		cmp  = curr_scan::cmp[ 0 ];
-		csc  = 0;
-		mcu  = 0;
-		sub  = 0;
-		dpos = 0;
+		int cmp  = curr_scan::cmp[ 0 ];
+		int csc  = 0;
+		int mcu  = 0;
+		int sub  = 0;
+		int dpos = 0;
 		
 		// JPEG imagedata decoding routines
 		while ( true )
 		{			
 			// (re)set last DCs for diff coding
-			lastdc[ 0 ] = 0;
-			lastdc[ 1 ] = 0;
-			lastdc[ 2 ] = 0;
-			lastdc[ 3 ] = 0;
+			std::array<int, 4> lastdc = { 0 }; // last dc for each component
 			
 			// (re)set status
-			eob = 0;
+			int eob = 0;
 			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
-			eobrun  = 0;
-			peobrun = 0;
+			int eobrun  = 0; // run of eobs
+			int peobrun = 0; // previous eobrun
 			
 			// (re)set rst wait counter
-			rstw = rsti;
+			int rstw = rsti; // restart wait counter
 			
 			// decoding for interleaved data
 			if ( curr_scan::cmpc > 1 )
@@ -2486,7 +2473,7 @@ bool jpg::decode::decode()
 						lastdc[ cmp ] = block[ 0 ];
 						
 						// copy to colldata
-						for ( bpos = 0; bpos < eob; bpos++ )
+						for (int bpos = 0; bpos < eob; bpos++)
 							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
@@ -2550,7 +2537,7 @@ bool jpg::decode::decode()
 						lastdc[ cmp ] = block[ 0 ];
 						
 						// copy to colldata
-						for ( bpos = 0; bpos < eob; bpos++ )
+						for (int bpos = 0; bpos < eob; bpos++)
 							colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
@@ -2618,7 +2605,7 @@ bool jpg::decode::decode()
 								} else peobrun = 0;
 							
 								// copy to colldata
-								for ( bpos = curr_scan::from; bpos < eob; bpos++ )
+								for (int bpos = curr_scan::from; bpos < eob; bpos++)
 									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
 							} else eobrun--;
 							
@@ -2636,7 +2623,7 @@ bool jpg::decode::decode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
@@ -2667,7 +2654,7 @@ bool jpg::decode::decode()
 							}
 								
 							// copy back to colldata
-							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
 							
 							// proceed only if no error encountered
