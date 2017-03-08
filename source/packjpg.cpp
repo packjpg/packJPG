@@ -523,19 +523,25 @@ namespace dct {
 	bool adapt_icos();
 
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
+	// Inverse DCT transform using precalc tables (fast).
 	int idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy);
 #endif
+	// Inverse DCT transform using precalc tables (fast).
 	int idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy);
+	// Inverse DCT transform using precalc tables (fast).
 	int idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy);
 }
 
 namespace predictor {
 #if defined( USE_PLOCOI )
+	// Returns predictor for collection data.
 	int dc_coll_predictor(int cmp, int dpos);
+	// loco-i predictor.
+	int plocoi(int a, int b, int c);
 #else
+	// 1D DCT predictor for DC coefficients.
 	int dc_1ddct_predictor(int cmp, int dpos);
 #endif
-	int plocoi(int a, int b, int c);
 }
 
 
@@ -6367,144 +6373,117 @@ INTERN void get_context_nnb( int pos, int w, int *a, int *b )
 
 /* ----------------------- End of PJG specific functions -------------------------- */
 
-/* ----------------------- Begin ofDCT specific functions -------------------------- */
+/* ----------------------- Begin of DCT specific functions -------------------------- */
 
-
-/* -----------------------------------------------
-	inverse DCT transform using precalc tables (fast)
-	----------------------------------------------- */
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-int dct::idct_2d_fst_8x8( int cmp, int dpos, int ix, int iy )
-{
-	int idct = 0;
-	int ixy;
-	
-	
+int dct::idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy) {
 	// calculate start index
-	ixy = ( ( iy << 3 ) + ix ) << 6;
-	
+	const int ixy = ((iy << 3) + ix) << 6;
+
 	// begin transform
-	idct += colldata[ cmp ][  0 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 0 ];
-	idct += colldata[ cmp ][  1 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 1 ];
-	idct += colldata[ cmp ][  5 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 2 ];
-	idct += colldata[ cmp ][  6 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 3 ];
-	idct += colldata[ cmp ][ 14 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 4 ];
-	idct += colldata[ cmp ][ 15 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 5 ];
-	idct += colldata[ cmp ][ 27 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 6 ];
-	idct += colldata[ cmp ][ 28 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 7 ];
-	idct += colldata[ cmp ][  2 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 8 ];
-	idct += colldata[ cmp ][  4 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 9 ];
-	idct += colldata[ cmp ][  7 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 10 ];
-	idct += colldata[ cmp ][ 13 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 11 ];
-	idct += colldata[ cmp ][ 16 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 12 ];
-	idct += colldata[ cmp ][ 26 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 13 ];
-	idct += colldata[ cmp ][ 29 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 14 ];
-	idct += colldata[ cmp ][ 42 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 15 ];
-	idct += colldata[ cmp ][  3 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 16 ];
-	idct += colldata[ cmp ][  8 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 17 ];
-	idct += colldata[ cmp ][ 12 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 18 ];
-	idct += colldata[ cmp ][ 17 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 19 ];
-	idct += colldata[ cmp ][ 25 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 20 ];
-	idct += colldata[ cmp ][ 30 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 21 ];
-	idct += colldata[ cmp ][ 41 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 22 ];
-	idct += colldata[ cmp ][ 43 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 23 ];
-	idct += colldata[ cmp ][  9 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 24 ];
-	idct += colldata[ cmp ][ 11 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 25 ];
-	idct += colldata[ cmp ][ 18 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 26 ];
-	idct += colldata[ cmp ][ 24 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 27 ];
-	idct += colldata[ cmp ][ 31 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 28 ];
-	idct += colldata[ cmp ][ 40 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 29 ];
-	idct += colldata[ cmp ][ 44 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 30 ];
-	idct += colldata[ cmp ][ 53 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 31 ];
-	idct += colldata[ cmp ][ 10 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 32 ];
-	idct += colldata[ cmp ][ 19 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 33 ];
-	idct += colldata[ cmp ][ 23 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 34 ];
-	idct += colldata[ cmp ][ 32 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 35 ];
-	idct += colldata[ cmp ][ 39 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 36 ];
-	idct += colldata[ cmp ][ 45 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 37 ];
-	idct += colldata[ cmp ][ 52 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 38 ];
-	idct += colldata[ cmp ][ 54 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 39 ];
-	idct += colldata[ cmp ][ 20 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 40 ];
-	idct += colldata[ cmp ][ 22 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 41 ];
-	idct += colldata[ cmp ][ 33 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 42 ];
-	idct += colldata[ cmp ][ 38 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 43 ];
-	idct += colldata[ cmp ][ 46 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 44 ];
-	idct += colldata[ cmp ][ 51 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 45 ];
-	idct += colldata[ cmp ][ 55 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 46 ];
-	idct += colldata[ cmp ][ 60 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 47 ];
-	idct += colldata[ cmp ][ 21 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 48 ];
-	idct += colldata[ cmp ][ 34 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 49 ];
-	idct += colldata[ cmp ][ 37 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 50 ];
-	idct += colldata[ cmp ][ 47 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 51 ];
-	idct += colldata[ cmp ][ 50 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 52 ];
-	idct += colldata[ cmp ][ 56 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 53 ];
-	idct += colldata[ cmp ][ 59 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 54 ];
-	idct += colldata[ cmp ][ 61 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 55 ];
-	idct += colldata[ cmp ][ 35 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 56 ];
-	idct += colldata[ cmp ][ 36 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 57 ];
-	idct += colldata[ cmp ][ 48 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 58 ];
-	idct += colldata[ cmp ][ 49 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 59 ];
-	idct += colldata[ cmp ][ 57 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 60 ];
-	idct += colldata[ cmp ][ 58 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 61 ];
-	idct += colldata[ cmp ][ 62 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 62 ];
-	idct += colldata[ cmp ][ 63 ][ dpos ] * dct::adpt_idct_8x8[ cmp ][ ixy + 63 ];
-	
-	
+	int idct = 0;
+	idct += colldata[cmp][0][dpos] * dct::adpt_idct_8x8[cmp][ixy + 0];
+	idct += colldata[cmp][1][dpos] * dct::adpt_idct_8x8[cmp][ixy + 1];
+	idct += colldata[cmp][5][dpos] * dct::adpt_idct_8x8[cmp][ixy + 2];
+	idct += colldata[cmp][6][dpos] * dct::adpt_idct_8x8[cmp][ixy + 3];
+	idct += colldata[cmp][14][dpos] * dct::adpt_idct_8x8[cmp][ixy + 4];
+	idct += colldata[cmp][15][dpos] * dct::adpt_idct_8x8[cmp][ixy + 5];
+	idct += colldata[cmp][27][dpos] * dct::adpt_idct_8x8[cmp][ixy + 6];
+	idct += colldata[cmp][28][dpos] * dct::adpt_idct_8x8[cmp][ixy + 7];
+	idct += colldata[cmp][2][dpos] * dct::adpt_idct_8x8[cmp][ixy + 8];
+	idct += colldata[cmp][4][dpos] * dct::adpt_idct_8x8[cmp][ixy + 9];
+	idct += colldata[cmp][7][dpos] * dct::adpt_idct_8x8[cmp][ixy + 10];
+	idct += colldata[cmp][13][dpos] * dct::adpt_idct_8x8[cmp][ixy + 11];
+	idct += colldata[cmp][16][dpos] * dct::adpt_idct_8x8[cmp][ixy + 12];
+	idct += colldata[cmp][26][dpos] * dct::adpt_idct_8x8[cmp][ixy + 13];
+	idct += colldata[cmp][29][dpos] * dct::adpt_idct_8x8[cmp][ixy + 14];
+	idct += colldata[cmp][42][dpos] * dct::adpt_idct_8x8[cmp][ixy + 15];
+	idct += colldata[cmp][3][dpos] * dct::adpt_idct_8x8[cmp][ixy + 16];
+	idct += colldata[cmp][8][dpos] * dct::adpt_idct_8x8[cmp][ixy + 17];
+	idct += colldata[cmp][12][dpos] * dct::adpt_idct_8x8[cmp][ixy + 18];
+	idct += colldata[cmp][17][dpos] * dct::adpt_idct_8x8[cmp][ixy + 19];
+	idct += colldata[cmp][25][dpos] * dct::adpt_idct_8x8[cmp][ixy + 20];
+	idct += colldata[cmp][30][dpos] * dct::adpt_idct_8x8[cmp][ixy + 21];
+	idct += colldata[cmp][41][dpos] * dct::adpt_idct_8x8[cmp][ixy + 22];
+	idct += colldata[cmp][43][dpos] * dct::adpt_idct_8x8[cmp][ixy + 23];
+	idct += colldata[cmp][9][dpos] * dct::adpt_idct_8x8[cmp][ixy + 24];
+	idct += colldata[cmp][11][dpos] * dct::adpt_idct_8x8[cmp][ixy + 25];
+	idct += colldata[cmp][18][dpos] * dct::adpt_idct_8x8[cmp][ixy + 26];
+	idct += colldata[cmp][24][dpos] * dct::adpt_idct_8x8[cmp][ixy + 27];
+	idct += colldata[cmp][31][dpos] * dct::adpt_idct_8x8[cmp][ixy + 28];
+	idct += colldata[cmp][40][dpos] * dct::adpt_idct_8x8[cmp][ixy + 29];
+	idct += colldata[cmp][44][dpos] * dct::adpt_idct_8x8[cmp][ixy + 30];
+	idct += colldata[cmp][53][dpos] * dct::adpt_idct_8x8[cmp][ixy + 31];
+	idct += colldata[cmp][10][dpos] * dct::adpt_idct_8x8[cmp][ixy + 32];
+	idct += colldata[cmp][19][dpos] * dct::adpt_idct_8x8[cmp][ixy + 33];
+	idct += colldata[cmp][23][dpos] * dct::adpt_idct_8x8[cmp][ixy + 34];
+	idct += colldata[cmp][32][dpos] * dct::adpt_idct_8x8[cmp][ixy + 35];
+	idct += colldata[cmp][39][dpos] * dct::adpt_idct_8x8[cmp][ixy + 36];
+	idct += colldata[cmp][45][dpos] * dct::adpt_idct_8x8[cmp][ixy + 37];
+	idct += colldata[cmp][52][dpos] * dct::adpt_idct_8x8[cmp][ixy + 38];
+	idct += colldata[cmp][54][dpos] * dct::adpt_idct_8x8[cmp][ixy + 39];
+	idct += colldata[cmp][20][dpos] * dct::adpt_idct_8x8[cmp][ixy + 40];
+	idct += colldata[cmp][22][dpos] * dct::adpt_idct_8x8[cmp][ixy + 41];
+	idct += colldata[cmp][33][dpos] * dct::adpt_idct_8x8[cmp][ixy + 42];
+	idct += colldata[cmp][38][dpos] * dct::adpt_idct_8x8[cmp][ixy + 43];
+	idct += colldata[cmp][46][dpos] * dct::adpt_idct_8x8[cmp][ixy + 44];
+	idct += colldata[cmp][51][dpos] * dct::adpt_idct_8x8[cmp][ixy + 45];
+	idct += colldata[cmp][55][dpos] * dct::adpt_idct_8x8[cmp][ixy + 46];
+	idct += colldata[cmp][60][dpos] * dct::adpt_idct_8x8[cmp][ixy + 47];
+	idct += colldata[cmp][21][dpos] * dct::adpt_idct_8x8[cmp][ixy + 48];
+	idct += colldata[cmp][34][dpos] * dct::adpt_idct_8x8[cmp][ixy + 49];
+	idct += colldata[cmp][37][dpos] * dct::adpt_idct_8x8[cmp][ixy + 50];
+	idct += colldata[cmp][47][dpos] * dct::adpt_idct_8x8[cmp][ixy + 51];
+	idct += colldata[cmp][50][dpos] * dct::adpt_idct_8x8[cmp][ixy + 52];
+	idct += colldata[cmp][56][dpos] * dct::adpt_idct_8x8[cmp][ixy + 53];
+	idct += colldata[cmp][59][dpos] * dct::adpt_idct_8x8[cmp][ixy + 54];
+	idct += colldata[cmp][61][dpos] * dct::adpt_idct_8x8[cmp][ixy + 55];
+	idct += colldata[cmp][35][dpos] * dct::adpt_idct_8x8[cmp][ixy + 56];
+	idct += colldata[cmp][36][dpos] * dct::adpt_idct_8x8[cmp][ixy + 57];
+	idct += colldata[cmp][48][dpos] * dct::adpt_idct_8x8[cmp][ixy + 58];
+	idct += colldata[cmp][49][dpos] * dct::adpt_idct_8x8[cmp][ixy + 59];
+	idct += colldata[cmp][57][dpos] * dct::adpt_idct_8x8[cmp][ixy + 60];
+	idct += colldata[cmp][58][dpos] * dct::adpt_idct_8x8[cmp][ixy + 61];
+	idct += colldata[cmp][62][dpos] * dct::adpt_idct_8x8[cmp][ixy + 62];
+	idct += colldata[cmp][63][dpos] * dct::adpt_idct_8x8[cmp][ixy + 63];
+
 	return idct;
 }
 #endif
 
-
-/* -----------------------------------------------
-	inverse DCT transform using precalc tables (fast)
-	----------------------------------------------- */
-int dct::idct_2d_fst_8x1( int cmp, int dpos, int ix, int iy )
-{
-	int idct = 0;
-	int ixy;
-	
-	
+int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy) {
 	// calculate start index
-	ixy = ix << 3;
-	
+	const int ixy = ix << 3;
+
 	// begin transform
-	idct += colldata[ cmp ][  0 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 0 ];
-	idct += colldata[ cmp ][  1 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 1 ];
-	idct += colldata[ cmp ][  5 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 2 ];
-	idct += colldata[ cmp ][  6 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 3 ];
-	idct += colldata[ cmp ][ 14 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 4 ];
-	idct += colldata[ cmp ][ 15 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 5 ];
-	idct += colldata[ cmp ][ 27 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 6 ];
-	idct += colldata[ cmp ][ 28 ][ dpos ] * dct::adpt_idct_8x1[ cmp ][ ixy + 7 ];
-	
-	
+	int idct = 0;
+	idct += colldata[cmp][0][dpos] * dct::adpt_idct_8x1[cmp][ixy + 0];
+	idct += colldata[cmp][1][dpos] * dct::adpt_idct_8x1[cmp][ixy + 1];
+	idct += colldata[cmp][5][dpos] * dct::adpt_idct_8x1[cmp][ixy + 2];
+	idct += colldata[cmp][6][dpos] * dct::adpt_idct_8x1[cmp][ixy + 3];
+	idct += colldata[cmp][14][dpos] * dct::adpt_idct_8x1[cmp][ixy + 4];
+	idct += colldata[cmp][15][dpos] * dct::adpt_idct_8x1[cmp][ixy + 5];
+	idct += colldata[cmp][27][dpos] * dct::adpt_idct_8x1[cmp][ixy + 6];
+	idct += colldata[cmp][28][dpos] * dct::adpt_idct_8x1[cmp][ixy + 7];
+
 	return idct;
 }
 
-
-/* -----------------------------------------------
-	inverse DCT transform using precalc tables (fast)
-	----------------------------------------------- */
-int dct::idct_2d_fst_1x8( int cmp, int dpos, int ix, int iy )
-{
-	int idct = 0;
-	int ixy;
-	
-	
+int dct::idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy) {
 	// calculate start index
-	ixy = iy << 3;
-	
+	const int ixy = iy << 3;
+
 	// begin transform
-	idct += colldata[ cmp ][  0 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 0 ];
-	idct += colldata[ cmp ][  2 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 1 ];
-	idct += colldata[ cmp ][  3 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 2 ];
-	idct += colldata[ cmp ][  9 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 3 ];
-	idct += colldata[ cmp ][ 10 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 4 ];
-	idct += colldata[ cmp ][ 20 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 5 ];
-	idct += colldata[ cmp ][ 21 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 6 ];
-	idct += colldata[ cmp ][ 35 ][ dpos ] * dct::adpt_idct_1x8[ cmp ][ ixy + 7 ];
-	
-	
+	int idct = 0;
+	idct += colldata[cmp][0][dpos] * dct::adpt_idct_1x8[cmp][ixy + 0];
+	idct += colldata[cmp][2][dpos] * dct::adpt_idct_1x8[cmp][ixy + 1];
+	idct += colldata[cmp][3][dpos] * dct::adpt_idct_1x8[cmp][ixy + 2];
+	idct += colldata[cmp][9][dpos] * dct::adpt_idct_1x8[cmp][ixy + 3];
+	idct += colldata[cmp][10][dpos] * dct::adpt_idct_1x8[cmp][ixy + 4];
+	idct += colldata[cmp][20][dpos] * dct::adpt_idct_1x8[cmp][ixy + 5];
+	idct += colldata[cmp][21][dpos] * dct::adpt_idct_1x8[cmp][ixy + 6];
+	idct += colldata[cmp][35][dpos] * dct::adpt_idct_1x8[cmp][ixy + 7];
+
 	return idct;
 }
 
@@ -6512,112 +6491,86 @@ int dct::idct_2d_fst_1x8( int cmp, int dpos, int ix, int iy )
 
 /* ----------------------- Begin of prediction functions -------------------------- */
 
-
-/* -----------------------------------------------
-	returns predictor for collection data
-	----------------------------------------------- */
 #if defined(USE_PLOCOI)
-int predictor::dc_coll_predictor( int cmp, int dpos )
+int predictor::dc_coll_predictor(int cmp, int dpos)
 {
-	signed short* coefs = colldata[ cmp ][ 0 ];
-	int w = cmpnfo[cmp].bch;
-	int a, b, c;
+	const short* coeffs = colldata[cmp][0];
+	const int w = cmpnfo[cmp].bch;
+	int a = 0;
+	int b = 0;
+	int c = 0;
 	
-	if ( dpos < w ) {
-		a = coefs[ dpos - 1 ];
-		b = 0;
-		c = 0;
-	}
-	else if ( (dpos%w) == 0 ) {
-		a = 0;
-		b = coefs[ dpos - w ];
-		c = 0;
-	}
-	else {
-		a = coefs[ dpos - 1 ];
-		b = coefs[ dpos - w ];
-		c = coefs[ dpos - 1 - w ];
+	if (dpos < w) {
+		a = coeffs[dpos - 1];
+	} else if ((dpos%w) == 0) {
+		b = coeffs[dpos - w];
+	} else {
+		a = coeffs[dpos - 1];
+		b = coeffs[dpos - w];
+		c = coeffs[dpos - 1 - w];
 	}
 	
-	return predictor::plocoi( a, b, c );
+	return predictor::plocoi(a, b, c);
 }
+
+int predictor::plocoi(int a, int b, int c)
+{
+	// a -> left; b -> above; c -> above-left
+
+	const int min = std::min(a, b);
+	const int max = std::max(a, b);
+
+	if (c >= max) return min;
+	if (c <= min) return max;
+
+	return a + b - c;
+}
+
 #endif
 
-
-/* -----------------------------------------------
-	1D DCT predictor for DC coefficients
-	----------------------------------------------- */
 #if !defined(USE_PLOCOI)
-int predictor::dc_1ddct_predictor( int cmp, int dpos )
-{
-	int w  = cmpnfo[cmp].bch;
-	int px = ( dpos % w );
-	int py = ( dpos / w );
-	
-	int pred;	
-	int pa = 0;
-	int pb = 0;
-	int xa = 0;
-	int xb = 0;
-	int swap;
-	
-	
-	// store current block DC coefficient
-	swap = colldata[ cmp ][ 0 ][ dpos ];
-	colldata[ cmp ][ 0 ][ dpos ] = 0;
-	
-	// calculate prediction
-	if ( ( px > 0 ) && ( py > 0 ) ) {
-		pa = dct::idct_2d_fst_8x1( cmp, dpos - 1, 7, 0 );
-		pb = dct::idct_2d_fst_1x8( cmp, dpos - w, 0, 7 );
-		xa = dct::idct_2d_fst_8x1( cmp, dpos, 0, 0 );
-		xb = dct::idct_2d_fst_1x8( cmp, dpos, 0, 0 );
-		pred = ( ( pa - xa ) + ( pb - xb ) ) * ( 8 / 2 );
+int predictor::dc_1ddct_predictor(int cmp, int dpos) {
+	const int w = cmpnfo[cmp].bch;
+	const int px = dpos % w;
+	const int py = dpos / w;
+
+	// Store current block DC coefficient:
+	const short swap = colldata[cmp][0][dpos];
+	colldata[cmp][0][dpos] = short(0);
+
+	// Calculate prediction:
+	int pred = 0;
+	if (px > 0 && py > 0) {
+		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7, 0);
+		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0, 0);
+
+		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 0, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0, 0);
+
+		pred = ((pa - xa) + (pb - xb)) * 4;
+	} else if (px > 0) {
+		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7, 0);
+		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0, 0);
+
+		pred = (pa - xa) * 8;
+	} else if (py > 0) {
+		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 0, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0, 0);
+
+		pred = (pb - xb) * 8;
 	}
-	else if ( px > 0 ) {
-		pa = dct::idct_2d_fst_8x1( cmp, dpos - 1, 7, 0 );
-		xa = dct::idct_2d_fst_8x1( cmp, dpos, 0, 0 );
-		pred = ( pa - xa ) * 8;
-	}
-	else if ( py > 0 ) {
-		pb = dct::idct_2d_fst_1x8( cmp, dpos - w, 0, 7 );
-		xb = dct::idct_2d_fst_1x8( cmp, dpos, 0, 0 );
-		pred = ( pb - xb ) * 8;
-	}
-	else {
-		pred = 0;
-	}
-	
-	// write back current DCT coefficient
-	colldata[ cmp ][ 0 ][ dpos ] = swap;	
-	
-	// clamp and quantize predictor
-	pred = clamp(pred, -( 1024 * dct::DCT_RSC_FACTOR ), ( 1016 * dct::DCT_RSC_FACTOR ));
-	pred = pred / QUANT( cmp, 0 );
-	pred = dct::DCT_RESCALE( pred );
-	
-	
+
+	// Write back current DCT coefficient:
+	colldata[cmp][0][dpos] = swap;
+
+	// Clamp and quantize predictor:
+	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
+	pred = pred / QUANT(cmp, 0);
+	pred = dct::DCT_RESCALE(pred);
+
 	return pred;
 }
 #endif
-
-
-/* -----------------------------------------------
-	loco-i predictor
-	----------------------------------------------- */
-inline int predictor::plocoi( int a, int b, int c )
-{
-	// a -> left; b -> above; c -> above-left
-	int min, max;
-	
-	min = ( a < b ) ? a : b;
-	max = ( a > b ) ? a : b;
-	
-	if ( c >= max ) return min;
-	if ( c <= min ) return max;
-	
-	return a + b - c;
-}
 
 /* ----------------------- End of prediction functions -------------------------- */
 
