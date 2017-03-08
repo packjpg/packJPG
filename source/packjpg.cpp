@@ -496,7 +496,7 @@ INTERN inline float median_float( float* values, int size );
 	function declarations: miscelaneous helpers
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
-INTERN inline void progress_bar( int current, int last );
+static void progress_bar(int current, int last);
 static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 #endif
@@ -6623,25 +6623,25 @@ INTERN inline float median_float( float* values, int size )
 	displays progress bar on screen
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
-INTERN inline void progress_bar( int current, int last )
+static void progress_bar( int current, int last )
 {
 	constexpr int BARLEN = 36;
-	int barpos = ( ( current * BARLEN ) + ( last / 2 ) ) / last;
-	int i;
-	
-	
+	int barpos = ((current * BARLEN) + (last / 2)) / last;
+
 	// generate progress bar
-	fprintf( msgout, "[" );
-	#if defined(_WIN32)
-	for ( i = 0; i < barpos; i++ )
-		fprintf( msgout, "\xFE" );
-	#else
-	for ( i = 0; i < barpos; i++ )
-		fprintf( msgout, "X" );
-	#endif
-	for (  ; i < BARLEN; i++ )
-		fprintf( msgout, " " );
-	fprintf( msgout, "]" );
+	fprintf(msgout, "[");
+	for (int i = 0; i < BARLEN; i++) {
+		if (i < barpos) {
+			#if defined(_WIN32)
+			fprintf(msgout, "\xFE");
+			#else
+			fprintf(msgout, "X");
+			#endif
+		} else {
+			fprintf(msgout, " ");
+		}
+	}
+	fprintf(msgout, "]");
 }
 #endif
 
