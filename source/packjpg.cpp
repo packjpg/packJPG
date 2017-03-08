@@ -2722,20 +2722,9 @@ bool jpg::decode::decode()
 
 bool jpg::encode::recode()
 {	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
-		
-	int lastdc[ 4 ]; // last dc for each component0
+	int hpos = 0; // current position in header
+	
 	std::array<std::int16_t, 64> block; // store block for coeffs
-	int eobrun; // run of eobs
-	int rstw; // restart wait counter
-	
-	int cmp, bpos, dpos;
-	int mcu, sub, csc;
-	int eob;
-	int tmp;
-	
 	
 	// open huffman coded image data in abitwriter
 	auto huffw = std::make_unique<abitwriter>(0); // bitwise writer for image data
@@ -2752,10 +2741,13 @@ bool jpg::encode::recode()
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
+		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
-			if ( ( int ) hpos >= hdrs ) break;
+			if (hpos >= hdrs) {
+				break;
+			}
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			std::uint32_t len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2777,17 +2769,17 @@ bool jpg::encode::recode()
 		
 		// (re)alloc restart marker positons array if needed
 		if ( rsti > 0 ) {
-			tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
+			int tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
 				( image::mcuc / rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / rsti ) );
 			rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
-		cmp  = curr_scan::cmp[ 0 ];
-		csc  = 0;
-		mcu  = 0;
-		sub  = 0;
-		dpos = 0;
+		int cmp  = curr_scan::cmp[ 0 ];
+		int csc  = 0;
+		int mcu  = 0;
+		int sub  = 0;
+		int dpos = 0;
 		
 		// store scan position
 		scnp[ scnc ] = huffw->getpos();
@@ -2796,19 +2788,16 @@ bool jpg::encode::recode()
 		while ( true )
 		{
 			// (re)set last DCs for diff coding
-			lastdc[ 0 ] = 0;
-			lastdc[ 1 ] = 0;
-			lastdc[ 2 ] = 0;
-			lastdc[ 3 ] = 0;
+			std::array<int, 4> lastdc = { 0 }; // last dc for each component
 			
 			// (re)set status
 			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
-			eobrun = 0;
+			int eobrun = 0; // run of eobs
 			
 			// (re)set rst wait counter
-			rstw = rsti;
+			int rstw = rsti; // restart wait counter
 			
 			// encoding for interleaved data
 			if ( curr_scan::cmpc > 1 )
@@ -2817,7 +2806,7 @@ bool jpg::encode::recode()
 					// ---> sequential interleaved encoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
-						for ( bpos = 0; bpos < 64; bpos++ )
+						for (int bpos = 0; bpos < 64; bpos++)
 							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
@@ -2825,7 +2814,7 @@ bool jpg::encode::recode()
 						lastdc[ cmp ] = colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
-						eob = jpg::encode::block_seq( huffw,
+						int eob = jpg::encode::block_seq( huffw,
 						                              hcodes[0][cmpnfo[cmp].huffac],
 						                              hcodes[1][cmpnfo[cmp].huffac],
 						                              block );
@@ -2840,7 +2829,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
+						int tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2873,7 +2862,7 @@ bool jpg::encode::recode()
 					// ---> sequential non interleaved encoding <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
-						for ( bpos = 0; bpos < 64; bpos++ )
+						for (int bpos = 0; bpos < 64; bpos++)
 							block[ bpos ] = colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
@@ -2881,7 +2870,7 @@ bool jpg::encode::recode()
 						lastdc[ cmp ] = colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
-						eob = jpg::encode::block_seq( huffw,
+						int eob = jpg::encode::block_seq( huffw,
 						                              hcodes[0][cmpnfo[cmp].huffac],
 						                              hcodes[1][cmpnfo[cmp].huffac],
 						                              block );
@@ -2897,7 +2886,7 @@ bool jpg::encode::recode()
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
+							int tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
@@ -2931,12 +2920,12 @@ bool jpg::encode::recode()
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
 									FDIV2( colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
-							eob = jpg::encode::ac_prg_fs( huffw,
+							int eob = jpg::encode::ac_prg_fs( huffw,
 							                              hcodes[1][cmpnfo[cmp].huffac],
 							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
@@ -2953,12 +2942,12 @@ bool jpg::encode::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
-							for ( bpos = curr_scan::from; bpos <= curr_scan::to; bpos++ )
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
 									FDIV2( colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
-							eob = jpg::encode::ac_prg_sa( huffw, storw,
+							int eob = jpg::encode::ac_prg_sa( huffw, storw,
 							                              hcodes[1][cmpnfo[cmp].huffac],
 							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
