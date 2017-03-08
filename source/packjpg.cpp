@@ -596,11 +596,10 @@ static HuffCodes hcodes[2][4]; // huffman codes
 static HuffTree htrees[2][4]; // huffman decoding trees
 static bool htset[2][4]; // 1 if huffman table is set
 
-INTERN unsigned char* grbgdata		   =   NULL;	// garbage data
+static std::vector<std::uint8_t> grbgdata; // garbage data
 INTERN unsigned char* hdrdata          =   NULL;   // header data
 static std::vector<std::uint8_t> huffdata; // huffman coded data
 INTERN int            hdrs             =    0  ;   // size of header
-INTERN int            grbs             =    0  ;   // size of garbage
 
 static std::vector<std::uint32_t> rstp;   // restart markers positions in huffdata
 static std::vector<std::uint32_t> scnp;   // scan start positions in huffdata
@@ -2035,12 +2034,11 @@ INTERN bool reset_buffers( void )
 	// free buffers & set pointers NULL
 	if ( hdrdata  != NULL ) free ( hdrdata );
 	huffdata.clear();
-	if ( grbgdata != NULL ) free ( grbgdata );
+	grbgdata.clear();
 	rst_err.clear();
 	rstp.clear();
 	scnp.clear();
 	hdrdata   = NULL;
-	grbgdata  = NULL;
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
@@ -2259,8 +2257,9 @@ bool jpg::decode::read()
 	}
 	
 	// store garbage after EOI if needed
-	grbs = str_in->read_byte(&tmp);
-	if ( grbs > 0 ) {
+	bool garbage_avail = str_in->read_byte(&tmp);
+	if (garbage_avail) {
+
 		auto grbgw = std::make_unique<abytewriter>( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
@@ -2268,8 +2267,9 @@ bool jpg::decode::read()
 			if ( len == 0 ) break;
 			grbgw->write_n( segment.data(), len );
 		}
-		grbgdata = grbgw->getptr();
-		grbs     = grbgw->getpos();
+		auto grbgptr = grbgw->getptr();
+		auto grbg_size = grbgw->getpos();
+		grbgdata = std::vector<std::uint8_t>(grbgptr, grbgptr + grbg_size);
 	}
 	
 	// get filesize
@@ -2365,8 +2365,8 @@ bool jpg::encode::merge()
 	str_out->write( EOI, 2 );
 	
 	// write garbage if needed
-	if ( grbs > 0 )
-		str_out->write( grbgdata, grbs );
+	if (!grbgdata.empty())
+		str_out->write( grbgdata.data(), grbgdata.size() );
 	
 	// errormessage if write error
 	if ( str_out->chkerr() ) {
@@ -3296,10 +3296,10 @@ INTERN bool pack_pjg( void )
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	if ( !pjg_encode_bit( encoder, ( grbs > 0 ) ? 1 : 0 ) ) return false;
+	if ( !pjg_encode_bit( encoder, !grbgdata.empty() ? 1 : 0 ) ) return false;
 	// encode garbage data only if needed
-	if ( grbs > 0 )
-		if ( !pjg_encode_generic( encoder, grbgdata, grbs ) ) return false;
+	if (!grbgdata.empty())
+		if ( !pjg_encode_generic( encoder, grbgdata.data(), grbgdata.size() ) ) return false;
 	
 	// finalize arithmetic compression
 	delete( encoder );
@@ -3401,8 +3401,9 @@ INTERN bool unpack_pjg( void )
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	
 	// decode garbage data only if available
-	if ( cb == 0 ) grbs = 0;
-	else if ( !pjg_decode_generic( decoder, &grbgdata, &grbs ) ) return false;
+	if (cb != 0) {
+		grbgdata = pjg_decode_generic(decoder);
+	}
 	
 	// finalize arithmetic compression
 	delete( decoder );
