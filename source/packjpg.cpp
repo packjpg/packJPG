@@ -2284,101 +2284,99 @@ bool jpg::decode::read()
 	return true;
 }
 
-bool jpg::encode::merge()
-{
-	unsigned char SOI[ 2 ] = { 0xFF, 0xD8 }; // SOI segment
-	unsigned char EOI[ 2 ] = { 0xFF, 0xD9 }; // EOI segment
-	unsigned char mrk = 0xFF; // marker start
-	unsigned char stv = 0x00; // 0xFF stuff value
-	unsigned char rst = 0xD0; // restart marker
-	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
-	unsigned int   ipos = 0; // current position in imagedata
-	unsigned int   rpos = 0; // current restart marker position
-	unsigned int   cpos = 0; // in scan corrected rst marker position
-	unsigned int   scan = 1; // number of current scan
-	unsigned int   tmp; // temporary storage variable
-	
-	
+bool jpg::encode::merge() {
+	int hpos = 0; // current position in header
+	int rpos = 0; // current restart marker position
+	int scan = 1; // number of current scan	
+
 	// write SOI
-	str_out->write( SOI, 2 );
-	
+	constexpr std::array<std::uint8_t, 2> SOI = {0xFF, 0xD8};
+	str_out->write(SOI.data(), 2);
+
 	// JPEG writing loop
-	while ( true )
-	{		
+	while (true) {
 		// store current header position
-		tmp = hpos;
-		
+		std::uint32_t tmp = hpos;
+
 		// seek till start-of-scan
-		for ( type = 0x00; type != 0xDA; ) {
-			if ( ( int ) hpos >= hdrs ) break;
-			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		std::uint8_t type; // type of current marker segment
+		for (type = 0x00; type != 0xDA;) {
+			if (hpos >= hdrs) {
+				break;
+			}
+			type = hdrdata[hpos + 1];
+			int len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			hpos += len;
 		}
-		
+
 		// write header data to file
-		str_out->write( hdrdata + tmp, ( hpos - tmp ) );
-		
+		str_out->write(hdrdata + tmp, hpos - tmp);
+
 		// get out if last marker segment type was not SOS
-		if ( type != 0xDA ) break;
-		
-		
+		if (type != 0xDA) {
+			break;
+		}
+
+
 		// (re)set corrected rst pos
-		cpos = 0;
-		
+		std::uint32_t cpos = 0; // in scan corrected rst marker position
+
 		// write & expand huffman coded image data
-		for ( ipos = scnp[ scan - 1 ]; ipos < scnp[ scan ]; ipos++ ) {
+		// ipos is the current position in image data.
+		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
 			// write current byte
 			str_out->write_byte(huffdata[ipos]);
 			// check current byte, stuff if needed
-			if ( huffdata[ ipos ] == 0xFF )
-				str_out->write_byte(stv);
+			if (huffdata[ipos] == 0xFF) {
+				str_out->write_byte(std::uint8_t(0)); // 0xFF stuff value
+			}
 			// insert restart markers if needed
-			if ( !rstp.empty() ) {
-				if ( ipos == rstp[ rpos ] ) {
-					rst = 0xD0 + ( cpos % 8 );
+			if (!rstp.empty()) {
+				if (ipos == rstp[rpos]) {
+					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
+					constexpr std::uint8_t mrk = 0xFF; // marker start
 					str_out->write_byte(mrk);
 					str_out->write_byte(rst);
-					rpos++; cpos++;
+					rpos++;
+					cpos++;
 				}
 			}
 		}
 		// insert false rst markers at end if needed
-		if ( !rst_err.empty() ) {
-			while ( rst_err[ scan - 1 ] > 0 ) {
-				rst = 0xD0 + ( cpos % 8 );
+		if (!rst_err.empty()) {
+			while (rst_err[scan - 1] > 0) {
+				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
+				constexpr std::uint8_t mrk = 0xFF; // marker start
 				str_out->write_byte(mrk);
 				str_out->write_byte(rst);
 				cpos++;
-				rst_err[ scan - 1 ]--;
+				rst_err[scan - 1]--;
 			}
 		}
 
 		// proceed with next scan
 		scan++;
 	}
-	
+
 	// write EOI
-	str_out->write( EOI, 2 );
-	
+	constexpr std::array<std::uint8_t, 2> EOI = {0xFF, 0xD9}; // EOI segment
+	str_out->write(EOI.data(), 2);
+
 	// write garbage if needed
-	if (!grbgdata.empty())
-		str_out->write( grbgdata.data(), grbgdata.size() );
-	
+	if (!grbgdata.empty()) {
+		str_out->write(grbgdata.data(), grbgdata.size());
+	}
+
 	// errormessage if write error
-	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "write error, possibly drive is full" );
-		errorlevel = 2;		
+	if (str_out->chkerr()) {
+		sprintf(errormessage, "write error, possibly drive is full");
+		errorlevel = 2;
 		return false;
 	}
-	
+
 	// get filesize
 	jpgfilesize = str_out->getsize();
-	
-	
+
 	return true;
 }
 
