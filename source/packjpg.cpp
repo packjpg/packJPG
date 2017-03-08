@@ -402,6 +402,14 @@ enum CodingStatus {
 	DONE = 2
 };
 
+char padbit = -1; // padbit (for huffman coding)
+int scan_count = 0; // count of scans
+int rsti = 0; // restart interval
+
+std::vector<std::uint32_t> scnp; // scan start positions in huffdata
+std::vector<std::uint32_t> rstp; // restart markers positions in huffdata
+std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
+
 // Parses header for imageinfo.
 bool setup_imginfo();
 // JFIF header rebuilding routine.
@@ -600,14 +608,6 @@ static std::vector<std::uint8_t> grbgdata; // garbage data
 INTERN unsigned char* hdrdata          =   NULL;   // header data
 static std::vector<std::uint8_t> huffdata; // huffman coded data
 INTERN int            hdrs             =    0  ;   // size of header
-
-static std::vector<std::uint32_t> rstp;   // restart markers positions in huffdata
-static std::vector<std::uint32_t> scnp;   // scan start positions in huffdata
-INTERN int            rstc             =    0  ;   // count of restart markers
-INTERN int            scnc             =    0  ;   // count of scans
-INTERN int            rsti             =    0  ;   // restart interval
-INTERN char           padbit           =    -1 ;   // padbit (for huffman coding)
-static std::vector<std::uint8_t> rst_err;   // number of wrong-set RST markers per scan
 
 INTERN unsigned char* zdstdata[4]      = { NULL }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
 INTERN unsigned char* eobxhigh[4]      = { NULL }; // eob in x direction (for higher 7x7 block)
@@ -2035,9 +2035,9 @@ INTERN bool reset_buffers( void )
 	if ( hdrdata  != NULL ) free ( hdrdata );
 	huffdata.clear();
 	grbgdata.clear();
-	rst_err.clear();
-	rstp.clear();
-	scnp.clear();
+	jpg::rst_err.clear();
+	jpg::rstp.clear();
+	jpg::scnp.clear();
 	hdrdata   = NULL;
 	
 	// free image arrays
@@ -2092,7 +2092,7 @@ INTERN bool reset_buffers( void )
 	image::mcuc      = 0;
 	image::mcuh      = 0;
 	image::mcuv      = 0;
-	rsti      = 0;
+	jpg::rsti      = 0;
 	
 	// reset quantization / huffman tables
 	for ( i = 0; i < 4; i++ ) {
@@ -2105,8 +2105,8 @@ INTERN bool reset_buffers( void )
 	// preset jpegtype
 	jpegtype  = JpegType::UNKNOWN;
 	
-	// reset padbit
-	padbit = -1;
+	// reset jpg::padbit
+	jpg::padbit = -1;
 	
 	
 	return true;
@@ -2121,7 +2121,7 @@ bool jpg::decode::read()
 	unsigned char  tmp;	
 	
 	// preset count of scans
-	scnc = 0;
+	jpg::scan_count = 0;
 	
 	// start headerwriter
 	auto hdrw = std::make_unique<abytewriter>(4096);
@@ -2171,22 +2171,22 @@ bool jpg::decode::read()
 					else { // in all other cases leave it to the header parser routines
 						// store number of wrongly set rst markers
 						if ( crst > 0 ) {
-							if (rst_err.empty()) {
-								rst_err.resize(scnc + 1);
+							if (jpg::rst_err.empty()) {
+								jpg::rst_err.resize(jpg::scan_count + 1);
 							}
 						}
-						if (!rst_err.empty()) {
+						if (!jpg::rst_err.empty()) {
 							// realloc and set only if needed
-							rst_err.resize(scnc + 1);
+							jpg::rst_err.resize(jpg::scan_count + 1);
 							if ( crst > 255 ) {
 								sprintf( errormessage, "Severe false use of RST markers (%i)", (int) crst );
 								errorlevel = 1;
 								crst = 255;
 							}
-							rst_err[ scnc ] = crst;							
+							jpg::rst_err[ jpg::scan_count ] = crst;							
 						}
 						// end of current scan
-						scnc++;
+						jpg::scan_count++;
 						// on with the header parser routines
 						segment[ 0 ] = 0xFF;
 						segment[ 1 ] = tmp;
@@ -2323,7 +2323,7 @@ bool jpg::encode::merge() {
 
 		// write & expand huffman coded image data
 		// ipos is the current position in image data.
-		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
+		for (std::uint32_t ipos = jpg::scnp[scan - 1]; ipos < jpg::scnp[scan]; ipos++) {
 			// write current byte
 			str_out->write_byte(huffdata[ipos]);
 			// check current byte, stuff if needed
@@ -2331,8 +2331,8 @@ bool jpg::encode::merge() {
 				str_out->write_byte(std::uint8_t(0)); // 0xFF stuff value
 			}
 			// insert restart markers if needed
-			if (!rstp.empty()) {
-				if (ipos == rstp[rpos]) {
+			if (!jpg::rstp.empty()) {
+				if (ipos == jpg::rstp[rpos]) {
 					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 					constexpr std::uint8_t mrk = 0xFF; // marker start
 					str_out->write_byte(mrk);
@@ -2343,14 +2343,14 @@ bool jpg::encode::merge() {
 			}
 		}
 		// insert false rst markers at end if needed
-		if (!rst_err.empty()) {
-			while (rst_err[scan - 1] > 0) {
+		if (!jpg::rst_err.empty()) {
+			while (jpg::rst_err[scan - 1] > 0) {
 				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 				constexpr std::uint8_t mrk = 0xFF; // marker start
 				str_out->write_byte(mrk);
 				str_out->write_byte(rst);
 				cpos++;
-				rst_err[scan - 1]--;
+				jpg::rst_err[scan - 1]--;
 			}
 		}
 
@@ -2390,7 +2390,7 @@ bool jpg::decode::decode()
 	auto huffr = std::make_unique<abitreader>(huffdata.data(), huffdata.size()); // bitwise reader for image data
 	
 	// preset count of scans
-	scnc = 0;
+	jpg::scan_count = 0;
 	
 	// JPEG decompression loop
 	while ( true )
@@ -2417,7 +2417,7 @@ bool jpg::decode::decode()
 			int cmp = curr_scan::cmp[ csc ];
 			if ( ( ( curr_scan::sal == 0 ) && !htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
 				 ( ( curr_scan::sah >  0 ) && !htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
-				sprintf( errormessage, "huffman table missing in scan%i", scnc );
+				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
 				errorlevel = 2;
 				return false;
 			}
@@ -2446,7 +2446,7 @@ bool jpg::decode::decode()
 			int peobrun = 0; // previous eobrun
 			
 			// (re)set rst wait counter
-			int rstw = rsti; // restart wait counter
+			int rstw = jpg::rsti; // restart wait counter
 			
 			// decoding for interleaved data
 			if ( curr_scan::cmpc > 1 )
@@ -2663,27 +2663,27 @@ bool jpg::decode::decode()
 				}
 			}			
 			
-			// unpad huffman reader / check padbit
-			if ( padbit != -1 ) {
-				if ( padbit != huffr->unpad( padbit ) ) {
-					sprintf( errormessage, "inconsistent use of padbits" );
-					padbit = 1;
+			// unpad huffman reader / check jpg::padbit
+			if ( jpg::padbit != -1 ) {
+				if ( jpg::padbit != huffr->unpad( jpg::padbit ) ) {
+					sprintf( errormessage, "inconsistent use of jpg::padbits" );
+					jpg::padbit = 1;
 					errorlevel = 1;
 				}
 			}
 			else {
-				padbit = huffr->unpad( padbit );
+				jpg::padbit = huffr->unpad( jpg::padbit );
 			}
 			
 			// evaluate status
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
-					scnc, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
+					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
 			else if ( status == jpg::CodingStatus::DONE ) {
-				scnc++; // increment scan counter
+				jpg::scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
 		}
@@ -2713,14 +2713,14 @@ bool jpg::encode::recode()
 	
 	// open huffman coded image data in abitwriter
 	auto huffw = std::make_unique<abitwriter>(0); // bitwise writer for image data
-	huffw->set_fillbit( padbit );
+	huffw->set_fillbit( jpg::padbit );
 	
 	// init storage writer
 	auto storw = std::make_unique<abytewriter>(0); // bytewise writer for storage of correction bits
 	
 	// preset count of scans and restarts
-	scnc = 0;
-	rstc = 0;
+	jpg::scan_count = 0;
+	int rstc = 0; // count of restart markers
 	
 	// JPEG decompression loop
 	while ( true )
@@ -2750,13 +2750,13 @@ bool jpg::encode::recode()
 		
 		
 		// (re)alloc scan positons array
-		scnp.resize(scnc + 2);
+		jpg::scnp.resize(jpg::scan_count + 2);
 		
 		// (re)alloc restart marker positons array if needed
-		if ( rsti > 0 ) {
+		if ( jpg::rsti > 0 ) {
 			int tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
-				( image::mcuc / rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / rsti ) );
-			rstp.resize(tmp + 1);
+				( image::mcuc / jpg::rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / jpg::rsti ) );
+			jpg::rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
@@ -2767,7 +2767,7 @@ bool jpg::encode::recode()
 		int dpos = 0;
 		
 		// store scan position
-		scnp[ scnc ] = huffw->getpos();
+		jpg::scnp[ jpg::scan_count ] = huffw->getpos();
 		
 		// JPEG imagedata encoding routines
 		while ( true )
@@ -2782,7 +2782,7 @@ bool jpg::encode::recode()
 			int eobrun = 0; // run of eobs
 			
 			// (re)set rst wait counter
-			int rstw = rsti; // restart wait counter
+			int rstw = jpg::rsti; // restart wait counter
 			
 			// encoding for interleaved data
 			if ( curr_scan::cmpc > 1 )
@@ -2956,17 +2956,17 @@ bool jpg::encode::recode()
 			// evaluate status
 			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
-					scnc, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
+					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
 			else if ( status == jpg::CodingStatus::DONE ) {
-				scnc++; // increment scan counter
+				jpg::scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
 			else if ( status == jpg::CodingStatus::RESTART ) {
-				if ( rsti > 0 ) // store rstp & stay in the loop
-					rstp[ rstc++ ] = huffw->getpos() - 1;
+				if ( jpg::rsti > 0 ) // store jpg::rstp & stay in the loop
+					jpg::rstp[ rstc++ ] = huffw->getpos() - 1;
 			}
 		}
 	}
@@ -2984,9 +2984,9 @@ bool jpg::encode::recode()
 	huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
 	
 	// store last scan & restart positions
-	scnp[ scnc ] = huffdata.size();
-	if (!rstp.empty()) {
-		rstp[rstc] = huffdata.size();
+	jpg::scnp[ jpg::scan_count ] = huffdata.size();
+	if (!jpg::rstp.empty()) {
+		jpg::rstp[rstc] = huffdata.size();
 	}
 	
 	
@@ -3204,8 +3204,8 @@ INTERN bool pack_pjg( void )
 		if ( !jpg::rebuild_header() ) return false;	
 	// optimize header for compression
 	if ( !pjg_optimize_header() ) return false;	
-	// set padbit to 1 if previously unset
-	if ( padbit == -1 )	padbit = 1;
+	// set jpg::padbit to 1 if previously unset
+	if ( jpg::padbit == -1 )	jpg::padbit = 1;
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
@@ -3215,13 +3215,13 @@ INTERN bool pack_pjg( void )
 	if ( !pjg_encode_generic( encoder, hdrdata, hdrs ) ) return false;
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
-	// store padbit (padbit can't be retrieved from the header)
-	if ( !pjg_encode_bit( encoder, padbit ) ) return false;	
+	// store jpg::padbit (jpg::padbit can't be retrieved from the header)
+	if ( !pjg_encode_bit( encoder, jpg::padbit ) ) return false;	
 	// also encode one bit to signal false/correct use of RST markers
-	if ( !pjg_encode_bit( encoder, rst_err.empty()  ? 0 : 1 ) ) return false;
+	if ( !pjg_encode_bit( encoder, jpg::rst_err.empty()  ? 0 : 1 ) ) return false;
 	// encode # of false set RST markers per scan
-	if ( !rst_err.empty() )
-		if ( !pjg_encode_generic( encoder, rst_err.data(), scnc ) ) return false;
+	if ( !jpg::rst_err.empty() )
+		if ( !pjg_encode_generic( encoder, jpg::rst_err.data(), jpg::scan_count ) ) return false;
 	
 	// encode actual components data
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
@@ -3338,13 +3338,13 @@ INTERN bool unpack_pjg( void )
 	
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
-	// retrieve padbit from stream
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false; padbit = cb;
+	// retrieve jpg::padbit from stream
+	if ( !pjg_decode_bit( decoder, &cb ) ) return false; jpg::padbit = cb;
 	// decode one bit that signals false /correct use of RST markers
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 ) {
-		rst_err = pjg_decode_generic(decoder);
+		jpg::rst_err = pjg_decode_generic(decoder);
 	}
 	
 	// undo header optimizations
@@ -3582,7 +3582,7 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 // define restart interval
 void jpg::jfif::parse_dri(const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
-	rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );
+	jpg::rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );
 }
 
 bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
@@ -4306,7 +4306,7 @@ jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* 
 			(*cmp) = curr_scan::cmp[ 0 ];
 			(*mcu)++;
 			if ( (*mcu) >= image::mcuc ) sta = jpg::CodingStatus::DONE;
-			else if ( rsti > 0 )
+			else if ( jpg::rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = jpg::CodingStatus::RESTART;
 		}
 		else {
@@ -4352,7 +4352,7 @@ jpg::CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 	
 	// check position
 	if ( (*dpos) >= cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
-	else if ( rsti > 0 )
+	else if ( jpg::rsti > 0 )
 		if ( --(*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	
 
@@ -4364,7 +4364,7 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
 		// compare rst wait counter if needed
-		if ( rsti > 0 ) {
+		if ( jpg::rsti > 0 ) {
 			if ( (*eobrun) > (*rstw) )
 				return jpg::CodingStatus::ERROR;
 			else
@@ -4393,7 +4393,7 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 		// check position
 		if ( (*dpos) == cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
 		else if ( (*dpos) > cmpnfo[cmpt].bc ) return jpg::CodingStatus::ERROR;
-		else if ( rsti > 0 ) 
+		else if ( jpg::rsti > 0 ) 
 			if ( (*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	}
 	
@@ -6899,7 +6899,7 @@ INTERN bool dump_info( void )
 	// info about image
 	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename );
 	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
-	// fprintf( fp, "no of scans: %i\n", scnc );
+	// fprintf( fp, "no of scans: %i\n", jpg::scan_count );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
 	fprintf( fp, "component count: %i\n", cmpc );
 	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
