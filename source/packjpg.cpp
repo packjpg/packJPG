@@ -470,7 +470,7 @@ namespace pjg {
 	void ac_high(const std::unique_ptr<aricoder>& dec, int cmp);
 	void ac_low(const std::unique_ptr<aricoder>& dec, int cmp);
 		bool generic(const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len);
-	void bit(const std::unique_ptr<aricoder>& dec, unsigned char* bit);
+	std::uint8_t bit(const std::unique_ptr<aricoder>& dec);
 	}
 
 	void aavrg_prepare(unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp);
@@ -3393,7 +3393,6 @@ bool pjg::encode::encode()
 bool pjg::decode::decode()
 {
 	unsigned char hcode;
-	unsigned char cb;
 	int cmp;
 	
 	
@@ -3430,10 +3429,9 @@ bool pjg::decode::decode()
 	// decode JPG header
 	if ( !pjg::decode::generic( decoder, &hdrdata, &hdrs ) ) return false;
 	// retrieve padbit from stream
-	pjg::decode::bit( decoder, &cb );
-	padbit = cb;
+	padbit = pjg::decode::bit(decoder);
 	// decode one bit that signals false /correct use of RST markers
-	pjg::decode::bit( decoder, &cb );
+	auto cb = pjg::decode::bit(decoder);
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 )
 		if ( !pjg::decode::generic( decoder, &rst_err, NULL ) ) return false;
@@ -3463,11 +3461,14 @@ bool pjg::decode::decode()
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	pjg::decode::bit( decoder, &cb );
+	auto garbage_exists = pjg::decode::bit(decoder);
 	
 	// decode garbage data only if available
-	if ( cb == 0 ) grbs = 0;
-	else if ( !pjg::decode::generic( decoder, &grbgdata, &grbs ) ) return false;
+	if (garbage_exists == 0) {
+		grbs = 0;
+	} else if (!pjg::decode::generic(decoder, &grbgdata, &grbs)) {
+		return false;
+	}
 	
 	// finalize arithmetic compression
 	//delete( decoder );
@@ -5909,14 +5910,12 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 /* -----------------------------------------------
 	decodes one bit from pjg
 	----------------------------------------------- */
-void pjg::decode::bit(const std::unique_ptr<aricoder>& dec, unsigned char* bit)
+std::uint8_t pjg::decode::bit(const std::unique_ptr<aricoder>& dec)
 {
-	model_b* model;
-	
-	
-	model = INIT_MODEL_B( 1, -1 );
-	(*bit) = dec->decode_ari(model );
-	delete( model );
+	auto model = INIT_MODEL_B( 1, -1 );
+	std::uint8_t bit = dec->decode_ari(model); // This conversion is okay since there are only 2 symbols in the model.
+	delete model;
+	return bit;
 }
 
 
