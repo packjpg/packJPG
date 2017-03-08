@@ -440,19 +440,28 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
 	----------------------------------------------- */
 
 namespace pjg {
+	unsigned char* zdstdata[4] = { nullptr }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
+	unsigned char* eobxhigh[4] = { nullptr }; // eob in x direction (for higher 7x7 block)
+	unsigned char* eobyhigh[4] = { nullptr }; // eob in y direction (for higher 7x7 block)
+	unsigned char* zdstxlow[4] = { nullptr }; // # of non zeroes for first row
+	unsigned char* zdstylow[4] = { nullptr }; // # of non zeroes for first column
+
+	unsigned char* freqscan[4] = { nullptr }; // optimized order for frequency scans (only pointers to scans)
+	unsigned char  zsrtscan[4][64];	// zero optimized frequency scan
+
 	namespace encode {
 		bool encode();
 
-	void optimize_header();
+		void optimize_header();
 
-	void zstscan(const std::unique_ptr<aricoder>& enc, int cmp);
-	void zdst_high(const std::unique_ptr<aricoder>& enc, int cmp);
-	void zdst_low(const std::unique_ptr<aricoder>& enc, int cmp);
-	void dc(const std::unique_ptr<aricoder>& enc, int cmp);
-	void ac_high(const std::unique_ptr<aricoder>& enc, int cmp);
-	void ac_low(const std::unique_ptr<aricoder>& enc, int cmp);
+		void zstscan(const std::unique_ptr<aricoder>& enc, int cmp);
+		void zdst_high(const std::unique_ptr<aricoder>& enc, int cmp);
+		void zdst_low(const std::unique_ptr<aricoder>& enc, int cmp);
+		void dc(const std::unique_ptr<aricoder>& enc, int cmp);
+		void ac_high(const std::unique_ptr<aricoder>& enc, int cmp);
+		void ac_low(const std::unique_ptr<aricoder>& enc, int cmp);
 		bool generic(const std::unique_ptr<aricoder>& enc, unsigned char* data, int len);
-	void bit(const std::unique_ptr<aricoder>& enc, unsigned char bit);
+		void bit(const std::unique_ptr<aricoder>& enc, unsigned char bit);
 
 		void get_zerosort_scan(unsigned char* sv, int cmp);
 
@@ -571,15 +580,7 @@ INTERN int            rsti             =    0  ;   // restart interval
 INTERN char           padbit           =    -1 ;   // padbit (for huffman coding)
 INTERN unsigned char* rst_err          =   NULL;   // number of wrong-set RST markers per scan
 
-INTERN unsigned char* zdstdata[4]      = { NULL }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
-INTERN unsigned char* eobxhigh[4]      = { NULL }; // eob in x direction (for higher 7x7 block)
-INTERN unsigned char* eobyhigh[4]      = { NULL }; // eob in y direction (for higher 7x7 block)
-INTERN unsigned char* zdstxlow[4]		= { NULL }; // # of non zeroes for first row
-INTERN unsigned char* zdstylow[4]		= { NULL }; // # of non zeroes for first collumn
 INTERN signed short*  colldata[4][64]  = {{NULL}}; // collection sorted DCT coefficients
-
-INTERN unsigned char* freqscan[4]      = { NULL }; // optimized order for frequency scans (only pointers to scans)
-INTERN unsigned char  zsrtscan[4][64];				// zero optimized frequency scan
 
 INTERN int adpt_idct_8x8[ 4 ][ 8 * 8 * 8 * 8 ];	// precalculated/adapted values for idct (8x8)
 INTERN int adpt_idct_1x8[ 4 ][ 1 * 1 * 8 * 8 ];	// precalculated/adapted values for idct (1x8)
@@ -2005,17 +2006,17 @@ INTERN bool reset_buffers( void )
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
-		if ( zdstdata[ cmp ] != NULL ) free( zdstdata[cmp] );
-		if ( eobxhigh[ cmp ] != NULL ) free( eobxhigh[cmp] );
-		if ( eobyhigh[ cmp ] != NULL ) free( eobyhigh[cmp] );
-		if ( zdstxlow[ cmp ] != NULL ) free( zdstxlow[cmp] );
-		if ( zdstylow[ cmp ] != NULL ) free( zdstylow[cmp] );
-		zdstdata[ cmp ] = NULL;
-		eobxhigh[ cmp ] = NULL;
-		eobyhigh[ cmp ] = NULL;
-		zdstxlow[ cmp ] = NULL;
-		zdstylow[ cmp ] = NULL;
-		freqscan[ cmp ] = (unsigned char*) stdscan;
+		if ( pjg::zdstdata[ cmp ] != nullptr ) free( pjg::zdstdata[cmp] );
+		if ( pjg::eobxhigh[ cmp ] != nullptr) free( pjg::eobxhigh[cmp] );
+		if ( pjg::eobyhigh[ cmp ] != nullptr) free( pjg::eobyhigh[cmp] );
+		if ( pjg::zdstxlow[ cmp ] != nullptr) free( pjg::zdstxlow[cmp] );
+		if ( pjg::zdstylow[ cmp ] != nullptr) free( pjg::zdstylow[cmp] );
+		pjg::zdstdata[ cmp ] = nullptr;
+		pjg::eobxhigh[ cmp ] = nullptr;
+		pjg::eobyhigh[ cmp ] = nullptr;
+		pjg::zdstxlow[ cmp ] = nullptr;
+		pjg::zdstylow[ cmp ] = nullptr;
+		pjg::freqscan[ cmp ] = (unsigned char*) stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			if ( colldata[ cmp ][ bpos ] != NULL ) free( colldata[cmp][bpos] );
@@ -3233,7 +3234,7 @@ INTERN bool calc_zdst_lists( void )
 	for ( cmp = 0; cmp < cmpc; cmp++ )
 	{
 		// preset zdstlist
-		memset( zdstdata[cmp], 0, cmpnfo[cmp].bc * sizeof( char ) );
+		memset( pjg::zdstdata[cmp], 0, cmpnfo[cmp].bc * sizeof( char ) );
 		
 		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/collumn)
 		for ( bpos = 1; bpos < 64; bpos++ ) {
@@ -3241,15 +3242,15 @@ INTERN bool calc_zdst_lists( void )
 			b_y = unzigzag[ bpos ] / 8;
 			if ( b_x == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstylow[cmp][dpos]++;
+					if ( colldata[cmp][bpos][dpos] != 0 ) pjg::zdstylow[cmp][dpos]++;
 			}
 			else if ( b_y == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstxlow[cmp][dpos]++;
+					if ( colldata[cmp][bpos][dpos] != 0 ) pjg::zdstxlow[cmp][dpos]++;
 			}
 			else {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if ( colldata[cmp][bpos][dpos] != 0 ) zdstdata[cmp][dpos]++;
+					if ( colldata[cmp][bpos][dpos] != 0 ) pjg::zdstdata[cmp][dpos]++;
 			}
 		}
 	}
@@ -3570,14 +3571,14 @@ INTERN bool jpg_setup_imginfo( void )
 		}
 		
 		// alloc memory for zdstlist / eob x / eob y
-		zdstdata[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		eobxhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		eobyhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		zdstxlow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		zdstylow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		if ( ( zdstdata[cmp] == NULL ) ||
-			( eobxhigh[cmp] == NULL ) || ( eobyhigh[cmp] == NULL ) ||
-			( zdstxlow[cmp] == NULL ) || ( zdstylow[cmp] == NULL ) ) {
+		pjg::zdstdata[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
+		pjg::eobxhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
+		pjg::eobyhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
+		pjg::zdstxlow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
+		pjg::zdstylow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
+		if ( ( pjg::zdstdata[cmp] == nullptr) ||
+			( pjg::eobxhigh[cmp] == nullptr) || ( pjg::eobyhigh[cmp] == nullptr) ||
+			( pjg::zdstxlow[cmp] == nullptr) || ( pjg::zdstylow[cmp] == nullptr) ) {
 			sprintf( errormessage, MEM_ERRMSG );
 			errorlevel = 2;
 			return false;
@@ -4680,7 +4681,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	
 	
 	// calculate zero sort scan
-	pjg::encode::get_zerosort_scan( zsrtscan[cmp], cmp );
+	pjg::encode::get_zerosort_scan( pjg::zsrtscan[cmp], cmp );
 	
 	// preset freqlist
 	for ( i = 0; i < 64; i++ )
@@ -4701,7 +4702,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 			// search next val != 0 in list
 			for ( tpos++; freqlist[ tpos ] == 0; tpos++ );
 			// get out if not a match
-			if ( freqlist[ tpos ] != zsrtscan[ cmp ][ c ] ) break;				
+			if ( freqlist[ tpos ] != pjg::zsrtscan[ cmp ][ c ] ) break;				
 		}
 		if ( c == 64 ) {
 			// remaining list is in sorted scanorder
@@ -4713,7 +4714,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 		// list is not in sorted order -> next pos hat to be encoded
 		cpos = 1;
 		// encode position
-		for ( tpos = 0; freqlist[ tpos ] != zsrtscan[ cmp ][ i ]; tpos++ )
+		for ( tpos = 0; freqlist[ tpos ] != pjg::zsrtscan[ cmp ][ i ]; tpos++ )
 			if ( freqlist[ tpos ] != 0 ) cpos++;
 		// remove from list
 		freqlist[ tpos ] = 0;
@@ -4726,8 +4727,8 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	// delete model
 	delete( model );
 	
-	// set zero sort scan as freqscan
-	freqscan[ cmp ] = zsrtscan[ cmp ];
+	// set zero sort scan as pjg::freqscan
+	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
 }
 
 
@@ -4747,7 +4748,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	
 	// init model, constants
 	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
-	zdstls = zdstdata[ cmp ];
+	zdstls = pjg::zdstdata[ cmp ];
 	w = cmpnfo[cmp].bch;
 	bc = cmpnfo[cmp].bc;
 	
@@ -4787,11 +4788,11 @@ void pjg::encode::zdst_low(const std::unique_ptr<aricoder>& enc, int cmp)
 	
 	// init model, constants
 	model = INIT_MODEL_S( 8, 8, 2 );
-	zdstls_x = zdstxlow[ cmp ];
-	zdstls_y = zdstylow[ cmp ];
-	ctx_eobx = eobxhigh[ cmp ];
-	ctx_eoby = eobyhigh[ cmp ];
-	ctx_zdst = zdstdata[ cmp ];
+	zdstls_x = pjg::zdstxlow[ cmp ];
+	zdstls_y = pjg::zdstylow[ cmp ];
+	ctx_eobx = pjg::eobxhigh[ cmp ];
+	ctx_eoby = pjg::eobyhigh[ cmp ];
+	ctx_zdst = pjg::zdstdata[ cmp ];
 	bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
@@ -4869,7 +4870,7 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	
 	// locally store pointer to coefficients and zero distribution list
 	coeffs = colldata[ cmp ][ 0 ];
-	zdstls = zdstdata[ cmp ];	
+	zdstls = pjg::zdstdata[ cmp ];	
 	
 	// arithmetic compression loop
 	for ( dpos = 0; dpos < bc; dpos++ )
@@ -4977,25 +4978,25 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	// allocate memory for absolute values & signs storage
 	auto absv_store = std::vector<unsigned short>(bc);	// absolute coefficients values storage
 	auto sgn_store = std::vector<unsigned char>(bc); // sign storage for context	
-	auto zdstls = std::vector<unsigned char>(zdstdata[cmp], zdstdata[cmp] + bc); // copy of zero distribution list
+	auto zdstls = std::vector<unsigned char>(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	sgn_nbh = sgn_store.data() - 1;
 	sgn_nbv = sgn_store.data() - w;
 	
 	// locally store pointer to eob x / eob y
-	eob_x = eobxhigh[ cmp ];
-	eob_y = eobyhigh[ cmp ];
+	eob_x = pjg::eobxhigh[ cmp ];
+	eob_y = pjg::eobyhigh[ cmp ];
 	
 	// preset x/y eobs
 	memset( eob_x, 0x00, bc * sizeof( char ) );
 	memset( eob_y, 0x00, bc * sizeof( char ) );
 	
-	// work through lower 7x7 bands in order of freqscan
+	// work through lower 7x7 bands in order of pjg::freqscan
 	for ( i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		bpos = (int) freqscan[cmp][i];
+		bpos = (int) pjg::freqscan[cmp][i];
 		b_x = unzigzag[ bpos ] % 8;
 		b_y = unzigzag[ bpos ] / 8;
 	
@@ -5151,7 +5152,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
-			zdstls = zdstylow[ cmp ];
+			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
@@ -5160,7 +5161,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
-			zdstls = zdstxlow[ cmp ];
+			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
 		
@@ -5300,7 +5301,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	
 	// set first position in zero sort scan
-	zsrtscan[ cmp ][ 0 ] = 0;
+	pjg::zsrtscan[ cmp ][ 0 ] = 0;
 	
 	// preset freqlist
 	for ( i = 0; i < 64; i++ )
@@ -5324,7 +5325,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 			// fill the scan & make a quick exit				
 			for ( tpos = 0; i < 64; i++ ) {
 				while ( freqlist[ ++tpos ] == 0 );
-				zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
+				pjg::zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
 			}
 			break;
 		}
@@ -5336,7 +5337,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 		}
 			
 		// write decoded position to zero sort scan
-		zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
+		pjg::zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
 		// remove from list
 		freqlist[ tpos ] = 0;
 	}
@@ -5344,8 +5345,8 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	// delete model
 	delete( model  );		
 	
-	// set zero sort scan as freqscan
-	freqscan[ cmp ] = zsrtscan[ cmp ];
+	// set zero sort scan as pjg::freqscan
+	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
 }
 
 
@@ -5365,7 +5366,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	// init model, constants
 	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
-	zdstls = zdstdata[ cmp ];
+	zdstls = pjg::zdstdata[ cmp ];
 	w = cmpnfo[cmp].bch;
 	bc = cmpnfo[cmp].bc;
 	
@@ -5405,11 +5406,11 @@ void pjg::decode::zdst_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	// init model, constants
 	model = INIT_MODEL_S( 8, 8, 2 );
-	zdstls_x = zdstxlow[ cmp ];
-	zdstls_y = zdstylow[ cmp ];
-	ctx_eobx = eobxhigh[ cmp ];
-	ctx_eoby = eobyhigh[ cmp ];
-	ctx_zdst = zdstdata[ cmp ];
+	zdstls_x = pjg::zdstxlow[ cmp ];
+	zdstls_y = pjg::zdstylow[ cmp ];
+	ctx_eobx = pjg::eobxhigh[ cmp ];
+	ctx_eoby = pjg::eobyhigh[ cmp ];
+	ctx_zdst = pjg::zdstdata[ cmp ];
 	bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
@@ -5487,7 +5488,7 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	// locally store pointer to coefficients and zero distribution list
 	coeffs = colldata[ cmp ][ 0 ];
-	zdstls = zdstdata[ cmp ];	
+	zdstls = pjg::zdstdata[ cmp ];	
 	
 	// arithmetic compression loop
 	for ( dpos = 0; dpos < bc; dpos++ )
@@ -5595,15 +5596,15 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	// allocate memory for absolute values & signs storage
 	auto absv_store = std::vector<unsigned short>(bc); // absolute coefficients values storage
 	auto sgn_store = std::vector<unsigned char>(bc); // sign storage for context	
-	auto zdstls = std::vector<unsigned char>(zdstdata[cmp], zdstdata[cmp] + bc); // copy of zero distribution list
+	auto zdstls = std::vector<unsigned char>(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	sgn_nbh = sgn_store.data() - 1;
 	sgn_nbv = sgn_store.data() - w;
 	
 	// locally store pointer to eob x / eob y
-	eob_x = eobxhigh[ cmp ];
-	eob_y = eobyhigh[ cmp ];
+	eob_x = pjg::eobxhigh[ cmp ];
+	eob_y = pjg::eobyhigh[ cmp ];
 	
 	// preset x/y eobs
 	memset( eob_x, 0x00, bc * sizeof( char ) );
@@ -5611,13 +5612,13 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	// make a local copy of the zero distribution list
 	for ( dpos = 0; dpos < bc; dpos++ )
-		zdstls[ dpos ] = zdstdata[ cmp ][ dpos ];
+		zdstls[ dpos ] = pjg::zdstdata[ cmp ][ dpos ];
 	
-	// work through lower 7x7 bands in order of freqscan
+	// work through lower 7x7 bands in order of pjg::freqscan
 	for ( i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		bpos = (int) freqscan[cmp][i];
+		bpos = (int) pjg::freqscan[cmp][i];
 		b_x = unzigzag[ bpos ] % 8;
 		b_y = unzigzag[ bpos ] / 8;		
 		
@@ -5773,7 +5774,7 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_x = 0;
-			zdstls = zdstylow[ cmp ];
+			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
@@ -5782,7 +5783,7 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			} b_y = 0;
-			zdstls = zdstxlow[ cmp ];
+			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
 		
@@ -6859,7 +6860,7 @@ INTERN bool dump_zdst( void )
 	basename = filelist[ file_no ];
 	
 	for ( cmp = 0; cmp < cmpc; cmp++ )
-		if ( !dump_file( basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
+		if ( !dump_file( basename, ext[cmp], pjg::zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
 			return false;
 			
 	
