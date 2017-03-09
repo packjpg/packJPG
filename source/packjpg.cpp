@@ -4694,7 +4694,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
 		
 	// init model
-	auto model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S(64, 64, 1);
 	
 	// encode scanorder
 	for (int i = 1; i < 64; i++ )
@@ -4745,7 +4745,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 {
 	// init model, constants
-	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	auto model = INIT_MODEL_S(49 + 1, 25 + 1, 1);
 	const unsigned char* zdstls = pjg::zdstdata[ cmp ];
 	const int w = cmpnfo[cmp].bch;
 	const int bc = cmpnfo[cmp].bc;
@@ -4773,7 +4773,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 void pjg::encode::zdst_low(const std::unique_ptr<aricoder>& enc, int cmp)
 {
 	// init model, constants
-	auto model = INIT_MODEL_S( 8, 8, 2 );
+	auto model = INIT_MODEL_S(8, 8, 2);
 	const unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
 	const unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
 	const unsigned char* ctx_eobx = pjg::eobxhigh[ cmp ];
@@ -4815,9 +4815,9 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
-	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	auto mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S(max_len + 1, std::max(int(segm_cnt[cmp]), max_len + 1), 2);
+	auto mod_res = INIT_MODEL_B(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_sgn = INIT_MODEL_B(1, 0);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -4896,9 +4896,9 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	auto mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S(11, std::max(11, int(segm_cnt[cmp])), 2);
+	auto mod_res = INIT_MODEL_B(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_sgn = INIT_MODEL_B(9, 1);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -5025,10 +5025,10 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	auto mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S(11, std::max(int(segm_cnt[cmp]), 11), 2);
+	auto mod_res = INIT_MODEL_B(1 << 4, 2);
+	auto mod_top = INIT_MODEL_B(1 << std::max(4, int(nois_trs[cmp])), 3);
+	auto mod_sgn = INIT_MODEL_B(11, 1);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -5158,7 +5158,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 bool pjg::encode::generic( const std::unique_ptr<aricoder>& enc, unsigned char* data, int len )
 {
 	// arithmetic encode data
-	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	auto model = INIT_MODEL_S(256 + 1, 256, 1);
 	for (int i = 0; i < len; i++ ) {
 		enc->encode_ari( model, data[ i ] );
 		model->shift_context( data[ i ] );
@@ -5177,7 +5177,7 @@ bool pjg::encode::generic( const std::unique_ptr<aricoder>& enc, unsigned char* 
 void pjg::encode::bit(const std::unique_ptr<aricoder>& enc, unsigned char bit)
 {
 	// encode one bit
-	auto model = INIT_MODEL_B( 1, -1 );
+	auto model = INIT_MODEL_B(1, -1);
 	enc->encode_ari( model, bit );
 	delete model;
 }
@@ -5198,7 +5198,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
 		
 	// init model
-	auto model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S(64, 64, 1);
 	
 	// encode scanorder
 	for (int i = 1; i < 64; i++ )
@@ -5246,7 +5246,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 {		
 	// init model, constants
-	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	auto model = INIT_MODEL_S(49 + 1, 25 + 1, 1);
 	unsigned char* zdstls = pjg::zdstdata[ cmp ];
 	const int w = cmpnfo[cmp].bch;
 	const int bc = cmpnfo[cmp].bc;
@@ -5274,7 +5274,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 void pjg::decode::zdst_low(const std::unique_ptr<aricoder>& dec, int cmp)
 {
 	// init model, constants
-	auto model = INIT_MODEL_S( 8, 8, 2 );
+	auto model = INIT_MODEL_S(8, 8, 2);
 
 	unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
 	unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
@@ -5318,9 +5318,9 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	auto mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S(max_len + 1, std::max(int(segm_cnt[cmp]), max_len + 1), 2);
+	auto mod_res = INIT_MODEL_B(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_sgn = INIT_MODEL_B(1, 0);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -5399,9 +5399,9 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	auto mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S(11, std::max(int(segm_cnt[cmp]), 11), 2);
+	auto mod_res = INIT_MODEL_B(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_sgn = INIT_MODEL_B(9, 1);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -5527,10 +5527,10 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	auto mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S(11, std::max(int(segm_cnt[cmp]), 11), 2);
+	auto mod_res = INIT_MODEL_B(1 << 4, 2);
+	auto mod_top = INIT_MODEL_B(1 << std::max(4, int(nois_trs[cmp])), 3);
+	auto mod_sgn = INIT_MODEL_B(11, 1);
 	
 	// set width/height of each band
 	const int bc = cmpnfo[cmp].bc;
@@ -5659,7 +5659,7 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	
 	// decode header, ending with 256 symbol
-	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	auto model = INIT_MODEL_S(256 + 1, 256, 1);
 	while ( true ) {
 		const int c = dec->decode_ari(model );
 		if ( c == 256 ) break;
@@ -5688,7 +5688,7 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	----------------------------------------------- */
 std::uint8_t pjg::decode::bit(const std::unique_ptr<aricoder>& dec)
 {
-	auto model = INIT_MODEL_B( 1, -1 );
+	auto model = INIT_MODEL_B(1, -1);
 	std::uint8_t bit = dec->decode_ari(model); // This conversion is okay since there are only 2 symbols in the model.
 	delete model;
 	return bit;
