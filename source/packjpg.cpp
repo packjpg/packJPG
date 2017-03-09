@@ -282,6 +282,8 @@ packJPG by Matthias Stirner, 01/2016
 #include "pjpgtbl.h"
 #include "dct8x8.h"
 
+#define DEV_BUILD
+
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
 #endif
@@ -510,7 +512,17 @@ static bool file_exists(const std::string& filename);
 // these are developers functions, they are not needed
 // in any way to compress jpg or decompress pjg
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN int collmode = 0; // write mode for collections: 0 -> std, 1 -> dhf, 2 -> squ, 3 -> unc
+enum CollectionMode {
+	STD = 0, // standard collections
+	DHF = 1, // sequential order collections, 'dhufs'
+	SQU = 2, // square collections
+	UNC = 3, // uncollections
+	SQU_ALT = 4, // square collections / alt order (even/uneven)
+	UNC_ALT = 5 // uncollections / alt order (even/uneven)
+};
+
+static CollectionMode coll_mode = CollectionMode::STD; // Write mode for collections.
+
 INTERN bool dump_hdr( void );
 INTERN bool dump_huf( void );
 INTERN bool dump_coll( void );
@@ -1149,15 +1161,15 @@ INTERN void initialize_options( int argc, char** argv )
 			auto_set = false;
 		}
 		else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
-			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
-			collmode = tmp_val;
+			tmp_val = std::max(tmp_val, 0);
+			tmp_val = std::min(tmp_val, 5);
+			coll_mode = CollectionMode(tmp_val);
 			action = A_COLL_DUMP;
 		}
 		else if ( sscanf(arg.c_str(), "-fcol%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
-			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
-			collmode = tmp_val;
+			tmp_val = std::max(tmp_val, 0);
+			tmp_val = std::min(tmp_val, 5);
+			coll_mode = CollectionMode(tmp_val);
 			action = A_FCOLL_DUMP;
 		}
 		else if (arg == "-split") {
@@ -6656,416 +6668,375 @@ static bool file_exists(const std::string& filename) {
 	Writes header file
 	----------------------------------------------- */
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_hdr( void )
-{
+INTERN bool dump_hdr() {
 	const std::string ext = "hdr";
-	const auto basename = filelist[ file_no ];
-	
-	if ( !dump_file( basename, ext, hdrdata, 1, hdrs ) )
-		return false;	
-	
+	const auto basename = filelist[file_no];
+
+	if (!dump_file(basename, ext, hdrdata, 1, hdrs)) {
+		return false;
+	}
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes huffman coded file
 	----------------------------------------------- */
-INTERN bool dump_huf( void )
-{
+INTERN bool dump_huf() {
 	const std::string ext = "huf";
-	const auto basename = filelist[ file_no ];
-	
-	if ( !dump_file( basename, ext, huffdata, 1, hufs ) )
+	const auto basename = filelist[file_no];
+
+	if (!dump_file(basename, ext, huffdata, 1, hufs)) {
 		return false;
-	
+	}
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes collections of DCT coefficients
 	----------------------------------------------- */
-INTERN bool dump_coll( void )
+INTERN bool dump_coll()
 {
-	FILE* fp;
-	
 	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
-	int cmp, bpos, dpos;
-	int i, j;
-	const auto& base = filelist[ file_no ];
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		
+	const auto& base = filelist[file_no];
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
 		// create filename
-		const auto fn = create_filename( base, ext[ cmp ] );
-		
+		const auto fn = create_filename(base, ext[cmp]);
+
 		// open file for output
-		fp = fopen( fn.c_str(), "wb" );
-		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+		FILE* fp = fopen(fn.c_str(), "wb");
+		if (fp == nullptr) {
+			sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
-		
-		switch ( collmode ) {
-			
-			case 0: // standard collections
-				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( colldata[cmp][bpos], sizeof( short ), cmpnfo[cmp].bc, fp );
-				break;
-				
-			case 1: // sequential order collections, 'dhufs'
-				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
-				break;
-				
-			case 2: // square collections
-				dpos = 0;
-				for ( i = 0; i < 64; ) {
-					bpos = zigzag[ i++ ];
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ),
-						cmpnfo[cmp].bch, fp );
-					if ( ( i % 8 ) == 0 ) {
-						dpos += cmpnfo[cmp].bch;
-						if ( dpos >= cmpnfo[cmp].bc ) {
-							dpos = 0;
-						}
-						else {
-							i -= 8;
-						}
+
+		int dpos;
+		switch (coll_mode) {
+
+		case CollectionMode::STD:
+			for (int bpos = 0; bpos < 64; bpos++) {
+				fwrite(colldata[cmp][bpos], sizeof(short), cmpnfo[cmp].bc, fp);
+			}
+			break;
+
+		case CollectionMode::DHF:
+			for (dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
+				for (int bpos = 0; bpos < 64; bpos++) {
+					fwrite(&(colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
+				}
+			}
+			break;
+
+		case CollectionMode::SQU:
+			dpos = 0;
+			for (int i = 0; i < 64; ) {
+				const int bpos = zigzag[i++];
+				fwrite(&(colldata[cmp][bpos][dpos]), sizeof(short),
+					cmpnfo[cmp].bch, fp);
+				if ((i % 8) == 0) {
+					dpos += cmpnfo[cmp].bch;
+					if (dpos >= cmpnfo[cmp].bc) {
+						dpos = 0;
+					} else {
+						i -= 8;
 					}
 				}
-				break;
-				
-			case 3: // uncollections
-				for ( i = 0; i < ( cmpnfo[cmp].bcv * 8 ); i++ )			
-				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
-					bpos = zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
-					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+			}
+			break;
+
+		case CollectionMode::UNC:
+			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+					const int bpos = zigzag[((i % 8) * 8) + (j % 8)];
+					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
+					fwrite(&(colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
 				}
-				break;
-				
-			case 4: // square collections / alt order (even/uneven)
-				dpos = 0;
-				for ( i = 0; i < 64; ) {
-					bpos = even_zigzag[ i++ ];
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ),
-						cmpnfo[cmp].bch, fp );
-					if ( ( i % 8 ) == 0 ) {
-						dpos += cmpnfo[cmp].bch;
-						if ( dpos >= cmpnfo[cmp].bc ) {
-							dpos = 0;
-						}
-						else {
-							i -= 8;
-						}
+			}
+			break;
+
+		case CollectionMode::SQU_ALT:
+			dpos = 0;
+			for (int i = 0; i < 64; ) {
+				int bpos = even_zigzag[i++];
+				fwrite(&(colldata[cmp][bpos][dpos]), sizeof(short),
+					cmpnfo[cmp].bch, fp);
+				if ((i % 8) == 0) {
+					dpos += cmpnfo[cmp].bch;
+					if (dpos >= cmpnfo[cmp].bc) {
+						dpos = 0;
+					} else {
+						i -= 8;
 					}
 				}
-				break;
-				
-			case 5: // uncollections / alt order (even/uneven)
-				for ( i = 0; i < ( cmpnfo[cmp].bcv * 8 ); i++ )			
-				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
-					bpos = even_zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
-					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+			}
+			break;
+
+		case CollectionMode::UNC_ALT:
+			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+					const int bpos = even_zigzag[((i % 8) * 8) + (j % 8)];
+					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
+					fwrite(&(colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
 				}
-				break;
+			}
+			break;
 		}
-		
-		fclose( fp );
+
+		fclose(fp);
 	}
-	
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes zero distribution data to file;
 	----------------------------------------------- */
-INTERN bool dump_zdst( void )
-{
-	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3"};
-	int cmp;
-	const auto basename = filelist[ file_no ];
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-		if ( !dump_file( basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
+INTERN bool dump_zdst() {
+	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
+	const auto basename = filelist[file_no];
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		if (!dump_file(basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc)) {
 			return false;
-			
-	
+		}
+	}
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes to file
 	----------------------------------------------- */
-INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size )
-{	
-	FILE* fp;
-	
+INTERN bool dump_file(const std::string& base, const std::string& ext, void* data, int bpv, int size) {
 	// create filename
-	const auto fn = create_filename( base, ext );
-	
+	const auto fn = create_filename(base, ext);
+
 	// open file for output
-	fp = fopen( fn.c_str(), "wb" );
-	if ( fp == nullptr ) {
-		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+	FILE* fp = fopen(fn.c_str(), "wb");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// write & close
-	fwrite( data, bpv, size, fp );
-	fclose( fp );
-	
+	fwrite(data, bpv, size, fp);
+	fclose(fp);
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes error info file
 	----------------------------------------------- */
-INTERN bool dump_errfile( void )
-{
-	FILE* fp;
-	
-	
+INTERN bool dump_errfile() {
 	// return immediately if theres no error
-	if ( errorlevel == 0 ) return true;
-	
+	if (errorlevel == 0) {
+		return true;
+	}
+
 	// create filename based on errorlevel
 	std::string fn;
-	if ( errorlevel == 1 ) {
-		fn = create_filename( filelist[ file_no ], "wrn.nfo" );
+	if (errorlevel == 1) {
+		fn = create_filename(filelist[file_no], "wrn.nfo");
+	} else {
+		fn = create_filename(filelist[file_no], "err.nfo");
 	}
-	else {
-		fn = create_filename( filelist[ file_no ], "err.nfo" );
-	}
-	
+
 	// open file for output
-	fp = fopen( fn.c_str(), "w" );
-	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+	FILE* fp = fopen(fn.c_str(), "w");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// write status and errormessage to file
-	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ].c_str());
-	fprintf( fp, "\n" );
+	fprintf(fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[file_no].c_str());
+	fprintf(fp, "\n");
 	// write error specification to file
-	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ).c_str(),
-			( errorlevel == 1 ) ? "warning" : "error" );
-	fprintf( fp, " %s\n", errormessage );
-	
+	fprintf(fp, " %s -> %s:\n", get_status(errorfunction).c_str(),
+		(errorlevel == 1) ? "warning" : "error");
+	fprintf(fp, " %s\n", errormessage);
+
 	// done, close file
-	fclose( fp );
-	
-	
+	fclose(fp);
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes info to textfile
 	----------------------------------------------- */
-INTERN bool dump_info( void )
-{	
-	FILE* fp;
-	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // position in header		
-	
-	int cmp, bpos;
-	int i;
-	
-	
+INTERN bool dump_info() {
 	// create filename
-	const auto fn = create_filename( filelist[ file_no ], "nfo" );
-	
+	const auto fn = create_filename(filelist[file_no], "nfo");
+
 	// open file for output
-	fp = fopen( fn.c_str(), "w" );
-	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+	FILE* fp = fopen(fn.c_str(), "w");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
 
 	// info about image
-	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str() );
-	fprintf( fp, "coding process: %s\n", ( jpegtype == 1 ) ? "sequential" : "progressive" );
+	fprintf(fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
+	fprintf(fp, "coding process: %s\n", (jpegtype == 1) ? "sequential" : "progressive");
 	// fprintf( fp, "no of scans: %i\n", scnc );
-	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
-	fprintf( fp, "component count: %i\n", cmpc );
-	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh );
-	
+	fprintf(fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth);
+	fprintf(fp, "component count: %i\n", cmpc);
+	fprintf(fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh);
+
 	// info about header
-	fprintf( fp, "\nfile header structure:\n" );
-	fprintf( fp, " type  length   hpos\n" );
+	fprintf(fp, "\nfile header structure:\n");
+	fprintf(fp, " type  length   hpos\n");
 	// header parser loop
-	for ( hpos = 0; (int) hpos < hdrs; hpos += len ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
-		fprintf( fp, " FF%2X  %6i %6i\n", (int) type, (int) len, (int) hpos );
+	int hpos; // Position in the header.
+	int len = 0; // Length of current marker segment.
+	for (hpos = 0; hpos < hdrs; hpos += len) {
+		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
+		len = 2 + B_SHORT(hdrdata[hpos + 2], hdrdata[hpos + 3]);
+		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);
 	}
-	fprintf( fp, " _END       0 %6i\n", (int) hpos );
-	fprintf( fp, "\n" );
-	
+	fprintf(fp, " _END       0 %6i\n", hpos);
+	fprintf(fp, "\n");
+
 	// info about compression settings	
-	fprintf( fp, "\ncompression settings:\n" );
-	fprintf( fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-			segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3] );
-	fprintf( fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-			nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3] );
-	fprintf( fp, "\n" );
-	
+	fprintf(fp, "\ncompression settings:\n");
+	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
+		segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3]);
+	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
+		nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3]);
+	fprintf(fp, "\n");
+
 	// info about components
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		fprintf( fp, "\n" );
-		fprintf( fp, "component number %i ->\n", cmp );
-		fprintf( fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh );
-		fprintf( fp, "blocks per mcu: %i\n", cmpnfo[cmp].mbs );
-		fprintf( fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].bc, cmpnfo[cmp].bcv, cmpnfo[cmp].bch );
-		fprintf( fp, "block count (sng): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch );
-		fprintf( fp, "quantiser table ->" );
-		for ( i = 0; i < 64; i++ ) {
-			bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) fprintf( fp, "\n" );
-			fprintf( fp, "%4i, ", QUANT( cmp, bpos ) );
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		fprintf(fp, "\n");
+		fprintf(fp, "component number %i ->\n", cmp);
+		fprintf(fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh);
+		fprintf(fp, "blocks per mcu: %i\n", cmpnfo[cmp].mbs);
+		fprintf(fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
+			cmpnfo[cmp].bc, cmpnfo[cmp].bcv, cmpnfo[cmp].bch);
+		fprintf(fp, "block count (sng): %i/%i/%i (all/v/h)\n",
+			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch);
+		fprintf(fp, "quantiser table ->");
+		for (int i = 0; i < 64; i++) {
+			int bpos = zigzag[i];
+			if ((i % 8) == 0) {
+				fprintf(fp, "\n");
+			}
+			fprintf(fp, "%4i, ", QUANT(cmp, bpos));
 		}
-		fprintf( fp, "\n" );
-		fprintf( fp, "maximum values ->" );
-		for ( i = 0; i < 64; i++ ) {
-			bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) fprintf( fp, "\n" );
-			fprintf( fp, "%4i, ", MAX_V( cmp, bpos ) );
+		fprintf(fp, "\n");
+		fprintf(fp, "maximum values ->");
+		for (int i = 0; i < 64; i++) {
+			int bpos = zigzag[i];
+			if ((i % 8) == 0) {
+				fprintf(fp, "\n");
+			}
+			fprintf(fp, "%4i, ", MAX_V(cmp, bpos));
 		}
-		fprintf( fp, "\n\n" );
+		fprintf(fp, "\n\n");
 	}
-	
-	
-	fclose( fp );
-	
-	
+
+	fclose(fp);
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Writes distribution for use in valdist.h
 	----------------------------------------------- */
-INTERN bool dump_dist( void )
-{
-	FILE* fp;
-	
-	unsigned int dist[ 1024 + 1 ];
-	int cmp, bpos, dpos;
-	int i;
-	
-	
+INTERN bool dump_dist() {
 	// create filename
-	const auto fn = create_filename( filelist[ file_no ], "dist" );
-	
+	const auto fn = create_filename(filelist[file_no], "dist");
+
 	// open file for output
-	fp = fopen( fn.c_str(), "wb" );
-	if ( fp == nullptr ){
-		sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+	FILE* fp = fopen(fn.c_str(), "wb");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// calculate & write distributions for each frequency
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-	for ( bpos = 0; bpos < 64; bpos++ ) {		
-		// preset dist with zeroes
-		for ( i = 0; i <= 1024; i++ ) dist[ i ] = 0;
-		// get distribution
-		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-			dist[ ABS( colldata[cmp][bpos][dpos] ) ]++;
-		// write to file
-		fwrite( dist, sizeof( int ), 1024 + 1, fp );
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		for (int bpos = 0; bpos < 64; bpos++) {
+			std::array<int, 1024 + 1> dist = { 0 };
+			// get distribution
+			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++)
+				dist[ABS(colldata[cmp][bpos][dpos])]++;
+			// write to file
+			fwrite(dist.data(), sizeof(int), dist.size(), fp);
+		}
 	}
-	
-	
+
 	// close file
-	fclose( fp );
-	
+	fclose(fp);
+
 	return true;
 }
 
 /* -----------------------------------------------
 	Do inverse DCT and write pgms
 	----------------------------------------------- */
-INTERN bool dump_pgm( void )
-{	
-	unsigned char* imgdata;
-	
-	FILE* fp;
-	
-	int cmp, dpos;
-	int pix_v;
-	int xpos, ypos, dcpos;
-	int x, y;
-	
-	const std::array<std::string, 4> ext = {"cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm"};
-	
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-	{
+INTERN bool dump_pgm() {
+	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
 		// create filename
-		const auto fn = create_filename( filelist[ file_no ], ext[ cmp ] );
-		
+		const auto fn = create_filename(filelist[file_no], ext[cmp]);
+
 		// open file for output
-		fp = fopen( fn.c_str(), "wb" );
-		if ( fp == nullptr ){
-			sprintf( errormessage, FWR_ERRMSG.c_str(), fn.c_str());
+		FILE* fp = fopen(fn.c_str(), "wb");
+		if (fp == nullptr) {
+			sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
-		
+
 		// alloc memory for image data
-		imgdata = (unsigned char*) calloc ( cmpnfo[cmp].bc * 64, sizeof( char ) );
-		if ( imgdata == NULL ) {
-			fclose( fp );
-			sprintf( errormessage, MEM_ERRMSG.c_str() );
-			errorlevel = 2;
-			return false;
-		}
-		
-		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )	{	
+		std::vector<std::uint8_t> imgdata(cmpnfo[cmp].bc * 64);
+
+		for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
 			// do inverse DCT, store in imgdata
-			dcpos  = ( ( ( dpos / cmpnfo[cmp].bch ) * cmpnfo[cmp].bch ) << 6 ) +
-					   ( ( dpos % cmpnfo[cmp].bch ) << 3 );
-			for ( y = 0; y < 8; y++ ) {
-				ypos = dcpos + ( y * ( cmpnfo[cmp].bch << 3 ) );
-				for ( x = 0; x < 8; x++ ) {
-					xpos = ypos + x;
-					pix_v = idct_2d_fst_8x8( cmp, dpos, x, y );
-					pix_v = DCT_RESCALE( pix_v );
+			int dcpos = (((dpos / cmpnfo[cmp].bch) * cmpnfo[cmp].bch) << 6) +
+				((dpos % cmpnfo[cmp].bch) << 3);
+			for (int y = 0; y < 8; y++) {
+				int ypos = dcpos + (y * (cmpnfo[cmp].bch << 3));
+				for (int x = 0; x < 8; x++) {
+					int xpos = ypos + x;
+					int pix_v = idct_2d_fst_8x8(cmp, dpos, x, y);
+					pix_v = DCT_RESCALE(pix_v);
 					pix_v = pix_v + 128;
-					imgdata[ xpos ] = ( unsigned char ) CLAMPED( 0, 255, pix_v );
+					imgdata[xpos] = std::uint8_t(CLAMPED(0, 255, pix_v));
 				}
-			}			
+			}
 		}
-		
+
 		// write PGM header
-		fprintf( fp, "P5\n" );
-		fprintf( fp, "# created by %s v%i.%i%s (%s) by %s\n",
-			program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
-		fprintf( fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8 );
-		fprintf( fp, "255\n" );
-		
+		fprintf(fp, "P5\n");
+		fprintf(fp, "# created by %s v%i.%i%s (%s) by %s\n",
+			program_info::apptitle.c_str(),
+			program_info::appversion / 10,
+			program_info::appversion % 10,
+			program_info::subversion.c_str(),
+			program_info::versiondate.c_str(),
+			program_info::author.c_str());
+		fprintf(fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8);
+		fprintf(fp, "255\n");
+
 		// write image data
-		fwrite( imgdata, sizeof( char ), cmpnfo[cmp].bc * 64, fp );
-		
-		// free memory
-		free( imgdata );
-		
+		fwrite(imgdata.data(), sizeof(char), imgdata.size(), fp);
+
 		// close file
-		fclose( fp );
+		fclose(fp);
 	}
-	
+
 	return true;
 }
 #endif
