@@ -270,6 +270,7 @@ packJPG by Matthias Stirner, 01/2016
 */
 
 #include <array>
+#include <tuple>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -486,7 +487,7 @@ namespace pjg {
 	void aavrg_prepare(unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp);
 	int aavrg_context(unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x);
 	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
-	void get_context_nnb(int pos, int w, int *a, int *b);
+std::pair<int, int> get_context_nnb(int pos, int w);
 }
 
 
@@ -4736,18 +4737,17 @@ void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	const unsigned char* zdstls = pjg::zdstdata[ cmp ];
 	const int w = cmpnfo[cmp].bch;
 	const int bc = cmpnfo[cmp].bc;
-	
+
 	// arithmetic encode zero-distribution-list
-	int a, b;
-	for (int dpos = 0; dpos < bc; dpos++ ) {
+	for (int dpos = 0; dpos < bc; dpos++) {
 		// context modelling - use average of above and left as context
-		get_context_nnb( dpos, w, &a, &b );
-		a = ( a >= 0 ) ? zdstls[ a ] : 0;
-		b = ( b >= 0 ) ? zdstls[ b ] : 0;
+		auto coords = get_context_nnb(dpos, w);
+		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
+		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
-		model->shift_context( ( a + b + 2 ) / 4 );
+		model->shift_context((coords.first + coords.second + 2) / 4);
 		// encode symbol
-		enc->encode_ari( model, zdstls[ dpos ] );
+		enc->encode_ari(model, zdstls[dpos]);
 	}
 	
 	// clean up
@@ -5240,16 +5240,15 @@ void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic decode zero-distribution-list
-	int a, b;
-	for (int dpos = 0; dpos < bc; dpos++ )	{			
+	for (int dpos = 0; dpos < bc; dpos++)	{
 		// context modelling - use average of above and left as context		
-		get_context_nnb( dpos, w, &a, &b );
-		a = ( a >= 0 ) ? zdstls[ a ] : 0;
-		b = ( b >= 0 ) ? zdstls[ b ] : 0;
+		auto coords = get_context_nnb(dpos, w);
+		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
+		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
-		model->shift_context( ( a + b + 2 ) / 4 );
+		model->shift_context((coords.first + coords.second + 2) / 4);
 		// decode symbol
-		zdstls[ dpos ] = dec->decode_ari(model );
+		zdstls[dpos] = dec->decode_ari(model);
 	}
 	
 	// clean up
@@ -5978,32 +5977,29 @@ int pjg::lakh_context( signed short** coeffs_x, signed short** coeffs_a, int* pr
 /* -----------------------------------------------
 	Calculates coordinates for nearest neighbor context
 	----------------------------------------------- */
-void pjg::get_context_nnb( int pos, int w, int *a, int *b )
+std::pair<int, int> pjg::get_context_nnb(int pos, int w)
 {
 	// this function calculates and returns coordinates for
 	// a simple 2D context
-	if ( pos == 0 ) {
-		*a = -1;
-		*b = -1;
+	std::pair<int, int> coords;
+	if (pos == 0) {
+		coords = std::make_pair<int, int>(-1, -1);
+	} else if ((pos % w) == 0) {
+		if (pos >= (w << 1)) {
+			coords = std::make_pair<int, int>(pos - (w << 1), pos - w);
+		} else {
+			coords = std::make_pair<int, int>(pos - w, pos - w);
+		}
+	} else if (pos < w) {
+		if (pos >= 2) {
+			coords = std::make_pair<int, int>(pos - 1, pos - 2);
+		} else {
+			coords = std::make_pair<int, int>(pos - 1, pos - 1);
+		}
+	} else {
+		coords = std::make_pair<int, int>(pos - 1, pos - w);
 	}
-	else if ( ( pos % w ) == 0 ) {
-		*b = pos - w;
-		if ( pos >= ( w << 1 ) )
-			*a = pos - ( w << 1 );
-		else
-			*a = *b;
-	}
-	else if ( pos < w ) {
-		*a = pos - 1;
-		if ( pos >= 2 )
-			*b = pos - 2;
-		else
-			*b = *a;
-	}
-	else {
-		*a = pos - 1;
-		*b = pos - w;
-	}
+	return coords;
 }
 
 /* ----------------------- End of PJG specific functions -------------------------- */
