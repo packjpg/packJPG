@@ -1,40 +1,20 @@
-#include <stdlib.h>
-#include "bitops.h"
 #include "aricoder.h"
 
-#define ERROR_EXIT { error = true; exit( 0 ); }
+#include "bitops.h"
 
+#include <algorithm>
+#include <functional>
+#include <stdlib.h>
 
 /* -----------------------------------------------
 	constructor for aricoder class
 	----------------------------------------------- */
 
-aricoder::aricoder( iostream* stream, int iomode )
-{	
-	// iomode (i/o mode)
-	// 0 -> reading
-	// 1 -> writing
-	
-	int i;
-	
-	// set initial values
-	ccode	= 0;
-	clow	= 0;
-	chigh	= CODER_LIMIT100 - 1;
-	cstep	= 0;
-	bbyte	= 0;
-	cbit	= 0;
-	nrbits	= 0;
-	
-	// store pointer to iostream for reading/writing
-	sptr = stream;
-	
-	// store i/o mode
-	mode = iomode;
-	
-	if ( mode == 0 ) { // mode is reading / decoding
+aricoder::aricoder( iostream* stream, StreamMode iomode ) : sptr(stream), mode(iomode)
+{
+	if ( mode == StreamMode::kRead) { // mode is reading / decoding
 		// code buffer has to be filled before starting decoding
-		for ( i = 0; i < CODER_USE_BITS; i++ )
+		for (int i = 0; i < CODER_USE_BITS; i++ )
 			ccode = ( ccode << 1 ) | read_bit();
 	} // mode is writing / encoding otherwise
 }
@@ -43,24 +23,25 @@ aricoder::aricoder( iostream* stream, int iomode )
 	destructor for aricoder class
 	----------------------------------------------- */
 
-aricoder::~aricoder( void )
+aricoder::~aricoder()
 {
-	if ( mode == 1 ) { // mode is writing / encoding
+	if ( mode == StreamMode::kWrite) { // mode is writing / encoding
 		// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
 		// there are only two possible cases
 		if ( clow < CODER_LIMIT025 ) { // case a.) 
-			write_bit( 0 );
+			write_bit<0>();
 			// write remaining bits
-			write_bit( 1 );
-			while ( nrbits-- > 0 )
-				write_bit( 1 );
+			write_bit<1>();
+			writeNrbitsAsOne();
 		}
 		else { // case b.), clow >= CODER_LIMIT025
-			write_bit( 1 );
+			write_bit<1>();
 		} // done, zeroes are auto-read by the decoder
 		
 		// pad code with zeroes
-		while ( cbit > 0 ) write_bit( 0 );
+		while (cbit > 0) {
+			write_bit<0>();
+		}
 	}
 }
 
@@ -70,48 +51,101 @@ aricoder::~aricoder( void )
 	
 void aricoder::encode( symbol* s )
 {	
+	// Make local copies of clow_ and chigh_ for cache performance:
+	uint32_t clow_local = clow;
+	uint32_t chigh_local = chigh;
 	// update steps, low count, high count
-	cstep = ( ( chigh - clow ) + 1 ) / s->scale;
-	chigh = clow + ( cstep * s->high_count ) - 1;
-	clow  = clow + ( cstep * s->low_count );
+	cstep = (chigh_local - clow_local + 1) / s->scale;
+	chigh_local = clow_local + (cstep * s->high_count) - 1;
+	clow_local = clow_local + (cstep * s->low_count);
 	
 	// e3 scaling is performed for speed and to avoid underflows
 	// if both, low and high are either in the lower half or in the higher half
 	// one bit can be safely shifted out
-	while ( ( clow >= CODER_LIMIT050 ) || ( chigh < CODER_LIMIT050 ) ) {		
-		if ( chigh < CODER_LIMIT050 ) {	// this means both, high and low are below, and 0 can be safely shifted out
+	while ( clow_local >= CODER_LIMIT050  || chigh_local < CODER_LIMIT050  ) {
+		if (chigh_local < CODER_LIMIT050 ) {	// this means both, high and low are below, and 0 can be safely shifted out
 			// write 0 bit
-			write_bit( 0 );
+			write_bit<0>();
 			// shift out remaing e3 bits
-			for ( ; nrbits > 0; nrbits-- )
-				write_bit( 1 );
+			writeNrbitsAsOne();
 		}
 		else { // if the first wasn't the case, it's clow >= CODER_LIMIT050
 			// write 1 bit
-			write_bit( 1 );
-			clow  &= CODER_LIMIT050 - 1;
-			chigh &= CODER_LIMIT050 - 1;
+			write_bit<1>();
+			clow_local &= CODER_LIMIT050 - 1;
+			chigh_local &= CODER_LIMIT050 - 1;
 			// shift out remaing e3 bits
-			for ( ; nrbits > 0; nrbits-- )
-				write_bit( 0 );
+			writeNrbitsAsZero();
 		}
-		clow  <<= 1;
-		chigh <<= 1;
-		chigh++;
+		clow_local <<= 1;
+		chigh_local <<= 1;
+		chigh_local++;
 	}
 	
 	// e3 scaling, to make sure that theres enough space between low and high
-	while ( ( clow >= CODER_LIMIT025 ) && ( chigh < CODER_LIMIT075 ) ) {
+	while ( (clow_local >= CODER_LIMIT025 ) && (chigh_local < CODER_LIMIT075 ) ) {
 		nrbits++;
-		clow  &= CODER_LIMIT025 - 1;
-		chigh ^= CODER_LIMIT025 + CODER_LIMIT050;
+		clow_local &= CODER_LIMIT025 - 1;
+		chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
 		// clow  -= CODER_LIMIT025;
 		// chigh -= CODER_LIMIT025;
-		clow  <<= 1;
-		chigh <<= 1;
-		chigh++;
+		clow_local <<= 1;
+		chigh_local <<= 1;
+		chigh_local++;
 	}
+
+	clow = clow_local;
+	chigh = chigh_local;
 }
+
+void aricoder::writeNrbitsAsZero() {
+	if (nrbits + cbit >= 8) {
+		int remainingBits = 8 - cbit;
+		nrbits -= remainingBits;
+		bbyte <<= remainingBits;
+		sptr->write_byte(bbyte);
+		cbit = 0;
+	}
+
+	constexpr uint8_t zero = 0;
+	while (nrbits >= 8) {
+		sptr->write_byte(zero);
+		nrbits -= 8;
+	}
+	/*
+	No need to check if cbits is 8, since nrbits is strictly less than 8
+	and cbit is initially 0 here:
+	*/
+	bbyte <<= nrbits;
+	cbit += nrbits;
+	nrbits = 0;
+}
+
+void aricoder::writeNrbitsAsOne() {
+	if (nrbits + cbit >= 8) {
+		int remainingBits = 8 - cbit;
+		nrbits -= remainingBits;
+		bbyte <<= remainingBits;
+		bbyte |= std::numeric_limits<uint8_t>::max() >> (8 - remainingBits);
+		sptr->write_byte(bbyte);
+		cbit = 0;
+	}
+
+	constexpr uint8_t all_ones = std::numeric_limits<uint8_t>::max();
+	while (nrbits >= 8) {
+		sptr->write_byte(all_ones);
+		nrbits -= 8;
+	}
+
+	/*
+	No need to check if cbits is 8, since nrbits is strictly less than 8
+	and cbit is initially 0 here:
+	*/
+	bbyte = (bbyte << nrbits) | (std::numeric_limits<uint8_t>::max() >> (8 - nrbits));
+	cbit += nrbits;
+	nrbits = 0;
+}
+
 
 /* -----------------------------------------------
 	arithmetic decoder get count function
@@ -137,69 +171,54 @@ void aricoder::decode( symbol* s )
 	
 	// alread have steps updated from decoder_count
 	// update low count and high count
-	chigh = clow + ( cstep * s->high_count ) - 1;
-	clow  = clow + ( cstep * s->low_count );
+	uint32_t ccode_local = ccode;
+	uint32_t clow_local = clow;
+	uint32_t chigh_local = clow_local + (cstep * s->high_count) - 1;
+	clow_local = clow_local + (cstep * s->low_count);
 	
 	// e3 scaling is performed for speed and to avoid underflows
 	// if both, low and high are either in the lower half or in the higher half
 	// one bit can be safely shifted out
-	while ( ( clow >= CODER_LIMIT050 ) || ( chigh < CODER_LIMIT050 ) ) {
-		if ( clow >= CODER_LIMIT050 ) {
-			clow  &= CODER_LIMIT050 - 1;
-			chigh &= CODER_LIMIT050 - 1;
-			ccode &= CODER_LIMIT050 - 1;
+	while ( (clow_local >= CODER_LIMIT050 ) || (chigh_local < CODER_LIMIT050 ) ) {
+		if (clow_local >= CODER_LIMIT050 ) {
+			clow_local &= CODER_LIMIT050 - 1;
+			chigh_local &= CODER_LIMIT050 - 1;
+			ccode_local &= CODER_LIMIT050 - 1;
 		} // if the first wasn't the case, it's chigh < CODER_LIMIT050
-		clow  <<= 1;
-		chigh <<= 1;
-		chigh++;
-		ccode <<= 1;
-		ccode |= read_bit();
-		nrbits = 0;
+		clow_local <<= 1;
+		chigh_local <<= 1;
+		chigh_local++;
+		ccode_local <<= 1;
+		ccode_local |= read_bit();
 	}
 	
 	// e3 scaling, to make sure that theres enough space between low and high
-	while ( ( clow >= CODER_LIMIT025 ) && ( chigh < CODER_LIMIT075 ) ) {
-		nrbits++;
-		clow  &= CODER_LIMIT025 - 1;
-		chigh ^= CODER_LIMIT025 + CODER_LIMIT050;
+	while ( (clow_local >= CODER_LIMIT025 ) && (chigh_local < CODER_LIMIT075 ) ) {
+		clow_local &= CODER_LIMIT025 - 1;
+		chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
 		// clow  -= CODER_LIMIT025;
 		// chigh -= CODER_LIMIT025;
-		ccode -= CODER_LIMIT025;
-		clow  <<= 1;
-		chigh <<= 1;
-		chigh++;
-		ccode <<= 1;
-		ccode |= read_bit();
+		ccode_local -= CODER_LIMIT025;
+		clow_local <<= 1;
+		chigh_local <<= 1;
+		chigh_local++;
+		ccode_local <<= 1;
+		ccode_local |= read_bit();
 	}	
-}
-
-/* -----------------------------------------------
-	bit writer function
-	----------------------------------------------- */
-	
-void aricoder::write_bit( unsigned char bit )
-{
-	// add bit at last position
-	bbyte = ( bbyte << 1 ) | bit;
-	// increment bit position
-	cbit++;
-	
-	// write bit if done
-	if ( cbit == 8 ) {
-		sptr->write( (void*) &bbyte, 1, 1 );
-		cbit = 0;
-	}
+	chigh = chigh_local;
+	clow = clow_local;
+	ccode = ccode_local;
 }
 
 /* -----------------------------------------------
 	bit reader function
 	----------------------------------------------- */
 	
-unsigned char aricoder::read_bit( void )
+unsigned char aricoder::read_bit()
 {
 	// read in new byte if needed
 	if ( cbit == 0 ) {
-		if ( sptr->read( &bbyte, 1, 1 ) == 0 ) // read next byte if available
+		if ( !sptr->read_byte(&bbyte)) // read next byte if available
 			bbyte = 0; // if no more data is left in the stream
 		cbit = 8;
 	}
@@ -213,96 +232,55 @@ unsigned char aricoder::read_bit( void )
 
 /* -----------------------------------------------
 	universal statistical model for arithmetic coding
+	
+	boundaries of this model:
+	max_s (maximum symbol) -> 1 <= max_s <= 1024 (???)
+	max_c (maximum context) -> 1 <= max_c <= 1024 (???)
+	max_o (maximum order) -> -1 <= max_o <= 4
+	c_lim (maximum count) -> 2 <= c_lim <= 4096 (???)
+	WARNING: this can be memory intensive, so don't overdo it
+	max_s == 256; max_c == 256; max_o == 4 would be way too much
 	----------------------------------------------- */
 	
-model_s::model_s( int max_s, int max_c, int max_o, int c_lim )
-{
-	// boundaries of this model:
-	// max_s (maximum symbol) -> 1 <= max_s <= 1024 (???)
-	// max_c (maximum context) -> 1 <= max_c <= 1024 (???)
-	// max_o (maximum order) -> -1 <= max_o <= 4
-	// c_lim (maximum count) -> 2 <= c_lim <= 4096 (???)
-	// WARNING: this can be memory intensive, so don't overdo it
-	// max_s == 256; max_c == 256; max_o == 4 would be way too much
+model_s::model_s( int max_s, int max_c, int max_o, int c_lim ) :
+		// Copy settings into the model:
+		max_symbol(max_s),
+		max_context(max_c),
+		max_order(max_o + 1),
+		max_count(c_lim),
 
-	table_s* null_table;
-	table_s* start_table;
-	int i;
-	
-	
-	// set error false
-	error = false;	
-	
-	// copy settings into model
-	max_symbol  = max_s;
-	max_context = max_c;
-	max_order   = max_o;
-	max_count   = c_lim;
-	
-	
-	// alloc memory for totals table
-	// totals = ( unsigned short* ) calloc( max_symbol + 2, sizeof( short ) );
-	totals = ( unsigned int* ) calloc( max_symbol + 2, sizeof( int ) );
-	
-	// alloc memory for scoreboard, set sb0_count
-	scoreboard = ( char* ) calloc( max_symbol, sizeof( char ) );
-	sb0_count = max_symbol;
-	
-	// set current order
-	current_order = max_order;
-	
+		current_order(max_o + 1),
+		sb0_count(max_s),
+
+		totals(max_s + 2),
+		scoreboard(new bool[max_s]),
+		contexts(max_o + 3)
+{
+	std::fill(scoreboard, scoreboard + max_symbol, false);
 	
 	// set up null table
-	null_table = ( table_s* ) calloc( 1, sizeof( table_s ) );
-	if ( null_table == NULL ) ERROR_EXIT;	
-	null_table->counts = ( unsigned short* ) calloc( max_symbol, sizeof( short ) );
-	if ( null_table->counts == NULL ) ERROR_EXIT;
-	for ( i = 0; i < max_symbol; i++ )
-		null_table->counts[ i ] = 1; // set all probabilities
+	table_s* null_table = new table_s;
+	null_table->counts = std::vector<uint16_t>(max_symbol, uint16_t(1));  // Set all probabilities to 1.
+
 	// set up internal counts
 	null_table->max_count = 1;
 	null_table->max_symbol = max_symbol;
 	
 	// set up start table
-	start_table = ( table_s* ) calloc( 1, sizeof( table_s ) );
-    if ( start_table == NULL ) ERROR_EXIT;	
-	start_table->links = ( table_s** ) calloc( max_context, sizeof( table_s* ) );
-	if ( start_table->links == NULL ) ERROR_EXIT;
-	// set up internal counts
-	start_table->max_count = 0;
-	start_table->max_symbol = 0;
-	
-	// build links for start table & null table
-	start_table->lesser = null_table;
-	null_table->links = ( table_s** ) calloc( max_context, sizeof( table_s* ) );
-	if ( null_table->links == NULL ) ERROR_EXIT;
-	for ( i = 0; i < max_context; i++ )
-		null_table->links[ i ] = start_table;
-	
-	// alloc memory for storage & contexts
-	storage = ( table_s** ) calloc( max_order + 3, sizeof( table_s* ) );
-	if ( storage == NULL ) ERROR_EXIT;
-	contexts = storage + 1;
+	table_s* start_table = new table_s;
+	start_table->links = std::vector<table_s*>(max_context);
 	
 	// integrate tables into contexts
-	contexts[ -1 ] = null_table;
-	contexts[  0 ] = start_table;
+	contexts[ 0 ] = null_table;
+	contexts[ 1 ] = start_table;
 	
 	// build initial 'normal' tables
-	for ( i = 1; i <= max_order; i++ ) {
+	for (int i = 2; i <= max_order; i++ ) {
 		// set up current order table
-		contexts[ i ] = ( table_s* ) calloc( 1, sizeof( table_s ) );
-	    if ( contexts[ i ] == NULL ) ERROR_EXIT;
-		contexts[ i ]->max_count  = 0;
-		contexts[ i ]->max_symbol = 0;
-		// build forward and backward links
-		contexts[ i ]->lesser = contexts[ i - 1 ];
+		contexts[i] = new table_s;
+		// build forward links
 		if ( i < max_order ) {
-			contexts[ i ]->links = ( table_s** ) calloc( max_context, sizeof( table_s* ) );
-			if ( contexts[ i ]->links == NULL ) ERROR_EXIT;
-		}
-		else {
-			contexts[ i ]->links = NULL;
+			contexts[i]->links = std::vector<table_s*>(max_context);
 		}
 		contexts[ i - 1 ]->links[ 0 ] = contexts[ i ];
 	}
@@ -313,66 +291,48 @@ model_s::model_s( int max_s, int max_c, int max_o, int c_lim )
 	model class destructor - recursive cleanup of memory is done here
 	----------------------------------------------- */
 
-model_s::~model_s( void )
-{
-	table_s* context;
-	
-	
+model_s::~model_s()
+{	
 	// clean up each 'normal' table
-	context = contexts[ 0 ];
-	recursive_cleanup ( context );
+	delete contexts[1];
 	
 	// clean up null table
-	context = contexts[ -1 ];	
-	if ( context->links  != NULL )
-		free( context->links  );
-	if ( context->counts != NULL ) free( context->counts );
-	free ( context );
+	delete contexts[0];
 	
 	// free everything else
-	free( storage );
-	free( totals );
-	free( scoreboard );
+	delete[] scoreboard;
 }
 
 
 /* -----------------------------------------------
-	updates statistics for a specific symbol / resets to highest order
+	Updates statistics for a specific symbol / resets to highest order.
+	Use -1 if you just want to reset without updating statistics.
 	----------------------------------------------- */
-
 void model_s::update_model( int symbol )
-{
-	// use -1 if you just want to reset without updating statistics
-	
-	table_s* context;
-	unsigned short* counts;
-	int local_order;
-	int i;
-	
-	
+{		
 	// only contexts, that were actually used to encode
-	// the symbol get their counts updated
+	// the symbol get its count updated
 	if ( symbol >= 0 ) {
-		for ( local_order = ( current_order < 0 ) ? 0 : current_order;
+		for (int local_order = ( current_order < 1 ) ? 1 : current_order;
 				local_order <= max_order; local_order++ ) {
-			context = contexts[ local_order ];
-			counts = context->counts + symbol;
+			table_s* context = contexts[ local_order ];
+			auto& count = context->counts[symbol];
 			// update count for specific symbol & scale
-			(*counts)++;
+			count++;
 			// store side information for totalize_table
-			if ( (*counts) > context->max_count ) context->max_count = (*counts);
-			if ( symbol >= context->max_symbol ) context->max_symbol = symbol+1;
-			// if counts for that symbol have gone above the maximum count
+			context->max_count = std::max(count, context->max_count);
+			context->max_symbol = std::max(uint16_t(symbol + 1), context->max_symbol);
+			// if count for that symbol have gone above the maximum count
 			// the table has to be resized (scale factor 2)
-			if ( (*counts) >= max_count )
-				rescale_table( context, 1 );
+			if (count == max_count) {
+				context->rescale_table();
+			}
 		}
 	}
 	
 	// reset scoreboard and current order
 	current_order = max_order;
-	for ( i = 0; i < max_symbol; i++ )
-		scoreboard[ i ] = 0;
+	std::fill(scoreboard, scoreboard + max_symbol, false);
 	sb0_count = max_symbol;
 }
 
@@ -382,40 +342,24 @@ void model_s::update_model( int symbol )
 	----------------------------------------------- */
 	
 void model_s::shift_context( int c )
-{
-	table_s* context;
-	int i;
-	
+{	
 	// shifting is not possible if max_order is below 1
 	// or context index is negative
-	if ( ( max_order < 1 ) || ( c < 0 ) ) return;
+	if ( ( max_order < 2 ) || ( c < 0 ) ) return;
 	
 	// shift each orders' context
-	for ( i = max_order; i > 0; i-- ) {
+	for (int i = max_order; i > 1; i-- ) {
 		// this is the new current order context
-		context = contexts[ i - 1 ]->links[ c ];
+		table_s* context = contexts[ i - 1 ]->links[ c ];
 		
 		// check if context exists, build if needed
-		if ( context == NULL ) {
+		if ( context == nullptr ) {
 			// reserve memory for next table_s
-			context = ( table_s* ) calloc( 1, sizeof( table_s ) );
-			if ( context == NULL ) ERROR_EXIT;			
-			// set counts NULL
-			context->counts = NULL;
-			// setup internal counts
-			context->max_count  = 0;
-			context->max_symbol = 0;
-			// link lesser context later if not existing, this is done below
-			context->lesser = contexts[ i - 2 ]->links[ c ];
+			context = new table_s;
 			// finished here if this is a max order context
-			if ( i == max_order )
-				context->links = NULL;
-			else {
+			if ( i < max_order ) {
 				// build links to higher order tables otherwise
-				context->links = ( table_s** ) calloc( max_context, sizeof( table_s* ) );
-				if ( context->links == NULL ) ERROR_EXIT;
-				// add lesser link for higher context (see above)
-				contexts[ i + 1 ]->lesser = context;
+				context->links.resize(max_context);
 			}
 			// put context to its right place
 			contexts[ i - 1 ]->links[ c ] = context;
@@ -428,60 +372,28 @@ void model_s::shift_context( int c )
 
 
 /* -----------------------------------------------
-	flushes the whole model by diviging through a specific scale factor
+	Flushes the entire model by calling rescale_table on all contexts.
 	----------------------------------------------- */
 	
-void model_s::flush_model( int scale_factor )
+void model_s::flush_model()
 {
-	recursive_flush( contexts[ 0 ], scale_factor );
+	contexts[1]->recursive_flush();
 }
 
 
 /* -----------------------------------------------
-	exclude specific symbols using this function
+	Excludes every symbol above c.
 	----------------------------------------------- */
 	
-void model_s::exclude_symbols( char rule, int c )
+void model_s::exclude_symbols(int c)
 {
 	// exclusions are back to normal after update_model is used	
-	// modify scoreboard according to rule and value
-	switch ( rule )
-	{
-		case 'a':
-			// above rule
-			// every symbol above c is excluded
-			for ( c = c + 1; c < max_symbol; c++ ) {
-				if ( scoreboard[ c ] == 0 ) {
-					scoreboard[ c ] = 1;
-					sb0_count--;
-				}
-			}
-			break;
-		
-		case 'b':
-			// below rule
-			// every symbol below c is excluded
-			for ( c = c - 1; c >= 0; c-- ) {
-				if ( scoreboard[ c ] == 0 ) {
-					scoreboard[ c ] = 1;
-					sb0_count--;
-				}
-			}
-			break;
-		
-		case 'e':
-			// equal rule
-			// only c is excluded
-			if ( scoreboard[ c ] == 0 ) {
-				scoreboard[ c ] = 1;
-				sb0_count--;
-			}
-			break;
-		
-		default:
-			// unknown rule
-			// do nothing
-			break;
+
+	for ( c = c + 1; c < max_symbol; c++ ) {
+		if ( !scoreboard[ c ] ) {
+			scoreboard[ c ] = true;
+			sb0_count--;
+		}
 	}
 }
 
@@ -493,26 +405,21 @@ void model_s::exclude_symbols( char rule, int c )
 int model_s::convert_int_to_symbol( int c, symbol *s )
 {
 	// search the symbol c in the current context table_s,
-	// return scale, low- and high counts
-	
-	table_s* context;
-	
+	// return scale, low- and high counts	
 
 	// totalize table for the current context
-	context = contexts[ current_order ];
+	table_s* context = contexts[ current_order ];
 	totalize_table( context );
 	
 	// finding the scale is easy
 	s->scale = totals[ 0 ];
 	
 	// check if that symbol exists in the current table. send escape otherwise
-	if ( c >= 0 ) {
-		if ( context->counts[ c ] > 0 ) {
-			// return high and low count for the current symbol
-			s->low_count  = totals[ c + 2 ];
-			s->high_count = totals[ c + 1 ];
-			return 0;
-		}
+	if ( context->counts[ c ] > 0 ) {
+		// return high and low count for the current symbol
+		s->low_count  = totals[ c + 2 ];
+		s->high_count = totals[ c + 1 ];
+		return 0;
 	}
 	
 	// return high and low count for the escape symbol
@@ -539,26 +446,30 @@ void model_s::get_symbol_scale( symbol *s )
 	converts a count to an int, called after get_symbol_scale
 	----------------------------------------------- */
 	
-int model_s::convert_symbol_to_int( int count, symbol *s )
+int model_s::convert_symbol_to_int(uint32_t count, symbol *s)
 {
 	// seek the symbol that matches the count,
 	// also, set low- and high count for the symbol - it has to be removed from the stream
-	
-	int c;
-	
+
+
 	// go through the totals table, search the symbol that matches the count
-	for ( c = 1; count < (signed) totals[ c ]; c++ );	
+	int c;
+	for (c = 1; c < totals.size(); c++) {
+		if (count >= totals[c]) {
+			break;
+		}
+	}
 	// set up the current symbol
-	s->low_count  = totals[ c ];
-	s->high_count = totals[ c - 1 ];
+	s->low_count = totals[c]; // It is guaranteed that there exists such a symbol.
+	s->high_count = totals[c - 1]; // This is guaranteed to not go out of bounds since the search started at index 1 of totals.
 	// send escape if escape symbol encountered
-	if ( c == 1 ) {
+	if (c == 1) {
 		current_order--;
 		return ESCAPE_SYMBOL;
 	}
 	
 	// return symbol value
-	return ( c - 2 );
+	return c - 2 ; // Since c is not one and is a positive number, this will be nonnegative.
 }
 
 
@@ -566,57 +477,51 @@ int model_s::convert_symbol_to_int( int count, symbol *s )
 	totals are calculated by accumulating counts in the current table_s
 	----------------------------------------------- */
 
-void model_s::totalize_table( table_s *context )
+void model_s::totalize_table( table_s* context )
 {
 	// update exclusion is used, so this has to be done each time
 	// escape probability calculation also takes place here
 	
 	// accumulated counts must never exceed CODER_MAXSCALE
 	// as CODER_MAXSCALE is big enough, though, (2^29), this shouldn't happen and is not checked
-
-	unsigned short* counts;
-	signed int      local_symb;
-	unsigned int    curr_total;
-	unsigned int    curr_count;
-	unsigned int    esc_prob;
-	int i;
 	
-	// make a local copy of the pointer
-	counts = context->counts;
+	const auto& counts = context->counts;
 	
 	// check counts
-	if ( counts != NULL ) {	// if counts are already set
+	if (!counts.empty()) {	// if counts are already set
 		// locally store current fill/symbol count
-		local_symb = sb0_count;
-		
-		// set the last symbol of the totals table_s zero
-		i = context->max_symbol - 1;
-		totals[ i + 2 ]	= 0;
+		int local_symb = sb0_count;
+
+		// set the last symbol of the totals to zero
+		int i = context->max_symbol - 1;
+		totals[i + 2] = 0;
+
 		// (re)set current total
-		curr_total = 0;
-		
+		uint32_t curr_total = 0;
+
 		// go reverse though the whole counts table and accumulate counts
 		// leave space at the beginning of the table for the escape symbol
-		for ( ; i >= 0; i-- ) {			
+		for (; i >= 0; i--) {
 			// only count probability if the current symbol is not 'scoreboard - excluded'
-			if ( scoreboard[ i ] == 0 ) {
-				curr_count = counts[ i ];
-				if ( curr_count > 0 ) {
+			if (!scoreboard[i]) {
+				uint16_t curr_count = counts[i];
+				if (curr_count > 0) {
 					// add counts for the current symbol
-					curr_total = curr_total + curr_count;
+					curr_total += curr_count;
 					// exclude symbol from scoreboard
-					scoreboard[ i ] = 1;
+					scoreboard[i] = true;
 					sb0_count--;
 				}
 			}
-			totals[ i + 1 ] = curr_total;
-		}		
+			totals[i + 1] = curr_total;
+		}
 		// here the escape calculation needs to take place
-		if ( local_symb == sb0_count )
+		uint32_t esc_prob;
+		if (local_symb == sb0_count) {
 			esc_prob = 1;
-		else if ( sb0_count == 0 )
+		} else if (sb0_count == 0) {
 			esc_prob = 0;
-		else {
+		} else {
 			// esc_prob = 1;
 			esc_prob  =  sb0_count * ( local_symb - sb0_count );
 			esc_prob /= ( local_symb * context->max_count );
@@ -624,162 +529,52 @@ void model_s::totalize_table( table_s *context )
 		}
 		// include escape probability in totals table
 		totals[ 0 ] = totals[ 1 ] + esc_prob;
-	}
-	else { // if counts are not already set
+	} else { // if counts are not already set
 		// setup counts for current table
-		context->counts = ( unsigned short* ) calloc( max_symbol, sizeof( short ) );
-		if ( context->counts == NULL ) ERROR_EXIT;
+		context->counts.resize(max_symbol);
 		// set totals table -> only escape probability included
 		totals[ 0 ] = 1;
 		totals[ 1 ] = 0;
 	}	
 }
 
-
-/* -----------------------------------------------
-	resizes one table by bitshifting each count using a specific value
-	----------------------------------------------- */
-	
-inline void model_s::rescale_table( table_s* context, int scale_factor )
-{
-	unsigned short* counts = context->counts;
-	int lst_symbol = context->max_symbol;
-	int i;
-	
-	// return now if counts not set
-	if ( counts == NULL ) return;
-	
-	// now scale the table by bitshifting each count
-	for ( i = 0; i < lst_symbol; i++ ) {
-		if ( counts[ i ] > 0 )
-			counts[ i ] >>= scale_factor;
-	}
-		
-	// also rescale tables max count
-	context->max_count >>= scale_factor;
-	
-	// seek for new last symbol
-	for ( i = lst_symbol - 1; i >= 0; i-- )
-		if ( counts[ i ] > 0 ) break;
-	context->max_symbol = i + 1;
-}
-
-
-/* -----------------------------------------------
-	a recursive function to go through each context and rescale the counts
-	----------------------------------------------- */
-	
-inline void model_s::recursive_flush( table_s* context, int scale_factor )
-{
-	int i;
-
-	// go through each link != NULL
-	if ( context->links != NULL )
-		for ( i = 0; i < max_context; i++ )
-			if ( context->links[ i ] != NULL )
-				recursive_flush( context->links[ i ], scale_factor );
-    
-	// rescale specific table
-	rescale_table( context, scale_factor );
-}
-
-
-/* -----------------------------------------------
-	frees all memory for all contexts starting at a given table_s
-	----------------------------------------------- */
-
-inline void model_s::recursive_cleanup( table_s *context )
-{
-	// be careful not to cut any link too early!
-	
-	int i;
-
-	// go through each link != NULL
-	if ( context->links != NULL ) {
-		for ( i = 0; i < max_context; i++ )
-			if ( context->links[ i ] != NULL )
-				recursive_cleanup( context->links[ i ] );
-		free ( context->links );
-	}
-	
-	// clean up table	
-	if ( context->counts != NULL ) free ( context->counts );	
-	free( context );
-}
-
-
 /* -----------------------------------------------
 	special version of model_s for binary coding
+	
+	boundaries of this model:
+	... (maximum symbol) -> 2 (0 or 1 )
+	max_c (maximum context) -> 1 <= max_c <= 1024 (???)
+	max_o (maximum order) -> -1 <= max_o <= 4
 	----------------------------------------------- */
 
-model_b::model_b( int max_c, int max_o, int c_lim )
-{
-	// boundaries of this model:
-	// ... (maximum symbol) -> 2 (0 or 1 )
-	// max_c (maximum context) -> 1 <= max_c <= 1024 (???)
-	// max_o (maximum order) -> -1 <= max_o <= 4
+model_b::model_b( int max_c, int max_o, int c_lim ) :
+		// Copy settings into the model:
+		max_context(max_c),
+		max_order(max_o + 1),
+		max_count(c_lim),
 
-	table* null_table;
-	table* start_table;
-	int i;
-	
-	
-	// set error false
-	error = false;	
-	
-	// copy settings into model
-	max_context = max_c;
-	max_order   = max_o;
-	max_count   = c_lim;
-	
-	
+		contexts(max_o + 3)
+{
 	// set up null table
-	null_table = ( table* ) calloc( 1, sizeof( table ) );
-	if ( null_table == NULL ) ERROR_EXIT;
-	
-	null_table->counts = ( unsigned short* ) calloc( 2, sizeof( short ) );
-	if ( null_table->counts == NULL ) ERROR_EXIT;
-	null_table->counts[ 0 ] = 1;
-	null_table->counts[ 1 ] = 1;
-	null_table->scale = 2;
+	table* null_table = new table;
+	null_table->counts = std::vector<uint16_t>(2, uint16_t(1));
+	null_table->scale = uint32_t(2);
 	
 	// set up start table
-	start_table = ( table* ) calloc( 1, sizeof( table ) );
-    if ( start_table == NULL ) ERROR_EXIT;	
-	start_table->links = ( table** ) calloc( max_context, sizeof( table* ) );
-	if ( start_table->links == NULL ) ERROR_EXIT;
-	start_table->scale = 0;
-	
-	// build links for start table & null table
-	start_table->lesser = null_table;
-	null_table->links = ( table** ) calloc( max_context, sizeof( table* ) );
-	if ( null_table->links == NULL ) ERROR_EXIT;
-	for ( i = 0; i < max_context; i++ )
-		null_table->links[ i ] = start_table;
-	
-	// alloc memory for storage & contexts
-	storage = ( table** ) calloc( max_order + 3, sizeof( table* ) );
-	if ( storage == NULL ) ERROR_EXIT;
-	contexts = storage + 1;
-	
+	table* start_table = new table;
+	start_table->links = std::vector<table*>(max_context);
+		
 	// integrate tables into contexts
-	contexts[ -1 ] = null_table;
-	contexts[  0 ] = start_table;
+	contexts[ 0 ] = null_table;
+	contexts[ 1 ] = start_table;
 	
 	// build initial 'normal' tables
-	for ( i = 1; i <= max_order; i++ ) {
+	for (int i = 2; i <= max_order; i++ ) {
 		// set up current order table
-		contexts[ i ] = ( table* ) calloc( 1, sizeof( table ) );
-	    if ( contexts[ i ] == NULL ) ERROR_EXIT;
-		contexts[ i ]->scale = 0;
-		// build forward and backward links
-		contexts[ i ]->lesser = contexts[ i - 1 ];
+		contexts[i] = new table;
+		// build forward links
 		if ( i < max_order ) {
-			contexts[ i ]->links = ( table** ) calloc( max_context, sizeof( table* ) );
-			if ( contexts[ i ]->links == NULL ) ERROR_EXIT;
-		}
-		else {
-			contexts[ i ]->links = NULL;
+			contexts[i]->links = std::vector<table*>(max_context);
 		}
 		contexts[ i - 1 ]->links[ 0 ] = contexts[ i ];
 	}
@@ -790,24 +585,13 @@ model_b::model_b( int max_c, int max_o, int c_lim )
 	model class destructor - recursive cleanup of memory is done here
 	----------------------------------------------- */
 	
-model_b::~model_b( void )
+model_b::~model_b()
 {
-	table* context;
-	
-	
 	// clean up each 'normal' table
-	context = contexts[ 0 ];
-	recursive_cleanup ( context );
+	delete contexts[1];
 	
 	// clean up null table
-	context = contexts[ -1 ];	
-	if ( context->links  != NULL )
-		free( context->links  );
-	if ( context->counts != NULL ) free( context->counts );
-	free ( context );
-	
-	// free everything else
-	free( storage );
+	delete contexts[0];
 }
 
 
@@ -830,7 +614,7 @@ void model_b::update_model( int symbol )
 		// if counts for that symbol have gone above the maximum count
 		// the table has to be resized (scale factor 2)
 		if ( context->counts[ symbol ] >= max_count )
-			rescale_table( context, 1 );
+			context->rescale_table();
 	}
 }
 
@@ -841,38 +625,23 @@ void model_b::update_model( int symbol )
 	
 void model_b::shift_context( int c )
 {
-	table* context;
-	int i;
-	
 	// shifting is not possible if max_order is below 1
 	// or context index is negative
-	if ( ( max_order < 1 ) || ( c < 0 ) ) return;
+	if ( (max_order < 2 ) || ( c < 0 ) ) return;
 	
 	// shift each orders' context
-	for ( i = max_order; i > 0; i-- ) {
+	for (int i = max_order; i > 1; i-- ) {
 		// this is the new current order context
-		context = contexts[ i - 1 ]->links[ c ];
+		table* context = contexts[ i - 1 ]->links[ c ];
 		
 		// check if context exists, build if needed
-		if ( context == NULL ) {
+		if ( context == nullptr ) {
 			// reserve memory for next table
-			context = ( table* ) calloc( 1, sizeof( table ) );
-			if ( context == NULL ) ERROR_EXIT;			
-			// set internal counts NULL
-			context->counts = NULL;
-			context->scale  = 0;	
-			// link lesser context later if not existing, this is done below
-			context->lesser = contexts[ i - 2 ]->links[ c ];
+			context = new table;		
 			// finished here if this is a max order context
-			if ( i == max_order ) {
-				context->links = NULL;
-			}
-			else {
+			if ( i < max_order) {
 				// build links to higher order tables otherwise
-				context->links = ( table** ) calloc( max_context, sizeof( table* ) );
-				if ( context->links == NULL ) ERROR_EXIT;
-				// add lesser link for higher context (see above)
-				contexts[ i + 1 ]->lesser = context;
+				context->links.resize(max_context);
 			}
 			// put context to its right place
 			contexts[ i - 1 ]->links[ c ] = context;
@@ -885,12 +654,12 @@ void model_b::shift_context( int c )
 
 
 /* -----------------------------------------------
-	flushes the whole model by dividing through a specific scale factor
+	Flushes the entire model by calling rescale_table on all contexts.
 	----------------------------------------------- */
 	
-void model_b::flush_model( int scale_factor )
+void model_b::flush_model()
 {
-	recursive_flush( contexts[ 0 ], scale_factor );
+	contexts[1]->recursive_flush();
 }
 
 
@@ -903,14 +672,14 @@ int model_b::convert_int_to_symbol( int c, symbol *s )
 	table* context = contexts[ max_order ];
 	
 	// check if counts are available
-	check_counts( context );
+	context->check_counts();
 	
 	// finding the scale is easy
 	s->scale = context->scale;
 	
 	// return high and low count for current symbol
 	if ( c == 0 ) { // if 0 is to be encoded
-		s->low_count  = 0;
+		s->low_count  = uint32_t(0);
 		s->high_count = context->counts[ 0 ];
 	}
 	else { // if 1 is to be encoded
@@ -931,7 +700,7 @@ void model_b::get_symbol_scale( symbol *s )
 	table* context = contexts[ max_order ];
 	
 	// check if counts are available
-	check_counts( context );
+	context->check_counts();
 	
 	// getting the scale is easy
 	s->scale = context->scale;
@@ -942,14 +711,14 @@ void model_b::get_symbol_scale( symbol *s )
 	converts a count to an int, called after get_symbol_scale
 	----------------------------------------------- */
 	
-int model_b::convert_symbol_to_int( int count, symbol *s )
+int model_b::convert_symbol_to_int(uint32_t count, symbol *s)
 {
 	table* context = contexts[ max_order ];
-	unsigned short counts0 = context->counts[ 0 ];
+	auto counts0 = context->counts[ 0 ];
 	
 	// set up the current symbol
 	if ( count < counts0 ) {
-		s->low_count  = 0;
+		s->low_count  = uint32_t(0);
 		s->high_count = counts0;
 		return 0;
 	}
@@ -958,87 +727,4 @@ int model_b::convert_symbol_to_int( int count, symbol *s )
 		s->high_count = s->scale;
 		return 1;
 	}
-}
-
-
-/* -----------------------------------------------
-	this function checks if counts exist, and, if they exist and are below max
-	----------------------------------------------- */
-	
-inline void model_b::check_counts( table *context )
-{
-	unsigned short* counts = context->counts;
-	
-	// check if counts are available
-	if ( counts == NULL ) {
-		// setup counts for current table
-		counts = ( unsigned short* ) calloc( 2, sizeof( short ) );
-		if ( counts == NULL ) ERROR_EXIT;
-		counts[ 0 ] = 1;
-		counts[ 1 ] = 1;
-		// set scale
-		context->counts = counts;
-		context->scale = 2;
-	}
-}
-
-
-/* -----------------------------------------------
-	resizes one table by bitshifting each count using a specific value
-	----------------------------------------------- */
-	
-inline void model_b::rescale_table( table* context, int scale_factor )
-{
-	unsigned short* counts = context->counts;
-	
-	// return now if counts not set
-	if ( counts == NULL ) return;
-	
-	// now scale the table by bitshifting each count, be careful not to set any count zero
-	counts[ 0 ] >>= scale_factor;
-	counts[ 1 ] >>= scale_factor;
-	if ( counts[ 0 ] == 0 ) counts[ 0 ] = 1;
-	if ( counts[ 1 ] == 0 ) counts[ 1 ] = 1;
-	context->scale = counts[ 0 ] + counts[ 1 ];
-}
-
-
-/* -----------------------------------------------
-	a recursive function to go through each context and rescale the counts
-	----------------------------------------------- */
-	
-inline void model_b::recursive_flush( table* context, int scale_factor )
-{
-	int i;
-
-	// go through each link != NULL
-	if ( context->links != NULL )
-		for ( i = 0; i < max_context; i++ )
-			if ( context->links[ i ] != NULL )
-				recursive_flush( context->links[ i ], scale_factor );
-    
-	// rescale specific table
-	rescale_table( context, scale_factor );
-}
-
-
-/* -----------------------------------------------
-	frees all memory for all contexts starting at a given table
-	----------------------------------------------- */
-	
-inline void model_b::recursive_cleanup( table *context )
-{
-	int i;
-
-	// go through each link != NULL
-	if ( context->links != NULL ) {
-		for ( i = 0; i < max_context; i++ )
-			if ( context->links[ i ] != NULL )
-				recursive_cleanup( context->links[ i ] );
-		free ( context->links );
-	}
-	
-	// clean up table	
-	if ( context->counts != NULL ) free ( context->counts );	
-	free( context );
 }

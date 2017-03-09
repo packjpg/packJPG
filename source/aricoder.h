@@ -1,46 +1,150 @@
-// defines for coder
-#define CODER_USE_BITS		31 // must never be above 31
-#define CODER_LIMIT100		( (unsigned int) ( 1 << CODER_USE_BITS ) )
-#define CODER_LIMIT025		( ( CODER_LIMIT100 / 4 ) * 1 )
-#define CODER_LIMIT050		( ( CODER_LIMIT100 / 4 ) * 2 )
-#define CODER_LIMIT075		( ( CODER_LIMIT100 / 4 ) * 3 )
-#define CODER_MAXSCALE		CODER_LIMIT025 - 1
-#define ESCAPE_SYMBOL		CODER_LIMIT025
+#ifndef ARICODER_H
+#define ARICODER_H
 
+#include <cstdint>
+
+#include "bitops.h"
+#include <vector>
+#include <algorithm>
+
+// defines for coder
+constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
+constexpr uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
+constexpr uint32_t CODER_LIMIT025 = CODER_LIMIT100 / 4;
+constexpr uint32_t CODER_LIMIT050 = (CODER_LIMIT100 / 4) * 2;
+constexpr uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
+constexpr uint32_t CODER_MAXSCALE = CODER_LIMIT025 - 1;
+constexpr uint32_t ESCAPE_SYMBOL = CODER_LIMIT025;
 
 // symbol struct, used in arithmetic coding
 struct symbol {
-    unsigned int low_count;
-	unsigned int high_count;
-	unsigned int scale;
+	uint32_t low_count;
+	uint32_t high_count;
+	uint32_t scale;
 };
 
 // table struct, used in in statistical models,
 // holding all info needed for one context
 struct table {
 	// counts for each symbol contained in the table
-	unsigned short* counts;
+	std::vector<uint16_t> counts;
 	// links to higher order contexts
-	struct table** links;
-	// link to lower order context
-	struct table* lesser;	
+	std::vector<table*> links;
 	// accumulated counts
-	unsigned int scale;
+	uint32_t scale = uint32_t(0);
+
+	/* -----------------------------------------------
+	Recursively deletes all the tables pointed to in links.
+	----------------------------------------------- */
+	~table() {
+		for (auto& link : links) {
+			if (link != nullptr) {
+				delete link;
+			}
+		}
+	}
+
+	/* -----------------------------------------------
+	Checks if counts exist, creating it if it does not.
+	----------------------------------------------- */
+	inline void check_counts() {
+		// check if counts are available
+		if (counts.empty()) {
+			// setup counts for current table
+			counts.resize(2, uint16_t(1));
+			// set scale
+			scale = uint32_t(2);
+		}
+	}
+
+	/* -----------------------------------------------
+	Resizes the table by rightshifting each count by 1.
+	----------------------------------------------- */
+	inline void rescale_table() {
+		// Do nothing if counts is not set:
+		if (!counts.empty()) {
+			// Scale the table by bitshifting each count, be careful not to set any count zero:
+			counts[0] = std::max(uint16_t(1), uint16_t(counts[0] >> 1));
+			counts[1] = std::max(uint16_t(1), uint16_t(counts[1] >> 1));
+			scale = counts[0] + counts[1];
+		}
+	}
+
+	/* -----------------------------------------------
+	Recursively runs rescale_table on this and all linked contexts.
+	----------------------------------------------- */
+	inline void recursive_flush() {
+		for (auto& link : links) {
+			if (link != nullptr) {
+				link->recursive_flush();
+			}
+		}
+		// rescale specific table
+		rescale_table();
+	}
 };
 
 // special table struct, used in in model_s,
 // holding additional info for a speedier 'totalize_table'
 struct table_s {
 	// counts for each symbol contained in the table
-	unsigned short* counts;
+	std::vector<uint16_t> counts;
 	// links to higher order contexts
-	struct table_s** links;
-	// link to lower order context
-	struct table_s* lesser;
+	std::vector<table_s*> links;
 	// speedup info
-	unsigned short max_count;
-	unsigned short max_symbol;
-	// unsigned short esc_prob;
+	uint16_t max_count = uint16_t(0);
+	uint16_t max_symbol = uint16_t(0);
+
+	/* -----------------------------------------------
+	Recursively deletes all the tables pointed to in links.
+	----------------------------------------------- */
+	~table_s() {
+		for (auto& link : links) {
+			if (link != nullptr) {
+				delete link;
+			}
+		}
+	}
+
+	/* -----------------------------------------------
+	Resizes the table by rightshifting each count by 1.
+	----------------------------------------------- */
+	inline void rescale_table() {
+		// Nothing to do if counts has not been set.
+		if (counts.empty()) return;
+
+		// now scale the table by bitshifting each count
+		int lst_symbol = max_symbol;
+		int i;
+		for (i = 0; i < lst_symbol; i++) {
+			counts[i] >>= 1; // Counts will not become negative since it is an unsigned type.
+		}
+
+		// also rescale tables max count
+		max_count >>= 1;
+
+		// seek for new last symbol
+		for (i = lst_symbol - 1; i >= 0; i--) {
+			if (counts[i] > 0) {
+				break;
+			}
+		}
+		max_symbol = i + 1;
+	}
+
+	/* -----------------------------------------------
+	Recursively runs rescale_table on this and all linked contexts.
+	----------------------------------------------- */
+	inline void recursive_flush() {
+		for (auto& link : links) {
+			if (link != nullptr) {
+				link->recursive_flush();
+			}
+		}
+
+		// rescale specific table
+		rescale_table();
+	}
 };
 
 
@@ -51,29 +155,44 @@ struct table_s {
 class aricoder
 {
 	public:
-	aricoder( iostream* stream, int iomode );
-	~aricoder( void );
+	aricoder( iostream* stream, StreamMode iomode );
+	~aricoder();
 	void encode( symbol* s );
 	unsigned int decode_count( symbol* s );
 	void decode( symbol* s );
 	
 	private:
-	// bitwise operations
-	void write_bit( unsigned char bit );
-	unsigned char read_bit( void );
+
+	template<uint8_t bit>
+	void write_bit() {
+		// add bit at last position
+		bbyte = (bbyte << 1) | bit;
+		// increment bit position
+		cbit++;
+
+		// write bit if done
+		if (cbit == 8) {
+			sptr->write_byte(bbyte);
+			cbit = 0;
+		}
+	}
+	
+	void writeNrbitsAsZero();
+	void writeNrbitsAsOne();
+	unsigned char read_bit();
 	
 	// i/o variables
-	iostream* sptr;
-	int mode;
-	unsigned char bbyte;
-	unsigned char cbit;
+	iostream* sptr; // Pointer to iostream for reading/writing.
+	const StreamMode mode;
+	unsigned char bbyte = 0;
+	unsigned char cbit = 0;
 	
 	// arithmetic coding variables
-	unsigned int ccode;
-	unsigned int clow;
-	unsigned int chigh;
-	unsigned int cstep;
-	unsigned int nrbits;
+	unsigned int ccode = 0;
+	unsigned int clow = 0;
+	unsigned int chigh = CODER_LIMIT100 - 1;
+	unsigned int cstep = 0;
+	unsigned int nrbits = 0;
 };
 
 
@@ -86,39 +205,32 @@ class model_s
 	public:
 	
 	model_s( int max_s, int max_c, int max_o, int c_lim );
-	~model_s( void );
+	~model_s();
 	
 	void update_model( int symbol );
 	void shift_context( int c );
-	void flush_model( int scale_factor );
-	void exclude_symbols( char rule, int c );
+	void flush_model();
+	void exclude_symbols(int c);
 	
 	int  convert_int_to_symbol( int c, symbol *s );
 	void get_symbol_scale( symbol *s );
-	int  convert_symbol_to_int( int count, symbol *s );
-	
-	bool error;
-	
+	int  convert_symbol_to_int(uint32_t count, symbol *s);
 	
 	private:
-	
-	// unsigned short* totals;
-	unsigned int* totals;
-	char* scoreboard;
-	int sb0_count;
-	table_s **contexts;
-	table_s **storage;
-	
-	int max_symbol;
-	int max_context;
+
+	inline void totalize_table(table_s* context);
+
+	const int max_symbol;
+	const int max_context;
+	const int max_order;
+	const int max_count;
+
 	int current_order;
-	int max_order;
-	int max_count;
+	int sb0_count;
 	
-	inline void totalize_table(table_s* context );
-	inline void rescale_table(table_s* context, int scale_factor );
-	inline void recursive_flush(table_s* context, int scale_factor );
-	inline void recursive_cleanup(table_s* context );
+	std::vector<uint32_t> totals;
+	bool* scoreboard;
+	std::vector<table_s*> contexts;
 };
 
 
@@ -131,84 +243,43 @@ class model_b
 	public:
 	
 	model_b( int max_c, int max_o, int c_lim );
-	~model_b( void );
+	~model_b();
 	
 	void update_model( int symbol );
 	void shift_context( int c );
-	void flush_model( int scale_factor );
+	void flush_model();
 	
 	int  convert_int_to_symbol( int c, symbol *s );
 	void get_symbol_scale( symbol *s );
-	int  convert_symbol_to_int( int count, symbol *s );
-	
-	bool error;
-	
+	int  convert_symbol_to_int(uint32_t count, symbol *s);	
 	
 	private:
 	
-	table **contexts;
-	table **storage;
+	const int max_context;
+	const int max_order;
+	const int max_count;
 	
-	int max_context;
-	int max_order;
-	int max_count;
-	
-	inline void check_counts( table *context );
-	inline void rescale_table( table* context, int scale_factor );
-	inline void recursive_flush( table* context, int scale_factor );
-	inline void recursive_cleanup( table *context );
+	std::vector<table*> contexts;
 };
 
+// Base case for shifting an arbitrary number of contexts into the model.
+template <typename M>
+static void shift_model(M) {}
 
-/* -----------------------------------------------
-	shift context x2 model_s function
-	----------------------------------------------- */
-static inline void shift_model( model_s* model, int ctx1, int ctx2 )
-{
-	model->shift_context( ctx1 );
-	model->shift_context( ctx2 );
+// Shift an arbitrary number of contexts into the model (at most max_c contexts).
+template <typename M, typename C, typename... Cargs>
+static void shift_model(M model, C context, Cargs ... contextList) {
+	model->shift_context(context);
+	shift_model(model, contextList...);
 }
-
-
-/* -----------------------------------------------
-	shift context x3 model_s function
-	----------------------------------------------- */
-static inline void shift_model( model_s* model, int ctx1, int ctx2, int ctx3 )
-{
-	model->shift_context( ctx1 );
-	model->shift_context( ctx2 );
-	model->shift_context( ctx3 );
-}
-
-
-/* -----------------------------------------------
-	shift context x2 model_b function
-	----------------------------------------------- */
-static inline void shift_model( model_b* model, int ctx1, int ctx2 )
-{
-	model->shift_context( ctx1 );
-	model->shift_context( ctx2 );
-}
-
-
-/* -----------------------------------------------
-	shift context x3 model_b function
-	----------------------------------------------- */
-static inline void shift_model( model_b* model, int ctx1, int ctx2, int ctx3 )
-{
-	model->shift_context( ctx1 );
-	model->shift_context( ctx2 );
-	model->shift_context( ctx3 );
-}
-
 
 /* -----------------------------------------------
 	generic model_s encoder function
 	----------------------------------------------- */
 static inline void encode_ari( aricoder* encoder, model_s* model, int c )
 {
-	static symbol s;
-	static int esc;
+	symbol s;
+	int esc;
 	
 	do {		
 		esc = model->convert_int_to_symbol( c, &s );
@@ -222,9 +293,9 @@ static inline void encode_ari( aricoder* encoder, model_s* model, int c )
 	----------------------------------------------- */	
 static inline int decode_ari( aricoder* decoder, model_s* model )
 {
-	static symbol s;
-	static unsigned int count;
-	static int c;
+	symbol s;
+	uint32_t count;
+	int c;
 	
 	do{
 		model->get_symbol_scale( &s );
@@ -242,7 +313,7 @@ static inline int decode_ari( aricoder* decoder, model_s* model )
 	----------------------------------------------- */	
 static inline void encode_ari( aricoder* encoder, model_b* model, int c )
 {
-	static symbol s;
+	symbol s;
 	
 	model->convert_int_to_symbol( c, &s );
 	encoder->encode( &s );
@@ -254,15 +325,15 @@ static inline void encode_ari( aricoder* encoder, model_b* model, int c )
 	----------------------------------------------- */	
 static inline int decode_ari( aricoder* decoder, model_b* model )
 {
-	static symbol s;
-	static unsigned int count;
-	static int c;
+	symbol s;
 	
 	model->get_symbol_scale( &s );
-	count = decoder->decode_count( &s );
-	c = model->convert_symbol_to_int( count, &s );
+	uint32_t count = decoder->decode_count( &s );
+	int c = model->convert_symbol_to_int( count, &s );
 	decoder->decode( &s );	
 	model->update_model( c );
 	
 	return c;
 }
+
+#endif
