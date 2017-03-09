@@ -269,6 +269,7 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <array>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -4672,32 +4673,25 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 	----------------------------------------------- */
 void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 {
-	model_s* model;
-	
-	unsigned char freqlist[ 64 ];
-	int tpos; // true position
-	int cpos; // coded position
-	int c, i;
-	
-	
 	// calculate zero sort scan
 	pjg::encode::get_zerosort_scan( pjg::zsrtscan[cmp], cmp );
 	
 	// preset freqlist
-	for ( i = 0; i < 64; i++ )
-		freqlist[ i ] = stdscan[ i ];
+	std::array<std::uint8_t, 64> freqlist;
+	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
 		
 	// init model
-	model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S( 64, 64, 1 );
 	
 	// encode scanorder
-	for ( i = 1; i < 64; i++ )
+	for (int i = 1; i < 64; i++ )
 	{			
 		// reduce range of model
 		model->exclude_symbols(64 - i);
 		
 		// compare remaining list to remainnig scan
-		tpos = 0;
+		int tpos = 0; // True position.
+		int c;
 		for ( c = i; c < 64; c++ ) {
 			// search next val != 0 in list
 			for ( tpos++; freqlist[ tpos ] == 0; tpos++ );
@@ -4712,7 +4706,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 		}
 		
 		// list is not in sorted order -> next pos hat to be encoded
-		cpos = 1;
+		int cpos = 1; // Coded position.
 		// encode position
 		for ( tpos = 0; freqlist[ tpos ] != pjg::zsrtscan[ cmp ][ i ]; tpos++ )
 			if ( freqlist[ tpos ] != 0 ) cpos++;
@@ -4725,7 +4719,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	}
 	
 	// delete model
-	delete( model );
+	delete model;
 	
 	// set zero sort scan as pjg::freqscan
 	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
@@ -4737,23 +4731,15 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	----------------------------------------------- */
 void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 {
-	model_s* model;
-	
-	unsigned char* zdstls;
-	int dpos;
-	int a, b;
-	int bc;
-	int w;
-	
-	
 	// init model, constants
-	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
-	zdstls = pjg::zdstdata[ cmp ];
-	w = cmpnfo[cmp].bch;
-	bc = cmpnfo[cmp].bc;
+	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	const unsigned char* zdstls = pjg::zdstdata[ cmp ];
+	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list
-	for ( dpos = 0; dpos < bc; dpos++ ) {
+	int a, b;
+	for (int dpos = 0; dpos < bc; dpos++ ) {
 		// context modelling - use average of above and left as context
 		get_context_nnb( dpos, w, &a, &b );
 		a = ( a >= 0 ) ? zdstls[ a ] : 0;
@@ -4765,7 +4751,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	}
 	
 	// clean up
-	delete( model );
+	delete model;
 }
 
 
@@ -4774,42 +4760,30 @@ void pjg::encode::zdst_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	----------------------------------------------- */
 void pjg::encode::zdst_low(const std::unique_ptr<aricoder>& enc, int cmp)
 {
-	model_s* model;
-	
-	unsigned char* zdstls_x;
-	unsigned char* zdstls_y;
-	unsigned char* ctx_zdst;
-	unsigned char* ctx_eobx;
-	unsigned char* ctx_eoby;
-	
-	int dpos;
-	int bc;
-	
-	
 	// init model, constants
-	model = INIT_MODEL_S( 8, 8, 2 );
-	zdstls_x = pjg::zdstxlow[ cmp ];
-	zdstls_y = pjg::zdstylow[ cmp ];
-	ctx_eobx = pjg::eobxhigh[ cmp ];
-	ctx_eoby = pjg::eobyhigh[ cmp ];
-	ctx_zdst = pjg::zdstdata[ cmp ];
-	bc = cmpnfo[cmp].bc;
+	auto model = INIT_MODEL_S( 8, 8, 2 );
+	const unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
+	const unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
+	const unsigned char* ctx_eobx = pjg::eobxhigh[ cmp ];
+	const unsigned char* ctx_eoby = pjg::eobyhigh[ cmp ];
+	const unsigned char* ctx_zdst = pjg::zdstdata[ cmp ];
+	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
-	for ( dpos = 0; dpos < bc; dpos++ ) {
+	for (int dpos = 0; dpos < bc; dpos++ ) {
 		model->shift_context( ( ctx_zdst[dpos] + 3 ) / 7 ); // shift context
 		model->shift_context( ctx_eobx[dpos] ); // shift context
 		enc->encode_ari( model, zdstls_x[ dpos ] ); // encode symbol
 	}
 	// arithmetic encode zero-distribution-list (first collumn)
-	for ( dpos = 0; dpos < bc; dpos++ ) {
+	for (int dpos = 0; dpos < bc; dpos++ ) {
 		model->shift_context( ( ctx_zdst[dpos] + 3 ) / 7 ); // shift context
 		model->shift_context( ctx_eoby[dpos] ); // shift context
 		enc->encode_ari( model, zdstls_y[ dpos ] ); // encode symbol
 	}
 	
 	// clean up
-	delete( model );
+	delete model;
 }
 
 
@@ -4817,50 +4791,25 @@ void pjg::encode::zdst_low(const std::unique_ptr<aricoder>& enc, int cmp)
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
 void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
-{
-	unsigned char* segm_tab;
-	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* zdstls; // pointer to zero distribution list
-	signed short* coeffs; // pointer to current coefficent data
-	
+{	
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 
-	int ctx_avr; // 'average' context
-	int ctx_len; // context for bit length
-	
-	int max_val; // max value
-	int max_len; // max bitlength
-	
-	int dpos;
-	int clen, absv, sgn;
-	int snum;
-	int bt, bp;
-	
-	int p_x, p_y;
-	int r_x; //, r_y;
-	int w, bc;
-	
-	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
-	max_val = MAX_V( cmp, 0 );
-	max_len = BITLEN1024P( max_val );
+	const int max_val = MAX_V( cmp, 0 ); // Max value.
+	const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
-	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 1, 0 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values storage
 	auto absv_store = std::vector<unsigned short>(bc); // absolute coefficients values storage
@@ -4869,23 +4818,23 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	coeffs = colldata[ cmp ][ 0 ];
-	zdstls = pjg::zdstdata[ cmp ];	
+	const short* coeffs = colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	const unsigned char* zdstls = pjg::zdstdata[ cmp ];	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
-	for ( dpos = 0; dpos < bc; dpos++ )
+	for (int dpos = 0; dpos < bc; dpos++ )
 	{		
 		//calculate x/y positions in band
-		p_y = dpos / w;
+		const int p_y = dpos / w;
 		// r_y = h - ( p_y + 1 );
-		p_x = dpos % w;
-		r_x = w - ( p_x + 1 );
+		const int p_x = dpos % w;
+		const int r_x = w - ( p_x + 1 );
 		
 		// get segment-number from zero distribution list and segmentation set
-		snum = segm_tab[ zdstls[dpos] ];
+		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context
+		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
+		const int ctx_len = BITLEN1024P( ctx_avr ); // Bitlength context.
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
 		
@@ -4896,17 +4845,17 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 		}
 		else {
 			// get absolute val, sign & bit length for current coefficient
-			absv = ABS( coeffs[dpos] );
-			clen = BITLEN1024P( absv );
-			sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
+			const int absv = ABS( coeffs[dpos] );
+			const int clen = BITLEN1024P( absv );
+			const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 			// encode bit length of current coefficient
 			enc->encode_ari( mod_len, clen );
 			// encoding of residual
 			// first set bit must be 1, so we start at clen - 2
-			for ( bp = clen - 2; bp >= 0; bp-- ) {
+			for (int bp = clen - 2; bp >= 0; bp-- ) {
 				shift_model( mod_res, snum, bp ); // shift in 2 contexts
 				// encode/get bit
-				bt = BITN( absv, bp );
+				const int bt = BITN( absv, bp );
 				enc->encode_ari( mod_res, bt );
 			}
 			// encode sign
@@ -4917,9 +4866,9 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	}
 	
 	// clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
+	delete mod_len;
+	delete mod_res;
+	delete mod_sgn;
 }
 
 
@@ -4927,53 +4876,21 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
 void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
-{
-	unsigned char* segm_tab;
-	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* eob_x; // pointer to x eobs
-	unsigned char* eob_y; // pointer to y eobs
-	signed short* coeffs; // pointer to current coefficent data
-	
+{	
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 	
-	unsigned char* sgn_nbh; // left signs neighbor
-	unsigned char* sgn_nbv; // upper signs neighbor
-
-	int ctx_avr; // 'average' context
-	int ctx_len; // context for bit length
-	int ctx_sgn; // context for sign
-	
-	int max_val; // max value
-	int max_len; // max bitlength
-	
-	int bpos, dpos;
-	int clen, absv, sgn;
-	int snum;
-	int bt, bp;
-	int i;
-	
-	int b_x, b_y;
-	int p_x, p_y;
-	int r_x; //, r_y;
-	int w, bc;
-	
-	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 9, 1 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values & signs storage
 	auto absv_store = std::vector<unsigned short>(bc);	// absolute coefficients values storage
@@ -4981,24 +4898,24 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	auto zdstls = std::vector<unsigned char>(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	sgn_nbh = sgn_store.data() - 1;
-	sgn_nbv = sgn_store.data() - w;
+	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	eob_x = pjg::eobxhigh[ cmp ];
-	eob_y = pjg::eobyhigh[ cmp ];
+	unsigned char* eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
+	unsigned char* eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
 	
 	// preset x/y eobs
-	memset( eob_x, 0x00, bc * sizeof( char ) );
-	memset( eob_y, 0x00, bc * sizeof( char ) );
+	std::fill(eob_x, eob_x + bc, unsigned char(0));
+	std::fill(eob_y, eob_y + bc, unsigned char(0));
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
-	for ( i = 1; i < 64; i++ )
+	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		bpos = (int) pjg::freqscan[cmp][i];
-		b_x = unzigzag[ bpos ] % 8;
-		b_y = unzigzag[ bpos ] / 8;
+		const int bpos = (int) pjg::freqscan[cmp][i];
+		const int b_x = unzigzag[ bpos ] % 8;
+		const int b_y = unzigzag[ bpos ] / 8;
 	
 		if ( ( b_x == 0 ) || ( b_y == 0 ) )
 			continue; // process remaining coefficients elsewhere
@@ -5011,30 +4928,29 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 		pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		const short* coeffs = colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		max_val = MAX_V( cmp, bpos );
-		max_len = BITLEN1024P( max_val );
+		const int max_val = MAX_V( cmp, bpos ); // Max value.
+		const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 		
 		// arithmetic compression loo
-		for ( dpos = 0; dpos < bc; dpos++ )
+		for (int dpos = 0; dpos < bc; dpos++ )
 		{		
 			// skip if beyound eob
 			if ( zdstls[dpos] == 0 )
 				continue;
 		
 			//calculate x/y positions in band
-			p_y = dpos / w;
-			// r_y = h - ( p_y + 1 );
-			p_x = dpos % w;
-			r_x = w - ( p_x + 1 );
+			const int p_y = dpos / w;
+			const int p_x = dpos % w;
+			const int r_x = w - ( p_x + 1 );
 		
 			// get segment-number from zero distribution list and segmentation set
-			snum = segm_tab[ zdstls[dpos] ];
+			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
+			const int ctx_len = BITLEN1024P( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
 			mod_len->exclude_symbols(max_len);		
@@ -5046,21 +4962,21 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 			}
 			else {
 				// get absolute val, sign & bit length for current coefficient
-				absv = ABS( coeffs[dpos] );
-				clen = BITLEN1024P( absv );
-				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
+				const int absv = ABS( coeffs[dpos] );
+				const int clen = BITLEN1024P( absv );
+				const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient				
 				enc->encode_ari( mod_len, clen );
 				// encoding of residual
 				// first set bit must be 1, so we start at clen - 2
-				for ( bp = clen - 2; bp >= 0; bp-- ) { 
+				for (int bp = clen - 2; bp >= 0; bp-- ) { 
 					shift_model( mod_res, snum, bp ); // shift in 2 contexts
 					// encode/get bit
-					bt = BITN( absv, bp );
+					const int bt = BITN( absv, bp );
 					enc->encode_ari( mod_res, bt );
 				}
 				// encode sign				
-				ctx_sgn = ( p_x > 0 ) ? sgn_nbh[ dpos ] : 0; // sign context
+				int ctx_sgn = ( p_x > 0 ) ? sgn_nbh[ dpos ] : 0; // Sign context.
 				if ( p_y > 0 ) ctx_sgn += 3 * sgn_nbv[ dpos ]; // IMPROVE !!!!!!!!!!!
 				mod_sgn->shift_context( ctx_sgn );
 				enc->encode_ari( mod_sgn, sgn );
@@ -5229,21 +5145,15 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 	----------------------------------------------- */
 bool pjg::encode::generic( const std::unique_ptr<aricoder>& enc, unsigned char* data, int len )
 {
-	model_s* model;
-	int i;
-	
-	
 	// arithmetic encode data
-	model = INIT_MODEL_S( 256 + 1, 256, 1 );
-	for ( i = 0; i < len; i++ )
-	{
+	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	for (int i = 0; i < len; i++ ) {
 		enc->encode_ari( model, data[ i ] );
 		model->shift_context( data[ i ] );
 	}
 	// encode end-of-data symbol (256)
 	enc->encode_ari( model, 256 );
-	delete( model );
-	
+	delete model;
 	
 	return true;
 }
@@ -5254,13 +5164,10 @@ bool pjg::encode::generic( const std::unique_ptr<aricoder>& enc, unsigned char* 
 	----------------------------------------------- */
 void pjg::encode::bit(const std::unique_ptr<aricoder>& enc, unsigned char bit)
 {
-	model_b* model;
-	
-	
 	// encode one bit
-	model = INIT_MODEL_B( 1, -1 );
+	auto model = INIT_MODEL_B( 1, -1 );
 	enc->encode_ari( model, bit );
-	delete( model );
+	delete model;
 }
 
 
@@ -5268,33 +5175,27 @@ void pjg::encode::bit(const std::unique_ptr<aricoder>& enc, unsigned char bit)
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
 void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
-{	
-	model_s* model;
-	
-	unsigned char freqlist[ 64 ];
+{		
 	int tpos; // true position
-	int cpos; // coded position
-	int i;
-	
 	
 	// set first position in zero sort scan
 	pjg::zsrtscan[ cmp ][ 0 ] = 0;
 	
 	// preset freqlist
-	for ( i = 0; i < 64; i++ )
-		freqlist[ i ] = stdscan[ i ];
+	std::array<std::uint8_t, 64> freqlist;
+	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
 		
 	// init model
-	model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S( 64, 64, 1 );
 	
 	// encode scanorder
-	for ( i = 1; i < 64; i++ )
+	for (int i = 1; i < 64; i++ )
 	{			
 		// reduce range of model
 		model->exclude_symbols(64 - i);
 		
 		// decode symbol
-		cpos = dec->decode_ari(model );
+		int cpos = dec->decode_ari(model ); // coded position	
 		model->shift_context( cpos );
 		
 		if ( cpos == 0 ) {
@@ -5320,7 +5221,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	}
 	
 	// delete model
-	delete( model  );		
+	delete model;		
 	
 	// set zero sort scan as pjg::freqscan
 	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
@@ -5331,24 +5232,16 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	decodes # of non zeroes from pjg (high)
 	----------------------------------------------- */
 void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
-{
-	model_s* model;
-	
-	unsigned char* zdstls;
-	int dpos;
-	int a, b;
-	int bc;
-	int w;
-	
-	
+{		
 	// init model, constants
-	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
-	zdstls = pjg::zdstdata[ cmp ];
-	w = cmpnfo[cmp].bch;
-	bc = cmpnfo[cmp].bc;
+	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	unsigned char* zdstls = pjg::zdstdata[ cmp ];
+	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic decode zero-distribution-list
-	for ( dpos = 0; dpos < bc; dpos++ )	{			
+	int a, b;
+	for (int dpos = 0; dpos < bc; dpos++ )	{			
 		// context modelling - use average of above and left as context		
 		get_context_nnb( dpos, w, &a, &b );
 		a = ( a >= 0 ) ? zdstls[ a ] : 0;
@@ -5360,7 +5253,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	}
 	
 	// clean up
-	delete( model );
+	delete model;
 }
 
 
@@ -5369,42 +5262,32 @@ void pjg::decode::zdst_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	----------------------------------------------- */
 void pjg::decode::zdst_low(const std::unique_ptr<aricoder>& dec, int cmp)
 {
-	model_s* model;
-	
-	unsigned char* zdstls_x;
-	unsigned char* zdstls_y;
-	unsigned char* ctx_zdst;
-	unsigned char* ctx_eobx;
-	unsigned char* ctx_eoby;
-	
-	int dpos;
-	int bc;
-	
-	
 	// init model, constants
-	model = INIT_MODEL_S( 8, 8, 2 );
-	zdstls_x = pjg::zdstxlow[ cmp ];
-	zdstls_y = pjg::zdstylow[ cmp ];
-	ctx_eobx = pjg::eobxhigh[ cmp ];
-	ctx_eoby = pjg::eobyhigh[ cmp ];
-	ctx_zdst = pjg::zdstdata[ cmp ];
-	bc = cmpnfo[cmp].bc;
+	auto model = INIT_MODEL_S( 8, 8, 2 );
+
+	unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
+	unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
+
+	const unsigned char* ctx_eobx = pjg::eobxhigh[ cmp ];
+	const unsigned char* ctx_eoby = pjg::eobyhigh[ cmp ];
+	const unsigned char* ctx_zdst = pjg::zdstdata[ cmp ];
+	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
-	for ( dpos = 0; dpos < bc; dpos++ ) {
+	for (int dpos = 0; dpos < bc; dpos++ ) {
 		model->shift_context( ( ctx_zdst[dpos] + 3 ) / 7 ); // shift context
 		model->shift_context( ctx_eobx[dpos] ); // shift context
 		zdstls_x[ dpos ] = dec->decode_ari(model ); // decode symbol
 	}
 	// arithmetic encode zero-distribution-list (first collumn)
-	for ( dpos = 0; dpos < bc; dpos++ ) {
+	for (int dpos = 0; dpos < bc; dpos++ ) {
 		model->shift_context( ( ctx_zdst[dpos] + 3 ) / 7 ); // shift context
 		model->shift_context( ctx_eoby[dpos] ); // shift context
 		zdstls_y[ dpos ] = dec->decode_ari(model ); // decode symbol
 	}
 	
 	// clean up
-	delete( model );
+	delete model;
 }
 
 
@@ -5412,79 +5295,54 @@ void pjg::decode::zdst_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
 void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
-{
-	unsigned char* segm_tab;
-	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* zdstls; // pointer to zero distribution list
-	signed short* coeffs; // pointer to current coefficent data
-	
+{	
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
-
-	int ctx_avr; // 'average' context
-	int ctx_len; // context for bit length
-	
-	int max_val; // max value
-	int max_len; // max bitlength
-	
-	int dpos;
-	int clen, absv, sgn;
-	int snum;
-	int bt, bp;
-	
-	int p_x, p_y;
-	int r_x; //, r_y;
-	int w, bc;
-	
 	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
-	max_val = MAX_V( cmp, 0 );
-	max_len = BITLEN1024P( max_val );
+	const int max_val = MAX_V( cmp, 0 ); // Max value.
+	const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 1, 0 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values storage
-	auto absv_store = std::vector<unsigned short>(bc); // absolute coefficients values storage
+	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
 	pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	coeffs = colldata[ cmp ][ 0 ];
-	zdstls = pjg::zdstdata[ cmp ];	
+	short* coeffs = colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	const unsigned char* zdstls = pjg::zdstdata[ cmp ]; // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
-	for ( dpos = 0; dpos < bc; dpos++ )
+	for (int dpos = 0; dpos < bc; dpos++ )
 	{		
 		//calculate x/y positions in band
-		p_y = dpos / w;
+		const int p_y = dpos / w;
 		// r_y = h - ( p_y + 1 );
-		p_x = dpos % w;
-		r_x = w - ( p_x + 1 );
+		const int p_x = dpos % w;
+		const int r_x = w - ( p_x + 1 );
 		
 		// get segment-number from zero distribution list and segmentation set
-		snum = segm_tab[ zdstls[dpos] ];
+		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-		ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
+		const int ctx_len = BITLEN1024P( ctx_avr ); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		shift_model( mod_len, ctx_len, snum );
 		// decode bit length of current coefficient
-		clen = dec->decode_ari(mod_len );
+		const int clen = dec->decode_ari(mod_len );
 		
 		// simple treatment if coefficient is zero
 		if ( clen == 0 ) {
@@ -5492,18 +5350,18 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 		}
 		else {
 			// decoding of residual
-			absv = 1;
+			int absv = 1;
 			// first set bit must be 1, so we start at clen - 2
-			for ( bp = clen - 2; bp >= 0; bp-- ) {
+			for (int bp = clen - 2; bp >= 0; bp-- ) {
 				shift_model( mod_res, snum, bp ); // shift in 2 contexts
 				// decode bit
-				bt = dec->decode_ari(mod_res );
+				const int bt = dec->decode_ari(mod_res );
 				// update absv
 				absv = absv << 1;
 				if ( bt ) absv |= 1; 
 			}
 			// decode sign
-			sgn = dec->decode_ari(mod_sgn );
+			const int sgn = dec->decode_ari(mod_sgn );
 			// copy to colldata
 			coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 			// store absolute value/sign
@@ -5512,9 +5370,9 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	}
 	
 	// clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
+	delete mod_len;
+	delete mod_res;
+	delete mod_sgn;
 }
 
 
@@ -5522,82 +5380,46 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
 void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
-{
-	unsigned char* segm_tab;
-	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* eob_x; // pointer to x eobs
-	unsigned char* eob_y; // pointer to y eobs
-	signed short* coeffs; // pointer to current coefficent data
-	
+{	
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 	
-	unsigned char* sgn_nbh; // left signs neighbor
-	unsigned char* sgn_nbv; // upper signs neighbor
-
-	int ctx_avr; // 'average' context
-	int ctx_len; // context for bit length
-	int ctx_sgn; // context for sign
-	
-	int max_val; // max value
-	int max_len; // max bitlength
-	
-	int bpos, dpos;
-	int clen, absv, sgn;
-	int snum;
-	int bt, bp;
-	int i;
-	
-	int b_x, b_y;
-	int p_x, p_y;
-	int r_x;
-	int w, bc;
-	
-	
 	// decide segmentation setting
-	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 9, 1 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values & signs storage
-	auto absv_store = std::vector<unsigned short>(bc); // absolute coefficients values storage
-	auto sgn_store = std::vector<unsigned char>(bc); // sign storage for context	
-	auto zdstls = std::vector<unsigned char>(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
+	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
+	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
+	std::vector<unsigned char> zdstls(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	sgn_nbh = sgn_store.data() - 1;
-	sgn_nbv = sgn_store.data() - w;
+	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	eob_x = pjg::eobxhigh[ cmp ];
-	eob_y = pjg::eobyhigh[ cmp ];
+	unsigned char* eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
+	unsigned char* eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
 	
 	// preset x/y eobs
-	memset( eob_x, 0x00, bc * sizeof( char ) );
-	memset( eob_y, 0x00, bc * sizeof( char ) );
-	
-	// make a local copy of the zero distribution list
-	for ( dpos = 0; dpos < bc; dpos++ )
-		zdstls[ dpos ] = pjg::zdstdata[ cmp ][ dpos ];
+	std::fill(eob_x, eob_x + bc, unsigned char(0));
+	std::fill(eob_y, eob_y + bc, unsigned char(0));
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
-	for ( i = 1; i < 64; i++ )
+	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		bpos = (int) pjg::freqscan[cmp][i];
-		b_x = unzigzag[ bpos ] % 8;
-		b_y = unzigzag[ bpos ] / 8;		
+		const int bpos = (int) pjg::freqscan[cmp][i];
+		const int b_x = unzigzag[ bpos ] % 8;
+		const int b_y = unzigzag[ bpos ] / 8;
 		
 		if ( ( b_x == 0 ) || ( b_y == 0 ) )
 				continue; // process remaining coefficients elsewhere
@@ -5610,57 +5432,56 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 		pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		short* coeffs = colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		max_val = MAX_V( cmp, bpos );
-		max_len = BITLEN1024P( max_val );
+		const int max_val = MAX_V( cmp, bpos ); // Max value.
+		const int max_len = BITLEN1024P( max_val ); // Max bitlength.
 		
 		// arithmetic compression loop
-		for ( dpos = 0; dpos < bc; dpos++ )
+		for (int dpos = 0; dpos < bc; dpos++ )
 		{
 			// skip if beyound eob
 			if ( zdstls[dpos] == 0 )
 				continue;
 			
 			//calculate x/y positions in band
-			p_y = dpos / w;
-			// r_y = h - ( p_y + 1 );
-			p_x = dpos % w;
-			r_x = w - ( p_x + 1 );					
+			const int p_y = dpos / w;
+			const int p_x = dpos % w;
+			const int r_x = w - ( p_x + 1 );
 			
 			// get segment-number from zero distribution list and segmentation set
-			snum = segm_tab[ zdstls[dpos] ];
+			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // AVERAGE context
-			ctx_len = BITLEN1024P( ctx_avr ); // BITLENGTH context				
+			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
+			const int ctx_len = BITLEN1024P( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, snum );
 			mod_len->exclude_symbols(max_len);
 			
 			// decode bit length of current coefficient
-			clen = dec->decode_ari(mod_len );			
+			const int clen = dec->decode_ari(mod_len );
 			// simple treatment if coefficient is zero
 			if ( clen == 0 ) {
 				// coeffs[ dpos ] = 0;
 			}
 			else {
 				// decoding of residual
-				absv = 1;
+				int absv = 1;
 				// first set bit must be 1, so we start at clen - 2
-				for ( bp = clen - 2; bp >= 0; bp-- ) {
+				for (int bp = clen - 2; bp >= 0; bp-- ) {
 					shift_model( mod_res, snum, bp ); // shift in 2 contexts
 					// decode bit
-					bt = dec->decode_ari(mod_res );
+					const int bt = dec->decode_ari(mod_res );
 					// update absv
 					absv = absv << 1;
 					if ( bt ) absv |= 1; 
 				}
 				// decode sign
-				ctx_sgn = ( p_x > 0 ) ? sgn_nbh[ dpos ] : 0; // sign context
+				int ctx_sgn = ( p_x > 0 ) ? sgn_nbh[ dpos ] : 0; // Sign context.
 				if ( p_y > 0 ) ctx_sgn += 3 * sgn_nbv[ dpos ]; // IMPROVE! !!!!!!!!!!!
 				mod_sgn->shift_context( ctx_sgn );
-				sgn = dec->decode_ari(mod_sgn );
+				const int sgn = dec->decode_ari(mod_sgn );
 				// copy to colldata
 				coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
@@ -5679,9 +5500,9 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	}
 	
 	// clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
+	delete mod_len;
+	delete mod_res;
+	delete mod_sgn;
 }
 
 
@@ -5689,62 +5510,35 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
 void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
-{
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	model_b* mod_top;
-	
-	unsigned char* zdstls; // pointer to row/col # of non-zeroes
-	signed short* coeffs; // pointer to current coefficent data
-	
+{	
 	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
 	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
 	int pred_cf[ 8 ]; // prediction multipliers
-
-	int ctx_lak; // lakhani context
-	int ctx_abs; // absolute context
-	int ctx_len; // context for bit length
-	int ctx_res; // bit plane context for residual
-	int ctx_sgn; // context for sign
-	
-	int max_valp; // max value (+)
-	int max_valn; // max value (-)
-	int max_len; // max bitlength
-	int thrs_bp; // residual threshold bitplane
-	int* edge_c; // edge criteria
-	
-	int bpos, dpos;
-	int clen, absv, sgn;
-	int bt, bp;
-	int i;
-	
-	int b_x, b_y;
-	int p_x, p_y;
-	int w, bc;
-	
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
+	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
+	auto mod_sgn = INIT_MODEL_B( 11, 1 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// work through each first row / first collumn band
-	for ( i = 2; i < 16; i++ )
+	for (int i = 2; i < 16; i++ )
 	{		
 		// alternate between first row and first collumn
-		b_x = ( i % 2 == 0 ) ? i / 2 : 0;
-		b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		bpos = (int) zigzag[ b_x + (8*b_y) ];
+		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
+		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
+		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		short* coeffs = colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
+		int p_x, p_y;
+		int* edge_c; // edge criteria
+		unsigned char* zdstls; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
@@ -5765,13 +5559,13 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 		}
 		
 		// get max bit length / other info
-		max_valp = MAX_V( cmp, bpos );
-		max_valn = -max_valp;
-		max_len = BITLEN1024P( max_valp );
-		thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0;
+		const int max_valp = MAX_V( cmp, bpos ); // Max value (positive).
+		const int max_valn = -max_valp; // Max value (negative).
+		const int max_len = BITLEN1024P( max_valp ); // Max bitlength.
+		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // Residual threshold bitplane.
 		
 		// arithmetic compression loop
-		for ( dpos = 0; dpos < bc; dpos++ )
+		for (int dpos = 0; dpos < bc; dpos++ )
 		{
 			// skip if beyound eob
 			if ( zdstls[ dpos ] == 0 )
@@ -5782,47 +5576,48 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 			p_x = dpos % w;
 			
 			// edge treatment / calculate LAKHANI context
+			int ctx_lak; // Lakhani context.
 			if ( (*edge_c) > 0 )
 				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
 			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
-			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context				
+			const int ctx_len = BITLEN2048N( ctx_lak ); // Bitlength context.				
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
 			mod_len->exclude_symbols(max_len);
 			
 			// decode bit length of current coefficient
-			clen = dec->decode_ari(mod_len );
+			const int clen = dec->decode_ari(mod_len );
 			// simple treatment if coefficients == 0
 			if ( clen == 0 ) {
 				// coeffs[ dpos ] = 0;
 			}
 			else {
 				// decoding of residual
-				bp = clen - 2; // first set bit must be 1, so we start at clen - 2
-				ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				ctx_abs = ABS( ctx_lak );
-				ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2;
+				int bp = clen - 2; // first set bit must be 1, so we start at clen - 2
+				int ctx_res = ( bp >= thrs_bp ) ? 1 : 0; // Bit plane context for residual.
+				const int ctx_abs = ABS( ctx_lak ); // Absolute context.
+				const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2; // Context for sign.
 				for ( ; bp >= thrs_bp; bp-- ) {						
 					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp ); // shift in 3 contexts
 					// decode bit
-					bt = dec->decode_ari(mod_top );
+					const int bt = dec->decode_ari(mod_top );
 					// update context
 					ctx_res = ctx_res << 1;
 					if ( bt ) ctx_res |= 1; 
 				}
-				absv = ( ctx_res == 0 ) ? 1 : ctx_res; // !!!!
+				int absv = ( ctx_res == 0 ) ? 1 : ctx_res; // !!!!
 				for ( ; bp >= 0; bp-- ) {
 					shift_model( mod_res, zdstls[ dpos ], bp ); // shift in 2 contexts
 					// decode bit
-					bt = dec->decode_ari(mod_res );
+					const int bt = dec->decode_ari(mod_res );
 					// update absv
 					absv = absv << 1;
 					if ( bt ) absv |= 1; 
 				}
 				// decode sign
 				shift_model( mod_sgn, zdstls[ dpos ], ctx_sgn );
-				sgn = dec->decode_ari(mod_sgn );
+				const int sgn = dec->decode_ari(mod_sgn );
 				// copy to colldata
 				coeffs[ dpos ] = ( sgn == 0 ) ? absv : -absv;
 				// decrement # of non zeroes
@@ -5849,18 +5644,13 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	----------------------------------------------- */
 bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len )
 {
-	abytewriter* bwrt;
-	model_s* model;
-	int c;
-	
-	
 	// start byte writer
-	bwrt = new abytewriter( 1024 );
+	auto bwrt = std::make_unique<abytewriter>(1024);
 	
 	// decode header, ending with 256 symbol
-	model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
 	while ( true ) {
-		c = dec->decode_ari(model );
+		const int c = dec->decode_ari(model );
 		if ( c == 256 ) break;
 		bwrt->write( (unsigned char) c );
 		model->shift_context( c );
@@ -5869,7 +5659,6 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	
 	// check for out of memory
 	if ( bwrt->error() ) {
-		delete bwrt;
 		sprintf( errormessage, MEM_ERRMSG );
 		errorlevel = 2;
 		return false;
@@ -5878,8 +5667,6 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	// get data/length and close byte writer
 	(*data) = bwrt->getptr();
 	if ( len != NULL ) (*len) = bwrt->getpos();
-	delete bwrt;
-	
 	
 	return true;
 }
