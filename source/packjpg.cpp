@@ -282,8 +282,6 @@ packJPG by Matthias Stirner, 01/2016
 #include "pjpgtbl.h"
 #include "dct8x8.h"
 
-#define DEV_BUILD
-
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
 #endif
@@ -6968,8 +6966,9 @@ INTERN bool dump_dist() {
 		for (int bpos = 0; bpos < 64; bpos++) {
 			std::array<int, 1024 + 1> dist = { 0 };
 			// get distribution
-			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++)
+			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
 				dist[ABS(colldata[cmp][bpos][dpos])]++;
+			}
 			// write to file
 			fwrite(dist.data(), sizeof(int), dist.size(), fp);
 		}
