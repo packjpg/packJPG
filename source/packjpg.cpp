@@ -5090,68 +5090,42 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	encodes first row/col AC coefficients to pjg
 	----------------------------------------------- */
 void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
-{
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	model_b* mod_top;
+{	
 	
-	unsigned char* zdstls; // pointer to row/col # of non-zeroes
-	signed short* coeffs; // pointer to current coefficent data
-	
-	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
-	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
+	short* coeffs_x[ 8 ]; // prediction coeffs - current block
+	short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
 	int pred_cf[ 8 ]; // prediction multipliers
 	
-	int ctx_lak; // lakhani context
-	int ctx_abs; // absolute context
-	int ctx_len; // context for bit length
-	int ctx_res; // bit plane context for residual
-	int ctx_sgn; // context for sign
-	
-	int max_valp; // max value (+)
-	int max_valn; // max value (-)
-	int max_len; // max bitlength
-	int thrs_bp; // residual threshold bitplane
-	int* edge_c; // edge criteria
-	
-	int bpos, dpos;
-	int clen, absv, sgn;
-	int bt, bp;
-	int i;
-	
-	int b_x, b_y;
-	int p_x, p_y;
-	int w, bc;
-	
-	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
+	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
+	auto mod_sgn = INIT_MODEL_B( 11, 1 );
 	
 	// set width/height of each band
-	bc = cmpnfo[cmp].bc;
-	w = cmpnfo[cmp].bch;
+	const int bc = cmpnfo[cmp].bc;
+	const int w = cmpnfo[cmp].bch;
 	
 	// work through each first row / first collumn band
-	for ( i = 2; i < 16; i++ )
+	for (int i = 2; i < 16; i++ )
 	{		
 		// alternate between first row and first collumn
-		b_x = ( i % 2 == 0 ) ? i / 2 : 0;
-		b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		bpos = (int) zigzag[ b_x + (8*b_y) ];
+		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
+		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
+		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		coeffs = colldata[ cmp ][ bpos ];
+		const short* coeffs = colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
+		int p_x, p_y;
+		int* edge_c; // edge criteria
+		unsigned char* zdstls; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
-			} b_x = 0;
+			}
 			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
@@ -5160,34 +5134,38 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				coeffs_x[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_y ] = colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
-			} b_y = 0;
+			}
 			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
 		
 		// get max bit length / other info
-		max_valp = MAX_V( cmp, bpos );
-		max_valn = -max_valp;
-		max_len = BITLEN1024P( max_valp );
-		thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0;
+		const int max_valp = MAX_V( cmp, bpos ); // Max value (positive).
+		const int max_valn = -max_valp; // Max value (negative).
+		const int max_len = BITLEN1024P( max_valp ); // Max bitlength
+		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // residual threshold bitplane	
 		
 		// arithmetic compression loop
-		for ( dpos = 0; dpos < bc; dpos++ )
+		for (int dpos = 0; dpos < bc; dpos++ )
 		{
 			// skip if beyound eob
-			if ( zdstls[ dpos ] == 0 )
+			if (zdstls[dpos] == 0) {
 				continue;
+			}
 			
 			// calculate x/y positions in band
 			p_y = dpos / w;
 			p_x = dpos % w;
 			
 			// edge treatment / calculate LAKHANI context
-			if ( (*edge_c) > 0 )
-				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
-			else ctx_lak = 0;
+			int ctx_lak; // lakhani context
+			if ((*edge_c) > 0) {
+				ctx_lak = pjg::lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
+			} else {
+				ctx_lak = 0;
+			}
 			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
-			ctx_len = BITLEN2048N( ctx_lak ); // BITLENGTH context
+			const int ctx_len = BITLEN2048N( ctx_lak ); // Context for bitlength.
 			
 			// shift context / do context modelling (segmentation is done per context)
 			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
@@ -5197,23 +5175,22 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 			if ( coeffs[ dpos ] == 0 ) {
 				// encode bit length (0) of current coefficient
 				enc->encode_ari( mod_len, 0 );
-			}
-			else {
+			} else {
 				// get absolute val, sign & bit length for current coefficient
-				absv = ABS( coeffs[dpos] );
-				clen = BITLEN2048N( absv );
-				sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
+				const int absv = ABS( coeffs[dpos] );
+				const int clen = BITLEN2048N( absv );
+				const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient
 				enc->encode_ari( mod_len, clen );
 				// encoding of residual
-				bp = clen - 2; // first set bit must be 1, so we start at clen - 2
-				ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				ctx_abs = ABS( ctx_lak );
-				ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2;
+				int bp = clen - 2; // first set bit must be 1, so we start at clen - 2
+				int ctx_res = ( bp >= thrs_bp ) ? 1 : 0; // Bitplane context for residual.
+				const int ctx_abs = ABS( ctx_lak ); // Absolute context.
+				const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ctx_lak > 0 ) ? 1 : 2; // Context for sign.
 				for ( ; bp >= thrs_bp; bp-- ) {						
 					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp ); // shift in 3 contexts
 					// encode/get bit
-					bt = BITN( absv, bp );
+					const int bt = BITN( absv, bp );
 					enc->encode_ari( mod_top, bt );
 					// update context
 					ctx_res = ctx_res << 1;
@@ -5222,7 +5199,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				for ( ; bp >= 0; bp-- ) {
 					shift_model( mod_res, zdstls[ dpos ], bp ); // shift in 2 contexts
 					// encode/get bit
-					bt = BITN( absv, bp );
+					const int bt = BITN( absv, bp );
 					enc->encode_ari( mod_res, bt );
 				}
 				// encode sign
@@ -5239,11 +5216,11 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 		mod_sgn->flush_model();
 	}
 	
-	// free memory / clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_top );
-	delete ( mod_sgn );
+	// clear models
+	delete mod_len;
+	delete mod_res;
+	delete mod_top;
+	delete mod_sgn;
 }
 
 
