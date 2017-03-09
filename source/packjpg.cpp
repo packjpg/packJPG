@@ -474,7 +474,12 @@ namespace pjg {
 	namespace decode {
 		bool decode();
 
-	void unoptimize_header();
+		// Undoes DHT segment optimizations.
+		void deoptimize_dht(int hpos, int segment_length);
+		// Undoes DQT segment optimizations.
+		void deoptimize_dqt(int hpos, int segment_length);
+		// Undoes DHT and DQT (header) optimizations.
+		void deoptimize_header();
 
 	void zstscan(const std::unique_ptr<aricoder>& dec, int cmp);
 	void zdst_high(const std::unique_ptr<aricoder>& dec, int cmp);
@@ -3442,7 +3447,7 @@ bool pjg::decode::decode()
 		if ( !pjg::decode::generic( decoder, &rst_err, NULL ) ) return false;
 	
 	// undo header optimizations
-	pjg::decode::unoptimize_header();
+	pjg::decode::deoptimize_header();
 	// discard meta information from header if option set
 	if ( disc_meta )
 		if ( !jpg_rebuild_header() ) return false;
@@ -5786,68 +5791,65 @@ void pjg::encode::optimize_header()
 }
 
 
-/* -----------------------------------------------
-	undoes the header optimizations
-	----------------------------------------------- */
-void pjg::decode::unoptimize_header()
+void pjg::decode::deoptimize_dqt(int hpos, int segment_length) {
+	int fpos = hpos + segment_length;
+	hpos += 4; // skip marker & length
+	while (hpos < fpos) {
+		const int i = LBITS( hdrdata[ hpos ], 4 );
+		hpos++;
+		// table found
+		if (i == 1) { // get out for 16 bit precision
+			hpos += 128;
+			continue;
+		}
+		// undo diff coding for 8 bit precision
+		for (int sub_pos = 1; sub_pos < 64; sub_pos++) {
+			hdrdata[hpos + sub_pos] += hdrdata[hpos + sub_pos - 1];
+		}
+
+		hpos += 64;
+	}
+}
+
+void pjg::decode::deoptimize_dht(int hpos, int segment_length) {
+	const int fpos = hpos + segment_length; // End of segment in hdrdata.
+	hpos += 4; // skip marker & length
+	while (hpos < fpos) {
+		hpos++;
+		// table found - check if modified
+		if (hdrdata[hpos] > 2) {
+			// reinsert the standard table
+			const int i = hdrdata[hpos + 1];
+			for (int sub_pos = 0; sub_pos < std_huff_lengths[i]; sub_pos++) {
+				hdrdata[hpos + sub_pos] = std_huff_tables[i][sub_pos];
+			}
+		}
+
+		int skip = 16; // Num bytes to skip.
+		for (int i = 0; i < 16; i++) {
+			skip += int(hdrdata[hpos + i]);
+		}
+		hpos += skip;
+	}
+}
+
+void pjg::decode::deoptimize_header()
 {
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // position in header
-	
-	unsigned int fpos; // end of marker position
-	unsigned int skip; // bytes to skip
-	unsigned int spos; // sub position	
-	int i;
-	
-	
-	// search for DHT (0xFFC4) & DQT (0xFFDB) marker segments	
-	// header parser loop
-	while ( ( int ) hpos < hdrs ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+	int hpos = 0; // position in header
 		
-		if ( type == 0xC4 ) { // for DHT
-			fpos = hpos + len; // reassign length to end position
-			hpos += 4; // skip marker & length
-			while ( hpos < fpos ) {			
-				hpos++;
-				// table found - check if modified
-				if ( hdrdata[ hpos ] > 2 ) {	
-					// reinsert the standard table
-					i = hdrdata[ hpos + 1 ];
-					for ( spos = 0; spos < std_huff_lengths[ i ]; spos++ ) {
-						hdrdata[ hpos + spos ] = std_huff_tables[ i ][ spos ];
-					}
-				}
-								
-				skip = 16;
-				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) hdrdata[ hpos + i ];				
-				hpos += skip;
-			}
-		}
-		else if ( type == 0xDB ) { // for DQT
-			fpos = hpos + len; // reassign length to end position
-			hpos += 4; // skip marker & length
-			while ( hpos < fpos ) {
-				i = LBITS( hdrdata[ hpos ], 4 );				
-				hpos++;
-				// table found
-				if ( i == 1 ) { // get out for 16 bit precision
-					hpos += 128;
-					continue;
-				}
-				// undo diff coding for 8 bit precision
-				for ( spos = 1; spos < 64; spos++ )
-					hdrdata[ hpos + spos ] += hdrdata[ hpos + spos - 1 ];
-					
-				hpos += 64;
-			}
-		}
-		else { // skip segment
-			hpos += len;
-		}		
+	// header parser loop
+	while ( hpos < hdrs ) {
+		std::uint8_t type = hdrdata[ hpos + 1 ]; // Type of current marker segment.
+		int len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
+		
+		if ( type == 0xC4 ) { // DHT segment
+			deoptimize_dht(hpos, len);
+		} else if ( type == 0xDB ) { // DQT segment
+			deoptimize_dqt(hpos, len);
+		} else {
+			// skip segment
+		}	
+		hpos += len;
 	}
 }
 
