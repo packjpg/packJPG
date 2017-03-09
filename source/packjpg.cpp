@@ -281,6 +281,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "aricoder.h"
 #include "pjpgtbl.h"
 #include "dct8x8.h"
+#include <numeric>
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
@@ -465,6 +466,7 @@ namespace pjg {
 		bool generic(const std::unique_ptr<aricoder>& enc, unsigned char* data, int len);
 		void bit(const std::unique_ptr<aricoder>& enc, unsigned char bit);
 
+		// Get zero sort frequency scan vector.
 		void get_zerosort_scan(unsigned char* sv, int cmp);
 
 	}
@@ -4893,9 +4895,9 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	const int w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values & signs storage
-	auto absv_store = std::vector<unsigned short>(bc);	// absolute coefficients values storage
-	auto sgn_store = std::vector<unsigned char>(bc); // sign storage for context	
-	auto zdstls = std::vector<unsigned char>(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
+	std::vector<unsigned short> absv_store(bc);	// absolute coefficients values storage
+	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
+	std::vector<unsigned char> zdstls(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
@@ -4996,9 +4998,9 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 	}
 	
 	// clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
+	delete mod_len;
+	delete mod_res;
+	delete mod_sgn;
 }
 
 
@@ -5631,10 +5633,10 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	}
 	
 	// clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_top );
-	delete ( mod_sgn );
+	delete mod_len;
+	delete mod_res;
+	delete mod_top;
+	delete mod_sgn;
 }
 
 
@@ -5654,7 +5656,7 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 		bwrt->write( (unsigned char) c );
 		model->shift_context( c );
 	}
-	delete( model );
+	delete model;
 	
 	// check for out of memory
 	if ( bwrt->error() ) {
@@ -5682,50 +5684,31 @@ std::uint8_t pjg::decode::bit(const std::unique_ptr<aricoder>& dec)
 	return bit;
 }
 
+void pjg::encode::get_zerosort_scan(unsigned char* sv, int cmpt)  {
+	// Preset the unsorted scan index:
+	std::array<uint8_t, 64> index;
+	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
 
-/* -----------------------------------------------
-	get zero sort frequency scan vector
-	----------------------------------------------- */
-void pjg::encode::get_zerosort_scan( unsigned char* sv, int cmp )
-{
-	unsigned int zdist[ 64 ]; // distributions of zeroes per band
-	int bc = cmpnfo[cmp].bc;
-	int bpos, dpos;	
-	bool done = false;
-	int swap;
-	int i;
-	
-		
-	// preset sv & zdist
-	for ( i = 0; i < 64; i++ ) {
-		sv[ i ] = i;
-		zdist[ i ] = 0;
-	}	
-	
-	// count zeroes for each frequency
-	for ( bpos = 0; bpos < 64; bpos++ )
-	for ( dpos = 0; dpos < bc; dpos++ )			
-		if ( colldata[cmp][bpos][dpos] == 0 ) zdist[ bpos ]++;
-	
-	// bubble sort according to count of zeroes (descending order)
-	while ( !done ) {
-		done = true;
-		for ( i = 2; i < 64; i++ )
-		if ( zdist[ i ] < zdist[ i - 1 ] ) {
-		
-			swap = zdist[ i ];
-			zdist[ i ] = zdist[ i - 1 ];
-			zdist[ i - 1 ] = swap;
-			
-			swap = sv[ i ];
-			sv[ i ] = sv[ i - 1 ];
-			sv[ i - 1 ] = swap;
-			
-			done = false;			
-		}
-	}
+	// Count the number of zeroes for each frequency:
+	const int bc = cmpnfo[cmpt].bc;
+	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
+	std::transform(colldata[cmpt],
+	               colldata[cmpt] + 64,
+	               std::begin(zeroDist),
+	               [&](const short* freq) {
+		               return std::count(freq, freq + bc, 0);
+	               });
+
+	// Sort in ascending order according to the number of zeroes per band:
+	std::sort(std::begin(index) + 1, // Skip the first element.
+	          std::end(index),
+	          [&](const uint32_t& a, const uint32_t& b) {
+		          return zeroDist[a] < zeroDist[b];
+	          }
+	);
+
+	std::copy(std::begin(index), std::end(index), sv);
 }
-
 
 /* -----------------------------------------------
 	optimizes JFIF header for compression
