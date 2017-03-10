@@ -291,8 +291,6 @@ packJPG by Matthias Stirner, 01/2016
 	#include "packjpglib.h"
 #endif
 
-#define INTERN static
-
 #define INIT_MODEL_S(a,b,c) new model_s( a, b, c, 255 )
 #define INIT_MODEL_B(a,b)   new model_b( a, b, 255 )
 
@@ -412,27 +410,27 @@ enum JpegType {
 	function declarations: main interface
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
-INTERN void initialize_options( int argc, char** argv );
-INTERN void process_ui();
+static void initialize_options( int argc, char** argv );
+static void process_ui();
 static std::string get_status( bool (*function)() );
-INTERN void show_help();
+static void show_help();
 #endif
-INTERN void process_file();
-INTERN void execute( bool (*function)() );
+static void process_file();
+static void execute( bool (*function)() );
 
 
 /* -----------------------------------------------
 	function declarations: main functions
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
-INTERN bool check_file();
-INTERN bool swap_streams();
-INTERN bool compare_output();
+static bool check_file();
+static bool swap_streams();
+static bool compare_output();
 #endif
-INTERN bool reset_buffers();
-INTERN bool predict_dc();
-INTERN bool unpredict_dc();
-INTERN bool calc_zdst_lists();
+static bool reset_buffers();
+static bool predict_dc();
+static bool unpredict_dc();
+static bool calc_zdst_lists();
 
 namespace jpg {
 
@@ -672,15 +670,15 @@ enum CollectionMode {
 
 static CollectionMode coll_mode = CollectionMode::STD; // Write mode for collections.
 
-INTERN bool dump_hdr();
-INTERN bool dump_huf();
-INTERN bool dump_coll();
-INTERN bool dump_zdst();
-INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
-INTERN bool dump_errfile();
-INTERN bool dump_info();
-INTERN bool dump_dist();
-INTERN bool dump_pgm();
+static bool dump_hdr();
+static bool dump_huf();
+static bool dump_coll();
+static bool dump_zdst();
+static bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
+static bool dump_errfile();
+static bool dump_info();
+static bool dump_dist();
+static bool dump_pgm();
 #endif
 
 
@@ -688,8 +686,8 @@ INTERN bool dump_pgm();
 	global variables: library only variables
 	----------------------------------------------- */
 #if defined(BUILD_LIB)
-INTERN int lib_in_type  = -1;
-INTERN int lib_out_type = -1;
+static int lib_in_type  = -1;
+static int lib_out_type = -1;
 #endif
 
 
@@ -697,12 +695,12 @@ INTERN int lib_out_type = -1;
 	global variables: data storage
 	----------------------------------------------- */
 
-INTERN unsigned short qtables[4][64];				// quantization tables
+static unsigned short qtables[4][64];				// quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
-INTERN unsigned char* hdrdata          =   nullptr;   // header data
+static unsigned char* hdrdata          =   nullptr;   // header data
 static std::vector<std::uint8_t> huffdata; // huffman coded data
-INTERN int            hdrs             =    0  ;   // size of header
+static int            hdrs             =    0  ;   // size of header
 
 
 
@@ -711,7 +709,7 @@ INTERN int            hdrs             =    0  ;   // size of header
 	----------------------------------------------- */
 
 // separate info for each color component
-INTERN componentInfo cmpnfo[ 4 ];
+static componentInfo cmpnfo[ 4 ];
 
 constexpr int QUANT(int cm, int bp) {
 	return cmpnfo[cm].qtable[bp];
@@ -751,34 +749,34 @@ int sal = 0; // successive approximation bit pos low
 	global variables: info about files
 	----------------------------------------------- */
 	
-INTERN std::string jpgfilename;	// name of JPEG file
-INTERN std::string pjgfilename;	// name of PJG file
-INTERN int    jpgfilesize;			// size of JPEG file
-INTERN int    pjgfilesize;			// size of PJG file
+static std::string jpgfilename;	// name of JPEG file
+static std::string pjgfilename;	// name of PJG file
+static int    jpgfilesize;			// size of JPEG file
+static int    pjgfilesize;			// size of PJG file
 static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
-INTERN FileType filetype;				// type of current file
-INTERN iostream* str_in  = nullptr;	// input stream
-INTERN iostream* str_out = nullptr;	// output stream
+static FileType filetype;				// type of current file
+static iostream* str_in  = nullptr;	// input stream
+static iostream* str_out = nullptr;	// output stream
 
 #if !defined(BUILD_LIB)
-INTERN iostream* str_str = nullptr;	// storage stream
+static iostream* str_str = nullptr;	// storage stream
 
 static std::vector<std::string> filelist; // list of files to process 
-INTERN int    file_no  = 0;			// number of current file
+static int    file_no  = 0;			// number of current file
 
-INTERN std::vector<std::string> err_list; // list of error messages 
-INTERN std::vector<int> err_tp; // list of error types
+static std::vector<std::string> err_list; // list of error messages 
+static std::vector<int> err_tp; // list of error types
 #endif
 
 #if defined(DEV_INFOS)
-INTERN int    dev_size_hdr      = 0;
-INTERN int    dev_size_cmp[ 4 ] = { 0 };
-INTERN int    dev_size_zsr[ 4 ] = { 0 };
-INTERN int    dev_size_dc[ 4 ]  = { 0 };
-INTERN int    dev_size_ach[ 4 ] = { 0 };
-INTERN int    dev_size_acl[ 4 ] = { 0 };
-INTERN int    dev_size_zdh[ 4 ] = { 0 };
-INTERN int    dev_size_zdl[ 4 ] = { 0 };
+static int    dev_size_hdr      = 0;
+static int    dev_size_cmp[ 4 ] = { 0 };
+static int    dev_size_zsr[ 4 ] = { 0 };
+static int    dev_size_dc[ 4 ]  = { 0 };
+static int    dev_size_ach[ 4 ] = { 0 };
+static int    dev_size_acl[ 4 ] = { 0 };
+static int    dev_size_zdh[ 4 ] = { 0 };
+static int    dev_size_zdl[ 4 ] = { 0 };
 #endif
 
 
@@ -786,9 +784,9 @@ INTERN int    dev_size_zdl[ 4 ] = { 0 };
 	global variables: messages
 	----------------------------------------------- */
 
-INTERN char errormessage [ 128 ];
-INTERN bool (*errorfunction)();
-INTERN int  errorlevel;
+static char errormessage [ 128 ];
+static bool (*errorfunction)();
+static int  errorlevel;
 // meaning of errorlevel:
 // -1 -> wrong input
 // 0 -> no error
@@ -801,30 +799,30 @@ INTERN int  errorlevel;
 	----------------------------------------------- */
 
 #if !defined(BUILD_LIB)
-INTERN int  verbosity  = -1;	// level of verbosity
-INTERN bool overwrite  = false;	// overwrite files yes / no
-INTERN bool wait_exit  = true;	// pause after finished yes / no
-INTERN int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
-INTERN int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-INTERN bool disc_meta  = false;	// discard meta-info yes / no
+static int  verbosity  = -1;	// level of verbosity
+static bool overwrite  = false;	// overwrite files yes / no
+static bool wait_exit  = true;	// pause after finished yes / no
+static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
+static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
+static bool disc_meta  = false;	// discard meta-info yes / no
 
-INTERN bool developer  = false;	// allow developers functions yes/no
-INTERN bool auto_set   = true;	// automatic find best settings yes/no
-INTERN Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
+static bool developer  = false;	// allow developers functions yes/no
+static bool auto_set   = true;	// automatic find best settings yes/no
+static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
-INTERN FILE*  msgout   = stdout;// stream for output of messages
-INTERN bool   pipe_on  = false;	// use stdin/stdout instead of filelist
+static FILE*  msgout   = stdout;// stream for output of messages
+static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 #else
-INTERN int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-INTERN bool disc_meta  = false;	// discard meta-info yes / no
-INTERN bool auto_set   = true;	// automatic find best settings yes/no
-INTERN Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
+static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
+static bool disc_meta  = false;	// discard meta-info yes / no
+static bool auto_set   = true;	// automatic find best settings yes/no
+static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 #endif
 
-INTERN unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
-INTERN unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
+static unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
+static unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
 #if !defined(BUILD_LIB)
-INTERN unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
+static unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
 
 namespace program_info {
@@ -1212,7 +1210,7 @@ EXPORT const char* pjglib_short_name()
 	----------------------------------------------- */
 	
 #if !defined(BUILD_LIB)	
-INTERN void initialize_options( int argc, char** argv )
+static void initialize_options( int argc, char** argv )
 {	
 	int tmp_val;
 	int i;
@@ -1353,7 +1351,7 @@ INTERN void initialize_options( int argc, char** argv )
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-INTERN void process_ui()
+static void process_ui()
 {
 
 	errorfunction = nullptr;
@@ -1502,7 +1500,7 @@ INTERN void process_ui()
 /* -----------------------------------------------
 	gets statusmessage for function
 	----------------------------------------------- */
-INTERN inline std::string get_status( bool (*function)() )
+static inline std::string get_status( bool (*function)() )
 {	
 	if ( function == nullptr ) {
 		return "unknown action";
@@ -1564,7 +1562,7 @@ INTERN inline std::string get_status( bool (*function)() )
 /* -----------------------------------------------
 	shows help in case of wrong input
 	----------------------------------------------- */
-INTERN void show_help()
+static void show_help()
 {	
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "Website: %s\n", program_info::website.c_str() );
@@ -1609,7 +1607,7 @@ INTERN void show_help()
 	processes one file
 	----------------------------------------------- */
 
-INTERN void process_file()
+static void process_file()
 {	
 	if ( filetype == FileType::F_JPG ) {
 		switch ( action ) {
@@ -1781,7 +1779,7 @@ INTERN void process_file()
 	main-function execution routine
 	----------------------------------------------- */
 
-INTERN void execute( bool (*function)() )
+static void execute( bool (*function)() )
 {
 	if ( errorlevel < err_tol ) {
 		#if !defined BUILD_LIB
@@ -1834,7 +1832,7 @@ INTERN void execute( bool (*function)() )
 	----------------------------------------------- */
 
 #if !defined(BUILD_LIB)
-INTERN bool check_file()
+static bool check_file()
 {	
 	unsigned char fileid[ 2 ] = { 0, 0 };
 	const std::string& filename = filelist[ file_no ];
@@ -1937,7 +1935,7 @@ INTERN bool check_file()
 	swap streams / init verification
 	----------------------------------------------- */
 	
-INTERN bool swap_streams()	
+static bool swap_streams()	
 {
 	unsigned char dmp[ 2 ];
 	
@@ -1966,7 +1964,7 @@ INTERN bool swap_streams()
 	comparison between input & output
 	----------------------------------------------- */
 
-INTERN bool compare_output()
+static bool compare_output()
 {
 	unsigned char* buff_ori;
 	unsigned char* buff_cmp;
@@ -2036,7 +2034,7 @@ INTERN bool compare_output()
 	set each variable to its initial value
 	----------------------------------------------- */
 
-INTERN bool reset_buffers()
+static bool reset_buffers()
 {
 	int cmp, bpos;
 	int i;
@@ -3046,7 +3044,7 @@ bool dct::adapt_icos()
 	filter DC coefficients
 	----------------------------------------------- */
 
-INTERN bool predict_dc()
+static bool predict_dc()
 {
 	signed short* coef;
 	int absmaxp;
@@ -3083,7 +3081,7 @@ INTERN bool predict_dc()
 	unpredict DC coefficients
 	----------------------------------------------- */
 
-INTERN bool unpredict_dc()
+static bool unpredict_dc()
 {	
 	signed short* coef;
 	int absmaxp;
@@ -3116,7 +3114,7 @@ INTERN bool unpredict_dc()
 	return true;
 }
 
-INTERN bool jpg::decode::check_value_range()
+static bool jpg::decode::check_value_range()
 {
 	int absmax;
 	int cmp, bpos, dpos;
@@ -3144,7 +3142,7 @@ INTERN bool jpg::decode::check_value_range()
 	calculate zero distribution lists
 	----------------------------------------------- */
 	
-INTERN bool calc_zdst_lists()
+static bool calc_zdst_lists()
 {
 	int cmp, bpos, dpos;
 	int b_x, b_y;
@@ -6095,7 +6093,7 @@ static bool file_exists(const std::string& filename) {
 	Writes header file
 	----------------------------------------------- */
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_hdr() {
+static bool dump_hdr() {
 	const std::string ext = "hdr";
 	const auto basename = filelist[file_no];
 
@@ -6109,7 +6107,7 @@ INTERN bool dump_hdr() {
 /* -----------------------------------------------
 	Writes huffman coded file
 	----------------------------------------------- */
-INTERN bool dump_huf() {
+static bool dump_huf() {
 	const std::string ext = "huf";
 	const auto basename = filelist[file_no];
 
@@ -6123,7 +6121,7 @@ INTERN bool dump_huf() {
 /* -----------------------------------------------
 	Writes collections of DCT coefficients
 	----------------------------------------------- */
-INTERN bool dump_coll()
+static bool dump_coll()
 {
 	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
 	const auto& base = filelist[file_no];
@@ -6221,7 +6219,7 @@ INTERN bool dump_coll()
 /* -----------------------------------------------
 	Writes zero distribution data to file;
 	----------------------------------------------- */
-INTERN bool dump_zdst() {
+static bool dump_zdst() {
 	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
 	const auto basename = filelist[file_no];
 
@@ -6237,7 +6235,7 @@ INTERN bool dump_zdst() {
 /* -----------------------------------------------
 	Writes to file
 	----------------------------------------------- */
-INTERN bool dump_file(const std::string& base, const std::string& ext, void* data, int bpv, int size) {
+static bool dump_file(const std::string& base, const std::string& ext, void* data, int bpv, int size) {
 	// create filename
 	const auto fn = create_filename(base, ext);
 
@@ -6259,7 +6257,7 @@ INTERN bool dump_file(const std::string& base, const std::string& ext, void* dat
 /* -----------------------------------------------
 	Writes error info file
 	----------------------------------------------- */
-INTERN bool dump_errfile() {
+static bool dump_errfile() {
 	// return immediately if theres no error
 	if (errorlevel == 0) {
 		return true;
@@ -6298,7 +6296,7 @@ INTERN bool dump_errfile() {
 /* -----------------------------------------------
 	Writes info to textfile
 	----------------------------------------------- */
-INTERN bool dump_info() {
+static bool dump_info() {
 	// create filename
 	const auto fn = create_filename(filelist[file_no], "nfo");
 
@@ -6378,7 +6376,7 @@ INTERN bool dump_info() {
 /* -----------------------------------------------
 	Writes distribution for use in valdist.h
 	----------------------------------------------- */
-INTERN bool dump_dist() {
+static bool dump_dist() {
 	// create filename
 	const auto fn = create_filename(filelist[file_no], "dist");
 
@@ -6412,7 +6410,7 @@ INTERN bool dump_dist() {
 /* -----------------------------------------------
 	Do inverse DCT and write pgms
 	----------------------------------------------- */
-INTERN bool dump_pgm() {
+static bool dump_pgm() {
 	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
 	for (int cmp = 0; cmp < image::cmpc; cmp++) {
