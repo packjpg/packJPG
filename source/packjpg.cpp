@@ -469,7 +469,7 @@ namespace jfif {
 bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
 
 // Helper function that parses DHT segments, returning true if the parse succeeds.
-bool parse_dht(unsigned char type, unsigned int len, const unsigned char* segment);
+bool parse_dht(unsigned int len, const unsigned char* segment);
 // Constructs Huffman codes from DHT data.
 HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
 // Constructs a Huffman tree from the given Huffman codes.
@@ -623,9 +623,9 @@ namespace dct {
 	int idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy);
 #endif
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy);
+	int idct_2d_fst_1x8(int cmp, int dpos, int iy);
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy);
+	int idct_2d_fst_8x1(int cmp, int dpos, int ix);
 }
 
 namespace predictor {
@@ -3514,7 +3514,7 @@ bool jpg::setup_imginfo()
 }
 
 // Builds Huffman trees and codes.
-bool jpg::jfif::parse_dht(unsigned char type, unsigned int len, const unsigned char* segment) {
+bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	// build huffman trees & codes
 	while (hpos < len) {
@@ -3693,7 +3693,7 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 	switch ( type )
 	{
 		case 0xC4: // DHT segment
-			return jpg::jfif::parse_dht(type, len, segment);
+			return jpg::jfif::parse_dht(len, segment);
 		
 		case 0xDB: // DQT segment
 			return jpg::jfif::parse_dqt(len, segment);
@@ -5891,7 +5891,7 @@ int dct::idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy) {
 }
 #endif
 
-int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy) {
+int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix) {
 	// calculate start index
 	const int ixy = ix << 3;
 
@@ -5909,7 +5909,7 @@ int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix, int iy) {
 	return idct;
 }
 
-int dct::idct_2d_fst_1x8(int cmp, int dpos, int ix, int iy) {
+int dct::idct_2d_fst_1x8(int cmp, int dpos, int iy) {
 	// calculate start index
 	const int ixy = iy << 3;
 
@@ -5981,21 +5981,21 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	// Calculate prediction:
 	int pred = 0;
 	if (px > 0 && py > 0) {
-		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7, 0);
-		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0, 0);
+		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7);
+		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0);
 
-		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 0, 7);
-		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0, 0);
+		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0);
 
 		pred = ((pa - xa) + (pb - xb)) * 4;
 	} else if (px > 0) {
-		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7, 0);
-		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0, 0);
+		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7);
+		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0);
 
 		pred = (pa - xa) * 8;
 	} else if (py > 0) {
-		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 0, 7);
-		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0, 0);
+		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0);
 
 		pred = (pb - xb) * 8;
 	}
