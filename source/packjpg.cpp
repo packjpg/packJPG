@@ -2809,7 +2809,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						int tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
+						int tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2902,7 +2902,7 @@ bool jpg::encode::recode()
 							// copy from colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									FDIV2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							int eob = jpg::encode::ac_prg_fs( huffw,
@@ -2924,7 +2924,7 @@ bool jpg::encode::recode()
 							// copy from colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									FDIV2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							int eob = jpg::encode::ac_prg_sa( huffw, storw,
@@ -3557,7 +3557,7 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 		} else { // 16 bit precision
 			for (int i = 0; i < 64; i++) {
 				qtables[rval][i] =
-					B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
+					pack( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
 				if (qtables[rval][i] == 0) {
 					break;
 				}
@@ -3578,7 +3578,7 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 // define restart interval
 void jpg::jfif::parse_dri(const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
-	jpg::rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );
+	jpg::rsti = pack( segment[ hpos ], segment[ hpos + 1 ] );
 }
 
 bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
@@ -3600,8 +3600,8 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 	}
 
 	// image size, height & component count
-	image::imgheight = B_SHORT(segment[hpos + 1], segment[hpos + 2]);
-	image::imgwidth = B_SHORT(segment[hpos + 3], segment[hpos + 4]);
+	image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
+	image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
 	image::cmpc = segment[hpos + 5];
 	if ((image::imgwidth == 0) || (image::imgheight == 0)) {
 		sprintf(errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight);
@@ -5794,7 +5794,7 @@ static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec) {
 
 	// check for out of memory
 	if (bwrt->error()) {
-		sprintf(errormessage, MEM_ERRMSG);
+		sprintf(errormessage, MEM_ERRMSG.c_str());
 		errorlevel = 2;
 		return std::vector<std::uint8_t>();
 	}
@@ -6451,7 +6451,7 @@ INTERN bool dump_huf() {
 	const std::string ext = "huf";
 	const auto basename = filelist[file_no];
 
-	if (!dump_file(basename, ext, huffdata, 1, hufs)) {
+	if (!dump_file(basename, ext, huffdata.data(), 1, huffdata.size())) {
 		return false;
 	}
 
@@ -6466,7 +6466,7 @@ INTERN bool dump_coll()
 	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
 	const auto& base = filelist[file_no];
 
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		// create filename
 		const auto fn = create_filename(base, ext[cmp]);
 
@@ -6563,7 +6563,7 @@ INTERN bool dump_zdst() {
 	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
 	const auto basename = filelist[file_no];
 
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		if (!dump_file(basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc)) {
 			return false;
 		}
@@ -6652,8 +6652,8 @@ INTERN bool dump_info() {
 	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
 	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
 	// fprintf( fp, "no of scans: %i\n", jpg::scan_count );
-	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
-	fprintf( fp, "component count: %i\n", cmpc );
+	fprintf( fp, "imageheight: %i / imagewidth: %i\n", image::imgheight, image::imgwidth );
+	fprintf( fp, "component count: %i\n", image::cmpc );
 	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
 	
 	// info about header
@@ -6679,7 +6679,7 @@ INTERN bool dump_info() {
 	fprintf(fp, "\n");
 
 	// info about components
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		fprintf(fp, "\n");
 		fprintf(fp, "component number %i ->\n", cmp);
 		fprintf(fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh);
@@ -6729,7 +6729,7 @@ INTERN bool dump_dist() {
 	}
 
 	// calculate & write distributions for each frequency
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		for (int bpos = 0; bpos < 64; bpos++) {
 			std::array<int, 1024 + 1> dist = { 0 };
 			// get distribution
@@ -6753,7 +6753,7 @@ INTERN bool dump_dist() {
 INTERN bool dump_pgm() {
 	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		// create filename
 		const auto fn = create_filename(filelist[file_no], ext[cmp]);
 
