@@ -269,6 +269,8 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <array>
+#include <memory>
 #include <chrono>
 #include <array>
 #include <vector>
@@ -396,15 +398,21 @@ struct componentInfo {
 	int jid; // jpeg internal id
 };
 
-struct huffCodes {
-	unsigned short cval[ 256 ];
-	unsigned short clen[ 256 ];
-	unsigned short max_eobrun;
+struct HuffCodes {
+	std::array<std::uint16_t, 256> cval = { 0 };
+	std::array<std::uint16_t, 256> clen = { 0 };
+	std::uint16_t max_eobrun = 0;
 };
 
-struct huffTree {
-	unsigned short l[ 256 ];
-	unsigned short r[ 256 ];
+struct HuffTree {
+	std::array<std::uint16_t, 256> l = { 0 };
+	std::array<std::uint16_t, 256> r = { 0 };
+};
+
+enum JpegType {
+	UNKNOWN = 0,
+	SEQUENTIAL = 1,
+	PROGRESSIVE = 2
 };
 
 
@@ -430,54 +438,118 @@ INTERN bool swap_streams( void );
 INTERN bool compare_output( void );
 #endif
 INTERN bool reset_buffers( void );
-INTERN bool read_jpeg( void );
-INTERN bool merge_jpeg( void );
-INTERN bool decode_jpeg( void );
-INTERN bool recode_jpeg( void );
 INTERN bool predict_dc( void );
 INTERN bool unpredict_dc( void );
-INTERN bool check_value_range( void );
 INTERN bool calc_zdst_lists( void );
 INTERN bool pack_pjg( void );
 INTERN bool unpack_pjg( void );
 
+namespace jpg {
 
-/* -----------------------------------------------
-	function declarations: jpeg-specific
-	----------------------------------------------- */
+enum CodingStatus {
+	OKAY = 0,
+	RESTART = 1,
+	ERROR = -1,
+	DONE = 2
+};
 
-INTERN bool jpg_setup_imginfo( void );
-INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char* segment );
-INTERN bool jpg_rebuild_header( void );
+HuffCodes hcodes[2][4]; // huffman codes
+HuffTree htrees[2][4]; // huffman decoding trees
+bool htset[2][4]; // Indicates whether the corresponding huffman table has been created.
 
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block );
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block );
+char padbit = -1; // padbit (for huffman coding)
+int scan_count = 0; // count of scans
+int rsti = 0; // restart interval
 
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block );
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block );
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block,
-						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block,
-						int* eobrun, int from, int to );
+std::vector<std::uint32_t> scnp; // scan start positions in huffdata
+std::vector<std::uint32_t> rstp; // restart markers positions in huffdata
+std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
-INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block );
-INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block );
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block,
-						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl,
-						short* block, int* eobrun, int from, int to );
+// Parses header for imageinfo.
+bool setup_imginfo();
+// JFIF header rebuilding routine.
+bool rebuild_header();
 
-INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to );
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun );
-INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw );
+// Calculates next position for MCU.
+jpg::CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+// Calculates next position (non interleaved).
+jpg::CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
 
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree );
-INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw );
-INTERN int jpg_next_mcuposn( int* cmp, int* dpos, int* rstw );
-INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun );
+namespace jfif {
 
-INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
-				huffCodes *hc, huffTree *ht );
+// Parses JFIF segment, returning true if the segment is valid in packjpg and the parse was successful, false otherwise.
+bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
+
+// Helper function that parses DHT segments, returning true if the parse succeeds.
+bool parse_dht(unsigned char type, unsigned int len, const unsigned char* segment);
+// Constructs Huffman codes from DHT data.
+HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
+// Constructs a Huffman tree from the given Huffman codes.
+HuffTree build_hufftree(const HuffCodes& codes);
+
+// Helper function that parses DQT segments, returning true if the parse succeeds.
+bool parse_dqt(unsigned len, const unsigned char* segment);
+// Helper function that parses SOS segments, returning true if the parse succeeds.
+bool parse_sos(const unsigned char* segment);
+// Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
+bool parse_sof(unsigned char type, const unsigned char* segment);
+// Helper function that parses DRI segments.
+void parse_dri(const unsigned char* segment);
+}
+
+namespace encode {
+// JPEG encoding routine.
+bool recode();
+// Merges header & image data to jpeg.
+bool merge();
+
+// Sequential block encoding routine.
+int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+// Progressive DC encoding routine.
+void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
+// Progressive AC encoding routine.
+int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
+              int* eobrun, int from, int to);
+// Progressive DC SA encoding routine.
+void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block);
+// Progressive AC SA encoding routine.
+int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl,
+              const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to);
+// Run of EOB encoding routine.
+void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
+// Correction bits encoding routine.
+void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
+}
+
+namespace decode {
+// Read in header and image data.
+bool read();
+// JPEG decoding routine.
+bool decode();
+// Checks range of values, error if out of bounds.
+bool check_value_range();
+
+// Sequential block decoding routine.
+int block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
+// Progressive DC decoding routine.
+jpg::CodingStatus dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block);
+// Progressive AC decoding routine.
+int ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
+              int* eobrun, int from, int to);
+// Progressive DC SA decoding routine.
+void dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block);
+// Progressive AC SA decoding routine.
+int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
+              int* eobrun, int from, int to);
+// Run of EOB SA decoding routine.
+void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
+
+// Skips the eobrun, calculates next position.
+jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
+// Returns next the next code(from huffman tree and data).
+int next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree);
+}
+}
 
 /* -----------------------------------------------
 	function declarations: pjg-specific
@@ -499,6 +571,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp );
 INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp );
 INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp );
 INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len );
+static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec);
 INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit );
 
 INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp );
@@ -601,24 +674,11 @@ INTERN int lib_out_type = -1;
 	----------------------------------------------- */
 
 INTERN unsigned short qtables[4][64];				// quantization tables
-INTERN huffCodes      hcodes[2][4];				// huffman codes
-INTERN huffTree       htrees[2][4];				// huffman decoding trees
-INTERN unsigned char  htset[2][4];					// 1 if huffman table is set
 
-INTERN unsigned char* grbgdata		   =   NULL;	// garbage data
+static std::vector<std::uint8_t> grbgdata; // garbage data
 INTERN unsigned char* hdrdata          =   NULL;   // header data
-INTERN unsigned char* huffdata         =   NULL;   // huffman coded data
-INTERN int            hufs             =    0  ;   // size of huffman data
+static std::vector<std::uint8_t> huffdata; // huffman coded data
 INTERN int            hdrs             =    0  ;   // size of header
-INTERN int            grbs             =    0  ;   // size of garbage
-
-INTERN unsigned int*  rstp             =   NULL;   // restart markers positions in huffdata
-INTERN unsigned int*  scnp             =   NULL;   // scan start positions in huffdata
-INTERN int            rstc             =    0  ;   // count of restart markers
-INTERN int            scnc             =    0  ;   // count of scans
-INTERN int            rsti             =    0  ;   // restart interval
-INTERN char           padbit           =    -1 ;   // padbit (for huffman coding)
-INTERN unsigned char* rst_err          =   NULL;   // number of wrong-set RST markers per scan
 
 INTERN unsigned char* zdstdata[4]      = { NULL }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
 INTERN unsigned char* eobxhigh[4]      = { NULL }; // eob in x direction (for higher 7x7 block)
@@ -633,7 +693,7 @@ INTERN unsigned char  zsrtscan[4][64];				// zero optimized frequency scan
 	global variables: info about image
 	----------------------------------------------- */
 
-// seperate info for each color component
+// separate info for each color component
 INTERN componentInfo cmpnfo[ 4 ];
 
 constexpr int QUANT(int cm, int bp) {
@@ -643,28 +703,31 @@ constexpr int QUANT(int cm, int bp) {
 constexpr int MAX_V(int cm, int bp) {
 	return (QUANT(cm, bp) > 0) ? (freqmax[bp] + QUANT(cm, bp) - 1) / QUANT(cm, bp) : 0;
 }
+namespace image {
+int cmpc = 0; // component count
+int imgwidth = 0; // width of image
+int imgheight = 0; // height of image
 
-INTERN int cmpc        = 0; // component count
-INTERN int imgwidth    = 0; // width of image
-INTERN int imgheight   = 0; // height of image
-
-INTERN int sfhm        = 0; // max horizontal sample factor
-INTERN int sfvm        = 0; // max verical sample factor
-INTERN int mcuv        = 0; // mcus per line
-INTERN int mcuh        = 0; // mcus per collumn
-INTERN int mcuc        = 0; // count of mcus
+int sfhm = 0; // max horizontal sample factor
+int sfvm = 0; // max verical sample factor
+int mcuv = 0; // mcus per line
+int mcuh = 0; // mcus per collumn
+int mcuc = 0; // count of mcus
+}
 
 
 /* -----------------------------------------------
 	global variables: info about current scan
 	----------------------------------------------- */
 
-INTERN int cs_cmpc      =   0  ; // component count in current scan
-INTERN int cs_cmp[ 4 ]  = { 0 }; // component numbers  in current scan
-INTERN int cs_from      =   0  ; // begin - band of current scan ( inclusive )
-INTERN int cs_to        =   0  ; // end - band of current scan ( inclusive )
-INTERN int cs_sah       =   0  ; // successive approximation bit pos high
-INTERN int cs_sal       =   0  ; // successive approximation bit pos low
+namespace curr_scan {
+int cmpc = 0; // component count in current scan
+std::array<int, 4> cmp = {0}; // component numbers  in current scan
+int from = 0; // begin - band of current scan ( inclusive )
+int to = 0; // end - band of current scan ( inclusive )
+int sah = 0; // successive approximation bit pos high
+int sal = 0; // successive approximation bit pos low
+}
 	
 
 /* -----------------------------------------------
@@ -675,7 +738,7 @@ INTERN std::string jpgfilename;	// name of JPEG file
 INTERN std::string pjgfilename;	// name of PJG file
 INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
-INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
+static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
 INTERN FileType filetype;				// type of current file
 INTERN iostream* str_in  = NULL;	// input stream
 INTERN iostream* str_out = NULL;	// output stream
@@ -1428,13 +1491,13 @@ INTERN inline std::string get_status( bool (*function)() )
 		return "unknown action";
 	} else if ( function == *check_file ) {
 		return "Determining filetype";
-	} else if ( function == *read_jpeg ) {
+	} else if ( function == *jpg::decode::read ) {
 		return "Reading header & image data";
-	} else if ( function == *merge_jpeg ) {
+	} else if ( function == *jpg::encode::merge ) {
 		return "Merging header & image data";
-	} else if ( function == *decode_jpeg ) {
+	} else if ( function == *jpg::decode::decode ) {
 		return "Decompressing JPEG image data";
-	} else if ( function == *recode_jpeg ) {
+	} else if ( function == *jpg::encode::recode ) {
 		return "Recompressing JPEG image data";
 	} else if ( function == *dct::adapt_icos ) {
 		return "Adapting DCT precalc. tables";
@@ -1442,7 +1505,7 @@ INTERN inline std::string get_status( bool (*function)() )
 		return "Applying prediction to DC";
 	} else if ( function == *unpredict_dc ) {
 		return "Removing prediction from DC";
-	} else if ( function == *check_value_range ) {
+	} else if ( function == *jpg::decode::check_value_range ) {
 		return "Checking values range";
 	} else if ( function == *calc_zdst_lists ) {
 		return "Calculating zero dist lists";
@@ -1534,9 +1597,9 @@ INTERN void process_file( void )
 	if ( filetype == FileType::F_JPG ) {
 		switch ( action ) {
 			case Action::A_COMPRESS:
-				execute( read_jpeg );
-				execute( decode_jpeg );
-				execute( check_value_range );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
+				execute( jpg::decode::check_value_range );
 				execute( dct::adapt_icos );
 				execute( predict_dc );
 				execute( calc_zdst_lists );
@@ -1548,8 +1611,8 @@ INTERN void process_file( void )
 					execute( unpack_pjg );
 					execute( dct::adapt_icos );
 					execute( unpredict_dc );
-					execute( recode_jpeg );
-					execute( merge_jpeg );
+					execute( jpg::encode::recode );
+					execute( jpg::encode::merge );
 					execute( compare_output );
 				}
 				#endif
@@ -1557,30 +1620,30 @@ INTERN void process_file( void )
 				
 			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 			case Action::A_SPLIT_DUMP:
-				execute( read_jpeg );
+				execute( jpg::decode::read );
 				execute( dump_hdr );
 				execute( dump_huf );
 				break;
 				
 			case Action::A_COLL_DUMP:
-				execute( read_jpeg );
-				execute( decode_jpeg );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
 				execute( dump_coll );
 				break;
 				
 			case Action::A_FCOLL_DUMP:
-				execute( read_jpeg );
-				execute( decode_jpeg );
-				execute( check_value_range );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
+				execute( jpg::decode::check_value_range );
 				execute( dct::adapt_icos );
 				execute( predict_dc );
 				execute( dump_coll );
 				break;
 				
 			case Action::A_ZDST_DUMP:
-				execute( read_jpeg );
-				execute( decode_jpeg );
-				execute( check_value_range );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
+				execute( jpg::decode::check_value_range );
 				execute( dct::adapt_icos );
 				execute( predict_dc );
 				execute( calc_zdst_lists );
@@ -1588,23 +1651,23 @@ INTERN void process_file( void )
 				break;
 				
 			case Action::A_TXT_INFO:
-				execute( read_jpeg );
+				execute( jpg::decode::read );
 				execute( dump_info );
 				break;
 				
 			case Action::A_DIST_INFO:
-				execute( read_jpeg );
-				execute( decode_jpeg );
-				execute( check_value_range );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
+				execute( jpg::decode::check_value_range );
 				execute( dct::adapt_icos );
 				execute( predict_dc );
 				execute( dump_dist );
 				break;
 			
 			case Action::A_PGM_DUMP:
-				execute( read_jpeg );
-				execute( decode_jpeg );
-				execute( dct::adapt_icos );
+				execute( jpg::decode::read );
+				execute( jpg::decode::decode );
+				execute(dct::adapt_icos );
 				execute( dump_pgm );
 				break;
 			#else
@@ -1620,16 +1683,16 @@ INTERN void process_file( void )
 				execute( unpack_pjg );
 				execute( dct::adapt_icos );
 				execute( unpredict_dc );
-				execute( recode_jpeg );
-				execute( merge_jpeg );
+				execute( jpg::encode::recode );
+				execute( jpg::encode::merge );
 				#if !defined(BUILD_LIB)
 				if ( verify_lv > 0 ) { // verify
 					execute( reset_buffers );
 					execute( swap_streams );
-					execute( read_jpeg );
-					execute( decode_jpeg );
-					execute( check_value_range );
-					execute( dct::adapt_icos );
+					execute( jpg::decode::read );
+					execute( jpg::decode::decode );
+					execute( jpg::decode::check_value_range );
+					execute(dct::adapt_icos );
 					execute( predict_dc );
 					execute( calc_zdst_lists );
 					execute( pack_pjg );
@@ -1643,7 +1706,7 @@ INTERN void process_file( void )
 				execute( unpack_pjg );
 				execute( dct::adapt_icos );
 				execute( unpredict_dc );
-				execute( recode_jpeg );
+				execute( jpg::encode::recode );
 				execute( dump_hdr );
 				execute( dump_huf );
 				break;
@@ -1966,17 +2029,12 @@ INTERN bool reset_buffers( void )
 	
 	// free buffers & set pointers NULL
 	if ( hdrdata  != NULL ) free ( hdrdata );
-	if ( huffdata != NULL ) free ( huffdata );
-	if ( grbgdata != NULL ) free ( grbgdata );
-	if ( rst_err  != NULL ) free ( rst_err );
-	if ( rstp     != NULL ) free ( rstp );
-	if ( scnp     != NULL ) free ( scnp );
+	huffdata.clear();
+	grbgdata.clear();
+	jpg::rst_err.clear();
+	jpg::rstp.clear();
+	jpg::scnp.clear();
 	hdrdata   = NULL;
-	huffdata  = NULL;
-	grbgdata  = NULL;
-	rst_err   = NULL;
-	rstp      = NULL;
-	scnp      = NULL;
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
@@ -2019,74 +2077,56 @@ INTERN bool reset_buffers( void )
 	}
 	
 	// preset imgwidth / imgheight / component count 
-	imgwidth  = 0;
-	imgheight = 0;
-	cmpc      = 0;
+	image::imgwidth  = 0;
+	image::imgheight = 0;
+	image::cmpc      = 0;
 	
 	// preset mcu info variables / restart interval
-	sfhm      = 0;
-	sfvm      = 0;
-	mcuc      = 0;
-	mcuh      = 0;
-	mcuv      = 0;
-	rsti      = 0;
+	image::sfhm      = 0;
+	image::sfvm      = 0;
+	image::mcuc      = 0;
+	image::mcuh      = 0;
+	image::mcuv      = 0;
+	jpg::rsti      = 0;
 	
 	// reset quantization / huffman tables
 	for ( i = 0; i < 4; i++ ) {
-		htset[ 0 ][ i ] = 0;
-		htset[ 1 ][ i ] = 0;
+		jpg::htset[ 0 ][ i ] = false;
+		jpg::htset[ 1 ][ i ] = false;
 		for ( bpos = 0; bpos < 64; bpos++ )
 			qtables[ i ][ bpos ] = 0;
 	}
 	
 	// preset jpegtype
-	jpegtype  = 0;
+	jpegtype  = JpegType::UNKNOWN;
 	
-	// reset padbit
-	padbit = -1;
+	// reset jpg::padbit
+	jpg::padbit = -1;
 	
 	
 	return true;
 }
-
-
-/* -----------------------------------------------
-	Read in header & image data
-	----------------------------------------------- */
 	
-INTERN bool read_jpeg( void )
+bool jpg::decode::read()
 {
-	unsigned char* segment = NULL; // storage for current segment
-	unsigned int   ssize = 1024; // current size of segment array
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   crst = 0; // current rst marker counter
 	unsigned int   cpos = 0; // rst marker counter
 	unsigned char  tmp;	
 	
-	abytewriter* huffw;	
-	abytewriter* hdrw;
-	abytewriter* grbgw;	
-	
-	
 	// preset count of scans
-	scnc = 0;
+	jpg::scan_count = 0;
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	auto hdrw = std::make_unique<abytewriter>(4096);
 	hdrs = 0; // size of header data, start with 0
 	
 	// start huffman writer
-	huffw = new abytewriter( 0 );
-	hufs  = 0; // size of image data, start with 0
+	auto huffw = std::make_unique<abytewriter>(0);
 	
 	// alloc memory for segment data first
-	segment = ( unsigned char* ) calloc( ssize, sizeof( char ) );
-	if ( segment == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG.c_str() );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<std::uint8_t> segment(1024);
 	
 	// JPEG reader loop
 	while ( true ) {
@@ -2126,32 +2166,22 @@ INTERN bool read_jpeg( void )
 					else { // in all other cases leave it to the header parser routines
 						// store number of wrongly set rst markers
 						if ( crst > 0 ) {
-							if ( rst_err == NULL ) {
-								rst_err = (unsigned char*) calloc( scnc + 1, sizeof( char ) );
-								if ( rst_err == NULL ) {
-									sprintf( errormessage, MEM_ERRMSG.c_str() );
-									errorlevel = 2;
-									return false;
-								}
+							if (jpg::rst_err.empty()) {
+								jpg::rst_err.resize(jpg::scan_count + 1);
 							}
 						}
-						if ( rst_err != NULL ) {
+						if (!jpg::rst_err.empty()) {
 							// realloc and set only if needed
-							rst_err = ( unsigned char* ) frealloc( rst_err, ( scnc + 1 ) * sizeof( char ) );
-							if ( rst_err == NULL ) {
-								sprintf( errormessage, MEM_ERRMSG.c_str() );
-								errorlevel = 2;
-								return false;
-							}
+							jpg::rst_err.resize(jpg::scan_count + 1);
 							if ( crst > 255 ) {
 								sprintf( errormessage, "Severe false use of RST markers (%i)", (int) crst );
 								errorlevel = 1;
 								crst = 255;
 							}
-							rst_err[ scnc ] = crst;							
+							jpg::rst_err[ jpg::scan_count ] = crst;							
 						}
 						// end of current scan
-						scnc++;
+						jpg::scan_count++;
 						// on with the header parser routines
 						segment[ 0 ] = 0xFF;
 						segment[ 1 ] = tmp;
@@ -2166,19 +2196,16 @@ INTERN bool read_jpeg( void )
 		}
 		else {
 			// read in next marker
-			if ( str_in->read( segment, 2 ) != 2 ) break;
+			if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 			if ( segment[ 0 ] != 0xFF ) {
 				// ugly fix for incorrect marker segment sizes
 				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
 				errorlevel = 2;
 				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read( segment, 2 ) != 2 ) break;
+					if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
-					delete ( hdrw );
-					delete ( huffw );
-					free ( segment );
 					return false;
 				}
 			}
@@ -2193,71 +2220,58 @@ INTERN bool read_jpeg( void )
 			hdrdata  = hdrw->getptr();
 			hdrs     = hdrw->getpos();
 			// get pointer for huffman data & size
-			huffdata = huffw->getptr();
-			hufs     = huffw->getpos();
+			auto hdata = huffw->getptr();
+			auto hdata_length = huffw->getpos();
+			huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
 			// everything is done here now
 			break;			
 		}
 		
 		// read in next segments' length and check it
-		if ( str_in->read( segment + 2, 2 ) != 2 ) break;
+		if ( str_in->read( segment.data() + 2, 2 ) != 2 ) break;
 		len = 2 + pack( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
 		// realloc segment data if needed
-		if ( ssize < len ) {
-			segment = ( unsigned char* ) frealloc( segment, len );
-			if ( segment == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG.c_str() );
-				errorlevel = 2;
-				delete ( hdrw );
-				delete ( huffw );
-				return false;
-			}
-			ssize = len;
+		if ( segment.size() < len ) {
+			segment.resize(len);
 		}
 		
 		// read rest of segment, store back in header writer
-		if ( str_in->read( ( segment + 4 ), ( len - 4 ) ) !=
+		if ( str_in->read( ( segment.data() + 4 ), ( len - 4 ) ) !=
 			( unsigned short ) ( len - 4 ) ) break;
-		hdrw->write_n( segment, len );
+		hdrw->write_n( segment.data(), len );
 	}
 	// JPEG reader loop end
 	
-	// free writers
-	delete ( hdrw );
-	delete ( huffw );
-	
 	// check if everything went OK
-	if ( ( hdrs == 0 ) || ( hufs == 0 ) ) {
+	if ( ( hdrs == 0 ) || huffdata.empty() ) {
 		sprintf( errormessage, "unexpected end of data encountered" );
 		errorlevel = 2;
 		return false;
 	}
 	
 	// store garbage after EOI if needed
-	grbs = str_in->read_byte(&tmp);
-	if ( grbs > 0 ) {
-		grbgw = new abytewriter( 1024 );
+	bool garbage_avail = str_in->read_byte(&tmp);
+	if (garbage_avail) {
+
+		auto grbgw = std::make_unique<abytewriter>( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
-			len = str_in->read( segment, ssize );
+			len = str_in->read( segment.data(), segment.capacity() );
 			if ( len == 0 ) break;
-			grbgw->write_n( segment, len );
+			grbgw->write_n( segment.data(), len );
 		}
-		grbgdata = grbgw->getptr();
-		grbs     = grbgw->getpos();
-		delete ( grbgw );
+		auto grbgptr = grbgw->getptr();
+		auto grbg_size = grbgw->getpos();
+		grbgdata = std::vector<std::uint8_t>(grbgptr, grbgptr + grbg_size);
 	}
-	
-	// free segment
-	free( segment );
 	
 	// get filesize
 	jpgfilesize = str_in->getsize();	
 	
 	// parse header for image info
-	if ( !jpg_setup_imginfo() ) {
+	if ( !jpg::setup_imginfo() ) {
 		return false;
 	}
 	
@@ -2265,148 +2279,125 @@ INTERN bool read_jpeg( void )
 	return true;
 }
 
+bool jpg::encode::merge() {
+	int hpos = 0; // current position in header
+	int rpos = 0; // current restart marker position
+	int scan = 1; // number of current scan	
 
-/* -----------------------------------------------
-	Merges header & image data to jpeg
-	----------------------------------------------- */
-	
-INTERN bool merge_jpeg( void )
-{
-	unsigned char SOI[ 2 ] = { 0xFF, 0xD8 }; // SOI segment
-	unsigned char EOI[ 2 ] = { 0xFF, 0xD9 }; // EOI segment
-	unsigned char mrk = 0xFF; // marker start
-	unsigned char stv = 0x00; // 0xFF stuff value
-	unsigned char rst = 0xD0; // restart marker
-	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
-	unsigned int   ipos = 0; // current position in imagedata
-	unsigned int   rpos = 0; // current restart marker position
-	unsigned int   cpos = 0; // in scan corrected rst marker position
-	unsigned int   scan = 1; // number of current scan
-	unsigned int   tmp; // temporary storage variable
-	
-	
 	// write SOI
-	str_out->write( SOI, 2 );
-	
+	constexpr std::array<std::uint8_t, 2> SOI = {0xFF, 0xD8};
+	str_out->write(SOI.data(), 2);
+
 	// JPEG writing loop
-	while ( true )
-	{		
+	while (true) {
 		// store current header position
-		tmp = hpos;
-		
+		std::uint32_t tmp = hpos;
+
 		// seek till start-of-scan
-		for ( type = 0x00; type != 0xDA; ) {
-			if ( ( int ) hpos >= hdrs ) break;
-			type = hdrdata[ hpos + 1 ];
-			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		std::uint8_t type; // type of current marker segment
+		for (type = 0x00; type != 0xDA;) {
+			if (hpos >= hdrs) {
+				break;
+			}
+			type = hdrdata[hpos + 1];
+			int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			hpos += len;
 		}
-		
+
 		// write header data to file
-		str_out->write( hdrdata + tmp, ( hpos - tmp ) );
-		
+		str_out->write(hdrdata + tmp, hpos - tmp);
+
 		// get out if last marker segment type was not SOS
-		if ( type != 0xDA ) break;
-		
-		
+		if (type != 0xDA) {
+			break;
+		}
+
+
 		// (re)set corrected rst pos
-		cpos = 0;
-		
+		std::uint32_t cpos = 0; // in scan corrected rst marker position
+
 		// write & expand huffman coded image data
-		for ( ipos = scnp[ scan - 1 ]; ipos < scnp[ scan ]; ipos++ ) {
+		// ipos is the current position in image data.
+		for (std::uint32_t ipos = jpg::scnp[scan - 1]; ipos < jpg::scnp[scan]; ipos++) {
 			// write current byte
 			str_out->write_byte(huffdata[ipos]);
 			// check current byte, stuff if needed
-			if ( huffdata[ ipos ] == 0xFF )
-				str_out->write_byte(stv);
+			if (huffdata[ipos] == 0xFF) {
+				str_out->write_byte(std::uint8_t(0)); // 0xFF stuff value
+			}
 			// insert restart markers if needed
-			if ( rstp != NULL ) {
-				if ( ipos == rstp[ rpos ] ) {
-					rst = 0xD0 + ( cpos % 8 );
+			if (!jpg::rstp.empty()) {
+				if (ipos == jpg::rstp[rpos]) {
+					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
+					constexpr std::uint8_t mrk = 0xFF; // marker start
 					str_out->write_byte(mrk);
 					str_out->write_byte(rst);
-					rpos++; cpos++;
+					rpos++;
+					cpos++;
 				}
 			}
 		}
 		// insert false rst markers at end if needed
-		if ( rst_err != NULL ) {
-			while ( rst_err[ scan - 1 ] > 0 ) {
-				rst = 0xD0 + ( cpos % 8 );
+		if (!jpg::rst_err.empty()) {
+			while (jpg::rst_err[scan - 1] > 0) {
+				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
+				constexpr std::uint8_t mrk = 0xFF; // marker start
 				str_out->write_byte(mrk);
 				str_out->write_byte(rst);
-				cpos++;	rst_err[ scan - 1 ]--;
+				cpos++;
+				jpg::rst_err[scan - 1]--;
 			}
 		}
 
 		// proceed with next scan
 		scan++;
 	}
-	
+
 	// write EOI
-	str_out->write( EOI, 2 );
-	
+	constexpr std::array<std::uint8_t, 2> EOI = {0xFF, 0xD9}; // EOI segment
+	str_out->write(EOI.data(), 2);
+
 	// write garbage if needed
-	if ( grbs > 0 )
-		str_out->write( grbgdata, grbs );
-	
+	if (!grbgdata.empty()) {
+		str_out->write(grbgdata.data(), grbgdata.size());
+	}
+
 	// errormessage if write error
-	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "write error, possibly drive is full" );
-		errorlevel = 2;		
+	if (str_out->chkerr()) {
+		sprintf(errormessage, "write error, possibly drive is full");
+		errorlevel = 2;
 		return false;
 	}
-	
+
 	// get filesize
 	jpgfilesize = str_out->getsize();
-	
-	
+
 	return true;
 }
 
-
-/* -----------------------------------------------
-	JPEG decoding routine
-	----------------------------------------------- */
-
-INTERN bool decode_jpeg( void )
-{
-	abitreader* huffr; // bitwise reader for image data
+bool jpg::decode::decode()
+{	
+	unsigned int hpos = 0; // current position in header
 	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
-	
-	int lastdc[ 4 ]; // last dc for each component
-	short block[ 64 ]; // store block for coeffs
-	int peobrun; // previous eobrun
-	int eobrun; // run of eobs
-	int rstw; // restart wait counter
-	
-	int cmp, bpos, dpos;
-	int mcu, sub, csc;
-	int eob, sta;
-	
+	short block[64]; // store block for coeffs
 	
 	// open huffman coded image data for input in abitreader
-	huffr = new abitreader( huffdata, hufs );
+	auto huffr = std::make_unique<abitreader>(huffdata.data(), huffdata.size()); // bitwise reader for image data
 	
 	// preset count of scans
-	scnc = 0;
+	jpg::scan_count = 0;
 	
 	// JPEG decompression loop
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
+		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
+				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
 			}
@@ -2417,12 +2408,11 @@ INTERN bool decode_jpeg( void )
 		if ( type != 0xDA ) break;
 		
 		// check if huffman tables are available
-		for ( csc = 0; csc < cs_cmpc; csc++ ) {
-			cmp = cs_cmp[ csc ];
-			if ( ( ( cs_sal == 0 ) && ( htset[ 0 ][ cmpnfo[cmp].huffdc ] == 0 ) ) ||
-				 ( ( cs_sah >  0 ) && ( htset[ 1 ][ cmpnfo[cmp].huffac ] == 0 ) ) ) {
-				sprintf( errormessage, "huffman table missing in scan%i", scnc );
-				delete huffr;
+		for (int csc = 0; csc < curr_scan::cmpc; csc++) {
+			int cmp = curr_scan::cmp[ csc ];
+			if ( ( ( curr_scan::sal == 0 ) && !jpg::htset[ 0 ][ cmpnfo[cmp].huffdc ] ) ||
+				 ( ( curr_scan::sah >  0 ) && !jpg::htset[ 1 ][ cmpnfo[cmp].huffac ] ) ) {
+				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
 				errorlevel = 2;
 				return false;
 			}
@@ -2430,43 +2420,40 @@ INTERN bool decode_jpeg( void )
 		
 		
 		// intial variables set for decoding
-		cmp  = cs_cmp[ 0 ];
-		csc  = 0;
-		mcu  = 0;
-		sub  = 0;
-		dpos = 0;
+		int cmp  = curr_scan::cmp[ 0 ];
+		int csc  = 0;
+		int mcu  = 0;
+		int sub  = 0;
+		int dpos = 0;
 		
 		// JPEG imagedata decoding routines
 		while ( true )
 		{			
 			// (re)set last DCs for diff coding
-			lastdc[ 0 ] = 0;
-			lastdc[ 1 ] = 0;
-			lastdc[ 2 ] = 0;
-			lastdc[ 3 ] = 0;
+			std::array<int, 4> lastdc = { 0 }; // last dc for each component
 			
 			// (re)set status
-			eob = 0;
-			sta = 0;
+			int eob = 0;
+			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
-			eobrun  = 0;
-			peobrun = 0;
+			int eobrun  = 0; // run of eobs
+			int peobrun = 0; // previous eobrun
 			
 			// (re)set rst wait counter
-			rstw = rsti;
+			int rstw = jpg::rsti; // restart wait counter
 			
 			// decoding for interleaved data
-			if ( cs_cmpc > 1 )
+			if ( curr_scan::cmpc > 1 )
 			{				
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved decoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
-						eob = jpg_decode_block_seq( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							&(htrees[ 1 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						eob = jpg::decode::block_seq( huffr,
+						                              jpg::htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+						                              jpg::htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                              block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2479,61 +2466,58 @@ INTERN bool decode_jpeg( void )
 						lastdc[ cmp ] = block[ 0 ];
 						
 						// copy to dct::colldata
-						for ( bpos = 0; bpos < eob; bpos++ )
+						for (int bpos = 0; bpos < eob; bpos++ )
 							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-				else if ( cs_sah == 0 ) {
+				else if ( curr_scan::sah == 0 ) {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
-					while ( sta == 0 ) {
-						sta = jpg_decode_dc_prg_fs( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							block );
+					while ( status == jpg::CodingStatus::OKAY ) {
+						status = jpg::decode::dc_prg_fs( huffr,
+						                                 jpg::htrees[0][cmpnfo[cmp].huffdc],
+						                                 block );
 						
 						// fix dc for diff coding
 						dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
 						lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
 						
 						// bitshift for succesive approximation
-						dct::colldata[cmp][0][dpos] <<= cs_sal;
+						dct::colldata[cmp][0][dpos] <<= curr_scan::sal;
 						
 						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( status != jpg::CodingStatus::ERROR )
+							status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 				else {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation later stage <---					
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode next bit
-						sta = jpg_decode_dc_prg_sa( huffr,
-							block );
+						jpg::decode::dc_prg_sa(huffr, block);
 						
 						// shift in next bit
-						dct::colldata[cmp][0][dpos] += block[0] << cs_sal;
+						dct::colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
 						
-						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
 			else // decoding for non interleaved data
 			{
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved decoding <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// decode block
-						eob = jpg_decode_block_seq( huffr,
-							&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-							&(htrees[ 1 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						eob = jpg::decode::block_seq( huffr,
+						                              jpg::htrees[ 0 ][ cmpnfo[cmp].huffdc ],
+						                              jpg::htrees[ 1 ][ cmpnfo[cmp].huffdc ],
+						                              block );
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2546,67 +2530,65 @@ INTERN bool decode_jpeg( void )
 						lastdc[ cmp ] = block[ 0 ];
 						
 						// copy to dct::colldata
-						for ( bpos = 0; bpos < eob; bpos++ )
+						for (int bpos = 0; bpos < eob; bpos++ )
 							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 					}
 				}
-				else if ( cs_to == 0 ) {					
-					if ( cs_sah == 0 ) {
+				else if ( curr_scan::to == 0 ) {					
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
-							sta = jpg_decode_dc_prg_fs( huffr,
-								&(htrees[ 0 ][ cmpnfo[cmp].huffdc ]),
-								block );
+						while ( status == jpg::CodingStatus::OKAY ) {
+							status = jpg::decode::dc_prg_fs( huffr,
+							                                 jpg::htrees[0][cmpnfo[cmp].huffdc],
+							                                 block );
 								
 							// fix dc for diff coding
 							dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
 							lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
 							
 							// bitshift for succesive approximation
-							dct::colldata[cmp][0][dpos] <<= cs_sal;
+							dct::colldata[cmp][0][dpos] <<= curr_scan::sal;
 							
 							// check for errors, increment dpos otherwise
-							if ( sta != -1 )
-								sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							if ( status != jpg::CodingStatus::ERROR )
+								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation later stage <---
-						while( sta == 0 ) {
+						while( status == jpg::CodingStatus::OKAY ) {
 							// decode next bit
-							sta = jpg_decode_dc_prg_sa( huffr,
-								block );
+							jpg::decode::dc_prg_sa(huffr, block);
 							
 							// shift in next bit
-							dct::colldata[cmp][0][dpos] += block[0] << cs_sal;
+							dct::colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
 							
-							// check for errors, increment dpos otherwise
-							if ( sta != -1 )
-								sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							// increment dpos
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
 				else {
-					if ( cs_sah == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
-								eob = jpg_decode_ac_prg_fs( huffr,
-									&(htrees[ 1 ][ cmpnfo[cmp].huffac ]),
-									block, &eobrun, cs_from, cs_to );
+								eob = jpg::decode::ac_prg_fs( huffr,
+								                              jpg::htrees[1][cmpnfo[cmp].huffac],
+								                              block, &eobrun, curr_scan::from, curr_scan::to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == cs_from )  && ( peobrun > 0 ) &&
-										( peobrun <	hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
+									if ( ( eob == curr_scan::from )  && ( peobrun > 0 ) &&
+										( peobrun <	jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2615,38 +2597,38 @@ INTERN bool decode_jpeg( void )
 									eobrun--;
 								} else peobrun = 0;
 							
-								// copy to dct::colldata
-								for ( bpos = cs_from; bpos < eob; bpos++ )
-									dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << cs_sal;
+								// copy to colldata
+								for (int bpos = curr_scan::from; bpos < eob; bpos++)
+									dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
 							} else eobrun--;
 							
 							// check for errors
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg_skip_eobrun( &cmp, &dpos, &rstw, &eobrun );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::decode::skip_eobrun(cmp, &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
-							if ( sta == 0 )
-								sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							if ( status == jpg::CodingStatus::OKAY )
+								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
-							// copy from dct::colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+						while ( status == jpg::CodingStatus::OKAY ) {
+							// copy from colldata
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
-								eob = jpg_decode_ac_prg_sa( huffr,
-									&(htrees[ 1 ][ cmpnfo[cmp].huffac ]),
-									block, &eobrun, cs_from, cs_to );
+								eob = jpg::decode::ac_prg_sa( huffr,
+								                              jpg::htrees[1][cmpnfo[cmp].huffac],
+								                              block, &eobrun, curr_scan::from, curr_scan::to );
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == cs_from ) && ( peobrun > 0 ) &&
-										( peobrun < hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
+									if ( ( eob == curr_scan::from ) && ( peobrun > 0 ) &&
+										( peobrun < jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2659,48 +2641,46 @@ INTERN bool decode_jpeg( void )
 							}
 							else {
 								// decode block (short routine)
-								eob = jpg_decode_eobrun_sa( huffr,
-									block, &eobrun, cs_from, cs_to );
+								jpg::decode::eobrun_sa(huffr, block, &eobrun, curr_scan::from, curr_scan::to);
+								eob = 0;
 								eobrun--;
 							}
 								
-							// copy back to dct::colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
-								dct::colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
+							// copy back to colldata
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
+								dct::colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
 							
 							// proceed only if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
 			}			
 			
-			// unpad huffman reader / check padbit
-			if ( padbit != -1 ) {
-				if ( padbit != huffr->unpad( padbit ) ) {
-					sprintf( errormessage, "inconsistent use of padbits" );
-					padbit = 1;
+			// unpad huffman reader / check jpg::padbit
+			if ( jpg::padbit != -1 ) {
+				if ( jpg::padbit != huffr->unpad( jpg::padbit ) ) {
+					sprintf( errormessage, "inconsistent use of jpg::padbits" );
+					jpg::padbit = 1;
 					errorlevel = 1;
 				}
 			}
 			else {
-				padbit = huffr->unpad( padbit );
+				jpg::padbit = huffr->unpad( jpg::padbit );
 			}
 			
 			// evaluate status
-			if ( sta == -1 ) { // status -1 means error
+			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
-					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffr;
+					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
-			else if ( sta == 2 ) { // status 2/3 means done
-				scnc++; // increment scan counter
+			else if ( status == jpg::CodingStatus::DONE ) {
+				jpg::scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
-			// else if ( sta == 1 ); // status 1 means restart - so stay in the loop
 		}
 	}
 	
@@ -2716,59 +2696,40 @@ INTERN bool decode_jpeg( void )
 		errorlevel = 1;
 	}
 	
-	// clean up
-	delete( huffr );
-	
 	
 	return true;
 }
 
-
-/* -----------------------------------------------
-	JPEG encoding routine
-	----------------------------------------------- */
-
-INTERN bool recode_jpeg( void )
-{
-	abitwriter*  huffw; // bitwise writer for image data
-	abytewriter* storw; // bytewise writer for storage of correction bits
+bool jpg::encode::recode()
+{	
+	int hpos = 0; // current position in header
 	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // current position in header
-		
-	int lastdc[ 4 ]; // last dc for each component0
-	short block[ 64 ]; // store block for coeffs
-	int eobrun; // run of eobs
-	int rstw; // restart wait counter
-	
-	int cmp, bpos, dpos;
-	int mcu, sub, csc;
-	int eob, sta;
-	int tmp;
-	
+	std::array<std::int16_t, 64> block; // store block for coeffs
 	
 	// open huffman coded image data in abitwriter
-	huffw = new abitwriter( 0 );
-	huffw->set_fillbit( padbit );
+	auto huffw = std::make_unique<abitwriter>(0); // bitwise writer for image data
+	huffw->set_fillbit( jpg::padbit );
 	
 	// init storage writer
-	storw = new abytewriter( 0 );
+	auto storw = std::make_unique<abytewriter>(0); // bytewise writer for storage of correction bits
 	
 	// preset count of scans and restarts
-	scnc = 0;
-	rstc = 0;
+	jpg::scan_count = 0;
+	int rstc = 0; // count of restart markers
 	
 	// JPEG decompression loop
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
+		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
-			if ( ( int ) hpos >= hdrs ) break;
+			if (hpos >= hdrs) {
+				break;
+			}
 			type = hdrdata[ hpos + 1 ];
-			len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
+				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
 				hpos += len;
@@ -2784,63 +2745,48 @@ INTERN bool recode_jpeg( void )
 		
 		
 		// (re)alloc scan positons array
-		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
-		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
-		if ( scnp == NULL ) {
-			sprintf( errormessage, MEM_ERRMSG.c_str() );
-			errorlevel = 2;
-			return false;
-		}
+		jpg::scnp.resize(jpg::scan_count + 2);
 		
 		// (re)alloc restart marker positons array if needed
-		if ( rsti > 0 ) {
-			tmp = rstc + ( ( cs_cmpc > 1 ) ?
-				( mcuc / rsti ) : ( cmpnfo[ cs_cmp[ 0 ] ].bc / rsti ) );
-			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
-			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
-			if ( rstp == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG.c_str() );
-				errorlevel = 2;
-				return false;
-			}
+		if ( jpg::rsti > 0 ) {
+			int tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
+				( image::mcuc / jpg::rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / jpg::rsti ) );
+			jpg::rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
-		cmp  = cs_cmp[ 0 ];
-		csc  = 0;
-		mcu  = 0;
-		sub  = 0;
-		dpos = 0;
+		int cmp  = curr_scan::cmp[ 0 ];
+		int csc  = 0;
+		int mcu  = 0;
+		int sub  = 0;
+		int dpos = 0;
 		
 		// store scan position
-		scnp[ scnc ] = huffw->getpos();
+		jpg::scnp[ jpg::scan_count ] = huffw->getpos();
 		
 		// JPEG imagedata encoding routines
 		while ( true )
 		{
 			// (re)set last DCs for diff coding
-			lastdc[ 0 ] = 0;
-			lastdc[ 1 ] = 0;
-			lastdc[ 2 ] = 0;
-			lastdc[ 3 ] = 0;
+			std::array<int, 4> lastdc = { 0 }; // last dc for each component
 			
 			// (re)set status
-			sta = 0;
+			jpg::CodingStatus status = jpg::CodingStatus::OKAY;
 			
 			// (re)set eobrun
-			eobrun = 0;
+			int eobrun = 0; // run of eobs
 			
 			// (re)set rst wait counter
-			rstw = rsti;
+			int rstw = jpg::rsti; // restart wait counter
 			
 			// encoding for interleaved data
-			if ( cs_cmpc > 1 )
+			if ( curr_scan::cmpc > 1 )
 			{				
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
-					while ( sta == 0 ) {
-						// copy from dct::colldata
-						for ( bpos = 0; bpos < 64; bpos++ )
+					while ( status == jpg::CodingStatus::OKAY ) {
+						// copy from colldata
+						for (int bpos = 0; bpos < 64; bpos++)
 							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
@@ -2848,58 +2794,55 @@ INTERN bool recode_jpeg( void )
 						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
-						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							block );
+						int eob = jpg::encode::block_seq( huffw,
+						                              jpg::hcodes[0][cmpnfo[cmp].huffac],
+						                              jpg::hcodes[1][cmpnfo[cmp].huffac],
+						                              block );
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
-				else if ( cs_sah == 0 ) {
+				else if ( curr_scan::sah == 0 ) {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation first stage <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+						int tmp = colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
 						// encode dc
-						sta = jpg_encode_dc_prg_fs( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
-							block );
+						jpg::encode::dc_prg_fs(huffw,
+						                       jpg::hcodes[0][cmpnfo[cmp].huffdc],
+						                       block);
 						
-						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						// next mcupos
+						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 				else {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation later stage <---
-					while ( sta == 0 ) {
+					while ( status == jpg::CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = BITN( dct::colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+						block[ 0 ] = BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 						
 						// encode dc correction bit
-						sta = jpg_encode_dc_prg_sa( huffw, block );
+						jpg::encode::dc_prg_sa(huffw, block);
 						
-						// next mcupos if no error happened
-						if ( sta != -1 )
-							sta = jpg_next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
 					}
 				}
 			}
 			else // encoding for non interleaved data
 			{
-				if ( jpegtype == 1 ) {
+				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved encoding <---
-					while ( sta == 0 ) {
-						// copy from dct::colldata
-						for ( bpos = 0; bpos < 64; bpos++ )
+					while ( status == jpg::CodingStatus::OKAY ) {
+						// copy from colldata
+						for (int bpos = 0; bpos < 64; bpos++)
 							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
 						
 						// diff coding for dc
@@ -2907,103 +2850,97 @@ INTERN bool recode_jpeg( void )
 						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
 						
 						// encode block
-						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							block );
+						int eob = jpg::encode::block_seq( huffw,
+						                              jpg::hcodes[0][cmpnfo[cmp].huffac],
+						                              jpg::hcodes[1][cmpnfo[cmp].huffac],
+						                              block );
 						
 						// check for errors, proceed if no error encountered
-						if ( eob < 0 ) sta = -1;
-						else sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );	
+						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);	
 					}
 				}
-				else if ( cs_to == 0 ) {
-					if ( cs_sah == 0 ) {
+				else if ( curr_scan::to == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> cs_sal;
+							int tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
 							// encode dc
-							sta = jpg_encode_dc_prg_fs( huffw,
-								&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
-								block );							
+							jpg::encode::dc_prg_fs(huffw,
+							                       jpg::hcodes[0][cmpnfo[cmp].huffdc],
+							                       block);							
 							
 							// check for errors, increment dpos otherwise
-							if ( sta != -1 )
-								sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 					else {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
+						while ( status == jpg::CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = BITN( dct::colldata[ cmp ][ 0 ][ dpos ], cs_sal );
+							block[ 0 ] = BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 							
 							// encode dc correction bit
-							sta = jpg_encode_dc_prg_sa( huffw, block );
+							jpg::encode::dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							if ( sta != -1 )
-								sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}
 					}
 				}
 				else {
-					if ( cs_sah == 0 ) {
+					if ( curr_scan::sah == 0 ) {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
-						while ( sta == 0 ) {
-							// copy from dct::colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+						while ( status == jpg::CodingStatus::OKAY ) {
+							// copy from colldata
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									fdiv2( dct::colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									FDIV2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
-							eob = jpg_encode_ac_prg_fs( huffw,
-								&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-								block, &eobrun, cs_from, cs_to );
+							int eob = jpg::encode::ac_prg_fs( huffw,
+							                              jpg::hcodes[1][cmpnfo[cmp].huffac],
+							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
 							// check for errors, proceed if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
-						jpg_encode_eobrun( huffw,
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							&eobrun );
+						jpg::encode::eobrun(huffw, jpg::hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 					}
 					else {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation later stage <---
-						while ( sta == 0 ) {
-							// copy from dct::colldata
-							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
+						while ( status == jpg::CodingStatus::OKAY ) {
+							// copy from colldata
+							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									fdiv2( dct::colldata[ cmp ][ bpos ][ dpos ], cs_sal );
+									FDIV2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
-							eob = jpg_encode_ac_prg_sa( huffw, storw,
-								&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-								block, &eobrun, cs_from, cs_to );
+							int eob = jpg::encode::ac_prg_sa( huffw, storw,
+							                              jpg::hcodes[1][cmpnfo[cmp].huffac],
+							                              block, &eobrun, curr_scan::from, curr_scan::to );
 							
 							// check for errors, proceed if no error encountered
-							if ( eob < 0 ) sta = -1;
-							else sta = jpg_next_mcuposn( &cmp, &dpos, &rstw );
+							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
+							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
-						jpg_encode_eobrun( huffw,
-							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
-							&eobrun );
+						jpg::encode::eobrun(huffw, jpg::hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 							
 						// encode remaining correction bits
-						jpg_encode_crbits( huffw, storw );
+						jpg::encode::crbits( huffw, storw );
 					}
 				}
 			}
@@ -3012,44 +2949,40 @@ INTERN bool recode_jpeg( void )
 			huffw->pad();
 			
 			// evaluate status
-			if ( sta == -1 ) { // status -1 means error
+			if ( status == jpg::CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
-					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffw;
+					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
-			else if ( sta == 2 ) { // status 2 means done
-				scnc++; // increment scan counter
+			else if ( status == jpg::CodingStatus::DONE ) {
+				jpg::scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
-			else if ( sta == 1 ) { // status 1 means restart
-				if ( rsti > 0 ) // store rstp & stay in the loop
-					rstp[ rstc++ ] = huffw->getpos() - 1;
+			else if ( status == jpg::CodingStatus::RESTART ) {
+				if ( jpg::rsti > 0 ) // store jpg::rstp & stay in the loop
+					jpg::rstp[ rstc++ ] = huffw->getpos() - 1;
 			}
 		}
 	}
 	
 	// safety check for error in huffwriter
 	if ( huffw->error ()) {
-		delete huffw;
-		sprintf( errormessage, MEM_ERRMSG.c_str() );
+		sprintf(errormessage, MEM_ERRMSG.c_str());
 		errorlevel = 2;
 		return false;
 	}
 	
 	// get data into huffdata
-	huffdata = huffw->getptr();
-	hufs = huffw->getpos();	
-	delete huffw;
-	
-	// remove storage writer
-	delete storw;
+	auto hdata = huffw->getptr();
+	auto hdata_length = huffw->getpos();
+	huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
 	
 	// store last scan & restart positions
-	scnp[ scnc ] = hufs;
-	if ( rstp != NULL )
-		rstp[ rstc ] = hufs;
+	jpg::scnp[ jpg::scan_count ] = huffdata.size();
+	if (!jpg::rstp.empty()) {
+		jpg::rstp[rstc] = huffdata.size();
+	}
 	
 	
 	return true;
@@ -3064,7 +2997,8 @@ bool dct::adapt_icos()
 {
 	std::array<std::uint16_t, 64> quant; // local copy of quantization	
 	
-	for (int cmp = 0; cmp < cmpc; cmp++) {
+	
+	for (int cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// make a local copy of the quantization values, check
 		for (int ipos = 0; ipos < 64; ipos++) {
 			quant[ipos] = QUANT(cmp, zigzag[ipos]);
@@ -3104,7 +3038,7 @@ INTERN bool predict_dc( void )
 	
 	
 	// apply prediction, store prediction error instead of DC
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		absmaxp = MAX_V( cmp, 0 );
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
@@ -3141,7 +3075,7 @@ INTERN bool unpredict_dc( void )
 	
 	
 	// remove prediction, store DC instead of prediction error
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		absmaxp = MAX_V( cmp, 0 );
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
@@ -3164,18 +3098,13 @@ INTERN bool unpredict_dc( void )
 	return true;
 }
 
-
-/* -----------------------------------------------
-	checks range of values, error if out of bounds
-	----------------------------------------------- */
-
-INTERN bool check_value_range( void )
+INTERN bool jpg::decode::check_value_range()
 {
 	int absmax;
 	int cmp, bpos, dpos;
 	
 	// out of range should never happen with unmodified JPEGs
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	for ( bpos = 0; bpos < 64; bpos++ ) {
 		absmax = MAX_V( cmp, bpos );
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
@@ -3204,7 +3133,7 @@ INTERN bool calc_zdst_lists( void )
 	
 	
 	// this functions counts, for each DCT block, the number of non-zero coefficients
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	{
 		// preset zdstlist
 		memset( zdstdata[cmp], 0, cmpnfo[cmp].bc * sizeof( char ) );
@@ -3268,11 +3197,11 @@ INTERN bool pack_pjg( void )
 	
 	// discard meta information from header if option set
 	if ( disc_meta )
-		if ( !jpg_rebuild_header() ) return false;	
+		if ( !jpg::rebuild_header() ) return false;	
 	// optimize header for compression
 	if ( !pjg_optimize_header() ) return false;	
-	// set padbit to 1 if previously unset
-	if ( padbit == -1 )	padbit = 1;
+	// set jpg::padbit to 1 if previously unset
+	if ( jpg::padbit == -1 )	jpg::padbit = 1;
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
@@ -3282,16 +3211,16 @@ INTERN bool pack_pjg( void )
 	if ( !pjg_encode_generic( encoder, hdrdata, hdrs ) ) return false;
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
-	// store padbit (padbit can't be retrieved from the header)
-	if ( !pjg_encode_bit( encoder, padbit ) ) return false;	
+	// store jpg::padbit (jpg::padbit can't be retrieved from the header)
+	if ( !pjg_encode_bit( encoder, jpg::padbit ) ) return false;	
 	// also encode one bit to signal false/correct use of RST markers
-	if ( !pjg_encode_bit( encoder, ( rst_err == NULL ) ? 0 : 1 ) ) return false;
+	if ( !pjg_encode_bit( encoder, jpg::rst_err.empty()  ? 0 : 1 ) ) return false;
 	// encode # of false set RST markers per scan
-	if ( rst_err != NULL )
-		if ( !pjg_encode_generic( encoder, rst_err, scnc ) ) return false;
+	if ( !jpg::rst_err.empty() )
+		if ( !pjg_encode_generic( encoder, jpg::rst_err.data(), jpg::scan_count ) ) return false;
 	
 	// encode actual components data
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
 		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;
@@ -3337,10 +3266,10 @@ INTERN bool pack_pjg( void )
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	if ( !pjg_encode_bit( encoder, ( grbs > 0 ) ? 1 : 0 ) ) return false;
+	if ( !pjg_encode_bit( encoder, !grbgdata.empty() ? 1 : 0 ) ) return false;
 	// encode garbage data only if needed
-	if ( grbs > 0 )
-		if ( !pjg_encode_generic( encoder, grbgdata, grbs ) ) return false;
+	if (!grbgdata.empty())
+		if ( !pjg_encode_generic( encoder, grbgdata.data(), grbgdata.size() ) ) return false;
 	
 	// finalize arithmetic compression
 	delete( encoder );
@@ -3405,24 +3334,25 @@ INTERN bool unpack_pjg( void )
 	
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
-	// retrieve padbit from stream
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false; padbit = cb;
+	// retrieve jpg::padbit from stream
+	if ( !pjg_decode_bit( decoder, &cb ) ) return false; jpg::padbit = cb;
 	// decode one bit that signals false /correct use of RST markers
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	// decode # of false set RST markers per scan only if available
-	if ( cb == 1 )
-		if ( !pjg_decode_generic( decoder, &rst_err, NULL ) ) return false;
+	if ( cb == 1 ) {
+		jpg::rst_err = pjg_decode_generic(decoder);
+	}
 	
 	// undo header optimizations
 	if ( !pjg_unoptimize_header() )	return false;	
 	// discard meta information from header if option set
 	if ( disc_meta )
-		if ( !jpg_rebuild_header() ) return false;
+		if ( !jpg::rebuild_header() ) return false;
 	// parse header for image-info
-	if ( !jpg_setup_imginfo() ) return false;
+	if ( !jpg::setup_imginfo() ) return false;
 	
 	// decode actual components data
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// decode frequency scan ('zero-sort-scan')
 		if ( !pjg_decode_zstscan( decoder, cmp ) ) return false;		
 		// decode zero-distribution-lists for higher (7x7) ACs
@@ -3441,8 +3371,9 @@ INTERN bool unpack_pjg( void )
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	
 	// decode garbage data only if available
-	if ( cb == 0 ) grbs = 0;
-	else if ( !pjg_decode_generic( decoder, &grbgdata, &grbs ) ) return false;
+	if (cb != 0) {
+		grbgdata = pjg_decode_generic(decoder);
+	}
 	
 	// finalize arithmetic compression
 	delete( decoder );
@@ -3459,11 +3390,7 @@ INTERN bool unpack_pjg( void )
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
 
-
-/* -----------------------------------------------
-	Parses header for imageinfo
-	----------------------------------------------- */
-INTERN bool jpg_setup_imginfo( void )
+bool jpg::setup_imginfo( void )
 {
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -3478,24 +3405,24 @@ INTERN bool jpg_setup_imginfo( void )
 		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// do not parse DHT & DRI
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
-			if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
+			if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
 				return false;
 		}
 		hpos += len;
 	}
 	
 	// check if information is complete
-	if ( cmpc == 0 ) {
+	if (image::cmpc == 0 ) {
 		sprintf( errormessage, "header contains incomplete information" );
 		errorlevel = 2;
 		return false;
 	}
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		if ( ( cmpnfo[cmp].sfv == 0 ) ||
 			 ( cmpnfo[cmp].sfh == 0 ) ||
 			 ( cmpnfo[cmp].qtable == NULL ) ||
 			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
-			 ( jpegtype == 0 ) ) {
+			 ( jpegtype == JpegType::UNKNOWN ) ) {
 			sprintf( errormessage, "header information is incomplete" );
 			errorlevel = 2;
 			return false;
@@ -3503,35 +3430,35 @@ INTERN bool jpg_setup_imginfo( void )
 	}
 	
 	// do all remaining component info calculations
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		if ( cmpnfo[ cmp ].sfh > sfhm ) sfhm = cmpnfo[ cmp ].sfh;
-		if ( cmpnfo[ cmp ].sfv > sfvm ) sfvm = cmpnfo[ cmp ].sfv;
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
+		if ( cmpnfo[ cmp ].sfh > image::sfhm ) image::sfhm = cmpnfo[ cmp ].sfh;
+		if ( cmpnfo[ cmp ].sfv > image::sfvm ) image::sfvm = cmpnfo[ cmp ].sfv;
 	}
-	mcuv = ( int ) ceil( (float) imgheight / (float) ( 8 * sfhm ) );
-	mcuh = ( int ) ceil( (float) imgwidth  / (float) ( 8 * sfvm ) );
-	mcuc  = mcuv * mcuh;
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
+	image::mcuv = ( int ) ceil( (float)image::imgheight / (float) ( 8 * image::sfhm ) );
+	image::mcuh = ( int ) ceil( (float)image::imgwidth  / (float) ( 8 * image::sfvm ) );
+	image::mcuc  = image::mcuv * image::mcuh;
+	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		cmpnfo[ cmp ].mbs = cmpnfo[ cmp ].sfv * cmpnfo[ cmp ].sfh;		
-		cmpnfo[ cmp ].bcv = mcuv * cmpnfo[ cmp ].sfh;
-		cmpnfo[ cmp ].bch = mcuh * cmpnfo[ cmp ].sfv;
+		cmpnfo[ cmp ].bcv = image::mcuv * cmpnfo[ cmp ].sfh;
+		cmpnfo[ cmp ].bch = image::mcuh * cmpnfo[ cmp ].sfv;
 		cmpnfo[ cmp ].bc  = cmpnfo[ cmp ].bcv * cmpnfo[ cmp ].bch;
-		cmpnfo[ cmp ].ncv = ( int ) ceil( (float) imgheight * 
-							( (float) cmpnfo[ cmp ].sfh / ( 8.0 * sfhm ) ) );
-		cmpnfo[ cmp ].nch = ( int ) ceil( (float) imgwidth * 
-							( (float) cmpnfo[ cmp ].sfv / ( 8.0 * sfvm ) ) );
+		cmpnfo[ cmp ].ncv = ( int ) ceil( (float)image::imgheight *
+							( (float) cmpnfo[ cmp ].sfh / ( 8.0 * image::sfhm ) ) );
+		cmpnfo[ cmp ].nch = ( int ) ceil( (float)image::imgwidth *
+							( (float) cmpnfo[ cmp ].sfv / ( 8.0 * image::sfvm ) ) );
 		cmpnfo[ cmp ].nc  = cmpnfo[ cmp ].ncv * cmpnfo[ cmp ].nch;
 	}
 	
 	// decide components' statistical ids
-	if ( cmpc <= 3 ) {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) cmpnfo[ cmp ].sid = cmp;
+	if (image::cmpc <= 3 ) {
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = cmp;
 	}
 	else {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) cmpnfo[ cmp ].sid = 0;
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = 0;
 	}
 	
 	// alloc memory for further operations
-	for ( cmp = 0; cmp < cmpc; cmp++ )
+	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	{
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
@@ -3560,7 +3487,7 @@ INTERN bool jpg_setup_imginfo( void )
 	
 	// also decide automatic settings here
 	if ( auto_set ) {
-		for ( cmp = 0; cmp < cmpc; cmp++ ) {
+		for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 			for ( i = 0;
 				conf_sets[ i ][ cmpnfo[cmp].sid ] > (unsigned int) cmpnfo[ cmp ].bc;
 				i++ );
@@ -3573,131 +3500,198 @@ INTERN bool jpg_setup_imginfo( void )
 	return true;
 }
 
+// Builds Huffman trees and codes.
+bool jpg::jfif::parse_dht(unsigned char type, unsigned int len, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	// build huffman trees & codes
+	while (hpos < len) {
+		int lval = LBITS(segment[hpos], 4);
+		int rval = RBITS(segment[hpos], 4);
+		if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
+			break;
+		}
 
-/* -----------------------------------------------
-	Parse routines for JFIF segments
-	----------------------------------------------- */
-INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char* segment )
+		hpos++;
+		// build huffman codes & trees
+		jpg::hcodes[lval][rval] = jpg::jfif::build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
+		jpg::htrees[lval][rval] = jpg::jfif::build_hufftree(jpg::hcodes[lval][rval]);
+		jpg::htset[lval][rval] = true;
+
+		int skip = 16;
+		for (int i = 0; i < 16; i++) {
+			skip += (int)segment[hpos + i];
+		}
+		hpos += skip;
+	}
+
+	if (hpos != len) {
+		// if we get here, something went wrong
+		sprintf(errormessage, "size mismatch in dht marker");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+// Copy quantization tables to internal memory
+bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	while (hpos < len) {
+		int lval = LBITS( segment[ hpos ], 4 );
+		int rval = RBITS( segment[ hpos ], 4 );
+		if (lval < 0 || lval >= 2) {
+			break;
+		}
+		if (rval < 0 || rval >= 4) {
+			break;
+		}
+		hpos++;
+		if (lval == 0) { // 8 bit precision
+			for (int i = 0; i < 64; i++) {
+				qtables[rval][i] = (unsigned short) segment[hpos + i];
+				if (qtables[rval][i] == 0) {
+					break;
+				}
+			}
+			hpos += 64;
+		} else { // 16 bit precision
+			for (int i = 0; i < 64; i++) {
+				qtables[rval][i] =
+					B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
+				if (qtables[rval][i] == 0) {
+					break;
+				}
+			}
+			hpos += 128;
+		}
+	}
+
+	if (hpos != len) {
+		// if we get here, something went wrong
+		sprintf(errormessage, "size mismatch in dqt marker");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+// define restart interval
+void jpg::jfif::parse_dri(const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	jpg::rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );
+}
+
+bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+
+	// set JPEG coding type
+	if (type == 0xC2) {
+		jpegtype = JpegType::PROGRESSIVE;
+	} else {
+		jpegtype = JpegType::SEQUENTIAL;
+	}
+
+	// check data precision, only 8 bit is allowed
+	int lval = segment[hpos];
+	if (lval != 8) {
+		sprintf(errormessage, "%i bit data precision is not supported", lval);
+		errorlevel = 2;
+		return false;
+	}
+
+	// image size, height & component count
+	image::imgheight = B_SHORT(segment[hpos + 1], segment[hpos + 2]);
+	image::imgwidth = B_SHORT(segment[hpos + 3], segment[hpos + 4]);
+	image::cmpc = segment[hpos + 5];
+	if ((image::imgwidth == 0) || (image::imgheight == 0)) {
+		sprintf(errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight);
+		errorlevel = 2;
+		return false;
+	}
+	if (image::cmpc > 4) {
+		sprintf(errormessage, "image has %i components, max 4 are supported", image::cmpc);
+		errorlevel = 2;
+		return false;
+	}
+
+	hpos += 6;
+	// components contained in image
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+		cmpnfo[cmp].jid = segment[hpos];
+		cmpnfo[cmp].sfv = LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].sfh = RBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].qtable = qtables[segment[hpos + 2]];
+		hpos += 3;
+	}
+
+	return true;
+}
+
+bool jpg::jfif::parse_sos(const unsigned char* segment) {
+	int hpos = 4; // current position in segment, start after segment header
+	curr_scan::cmpc = segment[hpos];
+	if (curr_scan::cmpc > image::cmpc) {
+		sprintf(errormessage, "%i components in scan, only %i are allowed",
+			curr_scan::cmpc, image::cmpc);
+		errorlevel = 2;
+		return false;
+	}
+	hpos++;
+	for (int i = 0; i < curr_scan::cmpc; i++) {
+		int cmp;
+		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < image::cmpc); cmp++);
+		if (cmp == image::cmpc) {
+			sprintf(errormessage, "component id mismatch in start-of-scan");
+			errorlevel = 2;
+			return false;
+		}
+		curr_scan::cmp[i] = cmp;
+		cmpnfo[cmp].huffdc = LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].huffac = RBITS(segment[hpos + 1], 4);
+		if ((cmpnfo[cmp].huffdc < 0) || (cmpnfo[cmp].huffdc >= 4) ||
+			(cmpnfo[cmp].huffac < 0) || (cmpnfo[cmp].huffac >= 4)) {
+			sprintf(errormessage, "huffman table number mismatch");
+			errorlevel = 2;
+			return false;
+		}
+		hpos += 2;
+	}
+	curr_scan::from = segment[hpos + 0];
+	curr_scan::to = segment[hpos + 1];
+	curr_scan::sah = LBITS(segment[hpos + 2], 4);
+	curr_scan::sal = RBITS(segment[hpos + 2], 4);
+	// check for errors
+	if ((curr_scan::from > curr_scan::to) || (curr_scan::from > 63) || (curr_scan::to > 63)) {
+		sprintf(errormessage, "spectral selection parameter out of range");
+		errorlevel = 2;
+		return false;
+	}
+	if ((curr_scan::sah >= 12) || (curr_scan::sal >= 12)) {
+		sprintf(errormessage, "successive approximation parameter out of range");
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment)
 {
-	unsigned int hpos = 4; // current position in segment, start after segment header
-	int lval, rval; // temporary variables
-	int skip;
-	int cmp;
-	int i;
-	
 	
 	switch ( type )
 	{
 		case 0xC4: // DHT segment
-			// build huffman trees & codes
-			while ( hpos < len ) {
-				lval = LBITS( segment[ hpos ], 4 );
-				rval = RBITS( segment[ hpos ], 4 );
-				if ( ((lval < 0) || (lval >= 2)) || ((rval < 0) || (rval >= 4)) )
-					break;
-					
-				hpos++;
-				// build huffman codes & trees
-				jpg_build_huffcodes( &(segment[ hpos + 0 ]), &(segment[ hpos + 16 ]),
-					&(hcodes[ lval ][ rval ]), &(htrees[ lval ][ rval ]) );
-				htset[ lval ][ rval ] = 1;
-				
-				skip = 16;
-				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) segment[ hpos + i ];				
-				hpos += skip;
-			}
-			
-			if ( hpos != len ) {
-				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dht marker" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_dht(type, len, segment);
 		
 		case 0xDB: // DQT segment
-			// copy quantization tables to internal memory
-			while ( hpos < len ) {
-				lval = LBITS( segment[ hpos ], 4 );
-				rval = RBITS( segment[ hpos ], 4 );
-				if ( (lval < 0) || (lval >= 2) ) break;
-				if ( (rval < 0) || (rval >= 4) ) break;
-				hpos++;				
-				if ( lval == 0 ) { // 8 bit precision
-					for ( i = 0; i < 64; i++ ) {
-						qtables[ rval ][ i ] = ( unsigned short ) segment[ hpos + i ];
-						if ( qtables[ rval ][ i ] == 0 ) break;
-					}
-					hpos += 64;
-				}
-				else { // 16 bit precision
-					for ( i = 0; i < 64; i++ ) {
-						qtables[ rval ][ i ] =
-							pack( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
-						if ( qtables[ rval ][ i ] == 0 ) break;
-					}
-					hpos += 128;
-				}
-			}
-			
-			if ( hpos != len ) {
-				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dqt marker" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_dqt(len, segment);
 			
 		case 0xDD: // DRI segment
-			// define restart interval
-			rsti = pack( segment[ hpos ], segment[ hpos + 1 ] );			
+			jpg::jfif::parse_dri(segment);
 			return true;
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
-			cs_cmpc = segment[ hpos ];
-			if ( cs_cmpc > cmpc ) {
-				sprintf( errormessage, "%i components in scan, only %i are allowed",
-							cs_cmpc, cmpc );
-				errorlevel = 2;
-				return false;
-			}
-			hpos++;
-			for ( i = 0; i < cs_cmpc; i++ ) {
-				for ( cmp = 0; ( segment[ hpos ] != cmpnfo[ cmp ].jid ) && ( cmp < cmpc ); cmp++ );
-				if ( cmp == cmpc ) {
-					sprintf( errormessage, "component id mismatch in start-of-scan" );
-					errorlevel = 2;
-					return false;
-				}
-				cs_cmp[ i ] = cmp;
-				cmpnfo[ cmp ].huffdc = LBITS( segment[ hpos + 1 ], 4 );
-				cmpnfo[ cmp ].huffac = RBITS( segment[ hpos + 1 ], 4 );
-				if ( ( cmpnfo[ cmp ].huffdc < 0 ) || ( cmpnfo[ cmp ].huffdc >= 4 ) ||
-					 ( cmpnfo[ cmp ].huffac < 0 ) || ( cmpnfo[ cmp ].huffac >= 4 ) ) {
-					sprintf( errormessage, "huffman table number mismatch" );
-					errorlevel = 2;
-					return false;
-				}
-				hpos += 2;
-			}
-			cs_from = segment[ hpos + 0 ];
-			cs_to   = segment[ hpos + 1 ];
-			cs_sah  = LBITS( segment[ hpos + 2 ], 4 );
-			cs_sal  = RBITS( segment[ hpos + 2 ], 4 );
-			// check for errors
-			if ( ( cs_from > cs_to ) || ( cs_from > 63 ) || ( cs_to > 63 ) ) {
-				sprintf( errormessage, "spectral selection parameter out of range" );
-				errorlevel = 2;
-				return false;
-			}
-			if ( ( cs_sah >= 12 ) || ( cs_sal >= 12 ) ) {
-				sprintf( errormessage, "successive approximation parameter out of range" );
-				errorlevel = 2;
-				return false;
-			}
-			return true;
+			return jpg::jfif::parse_sos(segment);
 		
 		case 0xC0: // SOF0 segment
 			// coding process: baseline DCT
@@ -3707,47 +3701,8 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 		
 		case 0xC2: // SOF2 segment
 			// coding process: progressive DCT
-			
-			// set JPEG coding type
-			if ( type == 0xC2 )
-				jpegtype = 2;
-			else
-				jpegtype = 1;
-				
-			// check data precision, only 8 bit is allowed
-			lval = segment[ hpos ];
-			if ( lval != 8 ) {
-				sprintf( errormessage, "%i bit data precision is not supported", lval );
-				errorlevel = 2;
-				return false;
-			}
-			
-			// image size, height & component count
-			imgheight = pack( segment[ hpos + 1 ], segment[ hpos + 2 ] );
-			imgwidth  = pack( segment[ hpos + 3 ], segment[ hpos + 4 ] );
-			cmpc      = segment[ hpos + 5 ];
-			if ( ( imgwidth == 0 ) || ( imgheight == 0 ) ) {
-				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", imgwidth, imgheight );
-				errorlevel = 2;
-				return false;
-			}
-			if ( cmpc > 4 ) {
-				sprintf( errormessage, "image has %i components, max 4 are supported", cmpc );
-				errorlevel = 2;
-				return false;
-			}
-			
-			hpos += 6;
-			// components contained in image
-			for ( cmp = 0; cmp < cmpc; cmp++ ) {
-				cmpnfo[ cmp ].jid = segment[ hpos ];
-				cmpnfo[ cmp ].sfv = LBITS( segment[ hpos + 1 ], 4 );
-				cmpnfo[ cmp ].sfh = RBITS( segment[ hpos + 1 ], 4 );				
-				cmpnfo[ cmp ].qtable = qtables[ segment[ hpos + 2 ] ];
-				hpos += 3;
-			}
-			
-			return true;
+
+			return jpg::jfif::parse_sof(type, segment);
 		
 		case 0xC3: // SOF3 segment
 			// coding process: lossless sequential
@@ -3862,21 +3817,15 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 	}
 }
 
-
-/* -----------------------------------------------
-	JFIF header rebuilding routine
-	----------------------------------------------- */
-INTERN bool jpg_rebuild_header( void )
-{	
-	abytewriter* hdrw; // new header writer
-	
+bool jpg::rebuild_header()
+{		
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // position in header	
 	
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	auto hdrw = std::make_unique<abytewriter>( 4096 ); // new header writer
 	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
@@ -3894,18 +3843,12 @@ INTERN bool jpg_rebuild_header( void )
 	// replace current header with the new one
 	free( hdrdata );
 	hdrdata = hdrw->getptr();
-	hdrs    = hdrw->getpos();
-	delete( hdrw );
-	
+	hdrs    = hdrw->getpos();	
 	
 	return true;
 }
 
-
-/* -----------------------------------------------
-	sequential block decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block )
+int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3916,17 +3859,15 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 	
 	
 	// decode dc
-	hc = jpg_next_huffcode( huffr, dctree );
-	if ( hc < 0 ) return -1; // return error
-	else s = ( unsigned char ) hc;
-	n = huffr->read( s );	
-	block[ 0 ] = devli( s, n );
+	if (jpg::decode::dc_prg_fs(huffr, dctree, block) == jpg::CodingStatus::ERROR) {
+		return -1; // Return error
+	}
 	
 	// decode ac
 	for ( bpos = 1; bpos < 64; )
 	{
 		// decode next
-		hc = jpg_next_huffcode( huffr, actree );
+		hc = jpg::decode::next_huffcode( huffr, actree );
 		// analyse code
 		if ( hc > 0 ) {
 			z = LBITS( hc, 4 );
@@ -3956,107 +3897,67 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	sequential block encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block )
+int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block)
 {
-	unsigned short n;
-	unsigned char  s;
-	unsigned char  z;
-	int bpos;
-	int hc;
-	
-	
 	// encode DC
-	s = bitlen2048n( block[ 0 ] );
-	n = envli( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
-	huffw->write( n, s );
-	
+	jpg::encode::dc_prg_fs(huffw, dctbl, block);
+
 	// encode AC
-	z = 0;
-	for ( bpos = 1; bpos < 64; bpos++ )
-	{
+	int z = 0;
+	for (int bpos = 1; bpos < 64; bpos++) {
 		// if nonzero is encountered
-		if ( block[ bpos ] != 0 ) {
+		if (block[bpos] != 0) {
 			// write remaining zeroes
-			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+			while (z >= 16) {
+				huffw->write(actbl.cval[0xF0], actbl.clen[0xF0]);
 				z -= 16;
-			}			
+			}
 			// vli encode
-			s = bitlen2048n( block[ bpos ] );
-			n = envli( s, block[ bpos ] );
-			hc = ( ( z << 4 ) + s );
+			int s = bitlen2048n( block[ bpos ] );
+			std::uint16_t n = envli( s, block[ bpos ] );
+			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
-			huffw->write( n, s );
+			huffw->write(actbl.cval[hc], actbl.clen[hc]);
+			huffw->write(n, s);
 			// reset zeroes
 			z = 0;
-		}
-		else { // increment zero counter
+		} else { // increment zero counter
 			z++;
 		}
 	}
 	// write eob if needed
-	if ( z > 0 )
-		huffw->write( actbl->cval[ 0x00 ], actbl->clen[ 0x00 ] );
-		
-	
+	if (z > 0) {
+		huffw->write(actbl.cval[0x00], actbl.clen[0x00]);
+	}
+
 	return 64 - z;
 }
 
-
-/* -----------------------------------------------
-	progressive DC decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block )
+jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block)
 {
-	unsigned short n;
-	unsigned char  s;
-	int hc;
-	
-	
 	// decode dc
-	hc = jpg_next_huffcode( huffr, dctree );
-	if ( hc < 0 ) return -1; // return error
-	else s = ( unsigned char ) hc;
-	n = huffr->read( s );	
-	block[ 0 ] = devli( s, n );
-	
-	
+	int hc = jpg::decode::next_huffcode(huffr, dctree);
+	if (hc < 0) {
+		return jpg::CodingStatus::ERROR; // return error
+	}
+	int s = hc;
+	std::uint16_t n = huffr->read(s);
+	block[0] = devli( s, n );
+
 	// return 0 if everything is ok
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
-
-/* -----------------------------------------------
-	progressive DC encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block )
+void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block)
 {
-	unsigned short n;
-	unsigned char  s;
-	
-	
 	// encode DC	
-	s = bitlen2048n( block[ 0 ] );
-	n = envli( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
-	huffw->write( n, s );
-	
-	
-	// return 0 if everything is ok
-	return 0;
+	int s = bitlen2048n( block[ 0 ] );
+	std::uint16_t n = envli( s, block[ 0 ] );
+	huffw->write(dctbl.cval[s], dctbl.clen[s]);
+	huffw->write(n, s);
 }
 
-
-/* -----------------------------------------------
-	progressive AC decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4072,7 +3973,7 @@ INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* blo
 	for ( bpos = from; bpos <= to; )
 	{
 		// decode next
-		hc = jpg_next_huffcode( huffr, actree );
+		hc = jpg::decode::next_huffcode( huffr, actree );
 		if ( hc < 0 ) return -1;
 		l = LBITS( hc, 4 );
 		r = RBITS( hc, 4 );
@@ -4105,11 +4006,7 @@ INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* blo
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	progressive AC encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4124,10 +4021,10 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 		// if nonzero is encountered
 		if ( block[ bpos ] != 0 ) {
 			// encode eobrun
-			jpg_encode_eobrun( huffw, actbl, eobrun );
+			jpg::encode::eobrun(huffw, actbl, eobrun);
 			// write remaining zeroes
 			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
 				z -= 16;
 			}			
 			// vli encode
@@ -4135,7 +4032,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 			huffw->write( n, s );
 			// reset zeroes
 			z = 0;
@@ -4149,8 +4046,8 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 	if ( z > 0 ) {
 		(*eobrun)++;
 		// check eobrun, encode if needed
-		if ( (*eobrun) == actbl->max_eobrun )
-			jpg_encode_eobrun( huffw, actbl, eobrun );
+		if ( (*eobrun) == actbl.max_eobrun )
+			jpg::encode::eobrun(huffw, actbl, eobrun);
 		return 1 + to - z;		
 	}
 	else {
@@ -4158,37 +4055,19 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 	}
 }
 
-
-/* -----------------------------------------------
-	progressive DC SA decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block )
+void jpg::decode::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block)
 {
 	// decode next bit of dc coefficient
-	block[ 0 ] = huffr->read( 1 );
-	
-	// return 0 if everything is ok
-	return 0;
+	block[ 0 ] = huffr->read_bit();
 }
 
-
-/* -----------------------------------------------
-	progressive DC SA encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block )
+void jpg::encode::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block)
 {
 	// enocode next bit of dc coefficient
-	huffw->write( block[ 0 ], 1 );
-	
-	// return 0 if everything is ok
-	return 0;
+	huffw->write_bit(block[0]);
 }
 
-
-/* -----------------------------------------------
-	progressive AC SA decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4205,7 +4084,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 	if ( (*eobrun) == 0 ) while ( bpos <= to )
 	{
 		// decode next
-		hc = jpg_next_huffcode( huffr, actree );
+		hc = jpg::decode::next_huffcode( huffr, actree );
 		if ( hc < 0 ) return -1;
 		l = LBITS( hc, 4 );
 		r = RBITS( hc, 4 );
@@ -4215,7 +4094,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 			s = r;
 			if ( s == 0 ) v = 0;
 			else if ( s == 1 ) {
-				n = huffr->read( 1 );
+				n = huffr->read_bit();
 				v = ( n == 0 ) ? -1 : 1; // fast decode vli
 			}
 			else return -1; // decoding error
@@ -4229,7 +4108,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 					}
 				}
 				else { // read correction bit
-					n = huffr->read( 1 );
+					n = huffr->read_bit();
 					block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 				}
 				if ( bpos++ >= to ) return -1; // error check					
@@ -4248,7 +4127,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 	if ( (*eobrun) > 0 ) {
 		for ( ; bpos <= to; bpos++ ) {
 			if ( block[ bpos ] != 0 ) {
-				n = huffr->read( 1 );
+				n = huffr->read_bit();
 				block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 			}
 		}
@@ -4258,11 +4137,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	progressive AC SA encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4281,8 +4156,8 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 	
 	// encode eobrun if needed
 	if ( ( eob > from ) && ( (*eobrun) > 0 ) ) {
-		jpg_encode_eobrun( huffw, actbl, eobrun );
-		jpg_encode_crbits( huffw, storw );
+		jpg::encode::eobrun(huffw, actbl, eobrun);
+		jpg::encode::crbits( huffw, storw );
 	}
 	
 	// encode AC
@@ -4293,8 +4168,8 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 		if ( block[ bpos ] == 0 ) {
 			z++; // increment zero counter
 			if ( z == 16 ) { // write zeroes if needed
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
-				jpg_encode_crbits( huffw, storw );
+				huffw->write( actbl.cval[ 0xF0 ], actbl.clen[ 0xF0 ] );
+				jpg::encode::crbits( huffw, storw );
 				z = 0;
 			}
 		}
@@ -4305,10 +4180,10 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 			huffw->write( n, s );
 			// write correction bits
-			jpg_encode_crbits( huffw, storw );
+			jpg::encode::crbits( huffw, storw );
 			// reset zeroes
 			z = 0;
 		}
@@ -4331,9 +4206,9 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 	if ( eob <= to ) {
 		(*eobrun)++;	
 		// check eobrun, encode if needed
-		if ( (*eobrun) == actbl->max_eobrun ) {
-			jpg_encode_eobrun( huffw, actbl, eobrun );
-			jpg_encode_crbits( huffw, storw );		
+		if ( (*eobrun) == actbl.max_eobrun ) {
+			jpg::encode::eobrun(huffw, actbl, eobrun);
+			jpg::encode::crbits( huffw, storw );		
 		}
 	}	
 	
@@ -4341,11 +4216,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 	return eob;
 }
 
-
-/* -----------------------------------------------
-	run of EOB SA decoding routine
-	----------------------------------------------- */
-INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to )
+void jpg::decode::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	int bpos;
@@ -4354,20 +4225,13 @@ INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, i
 	// fast eobrun decoding routine for succesive approximation
 	for ( bpos = from; bpos <= to; bpos++ ) {
 		if ( block[ bpos ] != 0 ) {
-			n = huffr->read( 1 );
+			n = huffr->read_bit();
 			block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 		}
 	}
-	
-	
-	return 0;
 }
 
-
-/* -----------------------------------------------
-	run of EOB encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
+void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4375,29 +4239,22 @@ INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
 	
 	
 	if ( (*eobrun) > 0 ) {
-		while ( (*eobrun) > actbl->max_eobrun ) {
-			huffw->write( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
-			huffw->write( e_envli( 14, 32767 ), 14 );
-			(*eobrun) -= actbl->max_eobrun;
+		while ( (*eobrun) > actbl.max_eobrun ) {
+			huffw->write( actbl.cval[ 0xE0 ], actbl.clen[ 0xE0 ] );
+			huffw->write(e_envli( 14, 32767 ), 14 );
+			(*eobrun) -= actbl.max_eobrun;
 		}
 		s = bitlen((*eobrun));
 		s--;
 		n = e_envli( s, (*eobrun) );
 		hc = ( s << 4 );
-		huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
+		huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 		huffw->write( n, s );
 		(*eobrun) = 0;
 	}
-
-	
-	return 0;
 }
 
-
-/* -----------------------------------------------
-	correction bits encoding routine
-	----------------------------------------------- */
-INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw )
+void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw)
 {	
 	unsigned char* data;
 	int len;
@@ -4406,69 +4263,58 @@ INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw )
 	
 	// peek into data from abytewriter	
 	len = storw->getpos();
-	if ( len == 0 ) return 0;
+	if ( len == 0 ) return;
 	data = storw->peekptr();
 	
 	// write bits to huffwriter
 	for ( i = 0; i < len; i++ )
-		huffw->write( data[ i ], 1 );
+		huffw->write_bit(data[i]);
 	
 	// reset abytewriter, discard data
 	storw->reset();
-	
-	
-	return 0;
 }
 
-
-/* -----------------------------------------------
-	returns next code (from huffman-tree & -data)
-	----------------------------------------------- */
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree )
+int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree)
 {	
 	int node = 0;
 	
 	
 	while ( node < 256 ) {
-		node = ( huffw->read( 1 ) == 1 ) ?
-				ctree->r[ node ] : ctree->l[ node ];
+		node = ( huffr->read_bit() == 1 ) ?
+				ctree.r[ node ] : ctree.l[ node ];
 		if ( node == 0 ) break;
 	}
 	
 	return ( node - 256 );
 }
 
-
-/* -----------------------------------------------
-	calculates next position for MCU
-	----------------------------------------------- */
-INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw )
+jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
-	int sta = 0; // status
+	jpg::CodingStatus sta = jpg::CodingStatus::OKAY;
 	
 	
 	// increment all counts where needed
 	if ( ( ++(*sub) ) >= cmpnfo[(*cmp)].mbs ) {
 		(*sub) = 0;
 		
-		if ( ( ++(*csc) ) >= cs_cmpc ) {
+		if ( ( ++(*csc) ) >= curr_scan::cmpc ) {
 			(*csc) = 0;
-			(*cmp) = cs_cmp[ 0 ];
+			(*cmp) = curr_scan::cmp[ 0 ];
 			(*mcu)++;
-			if ( (*mcu) >= mcuc ) sta = 2;
-			else if ( rsti > 0 )
-				if ( --(*rstw) == 0 ) sta = 1;
+			if ( (*mcu) >= image::mcuc ) sta = jpg::CodingStatus::DONE;
+			else if ( jpg::rsti > 0 )
+				if ( --(*rstw) == 0 ) sta = jpg::CodingStatus::RESTART;
 		}
 		else {
-			(*cmp) = cs_cmp[(*csc)];
+			(*cmp) = curr_scan::cmp[(*csc)];
 		}
 	}
 	
 	// get correct position in image ( x & y )
 	if ( cmpnfo[(*cmp)].sfh > 1 ) { // to fix mcu order
-		(*dpos)  = ( (*mcu) / mcuh ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
+		(*dpos)  = ( (*mcu) / image::mcuh ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
 		(*dpos) *= cmpnfo[(*cmp)].bch;
-		(*dpos) += ( (*mcu) % mcuh ) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
+		(*dpos) += ( (*mcu) % image::mcuh ) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
 	}
 	else if ( cmpnfo[(*cmp)].sfv > 1 ) {
 		// simple calculation to speed up things if simple fixing is enough
@@ -4483,63 +4329,55 @@ INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, i
 	return sta;
 }
 
-
-/* -----------------------------------------------
-	calculates next position (non interleaved)
-	----------------------------------------------- */
-INTERN int jpg_next_mcuposn( int* cmp, int* dpos, int* rstw )
+jpg::CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 {
 	// increment position
 	(*dpos)++;
 	
 	// fix for non interleaved mcu - horizontal
-	if ( cmpnfo[(*cmp)].bch != cmpnfo[(*cmp)].nch ) {
-		if ( (*dpos) % cmpnfo[(*cmp)].bch == cmpnfo[(*cmp)].nch )
-			(*dpos) += ( cmpnfo[(*cmp)].bch - cmpnfo[(*cmp)].nch );
+	if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
+		if ( (*dpos) % cmpnfo[cmpt].bch == cmpnfo[cmpt].nch )
+			(*dpos) += ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
 	}
 	
 	// fix for non interleaved mcu - vertical
-	if ( cmpnfo[(*cmp)].bcv != cmpnfo[(*cmp)].ncv ) {
-		if ( (*dpos) / cmpnfo[(*cmp)].bch == cmpnfo[(*cmp)].ncv )
-			(*dpos) = cmpnfo[(*cmp)].bc;
+	if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
+		if ( (*dpos) / cmpnfo[cmpt].bch == cmpnfo[cmpt].ncv )
+			(*dpos) = cmpnfo[cmpt].bc;
 	}
 	
 	// check position
-	if ( (*dpos) >= cmpnfo[(*cmp)].bc ) return 2;
-	else if ( rsti > 0 )
-		if ( --(*rstw) == 0 ) return 1;
+	if ( (*dpos) >= cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
+	else if ( jpg::rsti > 0 )
+		if ( --(*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	
 
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
-
-/* -----------------------------------------------
-	skips the eobrun, calculates next position
-	----------------------------------------------- */
-INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun )
+jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
 		// compare rst wait counter if needed
-		if ( rsti > 0 ) {
+		if ( jpg::rsti > 0 ) {
 			if ( (*eobrun) > (*rstw) )
-				return -1;
+				return jpg::CodingStatus::ERROR;
 			else
 				(*rstw) -= (*eobrun);
 		}
 		
 		// fix for non interleaved mcu - horizontal
-		if ( cmpnfo[(*cmp)].bch != cmpnfo[(*cmp)].nch ) {
-			(*dpos) += ( ( ( (*dpos) % cmpnfo[(*cmp)].bch ) + (*eobrun) ) /
-						cmpnfo[(*cmp)].nch ) * ( cmpnfo[(*cmp)].bch - cmpnfo[(*cmp)].nch );
+		if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
+			(*dpos) += ( ( ( (*dpos) % cmpnfo[cmpt].bch ) + (*eobrun) ) /
+						cmpnfo[cmpt].nch ) * ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
 		}
 		
 		// fix for non interleaved mcu - vertical
-		if ( cmpnfo[(*cmp)].bcv != cmpnfo[(*cmp)].ncv ) {
-			if ( (*dpos) / cmpnfo[(*cmp)].bch >= cmpnfo[(*cmp)].ncv )
-				(*dpos) += ( cmpnfo[(*cmp)].bcv - cmpnfo[(*cmp)].ncv ) *
-						cmpnfo[(*cmp)].bch;
+		if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
+			if ( (*dpos) / cmpnfo[cmpt].bch >= cmpnfo[cmpt].ncv )
+				(*dpos) += ( cmpnfo[cmpt].bcv - cmpnfo[cmpt].ncv ) *
+						cmpnfo[cmpt].bch;
 		}		
 		
 		// skip blocks 
@@ -4549,90 +4387,75 @@ INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun )
 		(*eobrun) = 0;
 		
 		// check position
-		if ( (*dpos) == cmpnfo[(*cmp)].bc ) return 2;
-		else if ( (*dpos) > cmpnfo[(*cmp)].bc ) return -1;
-		else if ( rsti > 0 ) 
-			if ( (*rstw) == 0 ) return 1;
+		if ( (*dpos) == cmpnfo[cmpt].bc ) return jpg::CodingStatus::DONE;
+		else if ( (*dpos) > cmpnfo[cmpt].bc ) return jpg::CodingStatus::ERROR;
+		else if ( jpg::rsti > 0 ) 
+			if ( (*rstw) == 0 ) return jpg::CodingStatus::RESTART;
 	}
 	
-	return 0;
+	return jpg::CodingStatus::OKAY;
 }
 
-
-/* -----------------------------------------------
-	creates huffman-codes & -trees from dht-data
-	----------------------------------------------- */
-INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffCodes *hc, huffTree *ht )
-{
-	int nextfree;	
-	int code;
-	int node;
-	int i, j, k;
-	
-	
-	// fill with zeroes
-	memset( hc->clen, 0, 256 * sizeof( short ) );
-	memset( hc->cval, 0, 256 * sizeof( short ) );
-	memset( ht->l, 0, 256 * sizeof( short ) );
-	memset( ht->r, 0, 256 * sizeof( short ) );
-	
-	// 1st part -> build huffman codes
-	
-	// creating huffman-codes	
-	k = 0;
-	code = 0;	
+static HuffCodes jpg::jfif::build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
+	HuffCodes codes;
+	int k = 0;
+	int code = 0;
 	
 	// symbol-value of code is its position in the table
-	for( i = 0; i < 16; i++ ) {
-		for( j = 0; j < (int) clen[ i ]; j++ ) {
-			hc->clen[ (int) cval[k] ] = 1 + i;
-			hc->cval[ (int) cval[k] ] = code;
-			
-			k++;			
+	for (int i = 0; i < 16; i++) {
+		for (int j = 0; j < (int)clen[i]; j++) {
+			codes.clen[(int)cval[k]] = 1 + i;
+			codes.cval[(int)cval[k]] = code;
+
+			k++;
 			code++;
-		}		
+		}
 		code = code << 1;
 	}
 	
 	// find out eobrun max value
-	hc->max_eobrun = 0;
-	for ( i = 14; i >= 0; i-- ) {
-		if ( hc->clen[ i << 4 ] > 0 ) {
-			hc->max_eobrun = ( 2 << i ) - 1;
+	for (int i = 14; i >= 0; i--) {
+		if (codes.clen[i << 4] > 0) {
+			codes.max_eobrun = (2 << i) - 1;
 			break;
 		}
 	}
-	
-	// 2nd -> part use codes to build the coding tree
-	
+	return codes;
+}
+
+static HuffTree jpg::jfif::build_hufftree(const HuffCodes& hc) {
+	HuffTree tree;
 	// initial value for next free place
-	nextfree = 1;
+	int nextfree = 1;
 
 	// work through every code creating links between the nodes (represented through ints)
-	for ( i = 0; i < 256; i++ )	{
+	for (int i = 0; i < 256; i++) {
 		// (re)set current node
-		node = 0;   		   		
+		int node = 0;
 		// go through each code & store path
-		for ( j = hc->clen[ i ] - 1; j > 0; j-- ) {
-			if ( BITN( hc->cval[ i ], j ) == 1 ) {
-				if ( ht->r[ node ] == 0 )
-					 ht->r[ node ] = nextfree++;
-				node = ht->r[ node ];
+		for (int j = hc.clen[i] - 1; j > 0; j--) {
+			if (BITN(hc.cval[i], j) == 1) {
+				if (tree.r[node] == 0) {
+					tree.r[node] = nextfree++;
+				}
+				node = tree.r[node];
+			} else {
+				if (tree.l[node] == 0) {
+					tree.l[node] = nextfree++;
+				}
+				node = tree.l[node];
 			}
-			else{
-				if ( ht->l[ node ] == 0 )
-					ht->l[ node ] = nextfree++;
-				node = ht->l[ node ];
-			}   					
 		}
 		// last link is number of targetvalue + 256
-		if ( hc->clen[ i ] > 0 ) {
-			if ( BITN( hc->cval[ i ], 0 ) == 1 )
-				ht->r[ node ] = i + 256;
-			else
-				ht->l[ node ] = i + 256;
-		}	   	
+		if (hc.clen[i] > 0) {
+			if (BITN(hc.cval[i], 0) == 1) {
+				tree.r[node] = i + 256;
+			} else {
+				tree.l[node] = i + 256;
+			}
+		}
 	}
+	return tree;
 }
 
 /* ----------------------- End of JPEG specific functions -------------------------- */
@@ -5957,6 +5780,31 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	return true;
 }
 
+static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec) {
+	auto bwrt = std::make_unique<abytewriter>(1024);
+	auto model = INIT_MODEL_S(256 + 1, 256, 1);
+	while (true) {
+		int c = decode_ari(dec, model);
+		if (c == 256) {
+			break;
+		}
+		bwrt->write((unsigned char)c);
+		model->shift_context(c);
+	}
+
+	// check for out of memory
+	if (bwrt->error()) {
+		sprintf(errormessage, MEM_ERRMSG);
+		errorlevel = 2;
+		return std::vector<std::uint8_t>();
+	}
+
+	auto data = bwrt->getptr();
+	auto length = bwrt->getpos();
+	return std::vector<std::uint8_t>(data, data + length);
+
+}
+
 
 /* -----------------------------------------------
 	decodes one bit from pjg
@@ -6801,13 +6649,13 @@ INTERN bool dump_info() {
 	}
 
 	// info about image
-	fprintf(fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
-	fprintf(fp, "coding process: %s\n", (jpegtype == 1) ? "sequential" : "progressive");
-	// fprintf( fp, "no of scans: %i\n", scnc );
-	fprintf(fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth);
-	fprintf(fp, "component count: %i\n", cmpc);
-	fprintf(fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh);
-
+	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
+	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
+	// fprintf( fp, "no of scans: %i\n", jpg::scan_count );
+	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
+	fprintf( fp, "component count: %i\n", cmpc );
+	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
+	
 	// info about header
 	fprintf(fp, "\nfile header structure:\n");
 	fprintf(fp, " type  length   hpos\n");
