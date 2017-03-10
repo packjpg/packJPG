@@ -273,17 +273,15 @@ packJPG by Matthias Stirner, 01/2016
 #include <chrono>
 #include <memory>
 #include <numeric>
+#include <string>
 #include <tuple>
 #include <vector>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
+#include <cstdio>
 
-#include "bitops.h"
 #include "aricoder.h"
-#include "pjpgtbl.h"
+#include "bitops.h"
 #include "dct8x8.h"
+#include "pjpgtbl.h"
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
@@ -2130,9 +2128,9 @@ INTERN bool reset_buffers()
 bool jpg::decode::read()
 {
 	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   crst = 0; // current rst marker counter
-	unsigned int   cpos = 0; // rst marker counter
+	unsigned int   len; // length of current marker segment
+	unsigned int   crst; // current rst marker counter
+	unsigned int   cpos; // rst marker counter
 	unsigned char  tmp;	
 	
 	// preset count of scans
@@ -3409,8 +3407,8 @@ bool pjg::decode::decode()
 
 bool jpg::setup_imginfo()
 {
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
+	unsigned char  type; // type of current marker segment
+	unsigned int   len; // length of current marker segment
 	unsigned int   hpos = 0; // position in header
 	
 	int cmp, bpos;
@@ -3836,8 +3834,8 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 
 bool jpg::rebuild_header()
 {		
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
+	unsigned char  type; // type of current marker segment
+	unsigned int   len; // length of current marker segment
 	unsigned int   hpos = 0; // position in header	
 	
 	
@@ -5354,7 +5352,7 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
-			} b_x = 0;
+			}
 			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
@@ -5363,7 +5361,7 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
-			} b_y = 0;
+			}
 			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
