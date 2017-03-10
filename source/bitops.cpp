@@ -15,16 +15,6 @@ reading and writing of arrays
 #include <io.h>
 #endif
 
-
-// special realloc with guaranteed free() of previous memory
-template <class T>
-static inline T* frealloc( T* ptr, size_t size ) {
-	T* n_ptr = (T*)realloc( ptr, (size) ? size : 1 );
-	if ( n_ptr == nullptr ) free( ptr );
-	return n_ptr;
-}
-
-
 /* -----------------------------------------------
 	constructor for abitreader class
 	----------------------------------------------- */
@@ -383,74 +373,45 @@ bool abytereader::eof()
 	constructor for abytewriter class
 	----------------------------------------------- */	
 
-abytewriter::abytewriter( int size )
-{
-	cbyte = 0;
-	
-	_error = false;
-	fmem  = true;
-	
-	dsize = std::max(size, 65536);
-	data = (unsigned char*) malloc( dsize );
-	if ( data == nullptr ) {
-		_error = true;
-	}
-}
+abytewriter::abytewriter(int size) : data(std::max(size, 65536)) {}
 
 /* -----------------------------------------------
 	destructor for abytewriter class
 	----------------------------------------------- */	
 
-abytewriter::~abytewriter()
-{
-	// free data if pointer is not read
-	if ( fmem )	free( data );
-}
+abytewriter::~abytewriter() {}
 
 /* -----------------------------------------------
 	writes 1 byte to abytewriter
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-void abytewriter::write( unsigned char byte )
-{
-	// safety check for error
-	if ( error()) return;
-	
+void abytewriter::write(unsigned char byte) {
 	// test if pointer beyond flush threshold
-	if ( cbyte >= dsize ) {
-		data = frealloc( data, dsize * 2 );
-		if ( data == nullptr ) {
-			_error = true;
-			return;
-		}
-		dsize *= 2;
+	if (cbyte == data.size()) {
+		data.resize(data.size() * 2);
 	}
-	
+
 	// write data
-	data[ cbyte ] = byte;
+	data[cbyte] = byte;
 	cbyte++;
 }
 
 /* -----------------------------------------------
 	writes n byte to abytewriter
 	----------------------------------------------- */
-	
-void abytewriter::write_n(const unsigned char* byte, int n )
-{
+
+void abytewriter::write_n(const unsigned char* byte, int n) {
 	// safety check for error
-	if ( error() || n < 0 ) return;
-	
-	// make sure that pointer doesn't get beyond flush threshold
-	while ( cbyte + n >= dsize ) {
-		data = frealloc( data, dsize * 2);
-		if ( data == nullptr ) {
-			_error = true;
-			return;
-		}
-		dsize *= 2;
+	if (n <= 0) {
+		return;
 	}
-	
-	std::copy(byte, byte + n, data + cbyte);
+
+	// make sure that pointer doesn't get beyond flush threshold
+	while (cbyte + n >= data.size()) {
+		data.resize(data.size() * 2);
+	}
+
+	std::copy(byte, byte + n, std::next(std::begin(data), cbyte));
 	cbyte += n;
 }
 
@@ -458,24 +419,11 @@ void abytewriter::write_n(const unsigned char* byte, int n )
 	gets data array from abytewriter
 	----------------------------------------------- */
 
-unsigned char* abytewriter::getptr()
+std::vector<std::uint8_t> abytewriter::get_data()
 {
-	// safety check for error
-	if ( error()) return nullptr;
-	// forbid freeing memory
-	fmem = false;
 	// realloc data
-	data = frealloc( data, cbyte );
+	data.resize(cbyte);
 	
-	return data;
-}
-
-/* -----------------------------------------------
-	peeks into data array from abytewriter
-	----------------------------------------------- */
-	
-unsigned char* abytewriter::peekptr()
-{
 	return data;
 }
 
@@ -498,51 +446,25 @@ void abytewriter::reset()
 	cbyte = 0;
 }
 
-bool abytewriter::error()
-{
-	return _error;
-}
-
 
 /* -----------------------------------------------
 	constructor for iostream class
 	----------------------------------------------- */
 
-iostream::iostream( void* src, StreamType srctype, int srcsize, StreamMode iomode )
-{
-	// locally copy source, source type # and io mode #
-	source = src;
-	srct   = srctype;
-	srcs   = srcsize;
-	mode   = iomode;
-	
-	// don't free memory when reading - this will be useful if switching occurs
-	free_mem_sw = false;
-	
-	// set binary mode for streams
-	#if defined(_WIN32) || defined(WIN32)
-		_setmode( _fileno( stdin ), _O_BINARY);
-		_setmode( _fileno( stdout ), _O_BINARY);
-	#endif
-	
-	// open file/mem/stream
-	switch ( srct )
-	{
-		case StreamType::kFile:
-			open_file();
-			break;
-		
-		case StreamType::kMemory:
-			open_mem();
-			break;
-		
-		case StreamType::kStream:
-			open_stream();
-			break;
-		
-		default:			
-			break;
-	}
+iostream::iostream(const std::vector<std::uint8_t>& bytes, StreamMode iomode) : data(bytes), mode(iomode), srct(StreamType::kMemory) {
+	open_mem();
+}
+
+iostream::iostream(const std::string& file_path, StreamMode iomode) : file_path(file_path), mode(iomode), srct(StreamType::kFile) {
+	open_file();
+}
+
+iostream::iostream(StreamMode iomode) : mode(iomode), srct(StreamType::kStream) {
+#if defined(_WIN32) || defined(WIN32)
+	_setmode(_fileno(stdin), _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
+	open_stream();
 }
 
 /* -----------------------------------------------
@@ -554,11 +476,8 @@ iostream::~iostream()
 	// if needed, write memory to stream or free memory from buffered stream
 	if ( srct == StreamType::kStream) {
 		if ( mode == StreamMode::kWrite ) {
-			if ( !(mwrt->error()) ) {
-				srcs   = mwrt->getpos();
-				source = mwrt->getptr();
-				fwrite( source, sizeof( char ), srcs, stdout );
-			}
+			const auto& data = mwrt->get_data();
+			fwrite(data.data(), sizeof(std::uint8_t), data.size(), stdout);
 		}
 	}
 	
@@ -568,10 +487,6 @@ iostream::~iostream()
 			if (mode == StreamMode::kWrite) fflush(fptr);
 			fclose(fptr);
 		}
-	}
-	else if (mode == StreamMode::kRead) {
-		if (free_mem_sw)
-			free(source);
 	}
 }
 
@@ -590,14 +505,12 @@ void iostream::switch_mode()
 		switch ( srct ) {
 			case StreamType::kFile:
 				fclose( fptr );
-				fptr = fopen( ( char* ) source, "wb" );
+				fptr = fopen(file_path.c_str(), "wb" );
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
 				mrdr.reset();
-				if ( free_mem_sw )
-					free( source );
-				mwrt = std::make_unique<abytewriter>( srcs );
+				mwrt = std::make_unique<abytewriter>( data.size() );
 				break;
 			default:
 				break;
@@ -610,15 +523,12 @@ void iostream::switch_mode()
 			case StreamType::kFile:
 				fflush( fptr );
 				fclose( fptr );
-				fptr = fopen( ( char* ) source, "rb" );
+				fptr = fopen(file_path.c_str(), "rb");
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
-				source = mwrt->getptr();
-				srcs   = mwrt->getpos();
+				mrdr = std::make_unique<abytereader>(mwrt->get_data());
 				mwrt.reset();
-				mrdr = std::make_unique<abytereader>(std::vector<std::uint8_t>((unsigned char*)source, (unsigned char*)source + srcs));
-				free_mem_sw = true;
 				break;
 			default:
 				break;
@@ -730,12 +640,12 @@ int iostream::getsize()
 	get data pointer (for mem io only)
 	----------------------------------------------- */
 
-unsigned char* iostream::getptr()
+std::vector<std::uint8_t> iostream::get_data()
 {
 	if ( srct == StreamType::kMemory)
-		return ( mode == StreamMode::kRead ) ? ( unsigned char* ) source : mwrt->getptr();
+		return ( mode == StreamMode::kRead ) ? data : mwrt->get_data();
 	else
-		return nullptr;
+		return std::vector<std::uint8_t>();
 }
 
 /* -----------------------------------------------
@@ -760,8 +670,6 @@ bool iostream::chkerr()
 	else {		
 		if ( mwrt == nullptr )
 			error = true;
-		else if ( mwrt->error() )
-			error = true;
 	}
 	
 	return error;
@@ -785,10 +693,9 @@ bool iostream::chkeof()
 
 void iostream::open_file()
 {
-	char* fn = (char*) source;
 	
 	// open file for reading / writing
-	fptr = fopen( fn, ( mode == StreamMode::kRead ) ? "rb" : "wb" );
+	fptr = fopen(file_path.c_str(), ( mode == StreamMode::kRead ) ? "rb" : "wb");
 	if (fptr != nullptr) {
 		file_buffer.reserve(32768);
 		std::setvbuf(fptr, file_buffer.data(), _IOFBF, file_buffer.capacity());
@@ -802,9 +709,9 @@ void iostream::open_file()
 void iostream::open_mem()
 {
 	if ( mode == StreamMode::kRead )
-		mrdr = std::make_unique<abytereader>(std::vector<std::uint8_t>((unsigned char*)source, (unsigned char*)source + srcs));
+		mrdr = std::make_unique<abytereader>(std::vector<std::uint8_t>(data));
 	else
-		mwrt = std::make_unique<abytewriter>( srcs );
+		mwrt = std::make_unique<abytewriter>(data.size());
 }
 
 /* -----------------------------------------------
@@ -825,16 +732,7 @@ void iostream::open_stream()
 			strwrt->write_n(buffer.data(), bytesRead);
 			bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
 		}
-		if ( strwrt->error() ) {
-			source = nullptr;
-			srcs   = 0;
-		}
-		else {
-			source = strwrt->getptr();
-			srcs   = strwrt->getpos();
-		}
-		// free memory after done
-		free_mem_sw = true;
+		data = strwrt->get_data();
 	}
 	
 	// for writing: simply open new stream in mem writer
@@ -878,12 +776,12 @@ int iostream::write_mem(const unsigned char* from, int dtsize )
 {	
 	mwrt->write_n(from, dtsize);
 	
-	return ( mwrt->error()) ? 0 : dtsize;
+	return dtsize;
 }
 
 int iostream::write_mem_byte(unsigned char byte) {
 	mwrt->write(byte);
-	return mwrt->error() ? 0 : 1;
+	return 1;
 }
 
 /* -----------------------------------------------

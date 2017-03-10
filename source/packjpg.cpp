@@ -594,7 +594,6 @@ namespace pjg {
 	void dc(const std::unique_ptr<aricoder>& dec, int cmp);
 	void ac_high(const std::unique_ptr<aricoder>& dec, int cmp);
 	void ac_low(const std::unique_ptr<aricoder>& dec, int cmp);
-	bool generic(const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len);
 	std::vector<std::uint8_t> generic(const std::unique_ptr<aricoder>& dec);
 	std::uint8_t bit(const std::unique_ptr<aricoder>& dec);
 	}
@@ -698,11 +697,8 @@ static int lib_out_type = -1;
 static unsigned short qtables[4][64];				// quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
-static unsigned char* hdrdata          =   nullptr;   // header data
+static std::vector<std::uint8_t> hdrdata;   // header data
 static std::vector<std::uint8_t> huffdata; // huffman coded data
-static int            hdrs             =    0  ;   // size of header
-
-
 
 /* -----------------------------------------------
 	global variables: info about image
@@ -832,6 +828,7 @@ namespace program_info {
 	const std::string appname = "packjpg";
 	const std::string versiondate = "01/22/2016";
 	const std::string author = "Matthias Stirner / Se";
+	const std::array<std::uint8_t, 2> pjg_magic = { 'J', 'S' };
 #if !defined(BUILD_LIB)
 	const std::string website = "http://packjpg.encode.ru/";
 	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
@@ -839,7 +836,6 @@ namespace program_info {
 
 	const std::string pjg_ext = "pjg";
 	const std::string jpg_ext = "jpg";
-	const std::array<std::uint8_t, 2> pjg_magic = { 'J', 'S' };
 #endif
 }
 
@@ -1038,7 +1034,10 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( ( errorlevel < err_tol ) && ( lib_out_type == 1 ) &&
 		 ( out_file != nullptr ) && ( out_size != nullptr ) ) {
 		*out_size = str_out->getsize();
-		*out_file = str_out->getptr();
+		const auto& data = str_out->get_data();
+		auto arr = new unsigned char[data.size()];
+		std::copy(std::begin(data), std::end(data), arr);
+		*out_file = arr;
 	}
 	
 	// close iostreams
@@ -1123,7 +1122,16 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	pjgfilesize = 0;
 	
 	// open input stream, check for errors
-	str_in = new iostream( in_src, StreamType(in_type), in_size, StreamMode::kRead );
+	StreamType in_ty = StreamType(in_type);
+	if (in_ty == StreamType::kFile) {
+		std::string file_path((char*)in_src);
+		str_out = new iostream(file_path, StreamMode::kRead);
+	} else if (in_ty == StreamType::kMemory) {
+		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
+		str_in = new iostream(data, StreamMode::kRead);
+	} else { // Stream
+		str_in = new iostream(StreamMode::kRead);
+	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, "error opening input stream" );
 		errorlevel = 2;
@@ -1131,7 +1139,15 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}	
 	
 	// open output stream, check for errors
-	str_out = new iostream( out_dest, StreamType(out_type), 0, StreamMode::kWrite);
+	StreamType out_ty = StreamType(out_type);
+	if (out_ty == StreamType::kFile) {
+		std::string file_path((char*)out_dest);
+		str_out = new iostream(file_path, StreamMode::kWrite);
+	} else if (out_ty == StreamType::kMemory) {
+		str_out = new iostream(std::vector<std::uint8_t>() , StreamMode::kWrite);
+	} else { // Stream
+		str_out = new iostream(StreamMode::kWrite);
+	}
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening output stream" );
 		errorlevel = 2;
@@ -1839,7 +1855,11 @@ static bool check_file()
 	
 	
 	// open input stream, check for errors
-	str_in = new iostream( (void*) filename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
+	if (pipe_on) {
+		str_in = new iostream(StreamMode::kRead);
+	} else {
+		str_in = new iostream(filename, StreamMode::kRead);
+	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
 		errorlevel = 2;
@@ -1874,7 +1894,12 @@ static bool check_file()
 			pjgfilename = create_filename( "STDOUT", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		if (pipe_on) {
+			str_out = new iostream(StreamMode::kWrite);
+		}
+		else {
+			str_out = new iostream(pjgfilename, StreamMode::kWrite);
+		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
 			errorlevel = 2;
@@ -1910,7 +1935,11 @@ static bool check_file()
 			pjgfilename = create_filename( "STDIN", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		if (pipe_on) {
+			str_out = new iostream(StreamMode::kWrite);
+		} else {
+			str_out = new iostream(jpgfilename, StreamMode::kWrite);
+		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
 			errorlevel = 2;
@@ -1949,7 +1978,7 @@ static bool swap_streams()
 	str_in->read( dmp, 2 );
 	
 	// open new stream for output / check for errors
-	str_out = new iostream( nullptr, StreamType::kMemory, 0, StreamMode::kWrite );
+	str_out = new iostream(std::vector<std::uint8_t>(), StreamMode::kWrite);
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening comparison stream" );
 		errorlevel = 2;
@@ -2043,13 +2072,12 @@ static bool reset_buffers()
 	// -- free buffers --
 	
 	// free buffers & set pointers nullptr
-	if ( hdrdata  != nullptr ) free ( hdrdata );
+	hdrdata.clear();
 	huffdata.clear();
 	grbgdata.clear();
 	jpg::rst_err.clear();
 	jpg::rstp.clear();
 	jpg::scnp.clear();
-	hdrdata   = nullptr;
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
@@ -2136,7 +2164,6 @@ bool jpg::decode::read()
 	
 	// start headerwriter
 	auto hdrw = std::make_unique<abytewriter>(4096);
-	hdrs = 0; // size of header data, start with 0
 	
 	// start huffman writer
 	auto huffw = std::make_unique<abytewriter>(0);
@@ -2233,12 +2260,9 @@ bool jpg::decode::read()
 		// if EOI is encountered make a quick exit
 		if ( type == 0xD9 ) {
 			// get pointer for header data & size
-			hdrdata  = hdrw->getptr();
-			hdrs     = hdrw->getpos();
+			hdrdata  = hdrw->get_data();
 			// get pointer for huffman data & size
-			auto hdata = huffw->getptr();
-			auto hdata_length = huffw->getpos();
-			huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
+			huffdata = huffw->get_data();
 			// everything is done here now
 			break;			
 		}
@@ -2261,7 +2285,7 @@ bool jpg::decode::read()
 	// JPEG reader loop end
 	
 	// check if everything went OK
-	if ( ( hdrs == 0 ) || huffdata.empty() ) {
+	if (hdrdata.empty() || huffdata.empty()) {
 		sprintf( errormessage, "unexpected end of data encountered" );
 		errorlevel = 2;
 		return false;
@@ -2278,9 +2302,7 @@ bool jpg::decode::read()
 			if ( len == 0 ) break;
 			grbgw->write_n( segment.data(), len );
 		}
-		auto grbgptr = grbgw->getptr();
-		auto grbg_size = grbgw->getpos();
-		grbgdata = std::vector<std::uint8_t>(grbgptr, grbgptr + grbg_size);
+		grbgdata = grbgw->get_data();
 	}
 	
 	// get filesize
@@ -2312,7 +2334,7 @@ bool jpg::encode::merge() {
 		// seek till start-of-scan
 		std::uint8_t type; // type of current marker segment
 		for (type = 0x00; type != 0xDA;) {
-			if (hpos >= hdrs) {
+			if (hpos >= hdrdata.size()) {
 				break;
 			}
 			type = hdrdata[hpos + 1];
@@ -2321,7 +2343,7 @@ bool jpg::encode::merge() {
 		}
 
 		// write header data to file
-		str_out->write(hdrdata + tmp, hpos - tmp);
+		str_out->write(hdrdata.data() + tmp, hpos - tmp);
 
 		// get out if last marker segment type was not SOS
 		if (type != 0xDA) {
@@ -2409,7 +2431,7 @@ bool jpg::decode::decode()
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
-			if ( ( int ) hpos >= hdrs ) break;
+			if (hpos >= hdrdata.size()) break;
 			type = hdrdata[ hpos + 1 ];
 			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
@@ -2739,7 +2761,7 @@ bool jpg::encode::recode()
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		std::uint8_t type; // type of current marker segment
 		for ( type = 0x00; type != 0xDA; ) {
-			if (hpos >= hdrs) {
+			if (hpos >= int(hdrdata.size())) {
 				break;
 			}
 			type = hdrdata[ hpos + 1 ];
@@ -3211,10 +3233,10 @@ bool pjg::encode::encode()
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
-	if ( !pjg::encode::generic( encoder, hdrdata, hdrs ) ) return false;
+	if (!pjg::encode::generic(encoder, hdrdata.data(), hdrdata.size())) return false;
 	#else
 	dev_size = str_out->getpos();
-	if ( !pjg::encode::generic( encoder, hdrdata, hdrs ) ) return false;
+	if (!pjg::encode::generic(encoder, hdrdata.data(), hdrdata.size())) return false;
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
 	// store padbit (padbit can't be retrieved from the header)
@@ -3337,7 +3359,7 @@ bool pjg::decode::decode()
 	auto decoder = std::make_unique<aricoder>(str_in, StreamMode::kRead);
 	
 	// decode JPG header
-	if ( !pjg::decode::generic( decoder, &hdrdata, &hdrs ) ) return false;
+	hdrdata = pjg::decode::generic(decoder);
 	// retrieve padbit from stream
 	jpg::padbit = pjg::decode::bit(decoder);
 	// decode one bit that signals false /correct use of RST markers
@@ -3404,7 +3426,7 @@ bool jpg::setup_imginfo()
 	int i;
 	
 	// header parser loop
-	while ( ( int ) hpos < hdrs ) {
+	while (hpos < int(hdrdata.size())) {
 		type = hdrdata[ hpos + 1 ];
 		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// do not parse DHT & DRI
@@ -3832,7 +3854,7 @@ bool jpg::rebuild_header()
 	auto hdrw = std::make_unique<abytewriter>( 4096 ); // new header writer
 	
 	// header parser loop
-	while ( ( int ) hpos < hdrs ) {
+	while (hpos < int(hdrdata.size())) {
 		type = hdrdata[ hpos + 1 ];
 		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
 		// discard any unneeded meta info
@@ -3845,9 +3867,7 @@ bool jpg::rebuild_header()
 	}
 	
 	// replace current header with the new one
-	free( hdrdata );
-	hdrdata = hdrw->getptr();
-	hdrs    = hdrw->getpos();	
+	hdrdata = hdrw->get_data();
 	
 	return true;
 }
@@ -4260,7 +4280,6 @@ void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCod
 
 void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw)
 {	
-	unsigned char* data;
 	int len;
 	int i;
 	
@@ -4268,11 +4287,12 @@ void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::un
 	// peek into data from abytewriter	
 	len = storw->getpos();
 	if ( len == 0 ) return;
-	data = storw->peekptr();
+	const auto& data = storw->get_data();
 	
 	// write bits to huffwriter
-	for ( i = 0; i < len; i++ )
+	for (i = 0; i < len; i++) {
 		huffw->write_bit(data[i]);
+	}
 	
 	// reset abytewriter, discard data
 	storw->reset();
@@ -5435,39 +5455,6 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	delete mod_sgn;
 }
 
-
-/* -----------------------------------------------
-	deodes a stream of generic (8bit) data from pjg
-	----------------------------------------------- */
-bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len )
-{
-	// start byte writer
-	auto bwrt = std::make_unique<abytewriter>(1024);
-	
-	// decode header, ending with 256 symbol
-	auto model = INIT_MODEL_S(256 + 1, 256, 1);
-	while ( true ) {
-		const int c = dec->decode_ari(model );
-		if ( c == 256 ) break;
-		bwrt->write( (unsigned char) c );
-		model->shift_context( c );
-	}
-	delete model;
-	
-	// check for out of memory
-	if ( bwrt->error() ) {
-		sprintf( errormessage, MEM_ERRMSG.c_str());
-		errorlevel = 2;
-		return false;
-	}
-	
-	// get data/length and close byte writer
-	(*data) = bwrt->getptr();
-	if ( len != nullptr ) (*len) = bwrt->getpos();
-	
-	return true;
-}
-
 static std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<aricoder>& dec) {
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	auto model = INIT_MODEL_S(256 + 1, 256, 1);
@@ -5480,17 +5467,7 @@ static std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<aric
 		model->shift_context(c);
 	}
 
-	// check for out of memory
-	if (bwrt->error()) {
-		sprintf(errormessage, MEM_ERRMSG.c_str());
-		errorlevel = 2;
-		return std::vector<std::uint8_t>();
-	}
-
-	auto data = bwrt->getptr();
-	auto length = bwrt->getpos();
-	return std::vector<std::uint8_t>(data, data + length);
-
+	return bwrt->get_data();
 }
 
 
@@ -5592,7 +5569,7 @@ void pjg::encode::optimize_header() {
 	int hpos = 0; // Current position in the header.
 
 	// Header parser loop:
-	while (hpos < hdrs) {
+	while (hpos < int(hdrdata.size())) {
 		const std::uint8_t type = hdrdata[hpos + 1]; // Type of the current marker segment.
 		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of the current marker segment.
 		if (type == 0xC4) { // DHT segment:
@@ -5653,7 +5630,7 @@ void pjg::decode::deoptimize_header() {
 	int hpos = 0; // Current position in the header.
 
 	// Header parser loop:
-	while (hpos < hdrs) {
+	while (hpos < int(hdrdata.size())) {
 		const std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
 		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
 
@@ -6088,7 +6065,7 @@ static bool dump_hdr() {
 	const std::string ext = "hdr";
 	const auto basename = filelist[file_no];
 
-	if (!dump_file(basename, ext, hdrdata, 1, hdrs)) {
+	if (!dump_file(basename, ext, hdrdata.data(), 1, hdrdata.size())) {
 		return false;
 	}
 
@@ -6313,7 +6290,7 @@ static bool dump_info() {
 	// header parser loop
 	int hpos; // Position in the header.
 	int len = 0; // Length of current marker segment.
-	for (hpos = 0; hpos < hdrs; hpos += len) {
+	for (hpos = 0; hpos < hdrdata.size(); hpos += len) {
 		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
 		len = 2 + pack(hdrdata[hpos + 2], hdrdata[hpos + 3]);
 		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);

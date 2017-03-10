@@ -108,18 +108,13 @@ public:
 	~abytewriter();	
 	void write( unsigned char byte );
 	void write_n(const unsigned char* byte, int n );
-	unsigned char* getptr();
-	unsigned char* peekptr();
+	std::vector<std::uint8_t> get_data();
 	int getpos();
 	void reset();
-	bool error();
 	
 private:
-	unsigned char* data;
-	int dsize;
-	int cbyte;
-	bool fmem;
-	bool _error;
+	std::vector<std::uint8_t> data;
+	int cbyte = 0;
 };
 
 
@@ -130,7 +125,12 @@ private:
 class iostream
 {
 public:
-	iostream( void* src, StreamType srctype, int srcsize, StreamMode iomode );
+	// Memory iostream
+	iostream(const std::vector<std::uint8_t>& bytes, StreamMode iomode);
+	// File iostream
+	iostream(const std::string& file_path, StreamMode iomode);
+	// stdout/in iostream.
+	iostream(StreamMode iomode);
 	~iostream();
 	void switch_mode();
 	int read(unsigned char* to, int dtsize);
@@ -141,7 +141,7 @@ public:
 	int rewind();
 	int getpos();
 	int getsize();
-	unsigned char* getptr();
+	std::vector<std::uint8_t> get_data();
 	bool chkerr();
 	bool chkeof();
 	
@@ -165,11 +165,10 @@ private:
 	std::unique_ptr<abytewriter> mwrt;
 	std::unique_ptr<abytereader> mrdr;
 	
-	bool free_mem_sw;
-	void* source;
+	const std::string file_path;
+	std::vector<std::uint8_t> data;
 	StreamMode mode;
 	StreamType srct;
-	int srcs;
 };
 
 #endif
