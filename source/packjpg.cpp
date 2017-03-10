@@ -270,6 +270,8 @@ packJPG by Matthias Stirner, 01/2016
 */
 
 #include <chrono>
+#include <array>
+#include <vector>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -341,11 +343,9 @@ constexpr int clamp(int val, int lo, int hi) {
 	return (val < lo) ? lo : (val > hi ? hi : val);
 }
 
-#define MEM_ERRMSG	"out of memory error"
-#define FRD_ERRMSG	"could not read file / file not found: %s"
-#define FWR_ERRMSG	"could not write file / file write-protected: %s"
-#define MSG_SIZE	128
-#define BARLEN		36
+const std::string MEM_ERRMSG("out of memory error");
+const std::string FRD_ERRMSG("could not read file / file not found: %s");
+const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
 
 // special realloc with guaranteed free() of previous memory
 static inline void* frealloc( void* ptr, size_t size ) {
@@ -414,7 +414,7 @@ struct huffTree {
 #if !defined( BUILD_LIB )
 INTERN void initialize_options( int argc, char** argv );
 INTERN void process_ui( void );
-INTERN inline const char* get_status( bool (*function)() );
+static std::string get_status( bool (*function)() );
 INTERN void show_help( void );
 #endif
 INTERN void process_file( void );
@@ -549,14 +549,12 @@ namespace predictor {
 /* -----------------------------------------------
 	function declarations: miscelaneous helpers
 	----------------------------------------------- */
-#if !defined( BUILD_LIB )
-INTERN inline void progress_bar( int current, int last );
-INTERN inline char* create_filename( const char* base, const char* extension );
-INTERN inline char* unique_filename( const char* base, const char* extension );
-INTERN inline void set_extension( char* filename, const char* extension );
-INTERN inline void add_underscore( char* filename );
+#if !defined(BUILD_LIB)
+static void progress_bar(int current, int last);
+static std::string create_filename(const std::string& oldname, const std::string& new_extension);
+static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 #endif
-INTERN inline bool file_exists( const char* filename );
+static bool file_exists(const std::string& filename);
 
 
 /* -----------------------------------------------
@@ -566,12 +564,22 @@ INTERN inline bool file_exists( const char* filename );
 // these are developers functions, they are not needed
 // in any way to compress jpg or decompress pjg
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN int collmode = 0; // write mode for collections: 0 -> std, 1 -> dhf, 2 -> squ, 3 -> unc
+enum CollectionMode {
+	STD = 0, // standard collections
+	DHF = 1, // sequential order collections, 'dhufs'
+	SQU = 2, // square collections
+	UNC = 3, // uncollections
+	SQU_ALT = 4, // square collections / alt order (even/uneven)
+	UNC_ALT = 5 // uncollections / alt order (even/uneven)
+};
+
+static CollectionMode coll_mode = CollectionMode::STD; // Write mode for collections.
+
 INTERN bool dump_hdr( void );
 INTERN bool dump_huf( void );
 INTERN bool dump_coll( void );
 INTERN bool dump_zdst( void );
-INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, int size );
+INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
 INTERN bool dump_errfile( void );
 INTERN bool dump_info( void );
 INTERN bool dump_dist( void );
@@ -663,8 +671,8 @@ INTERN int cs_sal       =   0  ; // successive approximation bit pos low
 	global variables: info about files
 	----------------------------------------------- */
 	
-INTERN char*  jpgfilename = NULL;	// name of JPEG file
-INTERN char*  pjgfilename = NULL;	// name of PJG file
+INTERN std::string jpgfilename;	// name of JPEG file
+INTERN std::string pjgfilename;	// name of PJG file
 INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
 INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
@@ -675,12 +683,11 @@ INTERN iostream* str_out = NULL;	// output stream
 #if !defined(BUILD_LIB)
 INTERN iostream* str_str = NULL;	// storage stream
 
-INTERN char** filelist = NULL;		// list of files to process 
-INTERN int    file_cnt = 0;			// count of files in list
+static std::vector<std::string> filelist; // list of files to process 
 INTERN int    file_no  = 0;			// number of current file
 
-INTERN char** err_list = NULL;		// list of error messages 
-INTERN int*   err_tp   = NULL;		// list of error types
+INTERN std::vector<std::string> err_list; // list of error messages 
+INTERN std::vector<int> err_tp; // list of error types
 #endif
 
 #if defined(DEV_INFOS)
@@ -699,7 +706,7 @@ INTERN int    dev_size_zdl[ 4 ] = { 0 };
 	global variables: messages
 	----------------------------------------------- */
 
-INTERN char errormessage [ MSG_SIZE ];
+INTERN char errormessage [ 128 ];
 INTERN bool (*errorfunction)();
 INTERN int  errorlevel;
 // meaning of errorlevel:
@@ -713,7 +720,7 @@ INTERN int  errorlevel;
 	global variables: settings
 	----------------------------------------------- */
 
-#if !defined( BUILD_LIB )
+#if !defined(BUILD_LIB)
 INTERN int  verbosity  = -1;	// level of verbosity
 INTERN bool overwrite  = false;	// overwrite files yes / no
 INTERN bool wait_exit  = true;	// pause after finished yes / no
@@ -736,29 +743,27 @@ INTERN Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
 INTERN unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
 INTERN unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
-#if !defined( BUILD_LIB )
+#if !defined(BUILD_LIB)
 INTERN unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
 
-
-/* -----------------------------------------------
-	global variables: info about program
-	----------------------------------------------- */
-
-INTERN const unsigned char appversion = 25;
-INTERN const char*  subversion   = "k";
-INTERN const char*  apptitle     = "packJPG";
-INTERN const char*  appname      = "packjpg";
-INTERN const char*  versiondate  = "01/22/2016";
-INTERN const char*  author       = "Matthias Stirner / Se";
+namespace program_info {
+	const unsigned char appversion = 25;
+	const std::string subversion = "k";
+	const std::string apptitle = "packJPG";
+	const std::string appname = "packjpg";
+	const std::string versiondate = "01/22/2016";
+	const std::string author = "Matthias Stirner / Se";
 #if !defined(BUILD_LIB)
-INTERN const char*  website      = "http://packjpg.encode.ru/";
-INTERN const char*	copyright    = "2006-2016 HTW Aalen University & Matthias Stirner";
-INTERN const char*  email        = "packjpg (at) matthiasstirner.com";
-INTERN const char*  pjg_ext      = "pjg";
-INTERN const char*  jpg_ext      = "jpg";
+	const std::string website = "http://packjpg.encode.ru/";
+	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
+	const std::string email = "packjpg (at) matthiasstirner.com";
+
+	const std::string pjg_ext = "pjg";
+	const std::string jpg_ext = "jpg";
+	const std::array<std::uint8_t, 2> pjg_magic = { 'J', 'S' };
 #endif
-INTERN const char   pjg_magic[] = { 'J', 'S' };
+}
 
 
 /* -----------------------------------------------
@@ -784,11 +789,11 @@ int main( int argc, char** argv )
 	
 	// write program info to screen
 	fprintf( msgout,  "\n--> %s v%i.%i%s (%s) by %s <--\n",
-			apptitle, appversion / 10, appversion % 10, subversion, versiondate, author );
-	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", copyright );
+	         program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
+	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str() );
 	
 	// check if user input is wrong, show help screen if it is
-	if ( ( file_cnt == 0 ) ||
+	if (filelist.empty() ||
 		( ( !developer ) && ( (action != Action::A_COMPRESS) || (!auto_set) || (verify_lv > 1) ) ) ) {
 		show_help();
 		return -1;
@@ -811,15 +816,13 @@ int main( int argc, char** argv )
 	// process file(s) - this is the main function routine
 
 	auto begin = std::chrono::steady_clock::now();
-	for ( file_no = 0; file_no < file_cnt; file_no++ ) {	
+	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 		// process current file
 		process_ui();
 		// store error message and type if any
 		if ( errorlevel > 0 ) {
-			err_list[ file_no ] = (char*) calloc( MSG_SIZE, sizeof( char ) );
-			err_tp[ file_no ] = errorlevel;
-			if ( err_list[ file_no ] != NULL )
-				strcpy( err_list[ file_no ], errormessage );
+			err_tp[file_no] = errorlevel;
+			err_list[file_no] = errormessage;
 		}
 		// count errors / warnings / file sizes
 		if ( errorlevel >= err_tol ) error_cnt++;
@@ -837,9 +840,9 @@ int main( int argc, char** argv )
 		if ( error_cnt > 0 ) {
 			fprintf( stderr, "\n\nfiles with errors:\n" );
 			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
+			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] >= err_tol ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
 				}
 			}
 		}
@@ -847,9 +850,9 @@ int main( int argc, char** argv )
 		if ( warn_cnt > 0 ) {
 			fprintf( stderr, "\n\nfiles with warnings:\n" );
 			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
+			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 				if ( err_tp[ file_no ] == 1 ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
 				}
 			}
 		}
@@ -857,8 +860,8 @@ int main( int argc, char** argv )
 	
 	// show statistics
 	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s), %i warning(s)\n",
-		file_cnt, error_cnt, warn_cnt );
-	if ( ( file_cnt > error_cnt ) && ( verbosity != 0 ) &&
+		filelist.size(), error_cnt, warn_cnt );
+	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) &&
 	 ( action == Action::A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0;
 		acc_pjgsize /= 1024.0;
@@ -922,14 +925,10 @@ EXPORT bool pjglib_convert_stream2stream( char* msg )
 	// process in main function
 	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export converter function
 	----------------------------------------------- */
-
-#if defined(BUILD_LIB)
 EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 {
 	// init streams
@@ -938,14 +937,10 @@ EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 	// process in main function
 	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export converter function
 	----------------------------------------------- */
-
-#if defined(BUILD_LIB)
 EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
 {
 	// use automatic settings
@@ -978,9 +973,9 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	if ( errorlevel >= err_tol ) {
 		if ( lib_out_type == 0 ) {
 			if ( filetype == FileType::F_JPG ) {
-				if ( file_exists( pjgfilename ) ) remove( pjgfilename );
+				if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str());
 			} else if ( filetype == FileType::F_PJG ) {
-				if ( file_exists( jpgfilename ) ) remove( jpgfilename );
+				if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
 			}
 		}
 		if ( msg != NULL ) strcpy( msg, errormessage );
@@ -998,11 +993,11 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 		{
 			case FileType::F_JPG:
 				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
-					pjgfilename, cr, ( total >= 0 ) ? total : -1 );
+					pjgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case FileType::F_PJG:
 				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
-					jpgfilename, cr, ( total >= 0 ) ? total : -1 );
+					jpgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case FileType::F_UNK:
 				sprintf( msg, "Unknown filetype" );
@@ -1013,14 +1008,10 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export init input (file/mem)
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* out_dest, int out_type )
 {
 	/* a short reminder about input/output stream types:
@@ -1069,9 +1060,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		return;
 	}
 	
-	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	// clear filenames if needed
+	jpgfilename = "";
+	pjgfilename = "";
 	
 	// check input stream
 	str_in->read( buffer, 2 );
@@ -1079,19 +1070,15 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		// file is JPEG
 		filetype = FileType::F_JPG;
 		// copy filenames
-		jpgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
-		pjgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
-		strcpy( jpgfilename, (  in_type == 0 ) ? (char*) in_src   : "JPG in memory" );
-		strcpy( pjgfilename, ( out_type == 0 ) ? (char*) out_dest : "PJG in memory" );
+		jpgfilename = (in_type == 0) ? (char*)in_src : "JPG in memory";
+		pjgfilename = (out_type == 0) ? (char*)out_dest : "PJG in memory";
 	}
-	else if ( (buffer[0] == pjg_magic[0]) && (buffer[1] == pjg_magic[1]) ) {
+	else if ( (buffer[0] == program_info::pjg_magic[0]) && (buffer[1] == program_info::pjg_magic[1]) ) {
 		// file is PJG
 		filetype = FileType::F_PJG;
 		// copy filenames
-		pjgfilename = (char*) calloc( (  in_type == 0 ) ? strlen( (char*) in_src   ) + 1 : 32, sizeof( char ) );
-		jpgfilename = (char*) calloc( ( out_type == 0 ) ? strlen( (char*) out_dest ) + 1 : 32, sizeof( char ) );
-		strcpy( pjgfilename, (  in_type == 0 ) ? (char*) in_src   : "PJG in memory" );
-		strcpy( jpgfilename, ( out_type == 0 ) ? (char*) out_dest : "JPG in memory" );
+		pjgfilename = (in_type == 0) ? (char*)in_src : "PJG in memory";
+		jpgfilename = (out_type == 0) ? (char*)out_dest : "JPG in memory";
 	}
 	else {
 		// file is neither
@@ -1105,39 +1092,31 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	lib_in_type  = in_type;
 	lib_out_type = out_type;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT const char* pjglib_version_info( void )
 {
 	static char v_info[ 256 ];
 	
 	// copy version info to string
 	sprintf( v_info, "--> %s library v%i.%i%s (%s) by %s <--",
-			apptitle, appversion / 10, appversion % 10, subversion, versiondate, author );
+		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
 			
 	return (const char*) v_info;
 }
-#endif
-
 
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
 EXPORT const char* pjglib_short_name( void )
 {
 	static char v_name[ 256 ];
 	
 	// copy version info to string
 	sprintf( v_name, "%s v%i.%i%s",
-			apptitle, appversion / 10, appversion % 10, subversion );
+		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str());
 			
 	return (const char*) v_name;
 }
@@ -1156,54 +1135,44 @@ EXPORT const char* pjglib_short_name( void )
 INTERN void initialize_options( int argc, char** argv )
 {	
 	int tmp_val;
-	char** tmp_flp;
 	int i;
-	
-	
-	// get memory for filelist & preset with NULL
-	filelist = (char**) calloc( argc, sizeof( char* ) );
-	for ( i = 0; i < argc; i++ )
-		filelist[ i ] = NULL;
-	
-	// preset temporary filelist pointer
-	tmp_flp = filelist;
-	
 	
 	// read in arguments
 	while ( --argc > 0 ) {
 		argv++;
+		std::string arg = *argv;
 		// switches begin with '-'
-		if ( strcmp((*argv), "-p" ) == 0 ) {
+		if (arg == "-p") {
 			err_tol = 2;
 		}
-		else if ( strcmp((*argv), "-d" ) == 0 ) {
+		else if (arg == "-d") {
 			disc_meta = true;
 		}		
-		else if ( strcmp((*argv), "-ver" ) == 0 ) {
+		else if (arg == "-ver") {
 			verify_lv = ( verify_lv < 1 ) ? 1 : verify_lv;
 		}
-		else if ( sscanf( (*argv), "-v%i", &tmp_val ) == 1 ){
+		else if ( sscanf(arg.c_str(), "-v%i", &tmp_val ) == 1 ){
 			verbosity = tmp_val;
 			verbosity = ( verbosity < 0 ) ? 0 : verbosity;
 			verbosity = ( verbosity > 2 ) ? 2 : verbosity;			
 		}
-		else if ( strcmp((*argv), "-vp" ) == 0 ) {
+		else if (arg == "-vp") {
 			verbosity = -1;
 		}
-		else if ( strcmp((*argv), "-np" ) == 0 ) {
+		else if (arg == "-np") {
 			wait_exit = false;
 		}
-		else if ( strcmp((*argv), "-o" ) == 0 ) {
+		else if (arg == "-o") {
 			overwrite = true;
 		}
 		#if defined(DEV_BUILD)
-		else if ( strcmp((*argv), "-dev") == 0 ) {
+		else if (arg == "-dev") {
 			developer = true;
 		}
-		else if ( strcmp((*argv), "-test") == 0 ) {
+		else if (arg == "-test") {
 			verify_lv = 2;
 		}
-		else if ( sscanf( (*argv), "-t%i,%i", &i, &tmp_val ) == 2 ) {			
+		else if ( sscanf(arg.c_str(), "-t%i,%i", &i, &tmp_val ) == 2 ) {
 			i = ( i < 0 ) ? 0 : i;
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
@@ -1211,7 +1180,7 @@ INTERN void initialize_options( int argc, char** argv )
 			nois_trs[ i ] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-s%i,%i", &i, &tmp_val ) == 2 ) {
+		else if ( sscanf(arg.c_str(), "-s%i,%i", &i, &tmp_val ) == 2 ) {
 			i = ( i < 0 ) ? 0 : i;
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
@@ -1219,7 +1188,7 @@ INTERN void initialize_options( int argc, char** argv )
 			segm_cnt[ i ] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-t%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-t%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
 			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
 			nois_trs[0] = tmp_val;
@@ -1228,7 +1197,7 @@ INTERN void initialize_options( int argc, char** argv )
 			nois_trs[3] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-s%i", &tmp_val ) == 1 ) {
+		else if ( sscanf(arg.c_str(), "-s%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
 			tmp_val = ( tmp_val > 64 ) ? 64 : tmp_val;
 			segm_cnt[0] = tmp_val;
@@ -1237,55 +1206,52 @@ INTERN void initialize_options( int argc, char** argv )
 			segm_cnt[3] = tmp_val;
 			auto_set = false;
 		}
-		else if ( sscanf( (*argv), "-coll%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
-			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
-			collmode = tmp_val;
+		else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
+			tmp_val = std::max(tmp_val, 0);
+			tmp_val = std::min(tmp_val, 5);
+			coll_mode = CollectionMode(tmp_val);
 			action = Action::A_COLL_DUMP;
 		}
-		else if ( sscanf( (*argv), "-fcol%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val < 0 ) ? 0 : tmp_val;
-			tmp_val = ( tmp_val > 5 ) ? 5 : tmp_val;
-			collmode = tmp_val;
+		else if ( sscanf(arg.c_str(), "-fcol%i", &tmp_val ) == 1 ) {
+			tmp_val = std::max(tmp_val, 0);
+			tmp_val = std::min(tmp_val, 5);
+			coll_mode = CollectionMode(tmp_val);
 			action = Action::A_FCOLL_DUMP;
 		}
-		else if ( strcmp((*argv), "-split") == 0 ) {
+		else if (arg == "-split") {
 			action = Action::A_SPLIT_DUMP;
 		}
-		else if ( strcmp((*argv), "-zdst") == 0 ) {
+		else if (arg == "-zdst") {
 			action = Action::A_ZDST_DUMP;
 		}	
-		else if ( strcmp((*argv), "-info") == 0 ) {
+		else if (arg == "-info") {
 			action = Action::A_TXT_INFO;
 		}
-		else if ( strcmp((*argv), "-dist") == 0 ) {
+		else if (arg == "-dist") {
 			action = Action::A_DIST_INFO;
 		}
-		else if ( strcmp((*argv), "-pgm") == 0 ) {
+		else if (arg == "-pgm") {
 			action = Action::A_PGM_DUMP;
 		}
-	   	else if ( ( strcmp((*argv), "-comp") == 0) ) {
+	   	else if (arg == "-comp") {
 			action = Action::A_COMPRESS;
 		}
 		#endif
-		else if ( strcmp((*argv), "-") == 0 ) {
+		else if (arg == "-") {
 			// switch standard message out stream
 			msgout = stderr;
 			// use "-" as placeholder for stdin
-			*(tmp_flp++) = (char*) "-";
+			filelist.push_back("-");
 		}
 		else {
 			// if argument is not switch, it's a filename
-			*(tmp_flp++) = *argv;
+			filelist.push_back(arg);
 		}		
 	}
 	
-	// count number of files (or filenames) in filelist
-	for ( file_cnt = 0; filelist[ file_cnt ] != NULL; file_cnt++ );
-	
 	// alloc arrays for error messages and types storage
-	err_list = (char**) calloc( file_cnt, sizeof( char* ) );
-	err_tp   = (int*) calloc( file_cnt, sizeof( int ) );
+	err_list = std::vector<std::string>(filelist.size());
+	err_tp   = std::vector<int>(filelist.size());
 	
 	// backup settings - needed to restore original setting later
 	if ( !auto_set ) {
@@ -1303,19 +1269,13 @@ INTERN void initialize_options( int argc, char** argv )
 			orig_set[ i ] = 0;
 	}	
 }
-#endif
-
 
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
 INTERN void process_ui( void )
 {
-	const char* actionmsg  = NULL;
-	const char* errtypemsg = NULL;	
-	
+
 	errorfunction = NULL;
 	errorlevel = 0;
 	jpgfilesize = 0;
@@ -1325,17 +1285,18 @@ INTERN void process_ui( void )
 	#endif
 	
 	// compare file name, set pipe if needed
-	if ( ( strcmp( filelist[ file_no ], "-" ) == 0 ) && ( action == Action::A_COMPRESS ) ) {
+	if ( filelist[ file_no ] == "-" && ( action == Action::A_COMPRESS ) ) {
 		pipe_on = true;
-		filelist[ file_no ] = (char*) "STDIN";
+		filelist[ file_no ] = "STDIN";
 	}
 	else {		
 		pipe_on = false;
 	}
-	
+
+	std::string actionmsg;
 	if ( verbosity >= 0 ) { // standard UI
-		fprintf( msgout,  "\nProcessing file %i of %i \"%s\" -> ",
-					file_no + 1, file_cnt, filelist[ file_no ] );
+		fprintf( msgout,  "\nProcessing file %i of %u \"%s\" -> ",
+					file_no + 1, filelist.size(), filelist[ file_no ].c_str() );
 		
 		if ( verbosity > 1 )
 			fprintf( msgout,  "\n----------------------------------------" );
@@ -1356,12 +1317,12 @@ INTERN void process_ui( void )
 			case Action::A_PGM_DUMP:	actionmsg = "Converting"; break;
 		}
 		
-		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg );
+		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg.c_str() );
 	}
 	else { // progress bar UI
 		// update progress message
-		fprintf( msgout, "Processing file %2i of %2i ", file_no + 1, file_cnt );
-		progress_bar( file_no, file_cnt );
+		fprintf( msgout, "Processing file %2i of %2u ", file_no + 1, filelist.size());
+		progress_bar( file_no, filelist.size());
 		fprintf( msgout, "\r" );
 		execute( check_file );
 	}
@@ -1381,9 +1342,9 @@ INTERN void process_ui( void )
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
 		if ( filetype == FileType::F_JPG ) {
-			if ( file_exists( pjgfilename ) ) remove( pjgfilename );
+			if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str() );
 		} else if ( filetype == FileType::F_PJG ) {
-			if ( file_exists( jpgfilename ) ) remove( jpgfilename );
+			if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
 		}
 	}
 	
@@ -1397,6 +1358,7 @@ INTERN void process_ui( void )
 			fprintf( msgout,  "\n----------------------------------------" );
 		
 		// display success/failure message
+		std::string errtypemsg;
 		switch ( verbosity ) {
 			case 0:			
 				if ( errorlevel < err_tol ) {
@@ -1412,8 +1374,8 @@ INTERN void process_ui( void )
 				break;
 			
 			case 2:
-				if ( errorlevel < err_tol ) fprintf( msgout,  "\n-> %s OK\n", actionmsg );
-				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg );
+				if ( errorlevel < err_tol ) fprintf( msgout,  "\n-> %s OK\n", actionmsg.c_str());
+				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg.c_str());
 				break;
 		}
 		
@@ -1426,7 +1388,7 @@ INTERN void process_ui( void )
 		
 		// error/ warning message
 		if ( errorlevel > 0 ) {
-			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg  );
+			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ).c_str(), errtypemsg.c_str());
 			fprintf( msgout, " %s\n", errormessage );
 		}
 		if ((verbosity > 0) && (errorlevel < err_tol) && (action == Action::A_COMPRESS)) {
@@ -1448,25 +1410,21 @@ INTERN void process_ui( void )
 	}
 	else { // progress bar UI
 		// if this is the last file, update progress bar one last time
-		if ( file_no + 1 == file_cnt ) {
+		if ( file_no + 1 == filelist.size()) {
 			// update progress message
-			fprintf( msgout, "Processed %2i of %2i files ", file_no + 1, file_cnt );
+			fprintf( msgout, "Processed %2i of %2u files ", file_no + 1, filelist.size());
 			progress_bar( 1, 1 );
 			fprintf( msgout, "\r" );
 		}	
 	}
 }
-#endif
-
 
 /* -----------------------------------------------
 	gets statusmessage for function
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
-INTERN inline const char* get_status( bool (*function)() )
+INTERN inline std::string get_status( bool (*function)() )
 {	
-	if ( function == NULL ) {
+	if ( function == nullptr ) {
 		return "unknown action";
 	} else if ( function == *check_file ) {
 		return "Determining filetype";
@@ -1522,21 +1480,17 @@ INTERN inline const char* get_status( bool (*function)() )
 		return "Function description missing!";
 	}
 }
-#endif
-
 
 /* -----------------------------------------------
 	shows help in case of wrong input
 	----------------------------------------------- */
-	
-#if !defined(BUILD_LIB)
 INTERN void show_help( void )
 {	
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Website: %s\n", website );
-	fprintf( msgout, "Email  : %s\n", email );
+	fprintf( msgout, "Website: %s\n", program_info::website.c_str() );
+	fprintf( msgout, "Email  : %s\n", program_info::email.c_str() );
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Usage: %s [switches] [filename(s)]", appname );
+	fprintf( msgout, "Usage: %s [switches] [filename(s)]", program_info::appname.c_str());
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-ver]   verify files after processing\n" );
@@ -1565,8 +1519,8 @@ INTERN void show_help( void )
 	}
 	#endif
 	fprintf( msgout, "\n" );
-	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", appname, pjg_ext );
-	fprintf( msgout, "          \"%s -p *.%s\"\n", appname, jpg_ext );	
+	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.c_str(), program_info::pjg_ext.c_str() );
+	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.c_str(), program_info::jpg_ext.c_str() );
 }
 #endif
 
@@ -1754,8 +1708,8 @@ INTERN void execute( bool (*function)() )
 		
 		// write statusmessage
 		if ( verbosity == 2 ) {
-			fprintf( msgout,  "\n%s ", get_status( function ) );
-			for ( int i = strlen( get_status( function ) ); i <= 30; i++ )
+			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
+			for ( int i = strlen( get_status( function ).c_str()); i <= 30; i++ )
 				fprintf( msgout,  " " );			
 		}
 		
@@ -1803,20 +1757,20 @@ INTERN void execute( bool (*function)() )
 INTERN bool check_file( void )
 {	
 	unsigned char fileid[ 2 ] = { 0, 0 };
-	const char* filename = filelist[ file_no ];
+	const std::string& filename = filelist[ file_no ];
 	
 	
 	// open input stream, check for errors
-	str_in = new iostream( (void*) filename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
+	str_in = new iostream( (void*) filename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
 	if ( str_in->chkerr() ) {
-		sprintf( errormessage, FRD_ERRMSG, filename );
+		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
 		errorlevel = 2;
 		return false;
 	}
 	
 	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	jpgfilename = "";
+	pjgfilename = "";
 	
 	// immediately return error if 2 bytes can't be read
 	if ( str_in->read( fileid, 2 ) != 2 ) { 
@@ -1832,20 +1786,19 @@ INTERN bool check_file( void )
 		filetype = FileType::F_JPG;
 		// create filenames
 		if ( !pipe_on ) {
-			jpgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-			strcpy( jpgfilename, filename );
+			jpgfilename = filename;
 			pjgfilename = ( overwrite ) ?
-				create_filename( filename, (char*) pjg_ext ) :
-				unique_filename( filename, (char*) pjg_ext );
+				create_filename( filename, program_info::pjg_ext ) :
+				unique_filename(filename, program_info::pjg_ext);
 		}
 		else {
-			jpgfilename = create_filename( "STDIN", NULL );
-			pjgfilename = create_filename( "STDOUT", NULL );
+			jpgfilename = create_filename( "STDIN", "" );
+			pjgfilename = create_filename( "STDOUT", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) pjgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, pjgfilename );
+			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -1864,25 +1817,24 @@ INTERN bool check_file( void )
 			auto_set = false;
 		}
 	}
-	else if ( ( fileid[0] == pjg_magic[0] ) && ( fileid[1] == pjg_magic[1] ) ) {
+	else if ( ( fileid[0] == program_info::pjg_magic[0] ) && ( fileid[1] == program_info::pjg_magic[1] ) ) {
 		// file is PJG
 		filetype = FileType::F_PJG;
 		// create filenames
 		if ( !pipe_on ) {
-			pjgfilename = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-			strcpy( pjgfilename, filename );
+			pjgfilename = filename;
 			jpgfilename = ( overwrite ) ?
-				create_filename( filename, (char*) jpg_ext ) :
-				unique_filename( filename, (char*) jpg_ext );
+				create_filename( filename, program_info::jpg_ext) :
+				unique_filename( filename, program_info::jpg_ext);
 		}
 		else {
-			jpgfilename = create_filename( "STDOUT", NULL );
-			pjgfilename = create_filename( "STDIN", NULL );
+			jpgfilename = create_filename( "STDOUT", "" );
+			pjgfilename = create_filename( "STDIN", "" );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
+		str_out = new iostream( (void*) jpgfilename.c_str(), ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
 		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, jpgfilename );
+			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -1892,7 +1844,7 @@ INTERN bool check_file( void )
 	else {
 		// file is neither
 		filetype = FileType::F_UNK;
-		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename );
+		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename.c_str());
 		errorlevel = 2;
 		return false;		
 	}
@@ -1900,14 +1852,11 @@ INTERN bool check_file( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	swap streams / init verification
 	----------------------------------------------- */
 	
-#if !defined(BUILD_LIB)
 INTERN bool swap_streams( void )	
 {
 	unsigned char dmp[ 2 ];
@@ -1932,14 +1881,11 @@ INTERN bool swap_streams( void )
 	
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	comparison between input & output
 	----------------------------------------------- */
 
-#if !defined(BUILD_LIB)
 INTERN bool compare_output( void )
 {
 	unsigned char* buff_ori;
@@ -1955,7 +1901,7 @@ INTERN bool compare_output( void )
 	if ( ( buff_ori == NULL ) || ( buff_cmp == NULL ) ) {
 		if ( buff_ori != NULL ) free( buff_ori );
 		if ( buff_cmp != NULL ) free( buff_cmp );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -2137,7 +2083,7 @@ INTERN bool read_jpeg( void )
 	// alloc memory for segment data first
 	segment = ( unsigned char* ) calloc( ssize, sizeof( char ) );
 	if ( segment == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -2183,7 +2129,7 @@ INTERN bool read_jpeg( void )
 							if ( rst_err == NULL ) {
 								rst_err = (unsigned char*) calloc( scnc + 1, sizeof( char ) );
 								if ( rst_err == NULL ) {
-									sprintf( errormessage, MEM_ERRMSG );
+									sprintf( errormessage, MEM_ERRMSG.c_str() );
 									errorlevel = 2;
 									return false;
 								}
@@ -2193,7 +2139,7 @@ INTERN bool read_jpeg( void )
 							// realloc and set only if needed
 							rst_err = ( unsigned char* ) frealloc( rst_err, ( scnc + 1 ) * sizeof( char ) );
 							if ( rst_err == NULL ) {
-								sprintf( errormessage, MEM_ERRMSG );
+								sprintf( errormessage, MEM_ERRMSG.c_str() );
 								errorlevel = 2;
 								return false;
 							}
@@ -2262,7 +2208,7 @@ INTERN bool read_jpeg( void )
 		if ( ssize < len ) {
 			segment = ( unsigned char* ) frealloc( segment, len );
 			if ( segment == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				delete ( hdrw );
 				delete ( huffw );
@@ -2841,7 +2787,7 @@ INTERN bool recode_jpeg( void )
 		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
 		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
 		if ( scnp == NULL ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			sprintf( errormessage, MEM_ERRMSG.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -2853,7 +2799,7 @@ INTERN bool recode_jpeg( void )
 			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
 			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
 			if ( rstp == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				return false;
 			}
@@ -3087,7 +3033,7 @@ INTERN bool recode_jpeg( void )
 	// safety check for error in huffwriter
 	if ( huffw->error ()) {
 		delete huffw;
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -3302,7 +3248,7 @@ INTERN bool pack_pjg( void )
 	
 	
 	// PJG-Header
-	str_out->write( reinterpret_cast<const unsigned char*>(pjg_magic), 2 );
+	str_out->write(program_info::pjg_magic.data(), 2 );
 	
 	// store settings if not auto
 	if ( !auto_set ) {
@@ -3313,7 +3259,7 @@ INTERN bool pack_pjg( void )
 	}
 	
 	// store version number
-	hcode = appversion;
+	hcode = program_info::appversion;
 	str_out->write_byte(hcode);
 	
 	
@@ -3438,16 +3384,16 @@ INTERN bool unpack_pjg( void )
 		}
 		else if ( hcode >= 0x14 ) {
 			// compare version number
-			if ( hcode != appversion ) {
+			if ( hcode != program_info::appversion ) {
 				sprintf( errormessage, "incompatible file, use %s v%i.%i",
-					appname, hcode / 10, hcode % 10 );
+					program_info::appname.c_str(), hcode / 10, hcode % 10 );
 				errorlevel = 2;
 				return false;
 			}
 			else break;
 		}
 		else {
-			sprintf( errormessage, "unknown header code, use newer version of %s", appname );
+			sprintf( errormessage, "unknown header code, use newer version of %s", program_info::appname.c_str());
 			errorlevel = 2;
 			return false;
 		}
@@ -3591,7 +3537,7 @@ INTERN bool jpg_setup_imginfo( void )
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			dct::colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
 			if (dct::colldata[cmp][bpos] == NULL) {
-				sprintf( errormessage, MEM_ERRMSG );
+				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				return false;
 			}
@@ -3606,7 +3552,7 @@ INTERN bool jpg_setup_imginfo( void )
 		if ( ( zdstdata[cmp] == NULL ) ||
 			( eobxhigh[cmp] == NULL ) || ( eobyhigh[cmp] == NULL ) ||
 			( zdstxlow[cmp] == NULL ) || ( zdstylow[cmp] == NULL ) ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			sprintf( errormessage, MEM_ERRMSG.c_str() );
 			errorlevel = 2;
 			return false;
 		}
@@ -4900,7 +4846,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 	// allocate memory for absolute values storage
 	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
 	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5028,7 +4974,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 		if ( absv_store != NULL ) free( absv_store );
 		if ( sgn_store != NULL ) free( sgn_store );
 		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5560,7 +5506,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 	// allocate memory for absolute values storage
 	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
 	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5688,7 +5634,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 		if ( absv_store != NULL ) free( absv_store );
 		if ( sgn_store != NULL ) free( sgn_store );
 		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -5997,7 +5943,7 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	// check for out of memory
 	if ( bwrt->error() ) {
 		delete bwrt;
-		sprintf( errormessage, MEM_ERRMSG );
+		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
 	}
@@ -6567,126 +6513,65 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	displays progress bar on screen
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
-inline void progress_bar( int current, int last )
+static void progress_bar( int current, int last )
 {
-	int barpos = ( ( current * BARLEN ) + ( last / 2 ) ) / last;
-	int i;
-	
-	
+	constexpr int BARLEN = 36;
+	int barpos = ((current * BARLEN) + (last / 2)) / last;
+
 	// generate progress bar
-	fprintf( msgout, "[" );
-	#if defined(_WIN32)
-	for ( i = 0; i < barpos; i++ )
-		fprintf( msgout, "\xFE" );
-	#else
-	for ( i = 0; i < barpos; i++ )
-		fprintf( msgout, "X" );
-	#endif
-	for (  ; i < BARLEN; i++ )
-		fprintf( msgout, " " );
-	fprintf( msgout, "]" );
+	fprintf(msgout, "[");
+	for (int i = 0; i < BARLEN; i++) {
+		if (i < barpos) {
+			#if defined(_WIN32)
+			fprintf(msgout, "\xFE");
+			#else
+			fprintf(msgout, "X");
+			#endif
+		} else {
+			fprintf(msgout, " ");
+		}
+	}
+	fprintf(msgout, "]");
 }
-#endif
 
 /* -----------------------------------------------
-	creates filename, callocs memory for it
+	Replaces the file extension of oldname (if any) with new_extension.
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline char* create_filename( const char* base, const char* extension )
-{
-	int len = strlen( base ) + ( ( extension == NULL ) ? 0 : strlen( extension ) + 1 ) + 1;	
-	char* filename = (char*) calloc( len, sizeof( char ) );	
-	
-	// create a filename from base & extension
-	strcpy( filename, base );
-	set_extension( filename, extension );
-	
+
+static std::string create_filename(const std::string& oldname, const std::string& new_extension) {
+	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
+	auto filename = filename_base + "." + new_extension;
+	return filename;
+}
+
+/* -----------------------------------------------
+	Replaces the file extension of oldname (if any) with new_extension.
+	If such a file already exists, then underscores are appended to the filename (e.g., filename_.ext)
+	until the filename chosen does not already exist.
+	----------------------------------------------- */
+
+static std::string unique_filename(const std::string& oldname, const std::string& new_extension) {
+	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
+	auto filename = filename_base + "." + new_extension;
+	while (file_exists(filename)) {
+		filename_base += "_";
+		filename = filename_base + "." + new_extension;
+	}
 	return filename;
 }
 #endif
 
 /* -----------------------------------------------
-	creates filename, callocs memory for it
-	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline char* unique_filename( const char* base, const char* extension )
-{
-	int len = strlen( base ) + ( ( extension == NULL ) ? 0 : strlen( extension ) + 1 ) + 1;	
-	char* filename = (char*) calloc( len, sizeof( char ) );	
-	
-	// create a unique filename using underscores
-	strcpy( filename, base );
-	set_extension( filename, extension );
-	while ( file_exists( filename ) ) {
-		len += sizeof( char );
-		filename = (char*) realloc( filename, len );
-		add_underscore( filename );
-	}
-	
-	return filename;
-}
-#endif
-
-/* -----------------------------------------------
-	changes extension of filename
-	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline void set_extension( char* filename, const char* extension )
-{
-	char* extstr;
-	
-	// find position of extension in filename	
-	extstr = ( strrchr( filename, '.' ) == NULL ) ?
-		strrchr( filename, '\0' ) : strrchr( filename, '.' );
-	
-	// set new extension
-	if ( extension != NULL ) {
-		(*extstr++) = '.';
-		strcpy( extstr, extension );
-	}
-	else
-		(*extstr) = '\0';
-}
-#endif
-
-/* -----------------------------------------------
-	adds underscore after filename
-	----------------------------------------------- */
-#if !defined(BUILD_LIB)
-INTERN inline void add_underscore( char* filename )
-{
-	char* tmpname = (char*) calloc( strlen( filename ) + 1, sizeof( char ) );
-	char* extstr;
-	
-	// copy filename to tmpname
-	strcpy( tmpname, filename );
-	// search extension in filename
-	extstr = strrchr( filename, '.' );
-	
-	// add underscore before extension
-	if ( extstr != NULL ) {
-		(*extstr++) = '_';
-		strcpy( extstr, strrchr( tmpname, '.' ) );
-	}
-	else
-		sprintf( filename, "%s_", tmpname );
-		
-	// free memory
-	free( tmpname );
-}
-#endif
-
-/* -----------------------------------------------
-	checks if a file exists
-	----------------------------------------------- */
-INTERN inline bool file_exists( const char* filename )
-{
+checks if a file exists
+----------------------------------------------- */
+static bool file_exists(const std::string& filename) {
 	// needed for both, executable and library
-	FILE* fp = fopen( filename, "rb" );
-	
-	if ( fp == NULL ) return false;
-	else {
-		fclose( fp );
+	FILE* fp = fopen(filename.c_str(), "rb");
+
+	if (fp == nullptr) {
+		return false;
+	} else {
+		fclose(fp);
 		return true;
 	}
 }
@@ -6700,470 +6585,376 @@ INTERN inline bool file_exists( const char* filename )
 	Writes header file
 	----------------------------------------------- */
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_hdr( void )
-{
-	const char* ext = "hdr";
-	const char* basename = filelist[ file_no ];
-	
-	if ( !dump_file( basename, ext, hdrdata, 1, hdrs ) )
-		return false;	
-	
+INTERN bool dump_hdr() {
+	const std::string ext = "hdr";
+	const auto basename = filelist[file_no];
+
+	if (!dump_file(basename, ext, hdrdata, 1, hdrs)) {
+		return false;
+	}
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes huffman coded file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_huf( void )
-{
-	const char* ext = "huf";
-	const char* basename = filelist[ file_no ];
-	
-	if ( !dump_file( basename, ext, huffdata, 1, hufs ) )
+INTERN bool dump_huf() {
+	const std::string ext = "huf";
+	const auto basename = filelist[file_no];
+
+	if (!dump_file(basename, ext, huffdata, 1, hufs)) {
 		return false;
-	
+	}
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes collections of DCT coefficients
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_coll( void )
+INTERN bool dump_coll()
 {
-	FILE* fp;
-	
-	char* fn;
-	const char* ext[ 4 ];
-	const char* base;
-	int cmp, bpos, dpos;
-	int i, j;
-	
-	ext[0] = "coll0";
-	ext[1] = "coll1";
-	ext[2] = "coll2";
-	ext[3] = "coll3";
-	base = filelist[ file_no ];
-	
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		
+	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
+	const auto& base = filelist[file_no];
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
 		// create filename
-		fn = create_filename( base, ext[ cmp ] );
-		
+		const auto fn = create_filename(base, ext[cmp]);
+
 		// open file for output
-		fp = fopen( fn, "wb" );
-		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn);
+		FILE* fp = fopen(fn.c_str(), "wb");
+		if (fp == nullptr) {
+			sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
-		free( fn );
-		
-		switch ( collmode ) {
-			
-			case 0: // standard collections
-				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( dct::colldata[cmp][bpos], sizeof( short ), cmpnfo[cmp].bc, fp );
-				break;
-				
-			case 1: // sequential order collections, 'dhufs'
-				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-				for ( bpos = 0; bpos < 64; bpos++ )
-					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
-				break;
-				
-			case 2: // square collections
-				dpos = 0;
-				for ( i = 0; i < 64; ) {
-					bpos = zigzag[ i++ ];
-					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ),
-						cmpnfo[cmp].bch, fp );
-					if ( ( i % 8 ) == 0 ) {
-						dpos += cmpnfo[cmp].bch;
-						if ( dpos >= cmpnfo[cmp].bc ) {
-							dpos = 0;
-						}
-						else {
-							i -= 8;
-						}
+
+		int dpos;
+		switch (coll_mode) {
+
+		case CollectionMode::STD:
+			for (int bpos = 0; bpos < 64; bpos++) {
+				fwrite(dct::colldata[cmp][bpos], sizeof(short), cmpnfo[cmp].bc, fp);
+			}
+			break;
+
+		case CollectionMode::DHF:
+			for (dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
+				for (int bpos = 0; bpos < 64; bpos++) {
+					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
+				}
+			}
+			break;
+
+		case CollectionMode::SQU:
+			dpos = 0;
+			for (int i = 0; i < 64; ) {
+				const int bpos = zigzag[i++];
+				fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short),
+					cmpnfo[cmp].bch, fp);
+				if ((i % 8) == 0) {
+					dpos += cmpnfo[cmp].bch;
+					if (dpos >= cmpnfo[cmp].bc) {
+						dpos = 0;
+					} else {
+						i -= 8;
 					}
 				}
-				break;
-				
-			case 3: // uncollections
-				for ( i = 0; i < ( cmpnfo[cmp].bcv * 8 ); i++ )			
-				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
-					bpos = zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
-					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+			}
+			break;
+
+		case CollectionMode::UNC:
+			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+					const int bpos = zigzag[((i % 8) * 8) + (j % 8)];
+					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
+					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
 				}
-				break;
-				
-			case 4: // square collections / alt order (even/uneven)
-				dpos = 0;
-				for ( i = 0; i < 64; ) {
-					bpos = even_zigzag[ i++ ];
-					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ),
-						cmpnfo[cmp].bch, fp );
-					if ( ( i % 8 ) == 0 ) {
-						dpos += cmpnfo[cmp].bch;
-						if ( dpos >= cmpnfo[cmp].bc ) {
-							dpos = 0;
-						}
-						else {
-							i -= 8;
-						}
+			}
+			break;
+
+		case CollectionMode::SQU_ALT:
+			dpos = 0;
+			for (int i = 0; i < 64; ) {
+				int bpos = even_zigzag[i++];
+				fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short),
+					cmpnfo[cmp].bch, fp);
+				if ((i % 8) == 0) {
+					dpos += cmpnfo[cmp].bch;
+					if (dpos >= cmpnfo[cmp].bc) {
+						dpos = 0;
+					} else {
+						i -= 8;
 					}
 				}
-				break;
-				
-			case 5: // uncollections / alt order (even/uneven)
-				for ( i = 0; i < ( cmpnfo[cmp].bcv * 8 ); i++ )			
-				for ( j = 0; j < ( cmpnfo[cmp].bch * 8 ); j++ ) {
-					bpos = even_zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
-					dpos = ( ( i / 8 ) * cmpnfo[cmp].bch ) + ( j / 8 );
-					fwrite( &(dct::colldata[cmp][bpos][dpos]), sizeof( short ), 1, fp );
+			}
+			break;
+
+		case CollectionMode::UNC_ALT:
+			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+					const int bpos = even_zigzag[((i % 8) * 8) + (j % 8)];
+					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
+					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
 				}
-				break;
+			}
+			break;
 		}
-		
-		fclose( fp );
+
+		fclose(fp);
 	}
-	
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes zero distribution data to file;
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_zdst( void )
-{
-	const char* ext[4];
-	const char* basename;
-	int cmp;
-	
-	
-	ext[0] = "zdst0";
-	ext[1] = "zdst1";
-	ext[2] = "zdst2";
-	ext[3] = "zdst3";
-	basename = filelist[ file_no ];
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-		if ( !dump_file( basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc ) )
+INTERN bool dump_zdst() {
+	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
+	const auto basename = filelist[file_no];
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		if (!dump_file(basename, ext[cmp], zdstdata[cmp], 1, cmpnfo[cmp].bc)) {
 			return false;
-			
-	
+		}
+	}
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes to file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, int size )
-{	
-	FILE* fp;
-	char* fn;
-	
+INTERN bool dump_file(const std::string& base, const std::string& ext, void* data, int bpv, int size) {
 	// create filename
-	fn = create_filename( base, ext );
-	
+	const auto fn = create_filename(base, ext);
+
 	// open file for output
-	fp = fopen( fn, "wb" );	
-	if ( fp == NULL ) {
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	FILE* fp = fopen(fn.c_str(), "wb");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
-	
+
 	// write & close
-	fwrite( data, bpv, size, fp );
-	fclose( fp );
-	
+	fwrite(data, bpv, size, fp);
+	fclose(fp);
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes error info file
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_errfile( void )
-{
-	FILE* fp;
-	char* fn;
-	
-	
+INTERN bool dump_errfile() {
 	// return immediately if theres no error
-	if ( errorlevel == 0 ) return true;
-	
+	if (errorlevel == 0) {
+		return true;
+	}
+
 	// create filename based on errorlevel
-	if ( errorlevel == 1 ) {
-		fn = create_filename( filelist[ file_no ], "wrn.nfo" );
+	std::string fn;
+	if (errorlevel == 1) {
+		fn = create_filename(filelist[file_no], "wrn.nfo");
+	} else {
+		fn = create_filename(filelist[file_no], "err.nfo");
 	}
-	else {
-		fn = create_filename( filelist[ file_no ], "err.nfo" );
-	}
-	
+
 	// open file for output
-	fp = fopen( fn, "w" );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	FILE* fp = fopen(fn.c_str(), "w");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
-	
+
 	// write status and errormessage to file
-	fprintf( fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[ file_no ] );
-	fprintf( fp, "\n" );
+	fprintf(fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[file_no].c_str());
+	fprintf(fp, "\n");
 	// write error specification to file
-	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ),
-			( errorlevel == 1 ) ? "warning" : "error" );
-	fprintf( fp, " %s\n", errormessage );
-	
+	fprintf(fp, " %s -> %s:\n", get_status(errorfunction).c_str(),
+		(errorlevel == 1) ? "warning" : "error");
+	fprintf(fp, " %s\n", errormessage);
+
 	// done, close file
-	fclose( fp );
-	
-	
+	fclose(fp);
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes info to textfile
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_info( void )
-{	
-	FILE* fp;
-	char* fn;
-	
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len  = 0; // length of current marker segment
-	unsigned int   hpos = 0; // position in header		
-	
-	int cmp, bpos;
-	int i;
-	
-	
+INTERN bool dump_info() {
 	// create filename
-	fn = create_filename( filelist[ file_no ], "nfo" );
-	
+	const auto fn = create_filename(filelist[file_no], "nfo");
+
 	// open file for output
-	fp = fopen( fn, "w" );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	FILE* fp = fopen(fn.c_str(), "w");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	free( fn );
 
 	// info about image
-	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename );
-	fprintf( fp, "coding process: %s\n", ( jpegtype == 1 ) ? "sequential" : "progressive" );
+	fprintf(fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
+	fprintf(fp, "coding process: %s\n", (jpegtype == 1) ? "sequential" : "progressive");
 	// fprintf( fp, "no of scans: %i\n", scnc );
-	fprintf( fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth );
-	fprintf( fp, "component count: %i\n", cmpc );
-	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh );
-	
+	fprintf(fp, "imageheight: %i / imagewidth: %i\n", imgheight, imgwidth);
+	fprintf(fp, "component count: %i\n", cmpc);
+	fprintf(fp, "mcu count: %i/%i/%i (all/v/h)\n\n", mcuc, mcuv, mcuh);
+
 	// info about header
-	fprintf( fp, "\nfile header structure:\n" );
-	fprintf( fp, " type  length   hpos\n" );
+	fprintf(fp, "\nfile header structure:\n");
+	fprintf(fp, " type  length   hpos\n");
 	// header parser loop
-	for ( hpos = 0; (int) hpos < hdrs; hpos += len ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
-		fprintf( fp, " FF%2X  %6i %6i\n", (int) type, (int) len, (int) hpos );
+	int hpos; // Position in the header.
+	int len = 0; // Length of current marker segment.
+	for (hpos = 0; hpos < hdrs; hpos += len) {
+		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
+		len = 2 + B_SHORT(hdrdata[hpos + 2], hdrdata[hpos + 3]);
+		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);
 	}
-	fprintf( fp, " _END       0 %6i\n", (int) hpos );
-	fprintf( fp, "\n" );
-	
+	fprintf(fp, " _END       0 %6i\n", hpos);
+	fprintf(fp, "\n");
+
 	// info about compression settings	
-	fprintf( fp, "\ncompression settings:\n" );
-	fprintf( fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-			segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3] );
-	fprintf( fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-			nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3] );
-	fprintf( fp, "\n" );
-	
+	fprintf(fp, "\ncompression settings:\n");
+	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
+		segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3]);
+	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
+		nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3]);
+	fprintf(fp, "\n");
+
 	// info about components
-	for ( cmp = 0; cmp < cmpc; cmp++ ) {
-		fprintf( fp, "\n" );
-		fprintf( fp, "component number %i ->\n", cmp );
-		fprintf( fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh );
-		fprintf( fp, "blocks per mcu: %i\n", cmpnfo[cmp].mbs );
-		fprintf( fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].bc, cmpnfo[cmp].bcv, cmpnfo[cmp].bch );
-		fprintf( fp, "block count (sng): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch );
-		fprintf( fp, "quantiser table ->" );
-		for ( i = 0; i < 64; i++ ) {
-			bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) fprintf( fp, "\n" );
-			fprintf( fp, "%4i, ", QUANT( cmp, bpos ) );
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		fprintf(fp, "\n");
+		fprintf(fp, "component number %i ->\n", cmp);
+		fprintf(fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh);
+		fprintf(fp, "blocks per mcu: %i\n", cmpnfo[cmp].mbs);
+		fprintf(fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
+			cmpnfo[cmp].bc, cmpnfo[cmp].bcv, cmpnfo[cmp].bch);
+		fprintf(fp, "block count (sng): %i/%i/%i (all/v/h)\n",
+			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch);
+		fprintf(fp, "quantiser table ->");
+		for (int i = 0; i < 64; i++) {
+			int bpos = zigzag[i];
+			if ((i % 8) == 0) {
+				fprintf(fp, "\n");
+			}
+			fprintf(fp, "%4i, ", QUANT(cmp, bpos));
 		}
-		fprintf( fp, "\n" );
-		fprintf( fp, "maximum values ->" );
-		for ( i = 0; i < 64; i++ ) {
-			bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) fprintf( fp, "\n" );
-			fprintf( fp, "%4i, ", MAX_V( cmp, bpos ) );
+		fprintf(fp, "\n");
+		fprintf(fp, "maximum values ->");
+		for (int i = 0; i < 64; i++) {
+			int bpos = zigzag[i];
+			if ((i % 8) == 0) {
+				fprintf(fp, "\n");
+			}
+			fprintf(fp, "%4i, ", MAX_V(cmp, bpos));
 		}
-		fprintf( fp, "\n\n" );
+		fprintf(fp, "\n\n");
 	}
-	
-	
-	fclose( fp );
-	
-	
+
+	fclose(fp);
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Writes distribution for use in valdist.h
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_dist( void )
-{
-	FILE* fp;
-	char* fn;
-	
-	unsigned int dist[ 1024 + 1 ];
-	int cmp, bpos, dpos;
-	int i;
-	
-	
+INTERN bool dump_dist() {
 	// create filename
-	fn = create_filename( filelist[ file_no ], "dist" );
-	
+	const auto fn = create_filename(filelist[file_no], "dist");
+
 	// open file for output
-	fp = fopen( fn, "wb" );
-	free( fn );
-	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+	FILE* fp = fopen(fn.c_str(), "wb");
+	if (fp == nullptr) {
+		sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// calculate & write distributions for each frequency
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-	for ( bpos = 0; bpos < 64; bpos++ ) {		
-		// preset dist with zeroes
-		for ( i = 0; i <= 1024; i++ ) dist[ i ] = 0;
-		// get distribution
-		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-			dist[ std::abs( dct::colldata[cmp][bpos][dpos] ) ]++;
-		// write to file
-		fwrite( dist, sizeof( int ), 1024 + 1, fp );
+	for (int cmp = 0; cmp < cmpc; cmp++) {
+		for (int bpos = 0; bpos < 64; bpos++) {
+			std::array<int, 1024 + 1> dist = { 0 };
+			// get distribution
+			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
+				dist[std::abs(dct::colldata[cmp][bpos][dpos])]++;
+			}
+			// write to file
+			fwrite(dist.data(), sizeof(int), dist.size(), fp);
+		}
 	}
-	
-	
+
 	// close file
-	fclose( fp );
-	
+	fclose(fp);
+
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	Do inverse DCT and write pgms
 	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-INTERN bool dump_pgm( void )
-{	
-	unsigned char* imgdata;
-	
-	FILE* fp;
-	char* fn;
-	const char* ext[4];
-	
-	int cmp, dpos;
-	int pix_v;
-	int xpos, ypos, dcpos;
-	int x, y;
-	
-	
-	ext[0] = "cmp0.pgm";
-	ext[1] = "cmp1.pgm";
-	ext[2] = "cmp2.pgm";
-	ext[3] = "cmp3.pgm";
-	
-	
-	for ( cmp = 0; cmp < cmpc; cmp++ )
-	{
+INTERN bool dump_pgm() {
+	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
+
+	for (int cmp = 0; cmp < cmpc; cmp++) {
 		// create filename
-		fn = create_filename( filelist[ file_no ], ext[ cmp ] );
-		
+		const auto fn = create_filename(filelist[file_no], ext[cmp]);
+
 		// open file for output
-		fp = fopen( fn, "wb" );		
-		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn );
+		FILE* fp = fopen(fn.c_str(), "wb");
+		if (fp == nullptr) {
+			sprintf(errormessage, FWR_ERRMSG.c_str(), fn.c_str());
 			errorlevel = 2;
 			return false;
 		}
-		free( fn );
-		
+
 		// alloc memory for image data
-		imgdata = (unsigned char*) calloc ( cmpnfo[cmp].bc * 64, sizeof( char ) );
-		if ( imgdata == NULL ) {
-			fclose( fp );
-			sprintf( errormessage, MEM_ERRMSG );
-			errorlevel = 2;
-			return false;
-		}
-		
-		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )	{	
+		std::vector<std::uint8_t> imgdata(cmpnfo[cmp].bc * 64);
+
+		for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
 			// do inverse DCT, store in imgdata
-			dcpos  = ( ( ( dpos / cmpnfo[cmp].bch ) * cmpnfo[cmp].bch ) << 6 ) +
-					   ( ( dpos % cmpnfo[cmp].bch ) << 3 );
-			for ( y = 0; y < 8; y++ ) {
-				ypos = dcpos + ( y * ( cmpnfo[cmp].bch << 3 ) );
-				for ( x = 0; x < 8; x++ ) {
-					xpos = ypos + x;
-					pix_v = dct::idct_2d_fst_8x8( cmp, dpos, x, y );
-					pix_v = dct::DCT_RESCALE( pix_v );
+			int dcpos = (((dpos / cmpnfo[cmp].bch) * cmpnfo[cmp].bch) << 6) +
+				((dpos % cmpnfo[cmp].bch) << 3);
+			for (int y = 0; y < 8; y++) {
+				int ypos = dcpos + (y * (cmpnfo[cmp].bch << 3));
+				for (int x = 0; x < 8; x++) {
+					int xpos = ypos + x;
+					int pix_v = dct::idct_2d_fst_8x8(cmp, dpos, x, y);
+					pix_v = dct::DCT_RESCALE(pix_v);
 					pix_v = pix_v + 128;
-					imgdata[ xpos ] = ( unsigned char ) clamp(pix_v, 0, 255);
+					imgdata[xpos] = std::uint8_t(clamp(pix_v, 0, 255));
 				}
-			}			
+			}
 		}
-		
+
 		// write PGM header
-		fprintf( fp, "P5\n" );
-		fprintf( fp, "# created by %s v%i.%i%s (%s) by %s\n",
-			apptitle, appversion / 10, appversion % 10, subversion, versiondate, author );
-		fprintf( fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8 );
-		fprintf( fp, "255\n" );
-		
+		fprintf(fp, "P5\n");
+		fprintf(fp, "# created by %s v%i.%i%s (%s) by %s\n",
+			program_info::apptitle.c_str(),
+			program_info::appversion / 10,
+			program_info::appversion % 10,
+			program_info::subversion.c_str(),
+			program_info::versiondate.c_str(),
+			program_info::author.c_str());
+		fprintf(fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8);
+		fprintf(fp, "255\n");
+
 		// write image data
-		fwrite( imgdata, sizeof( char ), cmpnfo[cmp].bc * 64, fp );
-		
-		// free memory
-		free( imgdata );
-		
+		fwrite(imgdata.data(), sizeof(char), imgdata.size(), fp);
+
 		// close file
-		fclose( fp );
+		fclose(fp);
 	}
-	
+
 	return true;
 }
 #endif
