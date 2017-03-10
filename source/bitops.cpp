@@ -199,94 +199,65 @@ int abitreader::peof()
 
 /* -----------------------------------------------
 	constructor for abitwriter class
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-abitwriter::abitwriter( int size )
-{
-	fillbit_ = 1;
-	cbyte   = 0;
-	cbit    = 8;
-	
-	error_ = false;
-	fmem  = true;
-	
-	dsize = std::max(size, 65536);
-	data = ( unsigned char* ) calloc ( dsize, sizeof(unsigned char) );
-	if ( data == nullptr ) {
-		error_ = true;
-		return;
-	}
-}
+abitwriter::abitwriter(int size) : data(std::max(size, 65536)) {}
 
 /* -----------------------------------------------
 	destructor for abitwriter class
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-abitwriter::~abitwriter()
-{
-	// free memory if pointer was not given out
-	if ( fmem )	free( data );
-}
+abitwriter::~abitwriter() {}
 
 /* -----------------------------------------------
 	writes n bits to abitwriter
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-void abitwriter::write( unsigned int val, int nbits )
-{
+void abitwriter::write(unsigned int val, int nbits) {
 	// safety check for error
-	if ( error() || nbits < 0 ) return;
-	
-	// test if pointer beyond flush treshold
-	if ( cbyte > ( dsize - 5 ) ) {
-		data = frealloc( data, dsize * 2 );
-		if ( data == nullptr ) {
-			error_ = true;
-			return;
-		}
-		dsize *= 2;
-		std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
+	if (nbits < 0) {
+		return;
 	}
-	
+
+	// test if pointer beyond flush treshold
+	if (cbyte > (data.size() - 5)) {
+		data.resize(data.size() * 2);
+	}
+
 	// write data
-	while ( nbits >= cbit ) {
-		data[cbyte] |= ( MBITS32(val, nbits, (nbits-cbit)) );		
-		nbits -= cbit;		
+	while (nbits >= cbit) {
+		data[cbyte] |= (MBITS32(val, nbits, (nbits-cbit)));
+		nbits -= cbit;
 		cbyte++;
 		cbit = 8;
 	}
-	
-	if ( nbits > 0 ) {		
-		data[cbyte] |= ( (RBITS32(val, nbits)) << (cbit - nbits) );
-		cbit -= nbits;		
-	}	
+
+	if (nbits > 0) {
+		data[cbyte] |= ((RBITS32(val, nbits)) << (cbit - nbits));
+		cbit -= nbits;
+	}
 }
 
 /* -----------------------------------------------
 	writes one bit to abitwriter
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-void abitwriter::write_bit( unsigned char bit )
-{
-	// safety check for error
-	if ( error() ) return;
-	
+void abitwriter::write_bit(unsigned char bit) {
+
 	// write data
-	if ( bit ) data[cbyte] |= 0x1 << (--cbit);
-	else --cbit;
-	if ( cbit == 0 ) {
+	if (bit) {
+		data[cbyte] |= 0x1 << (--cbit);
+	} else {
+		--cbit;
+	}
+	if (cbit == 0) {
 		// test if pointer beyond flush treshold
-		if ( ++cbyte > ( dsize - 5 ) ) {
-			data = frealloc( data, dsize * 2 );
-			if ( data == nullptr ) {
-				error_ = true;
-				return;
-			}
-			dsize *= 2;
-			std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
+		cbyte++;
+		if (cbyte > (data.size() - 5)) {
+			data.resize(data.size() * 2);
 		}
 		cbit = 8;
-	} 
+	}
 }
 
 /* -----------------------------------------------
@@ -300,50 +271,37 @@ void abitwriter::set_fillbit(unsigned char fillbit) {
 /* -----------------------------------------------
 	pads data using fillbit
 	----------------------------------------------- */
-	
-void abitwriter::pad()
-{
-	while ( cbit < 8 )
-		write( fillbit_, 1 );
+
+void abitwriter::pad() {
+	while (cbit < 8) {
+		write(fillbit_, 1);
+	}
 }
 
 /* -----------------------------------------------
 	gets data array from abitwriter
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-unsigned char* abitwriter::getptr()
-{
-	// data is padded here
-	pad();
-	// forbid freeing memory
-	fmem = false;
-	// realloc data
-	data = frealloc( data, cbyte );
-	
+std::vector<std::uint8_t> abitwriter::get_data() {
+	pad(); // Pad the last bits of the data before returning it.
+	data.resize(cbyte);
 	return data;
 }
 
 /* -----------------------------------------------
 	gets size of data array from abitwriter
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-int abitwriter::getpos()
-{
+int abitwriter::getpos() {
 	return cbyte;
 }
 
 /* -----------------------------------------------
 	get current bit position
 	----------------------------------------------- */
-	
-int abitwriter::getbitp()
-{
-	return cbit;
-}
 
-bool abitwriter::error()
-{
-	return error_;
+int abitwriter::getbitp() {
+	return cbit;
 }
 
 

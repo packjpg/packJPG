@@ -8,6 +8,7 @@
 #define MBITS32( c, l, r )	( RBITS32( c,l ) >> r )
 #define BITN( c, n )		( (c >> n) & 0x1 )
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -56,28 +57,23 @@ private:
 	class to write arrays bitwise
 	----------------------------------------------- */
 
-class abitwriter
-{
+class abitwriter {
 public:
-	abitwriter( int size );
-	~abitwriter();	
-	void write( unsigned int val, int nbits );
-	void write_bit( unsigned char bit );
-	void set_fillbit( unsigned char fillbit );
+	abitwriter(int size);
+	~abitwriter();
+	void write(unsigned int val, int nbits);
+	void write_bit(unsigned char bit);
+	void set_fillbit(unsigned char fillbit);
 	void pad();
-	unsigned char* getptr();
+	std::vector<std::uint8_t> get_data();
 	int getpos();
 	int getbitp();
-	bool error();
-	
+
 private:
-	unsigned char fillbit_;
-	unsigned char* data;
-	int dsize;
-	int cbyte;
-	int cbit;
-	bool fmem;
-	bool error_;
+	unsigned char fillbit_ = 1;
+	std::vector<std::uint8_t> data;
+	int cbyte = 0;
+	int cbit = 8;
 };
 
 

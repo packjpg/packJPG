@@ -2982,17 +2982,8 @@ bool jpg::encode::recode()
 		}
 	}
 	
-	// safety check for error in huffwriter
-	if ( huffw->error ()) {
-		sprintf(errormessage, MEM_ERRMSG.c_str());
-		errorlevel = 2;
-		return false;
-	}
-	
 	// get data into huffdata
-	auto hdata = huffw->getptr();
-	auto hdata_length = huffw->getpos();
-	huffdata = std::vector<std::uint8_t>(hdata, hdata + hdata_length);
+	huffdata = huffw->get_data();
 	
 	// store last scan & restart positions
 	jpg::scnp[ jpg::scan_count ] = huffdata.size();
