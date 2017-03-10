@@ -415,11 +415,11 @@ enum JpegType {
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
 INTERN void initialize_options( int argc, char** argv );
-INTERN void process_ui( void );
+INTERN void process_ui();
 static std::string get_status( bool (*function)() );
-INTERN void show_help( void );
+INTERN void show_help();
 #endif
-INTERN void process_file( void );
+INTERN void process_file();
 INTERN void execute( bool (*function)() );
 
 
@@ -427,14 +427,14 @@ INTERN void execute( bool (*function)() );
 	function declarations: main functions
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
-INTERN bool check_file( void );
-INTERN bool swap_streams( void );
-INTERN bool compare_output( void );
+INTERN bool check_file();
+INTERN bool swap_streams();
+INTERN bool compare_output();
 #endif
-INTERN bool reset_buffers( void );
-INTERN bool predict_dc( void );
-INTERN bool unpredict_dc( void );
-INTERN bool calc_zdst_lists( void );
+INTERN bool reset_buffers();
+INTERN bool predict_dc();
+INTERN bool unpredict_dc();
+INTERN bool calc_zdst_lists();
 
 namespace jpg {
 
@@ -674,15 +674,15 @@ enum CollectionMode {
 
 static CollectionMode coll_mode = CollectionMode::STD; // Write mode for collections.
 
-INTERN bool dump_hdr( void );
-INTERN bool dump_huf( void );
-INTERN bool dump_coll( void );
-INTERN bool dump_zdst( void );
+INTERN bool dump_hdr();
+INTERN bool dump_huf();
+INTERN bool dump_coll();
+INTERN bool dump_zdst();
 INTERN bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
-INTERN bool dump_errfile( void );
-INTERN bool dump_info( void );
-INTERN bool dump_dist( void );
-INTERN bool dump_pgm( void );
+INTERN bool dump_errfile();
+INTERN bool dump_info();
+INTERN bool dump_dist();
+INTERN bool dump_pgm();
 #endif
 
 
@@ -702,7 +702,7 @@ INTERN int lib_out_type = -1;
 INTERN unsigned short qtables[4][64];				// quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
-INTERN unsigned char* hdrdata          =   NULL;   // header data
+INTERN unsigned char* hdrdata          =   nullptr;   // header data
 static std::vector<std::uint8_t> huffdata; // huffman coded data
 INTERN int            hdrs             =    0  ;   // size of header
 
@@ -759,11 +759,11 @@ INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
 static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
 INTERN FileType filetype;				// type of current file
-INTERN iostream* str_in  = NULL;	// input stream
-INTERN iostream* str_out = NULL;	// output stream
+INTERN iostream* str_in  = nullptr;	// input stream
+INTERN iostream* str_out = nullptr;	// output stream
 
 #if !defined(BUILD_LIB)
-INTERN iostream* str_str = NULL;	// storage stream
+INTERN iostream* str_str = nullptr;	// storage stream
 
 static std::vector<std::string> filelist; // list of files to process 
 INTERN int    file_no  = 0;			// number of current file
@@ -1005,7 +1005,7 @@ int main( int argc, char** argv )
 EXPORT bool pjglib_convert_stream2stream( char* msg )
 {
 	// process in main function
-	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
+	return pjglib_convert_stream2mem( nullptr, nullptr, msg ); 
 }
 
 /* -----------------------------------------------
@@ -1017,7 +1017,7 @@ EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 	pjglib_init_streams( (void*) in, 0, 0, (void*) out, 0 );
 	
 	// process in main function
-	return pjglib_convert_stream2mem( NULL, NULL, msg ); 
+	return pjglib_convert_stream2mem( nullptr, nullptr, msg ); 
 }
 
 /* -----------------------------------------------
@@ -1040,14 +1040,14 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	
 	// fetch pointer and size of output (only for memory output)
 	if ( ( errorlevel < err_tol ) && ( lib_out_type == 1 ) &&
-		 ( out_file != NULL ) && ( out_size != NULL ) ) {
+		 ( out_file != nullptr ) && ( out_size != nullptr ) ) {
 		*out_size = str_out->getsize();
 		*out_file = str_out->getptr();
 	}
 	
 	// close iostreams
-	if ( str_in  != NULL ) delete( str_in  ); str_in  = NULL;
-	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
+	if ( str_in  != nullptr ) delete( str_in  ); str_in  = nullptr;
+	if ( str_out != nullptr ) delete( str_out ); str_out = nullptr;
 	
 	auto end = std::chrono::steady_clock::now();
 	
@@ -1060,7 +1060,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 				if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
 			}
 		}
-		if ( msg != NULL ) strcpy( msg, errormessage );
+		if ( msg != nullptr ) strcpy( msg, errormessage );
 		return false;
 	}
 	
@@ -1070,7 +1070,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
 	
 	// write success message else
-	if ( msg != NULL ) {
+	if ( msg != nullptr ) {
 		switch( filetype )
 		{
 			case FileType::F_JPG:
@@ -1121,7 +1121,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	unsigned char buffer[ 2 ];
 	
 	// (re)set errorlevel
-	errorfunction = NULL;
+	errorfunction = nullptr;
 	errorlevel = 0;
 	jpgfilesize = 0;
 	pjgfilesize = 0;
@@ -1178,7 +1178,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-EXPORT const char* pjglib_version_info( void )
+EXPORT const char* pjglib_version_info()
 {
 	static char v_info[ 256 ];
 	
@@ -1192,7 +1192,7 @@ EXPORT const char* pjglib_version_info( void )
 /* -----------------------------------------------
 	DLL export version information
 	----------------------------------------------- */
-EXPORT const char* pjglib_short_name( void )
+EXPORT const char* pjglib_short_name()
 {
 	static char v_name[ 256 ];
 	
@@ -1355,10 +1355,10 @@ INTERN void initialize_options( int argc, char** argv )
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-INTERN void process_ui( void )
+INTERN void process_ui()
 {
 
-	errorfunction = NULL;
+	errorfunction = nullptr;
 	errorlevel = 0;
 	jpgfilesize = 0;
 	pjgfilesize = 0;	
@@ -1418,9 +1418,9 @@ INTERN void process_ui( void )
 	process_file();
 	
 	// close iostreams
-	if ( str_in  != NULL ) delete( str_in  ); str_in  = NULL;
-	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
-	if ( str_str != NULL ) delete( str_str ); str_str = NULL;
+	if ( str_in  != nullptr ) delete( str_in  ); str_in  = nullptr;
+	if ( str_out != nullptr ) delete( str_out ); str_out = nullptr;
+	if ( str_str != nullptr ) delete( str_str ); str_str = nullptr;
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
 		if ( filetype == FileType::F_JPG ) {
@@ -1566,7 +1566,7 @@ INTERN inline std::string get_status( bool (*function)() )
 /* -----------------------------------------------
 	shows help in case of wrong input
 	----------------------------------------------- */
-INTERN void show_help( void )
+INTERN void show_help()
 {	
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "Website: %s\n", program_info::website.c_str() );
@@ -1611,7 +1611,7 @@ INTERN void show_help( void )
 	processes one file
 	----------------------------------------------- */
 
-INTERN void process_file( void )
+INTERN void process_file()
 {	
 	if ( filetype == FileType::F_JPG ) {
 		switch ( action ) {
@@ -1802,7 +1802,7 @@ INTERN void execute( bool (*function)() )
 		// set endtime
 		auto end = std::chrono::steady_clock::now();
 		
-		if ( ( errorlevel > 0 ) && ( errorfunction == NULL ) )
+		if ( ( errorlevel > 0 ) && ( errorfunction == nullptr ) )
 			errorfunction = function;
 		
 		// write time or failure notice
@@ -1820,7 +1820,7 @@ INTERN void execute( bool (*function)() )
 		( *function )();
 		
 		// store errorfunction if needed
-		if ( ( errorlevel > 0 ) && ( errorfunction == NULL ) )
+		if ( ( errorlevel > 0 ) && ( errorfunction == nullptr ) )
 			errorfunction = function;
 		#endif
 	}
@@ -1836,7 +1836,7 @@ INTERN void execute( bool (*function)() )
 	----------------------------------------------- */
 
 #if !defined(BUILD_LIB)
-INTERN bool check_file( void )
+INTERN bool check_file()
 {	
 	unsigned char fileid[ 2 ] = { 0, 0 };
 	const std::string& filename = filelist[ file_no ];
@@ -1939,7 +1939,7 @@ INTERN bool check_file( void )
 	swap streams / init verification
 	----------------------------------------------- */
 	
-INTERN bool swap_streams( void )	
+INTERN bool swap_streams()	
 {
 	unsigned char dmp[ 2 ];
 	
@@ -1968,7 +1968,7 @@ INTERN bool swap_streams( void )
 	comparison between input & output
 	----------------------------------------------- */
 
-INTERN bool compare_output( void )
+INTERN bool compare_output()
 {
 	unsigned char* buff_ori;
 	unsigned char* buff_cmp;
@@ -1980,9 +1980,9 @@ INTERN bool compare_output( void )
 	// init buffer arrays
 	buff_ori = ( unsigned char* ) calloc( bsize, sizeof( char ) );
 	buff_cmp = ( unsigned char* ) calloc( bsize, sizeof( char ) );
-	if ( ( buff_ori == NULL ) || ( buff_cmp == NULL ) ) {
-		if ( buff_ori != NULL ) free( buff_ori );
-		if ( buff_cmp != NULL ) free( buff_cmp );
+	if ( ( buff_ori == nullptr ) || ( buff_cmp == nullptr ) ) {
+		if ( buff_ori != nullptr ) free( buff_ori );
+		if ( buff_cmp != nullptr ) free( buff_cmp );
 		sprintf( errormessage, MEM_ERRMSG.c_str() );
 		errorlevel = 2;
 		return false;
@@ -2038,7 +2038,7 @@ INTERN bool compare_output( void )
 	set each variable to its initial value
 	----------------------------------------------- */
 
-INTERN bool reset_buffers( void )
+INTERN bool reset_buffers()
 {
 	int cmp, bpos;
 	int i;
@@ -2046,14 +2046,14 @@ INTERN bool reset_buffers( void )
 	
 	// -- free buffers --
 	
-	// free buffers & set pointers NULL
-	if ( hdrdata  != NULL ) free ( hdrdata );
+	// free buffers & set pointers nullptr
+	if ( hdrdata  != nullptr ) free ( hdrdata );
 	huffdata.clear();
 	grbgdata.clear();
 	jpg::rst_err.clear();
 	jpg::rstp.clear();
 	jpg::scnp.clear();
-	hdrdata   = NULL;
+	hdrdata   = nullptr;
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
@@ -2070,8 +2070,8 @@ INTERN bool reset_buffers( void )
 		pjg::freqscan[ cmp ] = (unsigned char*) stdscan.data();
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			if ( dct::colldata[ cmp ][ bpos ] != NULL ) free( dct::colldata[cmp][bpos] );
-			dct::colldata[ cmp ][ bpos ] = NULL;
+			if ( dct::colldata[ cmp ][ bpos ] != nullptr ) free( dct::colldata[cmp][bpos] );
+			dct::colldata[ cmp ][ bpos ] = nullptr;
 		}		
 	}
 	
@@ -2091,7 +2091,7 @@ INTERN bool reset_buffers( void )
 		cmpnfo[ cmp ].nc  = -1;
 		cmpnfo[ cmp ].sid = -1;
 		cmpnfo[ cmp ].jid = -1;
-		cmpnfo[ cmp ].qtable = NULL;
+		cmpnfo[ cmp ].qtable = nullptr;
 		cmpnfo[ cmp ].huffdc = -1;
 		cmpnfo[ cmp ].huffac = -1;
 	}
@@ -3048,7 +3048,7 @@ bool dct::adapt_icos()
 	filter DC coefficients
 	----------------------------------------------- */
 
-INTERN bool predict_dc( void )
+INTERN bool predict_dc()
 {
 	signed short* coef;
 	int absmaxp;
@@ -3085,7 +3085,7 @@ INTERN bool predict_dc( void )
 	unpredict DC coefficients
 	----------------------------------------------- */
 
-INTERN bool unpredict_dc( void )
+INTERN bool unpredict_dc()
 {	
 	signed short* coef;
 	int absmaxp;
@@ -3146,7 +3146,7 @@ INTERN bool jpg::decode::check_value_range()
 	calculate zero distribution lists
 	----------------------------------------------- */
 	
-INTERN bool calc_zdst_lists( void )
+INTERN bool calc_zdst_lists()
 {
 	int cmp, bpos, dpos;
 	int b_x, b_y;
@@ -3407,7 +3407,7 @@ bool pjg::decode::decode()
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
 
-bool jpg::setup_imginfo( void )
+bool jpg::setup_imginfo()
 {
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -3437,7 +3437,7 @@ bool jpg::setup_imginfo( void )
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		if ( ( cmpnfo[cmp].sfv == 0 ) ||
 			 ( cmpnfo[cmp].sfh == 0 ) ||
-			 ( cmpnfo[cmp].qtable == NULL ) ||
+			 ( cmpnfo[cmp].qtable == nullptr ) ||
 			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
 			 ( jpegtype == JpegType::UNKNOWN ) ) {
 			sprintf( errormessage, "header information is incomplete" );
@@ -3480,7 +3480,7 @@ bool jpg::setup_imginfo( void )
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			dct::colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
-			if (dct::colldata[cmp][bpos] == NULL) {
+			if (dct::colldata[cmp][bpos] == nullptr) {
 				sprintf( errormessage, MEM_ERRMSG.c_str() );
 				errorlevel = 2;
 				return false;
@@ -5476,7 +5476,7 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	
 	// get data/length and close byte writer
 	(*data) = bwrt->getptr();
-	if ( len != NULL ) (*len) = bwrt->getpos();
+	if ( len != nullptr ) (*len) = bwrt->getpos();
 	
 	return true;
 }
