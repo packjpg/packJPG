@@ -598,7 +598,8 @@ namespace pjg {
 	void dc(const std::unique_ptr<aricoder>& dec, int cmp);
 	void ac_high(const std::unique_ptr<aricoder>& dec, int cmp);
 	void ac_low(const std::unique_ptr<aricoder>& dec, int cmp);
-		bool generic(const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len);
+	bool generic(const std::unique_ptr<aricoder>& dec, unsigned char** data, int* len);
+	std::vector<std::uint8_t> generic(const std::unique_ptr<aricoder>& dec);
 	std::uint8_t bit(const std::unique_ptr<aricoder>& dec);
 	}
 
@@ -1721,7 +1722,7 @@ INTERN void process_file( void )
 				
 			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 			case Action::A_SPLIT_DUMP:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dct::adapt_icos );
 				execute( unpredict_dc );
 				execute( jpg::encode::recode );
@@ -1730,34 +1731,34 @@ INTERN void process_file( void )
 				break;
 				
 			case Action::A_COLL_DUMP:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute(dct::adapt_icos );
 				execute( unpredict_dc );
 				execute( dump_coll );
 				break;
 				
 			case Action::A_FCOLL_DUMP:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dump_coll );
 				break;
 				
 			case Action::A_ZDST_DUMP:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dump_zdst );
 				break;
 			
 			case Action::A_TXT_INFO:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dump_info );
 				break;
 			
 			case Action::A_DIST_INFO:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dump_dist );
 				break;
 			
 			case Action::A_PGM_DUMP:
-				execute( pjg::decode::unpack );
+				execute( pjg::decode::decode);
 				execute( dct::adapt_icos );
 				execute( unpredict_dc );
 				execute( dump_pgm );
@@ -2066,7 +2067,7 @@ INTERN bool reset_buffers( void )
 		pjg::eobyhigh[ cmp ] = nullptr;
 		pjg::zdstxlow[ cmp ] = nullptr;
 		pjg::zdstylow[ cmp ] = nullptr;
-		pjg::freqscan[ cmp ] = (unsigned char*) stdscan;
+		pjg::freqscan[ cmp ] = (unsigned char*) stdscan.data();
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			if ( dct::colldata[ cmp ][ bpos ] != NULL ) free( dct::colldata[cmp][bpos] );
@@ -3356,7 +3357,7 @@ bool pjg::decode::decode()
 	auto cb = pjg::decode::bit(decoder);
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 ) {
-		jpg::rst_err = pjg_decode_generic(decoder);
+		jpg::rst_err = pjg::decode::generic(decoder);
 	}
 	
 	// undo header optimizations
@@ -4489,7 +4490,7 @@ void pjg::encode::zstscan(const std::unique_ptr<aricoder>& enc, int cmp)
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
-	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
+	std::copy(std::begin(stdscan), std::end(stdscan), std::begin(freqlist));
 		
 	// init model
 	auto model = INIT_MODEL_S(64, 64, 1);
@@ -4628,7 +4629,7 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	const short* coeffs = colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	const short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
 	const unsigned char* zdstls = pjg::zdstdata[ cmp ];	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
@@ -4890,7 +4891,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 			} else {
 				ctx_lak = 0;
 			}
-			ctx_lak = CLAMPED( max_valn, max_valp, ctx_lak );
+			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
 			const int ctx_len = bitlen2048n( ctx_lak ); // Context for bitlength.
 			
 			// shift context / do context modelling (segmentation is done per context)
@@ -4993,7 +4994,7 @@ void pjg::decode::zstscan(const std::unique_ptr<aricoder>& dec, int cmp)
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
-	std::copy(stdscan, stdscan + 64, std::begin(freqlist));
+	std::copy(std::begin(stdscan), std::end(stdscan), std::begin(freqlist));
 		
 	// init model
 	auto model = INIT_MODEL_S(64, 64, 1);
@@ -5109,7 +5110,7 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	int c_weight[ 6 ]; // weighting for contexts
 	
 	// decide segmentation setting
-	unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = MAX_V( cmp, 0 ); // Max value.
@@ -5241,7 +5242,7 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 		pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		short* coeffs = colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
 		const int max_val = MAX_V( cmp, bpos ); // Max value.
@@ -5480,11 +5481,11 @@ bool pjg::decode::generic( const std::unique_ptr<aricoder>& dec, unsigned char**
 	return true;
 }
 
-static std::vector<std::uint8_t> pjg_decode_generic(aricoder* dec) {
+static std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<aricoder>& dec) {
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	auto model = INIT_MODEL_S(256 + 1, 256, 1);
 	while (true) {
-		int c = decode_ari(dec, model);
+		int c = dec->decode_ari(model);
 		if (c == 256) {
 			break;
 		}
@@ -5525,8 +5526,8 @@ void pjg::encode::get_zerosort_scan(unsigned char* sv, int cmpt)  {
 	// Count the number of zeroes for each frequency:
 	const int bc = cmpnfo[cmpt].bc;
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
-	std::transform(colldata[cmpt],
-	               colldata[cmpt] + 64,
+	std::transform(dct::colldata[cmpt],
+	               dct::colldata[cmpt] + 64,
 	               std::begin(zeroDist),
 	               [&](const short* freq) {
 		               return std::count(freq, freq + bc, 0);
@@ -5606,7 +5607,7 @@ void pjg::encode::optimize_header() {
 	// Header parser loop:
 	while (hpos < hdrs) {
 		const std::uint8_t type = hdrdata[hpos + 1]; // Type of the current marker segment.
-		const int len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of the current marker segment.
+		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of the current marker segment.
 		if (type == 0xC4) { // DHT segment:
 			optimize_dht(hpos, len);
 		} else if (type == 0xDB) { // DQT segment:
@@ -5667,7 +5668,7 @@ void pjg::decode::deoptimize_header() {
 	// Header parser loop:
 	while (hpos < hdrs) {
 		const std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
-		const int len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
+		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
 
 		if (type == 0xC4) { // DHT segment.
 			deoptimize_dht(hpos, len);
