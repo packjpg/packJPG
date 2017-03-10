@@ -6816,7 +6816,7 @@ INTERN bool dump_info() {
 	int len = 0; // Length of current marker segment.
 	for (hpos = 0; hpos < hdrs; hpos += len) {
 		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
-		len = 2 + B_SHORT(hdrdata[hpos + 2], hdrdata[hpos + 3]);
+		len = 2 + pack(hdrdata[hpos + 2], hdrdata[hpos + 3]);
 		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);
 	}
 	fprintf(fp, " _END       0 %6i\n", hpos);
