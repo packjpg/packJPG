@@ -569,7 +569,7 @@ namespace pjg {
 		void dc(const std::unique_ptr<aricoder>& enc, int cmp);
 		void ac_high(const std::unique_ptr<aricoder>& enc, int cmp);
 		void ac_low(const std::unique_ptr<aricoder>& enc, int cmp);
-		bool generic(const std::unique_ptr<aricoder>& enc, unsigned char* data, int len);
+		void generic(const std::unique_ptr<aricoder>& enc, const std::vector<std::uint8_t>& data);
 		void bit(const std::unique_ptr<aricoder>& enc, unsigned char bit);
 
 
@@ -3233,10 +3233,10 @@ bool pjg::encode::encode()
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
-	if (!pjg::encode::generic(encoder, hdrdata.data(), hdrdata.size())) return false;
+	pjg::encode::generic(encoder, hdrdata);
 	#else
 	dev_size = str_out->getpos();
-	if (!pjg::encode::generic(encoder, hdrdata.data(), hdrdata.size())) return false;
+	pjg::encode::generic(encoder, hdrdata);
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
 	// store padbit (padbit can't be retrieved from the header)
@@ -3244,8 +3244,10 @@ bool pjg::encode::encode()
 	// also encode one bit to signal false/correct use of RST markers
 	pjg::encode::bit(encoder, jpg::rst_err.empty() ? 0 : 1);
 	// encode # of false set RST markers per scan
-	if ( !jpg::rst_err.empty() )
-		if ( !pjg::encode::generic( encoder, jpg::rst_err.data(), jpg::scan_count ) ) return false;
+	if (!jpg::rst_err.empty()) {
+		jpg::rst_err.resize(jpg::scan_count); // TODO: is this necessary?
+		pjg::encode::generic(encoder, jpg::rst_err);
+	}
 	
 	// encode actual components data
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
@@ -3296,8 +3298,9 @@ bool pjg::encode::encode()
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
 	pjg::encode::bit(encoder, !grbgdata.empty() ? 1 : 0);
 	// encode garbage data only if needed
-	if (!grbgdata.empty())
-		if ( !pjg::encode::generic( encoder, grbgdata.data(), grbgdata.size()) ) return false;
+	if (!grbgdata.empty()) {
+		pjg::encode::generic(encoder, grbgdata);
+	}
 	
 	// finalize arithmetic compression
 	//delete( encoder );
@@ -4279,19 +4282,12 @@ void jpg::encode::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCod
 }
 
 void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw)
-{	
-	int len;
-	int i;
-	
-	
-	// peek into data from abytewriter	
-	len = storw->getpos();
-	if ( len == 0 ) return;
+{
 	const auto& data = storw->get_data();
 	
 	// write bits to huffwriter
-	for (i = 0; i < len; i++) {
-		huffw->write_bit(data[i]);
+	for (std::uint8_t bit : data) {
+		huffw->write_bit(bit);
 	}
 	
 	// reset abytewriter, discard data
@@ -4961,19 +4957,18 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 /* -----------------------------------------------
 	encodes a stream of generic (8bit) data to pjg
 	----------------------------------------------- */
-bool pjg::encode::generic( const std::unique_ptr<aricoder>& enc, unsigned char* data, int len )
+void pjg::encode::generic( const std::unique_ptr<aricoder>& enc, const std::vector<std::uint8_t>& data)
 {
 	// arithmetic encode data
 	auto model = INIT_MODEL_S(256 + 1, 256, 1);
-	for (int i = 0; i < len; i++ ) {
-		enc->encode_ari( model, data[ i ] );
-		model->shift_context( data[ i ] );
+
+	for (std::uint8_t byte : data) {
+		enc->encode_ari( model, byte);
+		model->shift_context(byte);
 	}
 	// encode end-of-data symbol (256)
 	enc->encode_ari( model, 256 );
 	delete model;
-	
-	return true;
 }
 
 
