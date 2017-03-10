@@ -272,7 +272,6 @@ packJPG by Matthias Stirner, 01/2016
 #include <array>
 #include <memory>
 #include <chrono>
-#include <array>
 #include <vector>
 #include <stdio.h>
 #include <stdlib.h>
@@ -348,13 +347,6 @@ constexpr int clamp(int val, int lo, int hi) {
 const std::string MEM_ERRMSG("out of memory error");
 const std::string FRD_ERRMSG("could not read file / file not found: %s");
 const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
-
-// special realloc with guaranteed free() of previous memory
-static inline void* frealloc( void* ptr, size_t size ) {
-	void* n_ptr = realloc( ptr, (size) ? size : 1 );
-	if ( n_ptr == NULL ) free( ptr );
-	return n_ptr;
-}
 
 /* -----------------------------------------------
 Enums for use in packJPG processing
