@@ -28,28 +28,26 @@ enum StreamMode {
 	class to read arrays bitwise
 	----------------------------------------------- */
 
-class abitreader
-{
+class abitreader {
 public:
-	abitreader( unsigned char* array, int size );
-	~abitreader();	
-	unsigned int read( int nbits );
+	abitreader(const std::vector<std::uint8_t>& bits);
+	~abitreader();
+	unsigned int read(int nbits);
 	unsigned char read_bit();
-	unsigned char unpad( unsigned char fillbit );
+	unsigned char unpad(unsigned char fillbit);
 	int getpos();
 	int getbitp();
-	void setpos( int pbyte, int pbit );
-	void rewind_bits( int nbits );
+	void setpos(int pbyte, int pbit);
+	void rewind_bits(int nbits);
 	bool eof();
 	int peof();
-	
+
 private:
-	unsigned char* data;
-	int lbyte;
-	int cbyte;
-	int cbit;
-	int peof_;
-	bool eof_;
+	std::vector<std::uint8_t> data;
+	int cbyte = 0;
+	int cbit = 8;
+	int peof_ = 0;
+	bool eof_ = false;
 };
 
 

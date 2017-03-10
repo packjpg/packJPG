@@ -27,81 +27,72 @@ static inline T* frealloc( T* ptr, size_t size ) {
 
 /* -----------------------------------------------
 	constructor for abitreader class
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-abitreader::abitreader( unsigned char* array, int size )
-{
-	cbyte = 0;	
-	cbit = 8;
-	peof_ = 0;
-	eof_ = false;
-	
-	data = array;
-	lbyte = size;	
-}
+abitreader::abitreader(const std::vector<std::uint8_t>& bits) : data(bits) {}
 
 /* -----------------------------------------------
 	destructor for abitreader class
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-abitreader::~abitreader()
-{
-}
+abitreader::~abitreader() {}
 
 /* -----------------------------------------------
 	reads n bits from abitreader
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-unsigned int abitreader::read( int nbits )
-{
+unsigned int abitreader::read(int nbits) {
 	unsigned int retval = 0;
-	
+
 	// safety check for eof
-	if ( eof()) {
+	if (eof()) {
 		peof_ += nbits;
 		return 0;
 	}
-	
-	while ( nbits >= cbit ) {
+
+	while (nbits >= cbit) {
 		nbits -= cbit;
-		retval |= ( RBITS( data[cbyte], cbit ) << nbits );		
+		retval |= (RBITS( data[cbyte], cbit ) << nbits);
 		cbit = 8;
-		if ( ++cbyte >= lbyte ) {
+		cbyte++;
+		if (cbyte >= data.size()) {
 			peof_ = nbits;
 			eof_ = true;
 			return retval;
 		}
 	}
-	
-	if ( nbits > 0 ) {		
-		retval |= ( MBITS( data[cbyte], cbit, (cbit-nbits) ) );
-		cbit -= nbits;		
+
+	if (nbits > 0) {
+		retval |= (MBITS( data[cbyte], cbit, (cbit-nbits) ));
+		cbit -= nbits;
 	}
-	
+
 	return retval;
 }
 
 /* -----------------------------------------------
 	reads one bit from abitreader
-	----------------------------------------------- */	
-	
-unsigned char abitreader::read_bit()
-{
+	----------------------------------------------- */
+
+unsigned char abitreader::read_bit() {
 	unsigned char bit;
-	
+
 	// safety check for eof
 	if (eof()) {
 		peof_++;
 		return 0;
 	}
-	
+
 	// read one bit
 	bit = BITN( data[cbyte], --cbit );
-	if ( cbit == 0 ) {
-		if ( ++cbyte == lbyte ) eof_ = true;
+	if (cbit == 0) {
+		cbyte++;
+		if (cbyte == data.size()) {
+			eof_ = true;
+		}
 		cbit = 8;
-	} 
-	
+	}
+
 	return bit;
 }
 
@@ -109,42 +100,40 @@ unsigned char abitreader::read_bit()
 	to skip padding from current byte
 	----------------------------------------------- */
 
-unsigned char abitreader::unpad( unsigned char fillbit )
-{
-	if ( ( cbit == 8 ) || eof()) return fillbit;
-	else {
-		fillbit = read( 1 );
-		while ( cbit != 8 ) read( 1 );
+unsigned char abitreader::unpad(unsigned char fillbit) {
+	if ((cbit == 8) || eof()) {
+		return fillbit;
+	} else {
+		fillbit = read(1);
+		while (cbit != 8)
+			read(1);
 	}
-	
+
 	return fillbit;
 }
 
 /* -----------------------------------------------
 	get current position in array
-	----------------------------------------------- */	
+	----------------------------------------------- */
 
-int abitreader::getpos()
-{
+int abitreader::getpos() {
 	return cbyte;
 }
 
 /* -----------------------------------------------
 	get current bit position
 	----------------------------------------------- */
-	
-int abitreader::getbitp()
-{
+
+int abitreader::getbitp() {
 	return cbit;
 }
 
 /* -----------------------------------------------
 	set byte and bit position
 	----------------------------------------------- */
-	
-void abitreader::setpos( int pbyte, int pbit )
-{
-	if ( pbyte < lbyte ) {
+
+void abitreader::setpos(int pbyte, int pbit) {
+	if (pbyte < data.size()) {
 		// reset eof
 		eof_ = false;
 		// set positions
@@ -154,19 +143,18 @@ void abitreader::setpos( int pbyte, int pbit )
 		// set eof
 		eof_ = true;
 		// set positions
-		cbyte = lbyte;
+		cbyte = data.size();
 		cbit = 8;
-		peof_ = ( ( pbyte - lbyte ) * 8 ) + 8 - pbit;
-	}	
+		peof_ = ((pbyte - data.size()) * 8) + 8 - pbit;
+	}
 }
 
 /* -----------------------------------------------
 	rewind n bits
 	----------------------------------------------- */
-	
-void abitreader::rewind_bits( int nbits )
-{
-	if ( eof()) {
+
+void abitreader::rewind_bits(int nbits) {
+	if (eof()) {
 		if (nbits > peof_) {
 			nbits -= peof_;
 			peof_ = 0;
@@ -180,19 +168,17 @@ void abitreader::rewind_bits( int nbits )
 	cbit += nbits;
 	cbyte -= cbit / 8;
 	cbit = cbit % 8;
-	if ( cbyte < 0 ) {
+	if (cbyte < 0) {
 		cbyte = 0;
 		cbit = 8;
 	}
 }
 
-bool abitreader::eof()
-{
+bool abitreader::eof() {
 	return eof_;
 }
 
-int abitreader::peof()
-{
+int abitreader::peof() {
 	return peof_;
 }
 

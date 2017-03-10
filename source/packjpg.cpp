@@ -2398,7 +2398,7 @@ bool jpg::decode::decode()
 	short block[64]; // store block for coeffs
 	
 	// open huffman coded image data for input in abitreader
-	auto huffr = std::make_unique<abitreader>(huffdata.data(), huffdata.size()); // bitwise reader for image data
+	auto huffr = std::make_unique<abitreader>(huffdata); // bitwise reader for image data
 	
 	// preset count of scans
 	jpg::scan_count = 0;
