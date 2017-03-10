@@ -79,23 +79,21 @@ private:
 	class to read arrays bytewise
 	----------------------------------------------- */
 
-class abytereader
-{
+class abytereader {
 public:
-	abytereader( unsigned char* array, int size );
-	~abytereader();	
-	int read( unsigned char* byte );
-	int read_n( unsigned char* byte, int n );
-	void seek( int pos );
+	abytereader(const std::vector<std::uint8_t>& bytes);
+	~abytereader();
+	int read(unsigned char* byte);
+	int read_n(unsigned char* byte, int n);
+	void seek(int pos);
 	int getsize();
 	int getpos();
 	bool eof();
-	
+
 private:
-	unsigned char* data;
-	int lbyte;
-	int cbyte;
-	bool _eof;
+	const std::vector<std::uint8_t> data;
+	int cbyte = 0;
+	bool _eof = false;
 };
 
 
