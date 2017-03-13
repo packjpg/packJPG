@@ -455,16 +455,15 @@ iostream::iostream(const std::vector<std::uint8_t>& bytes, StreamMode iomode) : 
 	open_mem();
 }
 
-iostream::iostream(const std::string& file_path, StreamMode iomode) : file_path(file_path), mode(iomode), srct(StreamType::kFile) {
-	open_file();
-}
-
 iostream::iostream(StreamMode iomode) : mode(iomode), srct(StreamType::kStream) {
 #if defined(_WIN32) || defined(WIN32)
 	_setmode(_fileno(stdin), _O_BINARY);
 	_setmode(_fileno(stdout), _O_BINARY);
 #endif
 	open_stream();
+}
+
+iostream::iostream() {
 }
 
 /* -----------------------------------------------
@@ -478,14 +477,6 @@ iostream::~iostream()
 		if ( mode == StreamMode::kWrite ) {
 			const auto& data = mwrt->get_data();
 			fwrite(data.data(), sizeof(std::uint8_t), data.size(), stdout);
-		}
-	}
-	
-	// free all buffers
-	if (srct == StreamType::kFile) {
-		if (fptr != nullptr) {
-			if (mode == StreamMode::kWrite) fflush(fptr);
-			fclose(fptr);
 		}
 	}
 }
@@ -504,8 +495,6 @@ void iostream::switch_mode()
 		// WARNING: when switching from reading to writing, information might be lost forever
 		switch ( srct ) {
 			case StreamType::kFile:
-				fclose( fptr );
-				fptr = fopen(file_path.c_str(), "wb" );
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
@@ -521,9 +510,6 @@ void iostream::switch_mode()
 		// switching from writing to reading is a bit more complicated
 		switch ( srct ) {
 			case StreamType::kFile:
-				fflush( fptr );
-				fclose( fptr );
-				fptr = fopen(file_path.c_str(), "rb");
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
@@ -543,11 +529,11 @@ void iostream::switch_mode()
 	
 int iostream::read(unsigned char* to, int dtsize)
 {
-	return ( srct == StreamType::kFile) ? read_file( to, dtsize ) : read_mem( to, dtsize );
+	return read_mem( to, dtsize );
 }
 
 bool iostream::read_byte(unsigned char* to) {
-	return  srct == StreamType::kFile ? read_file_byte(to) : read_mem_byte(to);
+	return  read_mem_byte(to);
 }
 
 /* -----------------------------------------------
@@ -556,23 +542,11 @@ bool iostream::read_byte(unsigned char* to) {
 
 int iostream::write(const unsigned char* from, int dtsize )
 {
-	return ( srct == StreamType::kFile) ? write_file( from, dtsize ) : write_mem( from, dtsize );
+	return write_mem( from, dtsize );
 }
 
 int iostream::write_byte(unsigned char byte) {
-	return srct == StreamType::kFile ? write_file_byte(byte) : write_mem_byte(byte);
-}
-
-/* -----------------------------------------------
-	flush function 
-	----------------------------------------------- */
-
-int iostream::flush()
-{
-	if ( srct == StreamType::kFile)
-		fflush( fptr );
-	
-	return getpos();
+	return write_mem_byte(byte);
 }
 
 /* -----------------------------------------------
@@ -582,9 +556,7 @@ int iostream::flush()
 int iostream::rewind()
 {
 	// WARNING: when writing, rewind might lose all your data
-	if ( srct == StreamType::kFile)
-		fseek( fptr, 0, SEEK_SET );
-	else if ( mode == StreamMode::kRead )
+	if ( mode == StreamMode::kRead )
 		mrdr->seek( 0 );
 	else
 		mwrt->reset();
@@ -600,9 +572,7 @@ int iostream::getpos()
 {
 	int pos;
 	
-	if ( srct == StreamType::kFile)
-		pos = ftell( fptr );
-	else if ( mode == StreamMode::kRead )
+	if ( mode == StreamMode::kRead )
 		pos = mrdr->getpos();
 	else
 		pos = mwrt->getpos();
@@ -617,19 +587,10 @@ int iostream::getpos()
 int iostream::getsize()
 {
 	int siz;
-	
-	if ( mode == StreamMode::kRead ) {
-		if ( srct == StreamType::kFile) {
-			int pos = ftell( fptr );
-			fseek( fptr, 0, SEEK_END );
-			siz = ftell( fptr );
-			fseek( fptr, pos, SEEK_SET );
-		}
-		else {
-			siz = mrdr->getsize();
-		}
-	}
-	else {
+
+	if (mode == StreamMode::kRead) {
+		siz = mrdr->getsize();
+	} else {
 		siz = getpos();
 	}
 
@@ -660,17 +621,10 @@ bool iostream::chkerr()
 	bool error = false;
 	
 	// check for io errors
-	if ( srct == StreamType::kFile) {
-		if ( fptr == nullptr )
-			error = true;
-		else if ( ferror( fptr ) )
-			error = true;
-	}
-	else if ( mode == StreamMode::kRead ) {
+	if ( mode == StreamMode::kRead ) {
 		if ( mrdr == nullptr )			
 			error = true;
-	}
-	else {		
+	} else {		
 		if ( mwrt == nullptr )
 			error = true;
 	}
@@ -684,25 +638,7 @@ bool iostream::chkerr()
 	
 bool iostream::chkeof()
 {
-	if ( mode == StreamMode::kRead )
-		return ( srct == StreamType::kFile) ? feof( fptr ) != 0 : mrdr->eof();
-	else
-		return false;
-}
-
-/* -----------------------------------------------
-	open function for files
-	----------------------------------------------- */
-
-void iostream::open_file()
-{
-	
-	// open file for reading / writing
-	fptr = fopen(file_path.c_str(), ( mode == StreamMode::kRead ) ? "rb" : "wb");
-	if (fptr != nullptr) {
-		file_buffer.reserve(32768);
-		std::setvbuf(fptr, file_buffer.data(), _IOFBF, file_buffer.capacity());
-	}
+	return false;
 }
 
 /* -----------------------------------------------
@@ -744,34 +680,6 @@ void iostream::open_stream()
 }
 
 /* -----------------------------------------------
-	write function for files
-	----------------------------------------------- */
-
-int iostream::write_file(const unsigned char* from, int dtsize )
-{
-	return fwrite( from, sizeof(unsigned char), dtsize, fptr );
-}
-
-int iostream::write_file_byte(unsigned char byte) {
-	return fputc(byte, fptr) == byte;
-}
-
-/* -----------------------------------------------
-	read function for files
-	----------------------------------------------- */
-
-int iostream::read_file(unsigned char* to, int dtsize )
-{
-	return fread( to, sizeof(unsigned char), dtsize, fptr );
-}
-
-bool iostream::read_file_byte(unsigned char* to) {
-	int val = fgetc(fptr);
-	*to = val;
-	return val != EOF;
-}
-
-/* -----------------------------------------------
 	write function for memory
 	----------------------------------------------- */
 	
@@ -798,4 +706,80 @@ int iostream::read_mem(unsigned char* to, int dtsize)
 
 bool iostream::read_mem_byte(unsigned char* to) {
 	return mrdr->read(to) == 1;
+}
+
+FileStream::FileStream(const std::string& file, StreamMode iomode) : file_path(file), io_mode(iomode) {
+	iostream();
+	// open file for reading / writing
+	fptr = fopen(file_path.c_str(), (io_mode == StreamMode::kRead) ? "rb" : "wb");
+	if (fptr != nullptr) {
+		file_buffer.reserve(32768);
+		std::setvbuf(fptr, file_buffer.data(), _IOFBF, file_buffer.capacity());
+	}
+}
+
+void FileStream::switch_mode() {
+	if (io_mode == StreamMode::kRead) {
+		fclose(fptr);
+		fptr = fopen(file_path.c_str(), "wb");
+		io_mode = StreamMode::kWrite;
+	} else {
+		fflush(fptr);
+		fclose(fptr);
+		fptr = fopen(file_path.c_str(), "rb");
+		io_mode = StreamMode::kRead;
+	}
+}
+
+int FileStream::read(unsigned char* to, int dtsize) {
+	return fread(to, sizeof(unsigned char), dtsize, fptr);
+}
+
+bool FileStream::read_byte(unsigned char* to) {
+	const int val = fgetc(fptr);
+	*to = val;
+	return val != EOF;
+}
+
+int FileStream::write(const unsigned char* from, int dtsize) {
+	return fwrite(from, sizeof(unsigned char), dtsize, fptr);
+}
+
+int FileStream::write_byte(unsigned char byte) {
+	return fputc(byte, fptr) == byte;
+}
+
+int FileStream::rewind() {
+	return fseek(fptr, 0, SEEK_SET);
+}
+
+int FileStream::getpos() {
+	return ftell(fptr);
+}
+
+int FileStream::getsize() {
+	const int pos = ftell(fptr);
+	fseek(fptr, 0, SEEK_END);
+	const int size = ftell(fptr);
+	fseek(fptr, pos, SEEK_SET);
+	return size;
+}
+
+bool FileStream::chkerr() {
+	if (fptr == nullptr) {
+		return true;
+	} else if (ferror(fptr)) {
+		return true;
+	}
+	return false;
+}
+
+bool FileStream::chkeof() {
+	return  feof(fptr) != 0;
+}
+
+std::vector<std::uint8_t> FileStream::get_data() {
+	std::vector<uint8_t> buffer(getsize());
+	read(buffer.data(), buffer.size());
+	return buffer;
 }

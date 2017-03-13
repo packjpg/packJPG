@@ -12,13 +12,13 @@
 #include <memory>
 #include <vector>
 
-enum StreamType {
+enum class StreamType {
 	kFile = 0,
 	kMemory = 1,
 	kStream = 2
 };
 
-enum StreamMode {
+enum class StreamMode {
 	kRead = 0,
 	kWrite = 1
 };
@@ -127,40 +127,31 @@ class iostream
 public:
 	// Memory iostream
 	iostream(const std::vector<std::uint8_t>& bytes, StreamMode iomode);
-	// File iostream
-	iostream(const std::string& file_path, StreamMode iomode);
 	// stdout/in iostream.
 	iostream(StreamMode iomode);
+	
+	iostream();
 	~iostream();
-	void switch_mode();
-	int read(unsigned char* to, int dtsize);
-	bool read_byte(unsigned char* to);
-	int write(const unsigned char* from, int dtsize);
-	int write_byte(unsigned char byte);
-	int flush();
-	int rewind();
-	int getpos();
-	int getsize();
-	std::vector<std::uint8_t> get_data();
-	bool chkerr();
-	bool chkeof();
+	virtual void switch_mode();
+	virtual int read(unsigned char* to, int dtsize);
+	virtual bool read_byte(unsigned char* to);
+	virtual int write(const unsigned char* from, int dtsize);
+	virtual int write_byte(unsigned char byte);
+	virtual int rewind();
+	virtual int getpos();
+	virtual int getsize();
+	virtual std::vector<std::uint8_t> get_data();
+	virtual bool chkerr();
+	virtual bool chkeof();
 	
 private:
-	void open_file();
 	void open_mem();
 	void open_stream();
-	
-	int write_file(const unsigned char* from, int dtsize);
-	int write_file_byte(unsigned char byte);
-	int read_file(unsigned char* to, int dtsize);
-	bool read_file_byte(unsigned char* to);
+
 	int write_mem(const unsigned char* from, int dtsize );
 	int write_mem_byte(unsigned char byte);
 	int read_mem(unsigned char* to, int dtsize);
 	bool read_mem_byte(unsigned char* to);
-	
-	FILE* fptr;
-	std::vector<char> file_buffer; // Used to replace the default file buffer for reads/writes to improve performance.
   
 	std::unique_ptr<abytewriter> mwrt;
 	std::unique_ptr<abytereader> mrdr;
@@ -169,6 +160,28 @@ private:
 	std::vector<std::uint8_t> data;
 	StreamMode mode;
 	StreamType srct;
+};
+
+class FileStream : public iostream {
+public:
+	FileStream(const std::string& file_path, StreamMode iomode);
+	void switch_mode() override;
+	int read(unsigned char* to, int dtsize) override;
+	bool read_byte(unsigned char* to) override;
+	int write(const unsigned char* from, int dtsize) override;
+	int write_byte(unsigned char byte) override;
+	int rewind() override;
+	int getpos() override;
+	int getsize() override;
+	bool chkerr() override;
+	bool chkeof() override;
+	std::vector<std::uint8_t> get_data() override;
+
+private:
+	FILE* fptr = nullptr;
+	std::vector<char> file_buffer; // Used to replace the default file buffer for reads/writes to improve performance.
+	const std::string file_path;
+	StreamMode io_mode;
 };
 
 #endif

@@ -1125,7 +1125,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType in_ty = StreamType(in_type);
 	if (in_ty == StreamType::kFile) {
 		std::string file_path((char*)in_src);
-		str_out = new iostream(file_path, StreamMode::kRead);
+		str_out = new FileStream(file_path, StreamMode::kRead);
 	} else if (in_ty == StreamType::kMemory) {
 		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
 		str_in = new iostream(data, StreamMode::kRead);
@@ -1142,7 +1142,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType out_ty = StreamType(out_type);
 	if (out_ty == StreamType::kFile) {
 		std::string file_path((char*)out_dest);
-		str_out = new iostream(file_path, StreamMode::kWrite);
+		str_out = new FileStream(file_path, StreamMode::kWrite);
 	} else if (out_ty == StreamType::kMemory) {
 		str_out = new iostream(std::vector<std::uint8_t>() , StreamMode::kWrite);
 	} else { // Stream
@@ -1858,7 +1858,7 @@ static bool check_file()
 	if (pipe_on) {
 		str_in = new iostream(StreamMode::kRead);
 	} else {
-		str_in = new iostream(filename, StreamMode::kRead);
+		str_in = new FileStream(filename, StreamMode::kRead);
 	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
@@ -1898,7 +1898,7 @@ static bool check_file()
 			str_out = new iostream(StreamMode::kWrite);
 		}
 		else {
-			str_out = new iostream(pjgfilename, StreamMode::kWrite);
+			str_out = new FileStream(pjgfilename, StreamMode::kWrite);
 		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
@@ -1938,7 +1938,7 @@ static bool check_file()
 		if (pipe_on) {
 			str_out = new iostream(StreamMode::kWrite);
 		} else {
-			str_out = new iostream(jpgfilename, StreamMode::kWrite);
+			str_out = new FileStream(jpgfilename, StreamMode::kWrite);
 		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
