@@ -642,10 +642,13 @@ int iostream::getsize()
 
 std::vector<std::uint8_t> iostream::get_data()
 {
-	if ( srct == StreamType::kMemory)
-		return ( mode == StreamMode::kRead ) ? data : mwrt->get_data();
-	else
-		return std::vector<std::uint8_t>();
+	if (srct == StreamType::kMemory) {
+		return (mode == StreamMode::kRead) ? data : mwrt->get_data();
+	} else {
+		std::vector<uint8_t> buffer(getsize());
+		read(buffer.data(), buffer.size());
+		return buffer;
+	}
 }
 
 /* -----------------------------------------------

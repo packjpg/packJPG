@@ -1993,67 +1993,26 @@ static bool swap_streams()
 	comparison between input & output
 	----------------------------------------------- */
 
-static bool compare_output()
-{
-	unsigned char* buff_ori;
-	unsigned char* buff_cmp;
-	int bsize = 1024;
-	int dsize;
-	int i, b;
-	
-	
-	// init buffer arrays
-	buff_ori = ( unsigned char* ) calloc( bsize, sizeof( char ) );
-	buff_cmp = ( unsigned char* ) calloc( bsize, sizeof( char ) );
-	if ( ( buff_ori == nullptr ) || ( buff_cmp == nullptr ) ) {
-		if ( buff_ori != nullptr ) free( buff_ori );
-		if ( buff_cmp != nullptr ) free( buff_cmp );
-		sprintf( errormessage, MEM_ERRMSG.c_str() );
+static bool compare_output() {
+	const auto& input_data = str_str->get_data();
+	const auto& verif_data = str_out->get_data();
+	if (std::size(input_data) != std::size(verif_data)) {
+		printf("%u, %u", std::size(input_data), std::size(verif_data));
+		return false;
+	}
+
+	const auto result = std::mismatch(std::begin(input_data),
+	                                  std::end(input_data),
+	                                  std::begin(verif_data),
+	                                  std::end(verif_data));
+	if (result.first != std::end(input_data)
+		|| result.second != std::end(verif_data)) {
+		const auto first_diff = std::distance(std::begin(input_data), result.first);
+		sprintf(errormessage, "difference found at 0x%X", first_diff);
 		errorlevel = 2;
 		return false;
 	}
-	
-	// switch output stream mode / check for stream errors
-	str_out->switch_mode();
-	while ( true ) {
-		if ( str_out->chkerr() )
-			sprintf( errormessage, "error in comparison stream" );
-		else if ( str_in->chkerr() )
-			sprintf( errormessage, "error in output stream" );
-		else if ( str_str->chkerr() )
-			sprintf( errormessage, "error in input stream" );
-		else break;
-		errorlevel = 2;
-		return false;
-	}
-	
-	// compare sizes
-	dsize = str_str->getsize();
-	if ( str_out->getsize() != dsize ) {
-		sprintf( errormessage, "file sizes do not match" );
-		errorlevel = 2;
-		return false;
-	}
-	
-	// compare files byte by byte
-	for ( i = 0; i < dsize; i++ ) {
-		b = i % bsize;
-		if ( b == 0 ) {
-			str_str->read( buff_ori, bsize );
-			str_out->read( buff_cmp, bsize );
-		}
-		if ( buff_ori[ b ] != buff_cmp[ b ] ) {
-			sprintf( errormessage, "difference found at 0x%X", i );
-			errorlevel = 2;
-			return false;
-		}
-	}
-	
-	// free buffers
-	free( buff_ori );
-	free( buff_cmp );
-	
-	
+
 	return true;
 }
 #endif
