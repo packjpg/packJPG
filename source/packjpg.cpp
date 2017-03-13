@@ -1128,9 +1128,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		str_out = new FileStream(file_path, StreamMode::kRead);
 	} else if (in_ty == StreamType::kMemory) {
 		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
-		str_in = new iostream(data, StreamMode::kRead);
+		str_in = new MemStream(data, StreamMode::kRead);
 	} else { // Stream
-		str_in = new iostream(StreamMode::kRead);
+		str_in = new MemStream(StreamMode::kRead);
 	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, "error opening input stream" );
@@ -1144,9 +1144,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		std::string file_path((char*)out_dest);
 		str_out = new FileStream(file_path, StreamMode::kWrite);
 	} else if (out_ty == StreamType::kMemory) {
-		str_out = new iostream(std::vector<std::uint8_t>() , StreamMode::kWrite);
+		str_out = new MemStream(std::vector<std::uint8_t>() , StreamMode::kWrite);
 	} else { // Stream
-		str_out = new iostream(StreamMode::kWrite);
+		str_out = new MemStream(StreamMode::kWrite);
 	}
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening output stream" );
@@ -1856,7 +1856,7 @@ static bool check_file()
 	
 	// open input stream, check for errors
 	if (pipe_on) {
-		str_in = new iostream(StreamMode::kRead);
+		str_in = new MemStream(StreamMode::kRead);
 	} else {
 		str_in = new FileStream(filename, StreamMode::kRead);
 	}
@@ -1895,7 +1895,7 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = new iostream(StreamMode::kWrite);
+			str_out = new MemStream(StreamMode::kWrite);
 		}
 		else {
 			str_out = new FileStream(pjgfilename, StreamMode::kWrite);
@@ -1936,7 +1936,7 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = new iostream(StreamMode::kWrite);
+			str_out = new MemStream(StreamMode::kWrite);
 		} else {
 			str_out = new FileStream(jpgfilename, StreamMode::kWrite);
 		}
@@ -1978,7 +1978,7 @@ static bool swap_streams()
 	str_in->read( dmp, 2 );
 	
 	// open new stream for output / check for errors
-	str_out = new iostream(std::vector<std::uint8_t>(), StreamMode::kWrite);
+	str_out = new MemStream(std::vector<std::uint8_t>(), StreamMode::kWrite);
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening comparison stream" );
 		errorlevel = 2;

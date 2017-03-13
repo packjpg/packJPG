@@ -89,6 +89,7 @@ public:
 	int getsize();
 	int getpos();
 	bool eof();
+	std::vector<std::uint8_t> get_data();
 
 private:
 	const std::vector<std::uint8_t> data;
@@ -125,46 +126,49 @@ private:
 class iostream
 {
 public:
-	// Memory iostream
-	iostream(const std::vector<std::uint8_t>& bytes, StreamMode iomode);
-	// stdout/in iostream.
-	iostream(StreamMode iomode);
-	
-	iostream();
-	~iostream();
-	virtual void switch_mode();
-	virtual int read(unsigned char* to, int dtsize);
-	virtual bool read_byte(unsigned char* to);
-	virtual int write(const unsigned char* from, int dtsize);
-	virtual int write_byte(unsigned char byte);
-	virtual int rewind();
-	virtual int getpos();
-	virtual int getsize();
-	virtual std::vector<std::uint8_t> get_data();
-	virtual bool chkerr();
-	virtual bool chkeof();
-	
-private:
-	void open_mem();
-	void open_stream();
+	iostream() {}
+	virtual ~iostream() {}
+	virtual void switch_mode() = 0;
+	virtual int read(unsigned char* to, int dtsize) = 0;
+	virtual bool read_byte(unsigned char* to) = 0;
+	virtual int write(const unsigned char* from, int dtsize) = 0;
+	virtual int write_byte(unsigned char byte) = 0;
+	virtual int rewind() = 0;
+	virtual int getpos() = 0;
+	virtual int getsize() = 0;
+	virtual std::vector<std::uint8_t> get_data() = 0;
+	virtual bool chkerr() = 0;
+	virtual bool chkeof() = 0;
+};
 
-	int write_mem(const unsigned char* from, int dtsize );
-	int write_mem_byte(unsigned char byte);
-	int read_mem(unsigned char* to, int dtsize);
-	bool read_mem_byte(unsigned char* to);
-  
+class MemStream : public iostream {
+public:
+	MemStream(StreamMode mode);
+	MemStream(const std::vector<std::uint8_t>& bytes, StreamMode mode);
+	~MemStream();
+	void switch_mode() override;
+	int read(unsigned char* to, int dtsize) override;
+	bool read_byte(unsigned char* to) override;
+	int write(const unsigned char* from, int dtsize) override;
+	int write_byte(unsigned char byte) override;
+	int rewind() override;
+	int getpos() override;
+	int getsize() override;
+	bool chkerr() override;
+	bool chkeof() override;
+	std::vector<std::uint8_t> get_data() override;
+
+private:
 	std::unique_ptr<abytewriter> mwrt;
 	std::unique_ptr<abytereader> mrdr;
-	
-	const std::string file_path;
-	std::vector<std::uint8_t> data;
-	StreamMode mode;
-	StreamType srct;
+	StreamMode io_mode = StreamMode::kRead;
+	bool is_stream;
 };
 
 class FileStream : public iostream {
 public:
 	FileStream(const std::string& file_path, StreamMode iomode);
+	~FileStream();
 	void switch_mode() override;
 	int read(unsigned char* to, int dtsize) override;
 	bool read_byte(unsigned char* to) override;
