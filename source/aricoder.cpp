@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <stdlib.h>
 
 /* -----------------------------------------------
 	constructor for aricoder class
