@@ -245,7 +245,7 @@ void abitwriter::write( unsigned int val, int nbits )
 			return;
 		}
 		dsize *= 2;
-		std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
+		std::fill(data + cbyte + 1, data + dsize, static_cast<unsigned char>(0));
 	}
 	
 	// write data
@@ -283,7 +283,7 @@ void abitwriter::write_bit( unsigned char bit )
 				return;
 			}
 			dsize *= 2;
-			std::fill(data + cbyte + 1, data + dsize, unsigned char(0));
+			std::fill(data + cbyte + 1, data + dsize, static_cast<unsigned char>(0));
 		}
 		cbit = 8;
 	} 
