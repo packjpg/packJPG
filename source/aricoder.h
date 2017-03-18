@@ -1,11 +1,11 @@
 #ifndef ARICODER_H
 #define ARICODER_H
 
-#include <cstdint>
-
 #include "bitops.h"
-#include <vector>
+
 #include <algorithm>
+#include <cstdint>
+#include <vector>
 
 // defines for coder
 constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
@@ -149,54 +149,6 @@ struct table_s {
 
 
 /* -----------------------------------------------
-	class for arithmetic coding of data to/from iostream
-	----------------------------------------------- */
-	
-class aricoder
-{
-	public:
-	aricoder( iostream* stream, StreamMode iomode );
-	~aricoder();
-	void encode( symbol* s );
-	unsigned int decode_count( symbol* s );
-	void decode( symbol* s );
-	
-	private:
-
-	template<uint8_t bit>
-	void write_bit() {
-		// add bit at last position
-		bbyte = (bbyte << 1) | bit;
-		// increment bit position
-		cbit++;
-
-		// write bit if done
-		if (cbit == 8) {
-			sptr->write_byte(bbyte);
-			cbit = 0;
-		}
-	}
-	
-	void writeNrbitsAsZero();
-	void writeNrbitsAsOne();
-	unsigned char read_bit();
-	
-	// i/o variables
-	iostream* sptr; // Pointer to iostream for reading/writing.
-	const StreamMode mode;
-	unsigned char bbyte = 0;
-	unsigned char cbit = 0;
-	
-	// arithmetic coding variables
-	unsigned int ccode = 0;
-	unsigned int clow = 0;
-	unsigned int chigh = CODER_LIMIT100 - 1;
-	unsigned int cstep = 0;
-	unsigned int nrbits = 0;
-};
-
-
-/* -----------------------------------------------
 	universal statistical model for arithmetic coding
 	----------------------------------------------- */
 	
@@ -262,6 +214,116 @@ class model_b
 	std::vector<table*> contexts;
 };
 
+/* -----------------------------------------------
+class for arithmetic coding of data to/from iostream
+----------------------------------------------- */
+
+class aricoder
+{
+public:
+	aricoder(iostream* stream, StreamMode iomode);
+	~aricoder();
+	void encode(symbol* s);
+	unsigned int decode_count(symbol* s);
+	void decode(symbol* s);
+
+	/* -----------------------------------------------
+	generic model_s encoder function
+	----------------------------------------------- */
+	inline void encode_ari(model_s* model, int c)
+	{
+		symbol s;
+		int esc;
+
+		do {
+			esc = model->convert_int_to_symbol(c, &s);
+			encode(&s);
+		} while (esc);
+		model->update_model(c);
+	}
+
+	/* -----------------------------------------------
+	generic model_s decoder function
+	----------------------------------------------- */
+	inline int decode_ari(model_s* model)
+	{
+		symbol s;
+		uint32_t count;
+		int c;
+
+		do {
+			model->get_symbol_scale(&s);
+			count = decode_count(&s);
+			c = model->convert_symbol_to_int(count, &s);
+			decode(&s);
+		} while (c == ESCAPE_SYMBOL);
+		model->update_model(c);
+
+		return c;
+	}
+
+	/* -----------------------------------------------
+	generic model_b encoder function
+	----------------------------------------------- */
+	inline void encode_ari(model_b* model, int c)
+	{
+		symbol s;
+
+		model->convert_int_to_symbol(c, &s);
+		encode(&s);
+		model->update_model(c);
+	}
+
+	/* -----------------------------------------------
+	generic model_b decoder function
+	----------------------------------------------- */
+	inline int decode_ari(model_b* model)
+	{
+		symbol s;
+
+		model->get_symbol_scale(&s);
+		uint32_t count = decode_count(&s);
+		int c = model->convert_symbol_to_int(count, &s);
+		decode(&s);
+		model->update_model(c);
+
+		return c;
+	}
+
+private:
+
+	template<uint8_t bit>
+	void write_bit() {
+		// add bit at last position
+		bbyte = (bbyte << 1) | bit;
+		// increment bit position
+		cbit++;
+
+		// write bit if done
+		if (cbit == 8) {
+			sptr->write_byte(bbyte);
+			cbit = 0;
+		}
+	}
+
+	void writeNrbitsAsZero();
+	void writeNrbitsAsOne();
+	unsigned char read_bit();
+
+	// i/o variables
+	iostream* sptr; // Pointer to iostream for reading/writing.
+	const StreamMode mode;
+	unsigned char bbyte = 0;
+	unsigned char cbit = 0;
+
+	// arithmetic coding variables
+	unsigned int ccode = 0;
+	unsigned int clow = 0;
+	unsigned int chigh = CODER_LIMIT100 - 1;
+	unsigned int cstep = 0;
+	unsigned int nrbits = 0;
+};
+
 // Base case for shifting an arbitrary number of contexts into the model.
 template <typename M>
 static void shift_model(M) {}
@@ -271,69 +333,6 @@ template <typename M, typename C, typename... Cargs>
 static void shift_model(M model, C context, Cargs ... contextList) {
 	model->shift_context(context);
 	shift_model(model, contextList...);
-}
-
-/* -----------------------------------------------
-	generic model_s encoder function
-	----------------------------------------------- */
-static inline void encode_ari( aricoder* encoder, model_s* model, int c )
-{
-	symbol s;
-	int esc;
-	
-	do {		
-		esc = model->convert_int_to_symbol( c, &s );
-		encoder->encode( &s );
-	} while ( esc );
-	model->update_model( c );
-}
-
-/* -----------------------------------------------
-	generic model_s decoder function
-	----------------------------------------------- */	
-static inline int decode_ari( aricoder* decoder, model_s* model )
-{
-	symbol s;
-	uint32_t count;
-	int c;
-	
-	do{
-		model->get_symbol_scale( &s );
-		count = decoder->decode_count( &s );
-		c = model->convert_symbol_to_int( count, &s );
-		decoder->decode( &s );	
-	} while ( c == ESCAPE_SYMBOL );
-	model->update_model( c );
-	
-	return c;
-}
-
-/* -----------------------------------------------
-	generic model_b encoder function
-	----------------------------------------------- */	
-static inline void encode_ari( aricoder* encoder, model_b* model, int c )
-{
-	symbol s;
-	
-	model->convert_int_to_symbol( c, &s );
-	encoder->encode( &s );
-	model->update_model( c );
-}
-
-/* -----------------------------------------------
-	generic model_b decoder function
-	----------------------------------------------- */	
-static inline int decode_ari( aricoder* decoder, model_b* model )
-{
-	symbol s;
-	
-	model->get_symbol_scale( &s );
-	uint32_t count = decoder->decode_count( &s );
-	int c = model->convert_symbol_to_int( count, &s );
-	decoder->decode( &s );	
-	model->update_model( c );
-	
-	return c;
 }
 
 #endif
