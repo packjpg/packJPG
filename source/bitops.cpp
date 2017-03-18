@@ -19,7 +19,7 @@ reading and writing of arrays
 	constructor for abitreader class
 	----------------------------------------------- */
 
-abitreader::abitreader(const std::vector<std::uint8_t>& bits) : data(bits) {
+abitreader::abitreader(const std::vector<std::uint8_t>& bits) : data(bits), cbyte(std::begin(data)) {
 	eof_ = data.empty();
 }
 
@@ -44,18 +44,17 @@ unsigned int abitreader::read(int nbits) {
 
 	while (nbits >= cbit) {
 		nbits -= cbit;
-		retval |= (RBITS( data[cbyte], cbit ) << nbits);
+		retval |= (RBITS( *cbyte, cbit ) << nbits);
 		cbit = 8;
-		cbyte++;
-		if (cbyte >= data.size()) {
-			overread_ = cbyte > data.size();
+		++cbyte;
+		if (cbyte == std::end(data)) {
 			eof_ = true;
 			return retval;
 		}
 	}
 
 	if (nbits > 0) {
-		retval |= (MBITS( data[cbyte], cbit, (cbit-nbits) ));
+		retval |= (MBITS( *cbyte, cbit, (cbit-nbits) ));
 		cbit -= nbits;
 	}
 
@@ -76,10 +75,10 @@ unsigned char abitreader::read_bit() {
 	}
 
 	// read one bit
-	bit = BITN( data[cbyte], --cbit );
+	bit = BITN( *cbyte, --cbit );
 	if (cbit == 0) {
-		cbyte++;
-		if (cbyte == data.size()) {
+		++cbyte;
+		if (cbyte == std::end(data)) {
 			eof_ = true;
 		}
 		cbit = 8;
@@ -97,8 +96,11 @@ unsigned char abitreader::unpad(unsigned char fillbit) {
 		return fillbit;
 	} else {
 		fillbit = read(1);
-		while (cbit != 8)
-			read(1);
+		if (cbit < 8) {
+			++cbyte;
+			cbit = 8;
+			eof_ = cbyte == std::end(data);
+		}
 	}
 
 	return fillbit;

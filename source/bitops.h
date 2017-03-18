@@ -40,7 +40,7 @@ public:
 
 private:
 	std::vector<std::uint8_t> data;
-	int cbyte = 0; // The position in the data of the byte being read.
+	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
 	int cbit = 8; // The position of the next bit in the current byte.
 	bool overread_ = false; // Tried to read more bits than available in the reader.
 	bool eof_ = false; // Read all the bits in the reader.
@@ -65,7 +65,7 @@ public:
 private:
 	unsigned char fillbit_ = 1;
 	std::vector<std::uint8_t> data;
-	int cbyte = 0; // The position in the data of the byte being read.
+	int cbyte = 0; // The position in the data of the byte being written.
 	int cbit = 8; // The position of the next bit in the current byte.
 };
 
