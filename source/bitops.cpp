@@ -8,7 +8,6 @@ reading and writing of arrays
 #include <algorithm>
 #include <array>
 #include <cstdio>
-#include <stdlib.h>
 #include <vector>
 
 #if defined(_WIN32) || defined(WIN32)
