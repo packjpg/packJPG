@@ -35,19 +35,15 @@ public:
 	unsigned int read(int nbits);
 	unsigned char read_bit();
 	unsigned char unpad(unsigned char fillbit);
-	int getpos();
-	int getbitp();
-	void setpos(int pbyte, int pbit);
-	void rewind_bits(int nbits);
 	bool eof();
-	int peof();
+	bool overread();
 
 private:
 	std::vector<std::uint8_t> data;
-	int cbyte = 0;
-	int cbit = 8;
-	int peof_ = 0;
-	bool eof_ = false;
+	int cbyte = 0; // The position in the data of the byte being read.
+	int cbit = 8; // The position of the next bit in the current byte.
+	bool overread_ = false; // Tried to read more bits than available in the reader.
+	bool eof_ = false; // Read all the bits in the reader.
 };
 
 
@@ -65,13 +61,12 @@ public:
 	void pad();
 	std::vector<std::uint8_t> get_data();
 	int getpos();
-	int getbitp();
 
 private:
 	unsigned char fillbit_ = 1;
 	std::vector<std::uint8_t> data;
-	int cbyte = 0;
-	int cbit = 8;
+	int cbyte = 0; // The position in the data of the byte being read.
+	int cbit = 8; // The position of the next bit in the current byte.
 };
 
 

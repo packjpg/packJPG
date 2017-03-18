@@ -2752,7 +2752,7 @@ bool jpg::decode::decode()
 	}
 	
 	// check for missing data
-	if ( huffr->peof() > 0 ) {
+	if (huffr->overread()) {
 		sprintf( errormessage, "coded image data truncated / too short" );
 		errorlevel = 1;
 	}

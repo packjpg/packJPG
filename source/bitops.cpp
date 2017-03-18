@@ -38,7 +38,7 @@ unsigned int abitreader::read(int nbits) {
 
 	// safety check for eof
 	if (eof()) {
-		peof_ += nbits;
+		overread_ = true;
 		return 0;
 	}
 
@@ -48,7 +48,7 @@ unsigned int abitreader::read(int nbits) {
 		cbit = 8;
 		cbyte++;
 		if (cbyte >= data.size()) {
-			peof_ = nbits;
+			overread_ = cbyte > data.size();
 			eof_ = true;
 			return retval;
 		}
@@ -71,7 +71,7 @@ unsigned char abitreader::read_bit() {
 
 	// safety check for eof
 	if (eof()) {
-		peof_++;
+		overread_ = true;
 		return 0;
 	}
 
@@ -104,74 +104,12 @@ unsigned char abitreader::unpad(unsigned char fillbit) {
 	return fillbit;
 }
 
-/* -----------------------------------------------
-	get current position in array
-	----------------------------------------------- */
-
-int abitreader::getpos() {
-	return cbyte;
-}
-
-/* -----------------------------------------------
-	get current bit position
-	----------------------------------------------- */
-
-int abitreader::getbitp() {
-	return cbit;
-}
-
-/* -----------------------------------------------
-	set byte and bit position
-	----------------------------------------------- */
-
-void abitreader::setpos(int pbyte, int pbit) {
-	if (pbyte < data.size()) {
-		// reset eof
-		eof_ = false;
-		// set positions
-		cbyte = pbyte;
-		cbit = pbit;
-	} else {
-		// set eof
-		eof_ = true;
-		// set positions
-		cbyte = data.size();
-		cbit = 8;
-		peof_ = ((pbyte - data.size()) * 8) + 8 - pbit;
-	}
-}
-
-/* -----------------------------------------------
-	rewind n bits
-	----------------------------------------------- */
-
-void abitreader::rewind_bits(int nbits) {
-	if (eof()) {
-		if (nbits > peof_) {
-			nbits -= peof_;
-			peof_ = 0;
-		} else {
-			peof_ -= nbits;
-			return;
-		}
-		eof_ = false;
-	}
-
-	cbit += nbits;
-	cbyte -= cbit / 8;
-	cbit = cbit % 8;
-	if (cbyte < 0) {
-		cbyte = 0;
-		cbit = 8;
-	}
-}
-
 bool abitreader::eof() {
 	return eof_;
 }
 
-int abitreader::peof() {
-	return peof_;
+bool abitreader::overread() {
+	return overread_;
 }
 
 
@@ -272,14 +210,6 @@ std::vector<std::uint8_t> abitwriter::get_data() {
 
 int abitwriter::getpos() {
 	return cbyte;
-}
-
-/* -----------------------------------------------
-	get current bit position
-	----------------------------------------------- */
-
-int abitwriter::getbitp() {
-	return cbit;
 }
 
 
