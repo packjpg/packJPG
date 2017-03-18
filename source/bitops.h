@@ -85,6 +85,7 @@ public:
 	~abytereader();
 	int read(unsigned char* byte);
 	int read_n(unsigned char* byte, int n);
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0);
 	void seek(int pos);
 	int getsize();
 	int getpos();
@@ -130,6 +131,7 @@ public:
 	virtual ~iostream() {}
 	virtual void switch_mode() = 0;
 	virtual int read(unsigned char* to, int dtsize) = 0;
+	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
 	virtual bool read_byte(unsigned char* to) = 0;
 	virtual int write(const unsigned char* from, int dtsize) = 0;
 	virtual int write_byte(unsigned char byte) = 0;
@@ -148,6 +150,7 @@ public:
 	~MemStream();
 	void switch_mode() override;
 	int read(unsigned char* to, int dtsize) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
 	bool read_byte(unsigned char* to) override;
 	int write(const unsigned char* from, int dtsize) override;
 	int write_byte(unsigned char byte) override;
@@ -171,6 +174,7 @@ public:
 	~FileStream();
 	void switch_mode() override;
 	int read(unsigned char* to, int dtsize) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
 	bool read_byte(unsigned char* to) override;
 	int write(const unsigned char* from, int dtsize) override;
 	int write_byte(unsigned char byte) override;

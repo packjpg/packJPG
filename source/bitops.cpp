@@ -334,6 +334,23 @@ int abytereader::read_n( unsigned char* byte, int n )
 	return numRead;
 }
 
+std::size_t abytereader::read(std::vector<std::uint8_t>& into, std::size_t n, std::size_t offset) {
+	const size_t num_available = getsize() - getpos(); // The number of bytes in the reader not yet read.
+	const size_t num_to_read = std::min(n, num_available); // How many bytes will be read.
+	if (into.size() < num_to_read + offset) {
+		into.resize(num_to_read + offset);
+	}
+
+	const auto start = std::next(std::begin(data), getpos());
+	const auto end = std::next(std::begin(data), getpos() + num_to_read);
+
+	const auto write_start = std::next(std::begin(into), offset);
+
+	std::copy(start, end, write_start);
+	cbyte += num_to_read;
+	return num_to_read;
+}
+
 /* -----------------------------------------------
 	go to position in data
 	----------------------------------------------- */
@@ -608,6 +625,10 @@ int MemStream::read(unsigned char* to, int dtsize)
 	return mrdr->read_n(to, dtsize);
 }
 
+std::size_t MemStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+	return mrdr->read(into, num_to_read, offset);
+}
+
 bool MemStream::read_byte(unsigned char* to) {
 	return mrdr->read(to) == 1;
 }
@@ -645,6 +666,10 @@ void FileStream::switch_mode() {
 
 int FileStream::read(unsigned char* to, int dtsize) {
 	return fread(to, sizeof(unsigned char), dtsize, fptr);
+}
+
+std::size_t FileStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+	return read(into.data() + offset, num_to_read);
 }
 
 bool FileStream::read_byte(unsigned char* to) {

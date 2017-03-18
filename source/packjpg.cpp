@@ -2198,13 +2198,13 @@ bool jpg::decode::read()
 		}
 		else {
 			// read in next marker
-			if ( str_in->read( segment.data(), 2 ) != 2 ) break;
+			if ( str_in->read(segment, 2) != 2 ) break;
 			if ( segment[ 0 ] != 0xFF ) {
 				// ugly fix for incorrect marker segment sizes
 				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
 				errorlevel = 2;
 				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read( segment.data(), 2 ) != 2 ) break;
+					if ( str_in->read(segment, 2) != 2 ) break;
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
@@ -2227,7 +2227,7 @@ bool jpg::decode::read()
 		}
 		
 		// read in next segments' length and check it
-		if ( str_in->read( segment.data() + 2, 2 ) != 2 ) break;
+		if ( str_in->read(segment, 2, 2) != 2 ) break;
 		len = 2 + pack( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
@@ -2237,7 +2237,7 @@ bool jpg::decode::read()
 		}
 		
 		// read rest of segment, store back in header writer
-		if ( str_in->read( ( segment.data() + 4 ), ( len - 4 ) ) !=
+		if ( str_in->read(segment, len - 4 , 4) !=
 			( unsigned short ) ( len - 4 ) ) break;
 		hdrw->write_n( segment.data(), len );
 	}
@@ -2257,7 +2257,7 @@ bool jpg::decode::read()
 		auto grbgw = std::make_unique<abytewriter>( 1024 );
 		grbgw->write( tmp );
 		while( true ) {
-			len = str_in->read( segment.data(), segment.capacity() );
+			len = str_in->read(segment, segment.capacity());
 			if ( len == 0 ) break;
 			grbgw->write_n( segment.data(), len );
 		}
