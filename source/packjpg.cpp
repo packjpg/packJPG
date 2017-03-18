@@ -420,10 +420,12 @@ struct HuffCodes {
 	}
 };
 
-struct HuffTree {
+class HuffTree {
+private:
 	std::array<std::uint16_t, 256> l = { 0 };
 	std::array<std::uint16_t, 256> r = { 0 };
 
+public:
 	// Constructs a Huffman tree from the given Huffman codes.
 	HuffTree(const HuffCodes& codes) {
 		// initial value for next free place
