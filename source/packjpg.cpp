@@ -397,6 +397,19 @@ struct HuffCodes {
 struct HuffTree {
 	std::array<std::uint16_t, 256> l = { 0 };
 	std::array<std::uint16_t, 256> r = { 0 };
+
+	// Returns next the next code (from the tree and the Huffman data).
+	int next_huffcode(const std::unique_ptr<abitreader>& huffr) const {
+		int node = 0;
+
+		while (node < 256) {
+			node = (huffr->read_bit() == 1) ?
+				r[node] : l[node];
+			if (node == 0) break;
+		}
+
+		return node - 256;
+	}
 };
 
 enum JpegType {
@@ -534,8 +547,6 @@ void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobr
 
 // Skips the eobrun, calculates next position.
 jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
-// Returns next the next code(from huffman tree and data).
-int next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree);
 }
 }
 
@@ -3853,7 +3864,7 @@ int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffT
 	for ( bpos = 1; bpos < 64; )
 	{
 		// decode next
-		hc = jpg::decode::next_huffcode( huffr, actree );
+		hc = actree.next_huffcode(huffr);
 		// analyse code
 		if ( hc > 0 ) {
 			z = LBITS( hc, 4 );
@@ -3922,7 +3933,7 @@ int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffC
 jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block)
 {
 	// decode dc
-	int hc = jpg::decode::next_huffcode(huffr, dctree);
+	int hc = dctree.next_huffcode(huffr);
 	if (hc < 0) {
 		return jpg::CodingStatus::ERROR; // return error
 	}
@@ -3959,7 +3970,7 @@ int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffT
 	for ( bpos = from; bpos <= to; )
 	{
 		// decode next
-		hc = jpg::decode::next_huffcode( huffr, actree );
+		hc = actree.next_huffcode(huffr);
 		if ( hc < 0 ) return -1;
 		l = LBITS( hc, 4 );
 		r = RBITS( hc, 4 );
@@ -4070,7 +4081,7 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 	if ( (*eobrun) == 0 ) while ( bpos <= to )
 	{
 		// decode next
-		hc = jpg::decode::next_huffcode( huffr, actree );
+		hc = actree.next_huffcode(huffr);
 		if ( hc < 0 ) return -1;
 		l = LBITS( hc, 4 );
 		r = RBITS( hc, 4 );
@@ -4251,20 +4262,6 @@ void jpg::encode::crbits(const std::unique_ptr<abitwriter>& huffw, const std::un
 	
 	// reset abytewriter, discard data
 	storw->reset();
-}
-
-int jpg::decode::next_huffcode(const std::unique_ptr<abitreader>& huffr, const HuffTree& ctree)
-{	
-	int node = 0;
-	
-	
-	while ( node < 256 ) {
-		node = ( huffr->read_bit() == 1 ) ?
-				ctree.r[ node ] : ctree.l[ node ];
-		if ( node == 0 ) break;
-	}
-	
-	return ( node - 256 );
 }
 
 jpg::CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
