@@ -2162,6 +2162,8 @@ static bool reset_buffers()
 	
 	// reset quantization / huffman tables
 	for ( i = 0; i < 4; i++ ) {
+		jpg::htrees[0][i].reset(nullptr);
+		jpg::htrees[1][i].reset(nullptr);
 		for ( bpos = 0; bpos < 64; bpos++ )
 			qtables[ i ][ bpos ] = 0;
 	}
