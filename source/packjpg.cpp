@@ -388,9 +388,83 @@ struct componentInfo {
 	int jid; // jpeg internal id
 };
 
+struct HuffTree;
+
+struct HuffCodes {
+	std::array<std::uint16_t, 256> cval = { 0 };
+	std::array<std::uint16_t, 256> clen = { 0 };
+	std::uint16_t max_eobrun = 0;
+
+	HuffCodes() {}
+
+	// Constructs Huffman codes from DHT data.
+	HuffCodes(const unsigned char* dht_clen, const unsigned char* dht_cval) {
+		int k = 0;
+		int code = 0;
+
+		// symbol-value of code is its position in the table
+		for (int i = 0; i < 16; i++) {
+			for (int j = 0; j < static_cast<int>(dht_clen[i]); j++) {
+				clen[static_cast<int>(dht_cval[k])] = 1 + i;
+				cval[static_cast<int>(dht_cval[k])] = code;
+
+				k++;
+				code++;
+			}
+			code = code << 1;
+		}
+
+		// find out eobrun max value
+		for (int i = 14; i >= 0; i--) {
+			if (clen[i << 4] > 0) {
+				max_eobrun = (2 << i) - 1;
+				break;
+			}
+		}
+	}
+};
+
 struct HuffTree {
 	std::array<std::uint16_t, 256> l = { 0 };
 	std::array<std::uint16_t, 256> r = { 0 };
+
+	HuffTree() {}
+
+	// Constructs a Huffman tree from the given Huffman codes.
+	HuffTree(const HuffCodes& codes) {
+		// initial value for next free place
+		int nextfree = 1;
+
+		// work through every code creating links between the nodes (represented through ints)
+		for (int i = 0; i < 256; i++) {
+			// (re)set current node
+			int node = 0;
+			// go through each code & store path
+			for (int j = codes.clen[i] - 1; j > 0; j--) {
+				if (BITN(codes.cval[i], j) == 1) {
+					if (r[node] == 0) {
+						r[node] = nextfree++;
+					}
+					node = r[node];
+				}
+				else {
+					if (l[node] == 0) {
+						l[node] = nextfree++;
+					}
+					node = l[node];
+				}
+			}
+			// last link is number of targetvalue + 256
+			if (codes.clen[i] > 0) {
+				if (BITN(codes.cval[i], 0) == 1) {
+					r[node] = i + 256;
+				}
+				else {
+					l[node] = i + 256;
+				}
+			}
+		}
+	}
 
 	// Returns next the next code (from the tree and the Huffman data).
 	int next_huffcode(const std::unique_ptr<abitreader>& huffr) const {
@@ -403,50 +477,6 @@ struct HuffTree {
 		}
 
 		return node - 256;
-	}
-};
-
-struct HuffCodes {
-	std::array<std::uint16_t, 256> cval = { 0 };
-	std::array<std::uint16_t, 256> clen = { 0 };
-	std::uint16_t max_eobrun = 0;
-
-	// Constructs a Huffman tree from the given Huffman codes.
-	HuffTree build_hufftree() const {
-		HuffTree tree;
-		// initial value for next free place
-		int nextfree = 1;
-
-		// work through every code creating links between the nodes (represented through ints)
-		for (int i = 0; i < 256; i++) {
-			// (re)set current node
-			int node = 0;
-			// go through each code & store path
-			for (int j = clen[i] - 1; j > 0; j--) {
-				if (BITN(cval[i], j) == 1) {
-					if (tree.r[node] == 0) {
-						tree.r[node] = nextfree++;
-					}
-					node = tree.r[node];
-				}
-				else {
-					if (tree.l[node] == 0) {
-						tree.l[node] = nextfree++;
-					}
-					node = tree.l[node];
-				}
-			}
-			// last link is number of targetvalue + 256
-			if (clen[i] > 0) {
-				if (BITN(cval[i], 0) == 1) {
-					tree.r[node] = i + 256;
-				}
-				else {
-					tree.l[node] = i + 256;
-				}
-			}
-		}
-		return tree;
 	}
 };
 
@@ -521,8 +551,6 @@ bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segme
 
 // Helper function that parses DHT segments, returning true if the parse succeeds.
 bool parse_dht(unsigned int len, const unsigned char* segment);
-// Constructs Huffman codes from DHT data.
-HuffCodes build_huffcodes(const unsigned char* clen, const unsigned char* cval);
 
 // Helper function that parses DQT segments, returning true if the parse succeeds.
 bool parse_dqt(unsigned len, const unsigned char* segment);
@@ -3548,8 +3576,8 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 
 		hpos++;
 		// build huffman codes & trees
-		jpg::hcodes[lval][rval] = jpg::jfif::build_huffcodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
-		jpg::htrees[lval][rval] = jpg::hcodes[lval][rval].build_hufftree();
+		jpg::hcodes[lval][rval] = HuffCodes(&(segment[hpos + 0]), &(segment[hpos + 16]));
+		jpg::htrees[lval][rval] = HuffTree(jpg::hcodes[lval][rval]);
 		jpg::htset[lval][rval] = true;
 
 		int skip = 16;
@@ -4406,33 +4434,6 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 	}
 	
 	return jpg::CodingStatus::OKAY;
-}
-
-static HuffCodes jpg::jfif::build_huffcodes(const unsigned char* clen, const unsigned char* cval) {
-	HuffCodes codes;
-	int k = 0;
-	int code = 0;
-	
-	// symbol-value of code is its position in the table
-	for (int i = 0; i < 16; i++) {
-		for (int j = 0; j < (int)clen[i]; j++) {
-			codes.clen[(int)cval[k]] = 1 + i;
-			codes.cval[(int)cval[k]] = code;
-
-			k++;
-			code++;
-		}
-		code = code << 1;
-	}
-	
-	// find out eobrun max value
-	for (int i = 14; i >= 0; i--) {
-		if (codes.clen[i << 4] > 0) {
-			codes.max_eobrun = (2 << i) - 1;
-			break;
-		}
-	}
-	return codes;
 }
 
 /* ----------------------- End of JPEG specific functions -------------------------- */
