@@ -225,7 +225,7 @@ unsigned char aricoder::read_bit()
 	// decrement current bit position
 	cbit--;	
 	// return bit at cbit position
-	return BITN( bbyte, cbit );
+	return bitops::BITN( bbyte, cbit );
 }
 
 

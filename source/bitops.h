@@ -1,16 +1,26 @@
 #ifndef BITOPS_H
 #define BITOPS_H
 
-#define RBITS( c, n )		( c & ( 0xFF >> (8 - n) ) )
-#define LBITS( c, n )		( c >> (8 - n) )
-#define MBITS( c, l, r )	( RBITS( c,l ) >> r )
-#define RBITS32( c, n )		( c & ( 0xFFFFFFFF >> (32 - n) ) )
-#define MBITS32( c, l, r )	( RBITS32( c,l ) >> r )
-#define BITN( c, n )		( (c >> n) & 0x1 )
-
 #include <cstdint>
 #include <memory>
 #include <vector>
+
+namespace bitops {
+	template <class T>
+	constexpr T RBITS(T val, int n) {
+		return val & (0xFF >> (8 - n));
+	}
+
+	template <class T>
+	constexpr T LBITS(T val, int n) {
+		return val >> (8 - n);
+	}
+
+	template <class T>
+	constexpr int BITN(T val, int n) {
+		return (val >> n) & 0x1;
+	}
+}
 
 enum class StreamType {
 	kFile = 0,
@@ -39,6 +49,10 @@ public:
 	bool overread();
 
 private:
+	static constexpr std::uint8_t MBITS(std::uint8_t val, int l, int r) {
+		return bitops::RBITS(val, l) >> r;
+	}
+
 	const std::vector<std::uint8_t> data;
 	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
 	int cbit = 8; // The position of the next bit in the current byte.
@@ -63,6 +77,14 @@ public:
 	int getpos();
 
 private:
+	static constexpr std::uint32_t RBITS32(std::uint32_t val, int n) {
+		return val & (0xFFFFFFFF >> (32 - n));
+	}
+
+	static constexpr std::uint32_t MBITS32(std::uint32_t val, int l, int r) {
+		return RBITS32(val, l) >> r;
+	}
+
 	unsigned char fillbit_ = 1;
 	std::vector<std::uint8_t> data;
 	int cbyte = 0; // The position in the data of the byte being written.

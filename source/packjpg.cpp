@@ -437,7 +437,7 @@ public:
 			int node = 0;
 			// go through each code & store path
 			for (int j = codes.clen[i] - 1; j > 0; j--) {
-				if (BITN(codes.cval[i], j) == 1) {
+				if (bitops::BITN(codes.cval[i], j) == 1) {
 					if (r[node] == 0) {
 						r[node] = nextfree++;
 					}
@@ -452,7 +452,7 @@ public:
 			}
 			// last link is number of targetvalue + 256
 			if (codes.clen[i] > 0) {
-				if (BITN(codes.cval[i], 0) == 1) {
+				if (bitops::BITN(codes.cval[i], 0) == 1) {
 					r[node] = i + 256;
 				}
 				else {
@@ -2894,7 +2894,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation later stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
+						block[ 0 ] = bitops::BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 						
 						// encode dc correction bit
 						jpg::encode::dc_prg_sa(huffw, block);
@@ -2951,7 +2951,7 @@ bool jpg::encode::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
+							block[ 0 ] = bitops::BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
 							
 							// encode dc correction bit
 							jpg::encode::dc_prg_sa(huffw, block);
@@ -3563,8 +3563,8 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	// build huffman trees & codes
 	while (hpos < len) {
-		int lval = LBITS(segment[hpos], 4);
-		int rval = RBITS(segment[hpos], 4);
+		int lval = bitops::LBITS(segment[hpos], 4);
+		int rval = bitops::RBITS(segment[hpos], 4);
 		if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
 			break;
 		}
@@ -3594,8 +3594,8 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	while (hpos < len) {
-		int lval = LBITS( segment[ hpos ], 4 );
-		int rval = RBITS( segment[ hpos ], 4 );
+		int lval = bitops::LBITS( segment[ hpos ], 4 );
+		int rval = bitops::RBITS( segment[ hpos ], 4 );
 		if (lval < 0 || lval >= 2) {
 			break;
 		}
@@ -3675,8 +3675,8 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 	// components contained in image
 	for (int cmp = 0; cmp < image::cmpc; cmp++) {
 		cmpnfo[cmp].jid = segment[hpos];
-		cmpnfo[cmp].sfv = LBITS(segment[hpos + 1], 4);
-		cmpnfo[cmp].sfh = RBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].sfv = bitops::LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].sfh = bitops::RBITS(segment[hpos + 1], 4);
 		cmpnfo[cmp].qtable = qtables[segment[hpos + 2]];
 		hpos += 3;
 	}
@@ -3703,8 +3703,8 @@ bool jpg::jfif::parse_sos(const unsigned char* segment) {
 			return false;
 		}
 		curr_scan::cmp[i] = cmp;
-		cmpnfo[cmp].huffdc = LBITS(segment[hpos + 1], 4);
-		cmpnfo[cmp].huffac = RBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].huffdc = bitops::LBITS(segment[hpos + 1], 4);
+		cmpnfo[cmp].huffac = bitops::RBITS(segment[hpos + 1], 4);
 		if ((cmpnfo[cmp].huffdc < 0) || (cmpnfo[cmp].huffdc >= 4) ||
 			(cmpnfo[cmp].huffac < 0) || (cmpnfo[cmp].huffac >= 4)) {
 			sprintf(errormessage, "huffman table number mismatch");
@@ -3715,8 +3715,8 @@ bool jpg::jfif::parse_sos(const unsigned char* segment) {
 	}
 	curr_scan::from = segment[hpos + 0];
 	curr_scan::to = segment[hpos + 1];
-	curr_scan::sah = LBITS(segment[hpos + 2], 4);
-	curr_scan::sal = RBITS(segment[hpos + 2], 4);
+	curr_scan::sah = bitops::LBITS(segment[hpos + 2], 4);
+	curr_scan::sal = bitops::RBITS(segment[hpos + 2], 4);
 	// check for errors
 	if ((curr_scan::from > curr_scan::to) || (curr_scan::from > 63) || (curr_scan::to > 63)) {
 		sprintf(errormessage, "spectral selection parameter out of range");
@@ -3925,8 +3925,8 @@ int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffT
 		hc = actree.next_huffcode(huffr);
 		// analyse code
 		if ( hc > 0 ) {
-			z = LBITS( hc, 4 );
-			s = RBITS( hc, 4 );
+			z = bitops::LBITS( hc, 4 );
+			s = bitops::RBITS( hc, 4 );
 			n = huffr->read( s );
 			if ( ( z + bpos ) >= 64 )
 				return -1; // run is to long
@@ -4030,8 +4030,8 @@ int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffT
 		// decode next
 		hc = actree.next_huffcode(huffr);
 		if ( hc < 0 ) return -1;
-		l = LBITS( hc, 4 );
-		r = RBITS( hc, 4 );
+		l = bitops::LBITS( hc, 4 );
+		r = bitops::RBITS( hc, 4 );
 		// analyse code
 		if ( ( l == 15 ) || ( r > 0 ) ) { // decode run/level combination
 			z = l;
@@ -4141,8 +4141,8 @@ int jpg::decode::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffT
 		// decode next
 		hc = actree.next_huffcode(huffr);
 		if ( hc < 0 ) return -1;
-		l = LBITS( hc, 4 );
-		r = RBITS( hc, 4 );
+		l = bitops::LBITS( hc, 4 );
+		r = bitops::RBITS( hc, 4 );
 		// analyse code
 		if ( ( l == 15 ) || ( r > 0 ) ) { // decode run/level combination
 			z = l;
@@ -4621,7 +4621,7 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 			for (int bp = clen - 2; bp >= 0; bp-- ) {
 				shift_model( mod_res, snum, bp ); // shift in 2 contexts
 				// encode/get bit
-				const int bt = BITN( absv, bp );
+				const int bt = bitops::BITN( absv, bp );
 				enc->encode_ari( mod_res, bt );
 			}
 			// encode sign
@@ -4738,7 +4738,7 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 				for (int bp = clen - 2; bp >= 0; bp-- ) { 
 					shift_model( mod_res, snum, bp ); // shift in 2 contexts
 					// encode/get bit
-					const int bt = BITN( absv, bp );
+					const int bt = bitops::BITN( absv, bp );
 					enc->encode_ari( mod_res, bt );
 				}
 				// encode sign				
@@ -4872,7 +4872,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				for ( ; bp >= thrs_bp; bp-- ) {						
 					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp ); // shift in 3 contexts
 					// encode/get bit
-					const int bt = BITN( absv, bp );
+					const int bt = bitops::BITN( absv, bp );
 					enc->encode_ari( mod_top, bt );
 					// update context
 					ctx_res = ctx_res << 1;
@@ -4881,7 +4881,7 @@ void pjg::encode::ac_low(const std::unique_ptr<aricoder>& enc, int cmp)
 				for ( ; bp >= 0; bp-- ) {
 					shift_model( mod_res, zdstls[ dpos ], bp ); // shift in 2 contexts
 					// encode/get bit
-					const int bt = BITN( absv, bp );
+					const int bt = bitops::BITN( absv, bp );
 					enc->encode_ari( mod_res, bt );
 				}
 				// encode sign
@@ -5459,7 +5459,7 @@ void pjg::encode::optimize_dqt(int hpos, int segment_length) {
 	const int fpos = hpos + segment_length; // End of marker position.
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
-		const int i = LBITS(hdrdata[hpos], 4);
+		const int i = bitops::LBITS(hdrdata[hpos], 4);
 		hpos++;
 		// table found
 		if (i == 1) { // get out for 16 bit precision
@@ -5535,7 +5535,7 @@ void pjg::decode::deoptimize_dqt(int hpos, int segment_length) {
 	int fpos = hpos + segment_length;
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
-		const int i = LBITS( hdrdata[ hpos ], 4 );
+		const int i = bitops::LBITS( hdrdata[ hpos ], 4 );
 		hpos++;
 		// table found
 		if (i == 1) { // get out for 16 bit precision

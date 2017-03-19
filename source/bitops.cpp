@@ -44,7 +44,7 @@ unsigned int abitreader::read(int nbits) {
 
 	while (nbits >= cbit) {
 		nbits -= cbit;
-		retval |= (RBITS( *cbyte, cbit ) << nbits);
+		retval |= (bitops::RBITS( *cbyte, cbit ) << nbits);
 		cbit = 8;
 		++cbyte;
 		if (cbyte == std::end(data)) {
@@ -75,7 +75,7 @@ unsigned char abitreader::read_bit() {
 	}
 
 	// read one bit
-	bit = BITN( *cbyte, --cbit );
+	bit = bitops::BITN( *cbyte, --cbit );
 	if (cbit == 0) {
 		++cbyte;
 		if (cbyte == std::end(data)) {
