@@ -15,17 +15,9 @@ reading and writing of arrays
 #include <io.h>
 #endif
 
-/* -----------------------------------------------
-	constructor for abitreader class
-	----------------------------------------------- */
-
 abitreader::abitreader(const std::vector<std::uint8_t>& bits) : data(bits), cbyte(std::begin(data)) {
 	eof_ = data.empty();
 }
-
-/* -----------------------------------------------
-	destructor for abitreader class
-	----------------------------------------------- */
 
 abitreader::~abitreader() {}
 
@@ -60,10 +52,6 @@ unsigned int abitreader::read(int nbits) {
 
 	return retval;
 }
-
-/* -----------------------------------------------
-	reads one bit from abitreader
-	----------------------------------------------- */
 
 unsigned char abitreader::read_bit() {
 	unsigned char bit;
@@ -114,16 +102,7 @@ bool abitreader::overread() const {
 	return overread_;
 }
 
-
-/* -----------------------------------------------
-	constructor for abitwriter class
-	----------------------------------------------- */
-
 abitwriter::abitwriter(int size) : data(std::max(size, 65536)) {}
-
-/* -----------------------------------------------
-	destructor for abitwriter class
-	----------------------------------------------- */
 
 abitwriter::~abitwriter() {}
 
@@ -196,10 +175,6 @@ void abitwriter::pad() {
 	}
 }
 
-/* -----------------------------------------------
-	gets data array from abitwriter
-	----------------------------------------------- */
-
 std::vector<std::uint8_t> abitwriter::get_data() {
 	pad(); // Pad the last bits of the data before returning it.
 	data.resize(cbyte);
@@ -214,43 +189,26 @@ int abitwriter::getpos() const {
 	return cbyte;
 }
 
-
-/* -----------------------------------------------
-	constructor for abytewriter class
-	----------------------------------------------- */
-
 abytereader::abytereader(const std::vector<std::uint8_t>& bytes) :
 	data(bytes),
 	cbyte(std::begin(data)),
 	_eof(bytes.empty()) {
 }
 
-/* -----------------------------------------------
-	destructor for abytewriter class
-	----------------------------------------------- */
-
 abytereader::~abytereader() {}
 
-/* -----------------------------------------------
-	reads 1 byte from abytereader
-	----------------------------------------------- */
-
-int abytereader::read(unsigned char* byte) {
+bool abytereader::read(unsigned char* byte) {
 	if (cbyte == std::end(data)) {
 		_eof = true;
-		return 0;
+		return false;
 	} else {
 		*byte = *cbyte;
 		++cbyte;
 		_eof = cbyte == std::end(data);
-		return 1;
+		return true;
 	}
 }
 
-/* -----------------------------------------------
-	reads n bytes from abytereader
-	----------------------------------------------- */
-	
 int abytereader::read_n( unsigned char* byte, int n )
 {
 	if (n <= 0 || byte == nullptr) {
@@ -266,7 +224,7 @@ int abytereader::read_n( unsigned char* byte, int n )
 }
 
 std::size_t abytereader::read(std::vector<std::uint8_t>& into, std::size_t n, std::size_t offset) {
-	const size_t num_available = getsize() - getpos(); // The number of bytes in the reader not yet read.
+	const size_t num_available = num_bytes() - num_bytes_read(); // The number of bytes in the reader not yet read.
 	const size_t num_to_read = std::min(n, num_available); // How many bytes will be read.
 	if (into.size() < num_to_read + offset) {
 		into.resize(num_to_read + offset);
@@ -283,24 +241,16 @@ void abytereader::reset() {
 	cbyte = std::begin(data);
 	_eof = cbyte == std::end(data);
 }
-
-/* -----------------------------------------------
-	gets size of current data
-	----------------------------------------------- */
 	
-int abytereader::getsize() const {
+int abytereader::num_bytes() const {
 	return std::size(data);
 }
 
-/* -----------------------------------------------
-	gets current position from abytereader
-	----------------------------------------------- */	
-
-int abytereader::getpos() const {
+int abytereader::num_bytes_read() const {
 	return std::distance(std::begin(data), cbyte);
 }
 
-bool abytereader::eof() const {
+bool abytereader::all_bytes_read() const {
 	return _eof;
 }
 
@@ -308,25 +258,11 @@ std::vector<std::uint8_t> abytereader::get_data() const {
 	return data;
 }
 
-
-/* -----------------------------------------------
-	constructor for abytewriter class
-	----------------------------------------------- */	
-
 abytewriter::abytewriter(int size) : data(std::max(size, 65536)) {}
-
-/* -----------------------------------------------
-	destructor for abytewriter class
-	----------------------------------------------- */	
 
 abytewriter::~abytewriter() {}
 
-/* -----------------------------------------------
-	writes 1 byte to abytewriter
-	----------------------------------------------- */
-
 void abytewriter::write(unsigned char byte) {
-	// test if pointer beyond flush threshold
 	if (cbyte == data.size()) {
 		data.resize(data.size() * 2);
 	}
@@ -336,12 +272,8 @@ void abytewriter::write(unsigned char byte) {
 	cbyte++;
 }
 
-/* -----------------------------------------------
-	writes n byte to abytewriter
-	----------------------------------------------- */
-
-void abytewriter::write_n(const unsigned char* byte, int n) {
-	// safety check for error
+void abytewriter::write_n(const unsigned char* bytes, int n) {
+	// Bounds check
 	if (n <= 0) {
 		return;
 	}
@@ -351,37 +283,20 @@ void abytewriter::write_n(const unsigned char* byte, int n) {
 		data.resize(data.size() * 2);
 	}
 
-	std::copy(byte, byte + n, std::next(std::begin(data), cbyte));
+	std::copy(bytes, bytes + n, std::next(std::begin(data), cbyte));
 	cbyte += n;
 }
 
-/* -----------------------------------------------
-	gets data array from abytewriter
-	----------------------------------------------- */
-
-std::vector<std::uint8_t> abytewriter::get_data()
-{
-	// realloc data
+std::vector<std::uint8_t> abytewriter::get_data() {
 	data.resize(cbyte);
-	
 	return data;
 }
-
-/* -----------------------------------------------
-	gets size of data array from abytewriter
-	----------------------------------------------- */	
 
 int abytewriter::getpos() const {
 	return cbyte;
 }
-
-/* -----------------------------------------------
-	reset without realloc
-	----------------------------------------------- */	
 	
-void abytewriter::reset()
-{
-	// set position of current byte
+void abytewriter::reset() {
 	cbyte = 0;
 }
 
@@ -445,7 +360,7 @@ void MemStream::switch_mode()
 	
 	if ( io_mode == StreamMode::kRead) {
 		// WARNING: when switching from reading to writing, information might be lost forever
-		mwrt = std::make_unique<abytewriter>(mrdr->getsize());
+		mwrt = std::make_unique<abytewriter>(mrdr->num_bytes());
 		mrdr.reset();
 		io_mode = StreamMode::kWrite;
 	}
@@ -477,7 +392,7 @@ int MemStream::getpos()
 	int pos;
 	
 	if ( io_mode == StreamMode::kRead )
-		pos = mrdr->getpos();
+		pos = mrdr->num_bytes_read();
 	else
 		pos = mwrt->getpos();
 
@@ -492,7 +407,7 @@ int MemStream::getsize()
 	int siz;
 
 	if (io_mode == StreamMode::kRead) {
-		siz = mrdr->getsize();
+		siz = mrdr->num_bytes();
 	} else {
 		siz = getpos();
 	}
@@ -548,7 +463,7 @@ std::size_t MemStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_
 }
 
 bool MemStream::read_byte(unsigned char* to) {
-	return mrdr->read(to) == 1;
+	return mrdr->read(to);
 }
 
 FileStream::FileStream(const std::string& file, StreamMode iomode) : file_path(file), io_mode(iomode) {

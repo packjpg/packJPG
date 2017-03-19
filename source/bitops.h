@@ -100,13 +100,38 @@ class abytereader {
 public:
 	abytereader(const std::vector<std::uint8_t>& bytes);
 	~abytereader();
-	int read(unsigned char* byte);
+	/*
+	 * Reads one byte to the pointer, returning whether there was a byte available to writer.
+	 */
+	bool read(unsigned char* byte);
+	/*
+	 * Reads the minimum of n and the numbers of unread bytes to the pointer, returning the number of bytes read.
+	 */
 	int read_n(unsigned char* byte, int n);
+	/*
+	 * Reads the minimum of n and the number of unread bytes to the vector, starting at the given offset in the
+	 * vector. If the destination vector is too small, it is resized. Returns the number of bytes read.
+	 */
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0);
+	/*
+	 * Resets the number of bytes read to zero.
+	 */
 	void reset();
-	int getsize() const;
-	int getpos() const;
-	bool eof() const;
+	/*
+	 * Returns the number of bytes in the reader.
+	 */
+	int num_bytes() const;
+	/*
+	 * Returns the number of bytes read.
+	 */
+	int num_bytes_read() const;
+	/*
+	 * Returns whether all bytes in the reader have been read.
+	 */
+	bool all_bytes_read() const;
+	/*
+	 * Returns a copy of the data backing the reader.
+	 */
 	std::vector<std::uint8_t> get_data() const;
 
 private:
@@ -125,8 +150,14 @@ class abytewriter
 public:
 	abytewriter( int size );
 	~abytewriter();	
+	/*
+	 * Writes the byte.
+	 */
 	void write( unsigned char byte );
-	void write_n(const unsigned char* byte, int n );
+	/*
+	 * Writes n bytes from the pointer.
+	 */
+	void write_n(const unsigned char* bytes, int n );
 	std::vector<std::uint8_t> get_data();
 	int getpos() const;
 	void reset();
