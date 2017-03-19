@@ -39,7 +39,7 @@ public:
 	bool overread();
 
 private:
-	std::vector<std::uint8_t> data;
+	const std::vector<std::uint8_t> data;
 	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
 	int cbit = 8; // The position of the next bit in the current byte.
 	bool overread_ = false; // Tried to read more bits than available in the reader.
@@ -81,7 +81,7 @@ public:
 	int read(unsigned char* byte);
 	int read_n(unsigned char* byte, int n);
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0);
-	void seek(int pos);
+	void reset();
 	int getsize();
 	int getpos();
 	bool eof();
@@ -89,7 +89,7 @@ public:
 
 private:
 	const std::vector<std::uint8_t> data;
-	int cbyte = 0;
+	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
 	bool _eof = false;
 };
 

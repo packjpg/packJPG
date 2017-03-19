@@ -219,9 +219,10 @@ int abitwriter::getpos() {
 	constructor for abytewriter class
 	----------------------------------------------- */
 
-abytereader::abytereader(const std::vector<std::uint8_t>& bytes) : data(bytes) {
-	cbyte = 0;
-	_eof = bytes.empty();
+abytereader::abytereader(const std::vector<std::uint8_t>& bytes) :
+	data(bytes),
+	cbyte(std::begin(data)),
+	_eof(bytes.empty()) {
 }
 
 /* -----------------------------------------------
@@ -235,14 +236,13 @@ abytereader::~abytereader() {}
 	----------------------------------------------- */
 
 int abytereader::read(unsigned char* byte) {
-	if (cbyte >= data.size()) {
-		cbyte = data.size();
+	if (cbyte == std::end(data)) {
 		_eof = true;
 		return 0;
 	} else {
-		*byte = data[cbyte];
-		cbyte++;
-		_eof = cbyte >= data.size();
+		*byte = *cbyte;
+		++cbyte;
+		_eof = cbyte == std::end(data);
 		return 1;
 	}
 }
@@ -256,13 +256,12 @@ int abytereader::read_n( unsigned char* byte, int n )
 	if (n <= 0 || byte == nullptr) {
 		return 0;
 	}
-	int numAvailable = data.size() - cbyte;
+	int numAvailable = std::distance(cbyte, std::end(data));
 	int numRead = std::min(numAvailable, n);
-	auto start = std::next(std::begin(data), cbyte);
-	auto end = std::next(std::begin(data), cbyte + numRead);
-	std::copy(start, end, byte);
-	cbyte += numRead;
-	_eof = cbyte >= data.size();
+	auto end = std::next(cbyte, numRead);
+	std::copy(cbyte, end, byte);
+	cbyte = end;
+	_eof = cbyte == std::end(data);
 	return numRead;
 }
 
@@ -273,25 +272,16 @@ std::size_t abytereader::read(std::vector<std::uint8_t>& into, std::size_t n, st
 		into.resize(num_to_read + offset);
 	}
 
-	const auto start = std::next(std::begin(data), getpos());
-	const auto end = std::next(std::begin(data), getpos() + num_to_read);
-
+	const auto end = std::next(cbyte, num_to_read);
 	const auto write_start = std::next(std::begin(into), offset);
-
-	std::copy(start, end, write_start);
-	cbyte += num_to_read;
+	std::copy(cbyte, end, write_start);
+	cbyte = end;
 	return num_to_read;
 }
 
-/* -----------------------------------------------
-	go to position in data
-	----------------------------------------------- */
-	
-void abytereader::seek( int pos )
-{
-	int newPos = std::max(pos, 0);
-	cbyte = std::min(newPos, int(data.size()));
-	_eof = cbyte >= data.size();
+void abytereader::reset() {
+	cbyte = std::begin(data);
+	_eof = cbyte == std::end(data);
 }
 
 /* -----------------------------------------------
@@ -309,7 +299,7 @@ int abytereader::getsize()
 
 int abytereader::getpos()
 {
-	return cbyte;
+	return std::distance(std::begin(data), cbyte);
 }
 
 bool abytereader::eof()
@@ -476,7 +466,7 @@ void MemStream::switch_mode()
 	----------------------------------------------- */
 int MemStream::rewind() {
 	if (io_mode == StreamMode::kRead)
-		mrdr->seek(0);
+		mrdr->reset();
 	else
 		mwrt->reset();
 
