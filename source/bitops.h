@@ -45,8 +45,8 @@ public:
 	unsigned int read(int nbits);
 	unsigned char read_bit();
 	unsigned char unpad(unsigned char fillbit);
-	bool eof();
-	bool overread();
+	bool eof() const;
+	bool overread() const;
 
 private:
 	static constexpr std::uint8_t MBITS(std::uint8_t val, int l, int r) {
@@ -74,7 +74,7 @@ public:
 	void set_fillbit(unsigned char fillbit);
 	void pad();
 	std::vector<std::uint8_t> get_data();
-	int getpos();
+	int getpos() const;
 
 private:
 	static constexpr std::uint32_t RBITS32(std::uint32_t val, int n) {
@@ -104,10 +104,10 @@ public:
 	int read_n(unsigned char* byte, int n);
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0);
 	void reset();
-	int getsize();
-	int getpos();
-	bool eof();
-	std::vector<std::uint8_t> get_data();
+	int getsize() const;
+	int getpos() const;
+	bool eof() const;
+	std::vector<std::uint8_t> get_data() const;
 
 private:
 	const std::vector<std::uint8_t> data;
@@ -128,7 +128,7 @@ public:
 	void write( unsigned char byte );
 	void write_n(const unsigned char* byte, int n );
 	std::vector<std::uint8_t> get_data();
-	int getpos();
+	int getpos() const;
 	void reset();
 	
 private:

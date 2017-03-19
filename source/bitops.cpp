@@ -106,11 +106,11 @@ unsigned char abitreader::unpad(unsigned char fillbit) {
 	return fillbit;
 }
 
-bool abitreader::eof() {
+bool abitreader::eof() const {
 	return eof_;
 }
 
-bool abitreader::overread() {
+bool abitreader::overread() const {
 	return overread_;
 }
 
@@ -210,7 +210,7 @@ std::vector<std::uint8_t> abitwriter::get_data() {
 	gets size of data array from abitwriter
 	----------------------------------------------- */
 
-int abitwriter::getpos() {
+int abitwriter::getpos() const {
 	return cbyte;
 }
 
@@ -288,26 +288,23 @@ void abytereader::reset() {
 	gets size of current data
 	----------------------------------------------- */
 	
-int abytereader::getsize()
-{
-	return data.size();
+int abytereader::getsize() const {
+	return std::size(data);
 }
 
 /* -----------------------------------------------
 	gets current position from abytereader
 	----------------------------------------------- */	
 
-int abytereader::getpos()
-{
+int abytereader::getpos() const {
 	return std::distance(std::begin(data), cbyte);
 }
 
-bool abytereader::eof()
-{
+bool abytereader::eof() const {
 	return _eof;
 }
 
-std::vector<std::uint8_t> abytereader::get_data() {
+std::vector<std::uint8_t> abytereader::get_data() const {
 	return data;
 }
 
@@ -374,8 +371,7 @@ std::vector<std::uint8_t> abytewriter::get_data()
 	gets size of data array from abytewriter
 	----------------------------------------------- */	
 
-int abytewriter::getpos()
-{
+int abytewriter::getpos() const {
 	return cbyte;
 }
 
