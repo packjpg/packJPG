@@ -668,8 +668,9 @@ namespace pjg {
 	std::uint8_t bit(const std::unique_ptr<aricoder>& dec);
 	}
 
-	void aavrg_prepare(unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp);
-	int aavrg_context(unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x);
+	constexpr std::array<int, 6> get_weights();
+	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, int cmp);
+	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
 	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
 std::pair<int, int> get_context_nnb(int pos, int w);
 }
@@ -4558,8 +4559,9 @@ void pjg::encode::zdst_low(const std::unique_ptr<aricoder>& enc, int cmp)
 	----------------------------------------------- */
 void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 {	
-	unsigned short* c_absc[ 6 ]; // quick access array for contexts
-	int c_weight[ 6 ]; // weighting for contexts
+	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	const auto c_weight = pjg::get_weights(); // weighting for contexts
+
 
 	// decide segmentation setting
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
@@ -4581,7 +4583,7 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
+	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
 	const short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
@@ -4643,8 +4645,8 @@ void pjg::encode::dc(const std::unique_ptr<aricoder>& enc, int cmp)
 	----------------------------------------------- */
 void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 {	
-	unsigned short* c_absc[ 6 ]; // quick access array for contexts
-	int c_weight[ 6 ]; // weighting for contexts
+	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
@@ -4691,7 +4693,7 @@ void pjg::encode::ac_high(const std::unique_ptr<aricoder>& enc, int cmp)
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
+		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
 		const short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
@@ -5060,8 +5062,8 @@ void pjg::decode::zdst_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	----------------------------------------------- */
 void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 {	
-	unsigned short* c_absc[ 6 ]; // quick access array for contexts
-	int c_weight[ 6 ]; // weighting for contexts
+	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
@@ -5083,7 +5085,7 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
+	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
 	short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
@@ -5145,8 +5147,8 @@ void pjg::decode::dc(const std::unique_ptr<aricoder>& dec, int cmp)
 	----------------------------------------------- */
 void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 {	
-	unsigned short* c_absc[ 6 ]; // quick access array for contexts
-	int c_weight[ 6 ]; // weighting for contexts
+	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
@@ -5193,7 +5195,7 @@ void pjg::decode::ac_high(const std::unique_ptr<aricoder>& dec, int cmp)
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, c_weight, absv_store.data(), cmp );
+		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
 		short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
@@ -5445,7 +5447,7 @@ void pjg::encode::get_zerosort_scan(unsigned char* sv, int cmpt)  {
 	               });
 
 	// Sort in ascending order according to the number of zeroes per band:
-	std::sort(std::begin(index) + 1, // Skip the first element.
+	std::stable_sort(std::begin(index) + 1, // Skip the first element.
 	          std::end(index),
 	          [&](const uint32_t& a, const uint32_t& b) {
 		          return zeroDist[a] < zeroDist[b];
@@ -5592,11 +5594,22 @@ void pjg::decode::deoptimize_header() {
 	}
 }
 
+// copy context weighting factors
+constexpr std::array<int, 6> pjg::get_weights() {
+	return std::array<int, 6> {
+		abs_ctx_weights_lum[0][0][2], // top-top
+		abs_ctx_weights_lum[0][1][1], // top-left
+		abs_ctx_weights_lum[0][1][2], // top
+		abs_ctx_weights_lum[0][1][3], // top-right
+		abs_ctx_weights_lum[0][2][0], // left-left
+		abs_ctx_weights_lum[0][2][1]  // left
+	};
+}
 
 /* -----------------------------------------------
 	preparations for special average context
 	----------------------------------------------- */
-void pjg::aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsigned short* abs_store, int cmp )
+void pjg::aavrg_prepare( std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, int cmp )
 {
 	int w = cmpnfo[cmp].bch;
 	
@@ -5607,20 +5620,13 @@ void pjg::aavrg_prepare( unsigned short** abs_coeffs, int* weights, unsigned sho
 	abs_coeffs[ 3 ] = abs_store + (  1 + ((-1)*w) ); // top-right
 	abs_coeffs[ 4 ] = abs_store + ( -2 + (( 0)*w) ); // left-left
 	abs_coeffs[ 5 ] = abs_store + ( -1 + (( 0)*w) ); // left
-	// copy context weighting factors
-	weights[ 0 ] = abs_ctx_weights_lum[ 0 ][ 0 ][ 2 ]; // top-top
-	weights[ 1 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 1 ]; // top-left
-	weights[ 2 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 2 ]; // top
-	weights[ 3 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 3 ]; // top-right
-	weights[ 4 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 0 ]; // left-left
-	weights[ 5 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 1 ]; // left
 }
 
 
 /* -----------------------------------------------
 	special average context used in coeff encoding
 	----------------------------------------------- */
-int pjg::aavrg_context( unsigned short** abs_coeffs, int* weights, int pos, int p_y, int p_x, int r_x )
+int pjg::aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x )
 {
 	int ctx_avr = 0; // AVERAGE context
 	int w_ctx = 0; // accumulated weight of context
