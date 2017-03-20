@@ -111,11 +111,6 @@ abitwriter::~abitwriter() {}
 	----------------------------------------------- */
 
 void abitwriter::write(unsigned int val, int nbits) {
-	// safety check for error
-	if (nbits < 0) {
-		return;
-	}
-
 	// test if pointer beyond flush treshold
 	if (cbyte > (data.size() - 5)) {
 		data.resize(data.size() * 2);
