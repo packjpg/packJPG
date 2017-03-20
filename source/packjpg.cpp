@@ -3157,7 +3157,7 @@ static bool unpredict_dc()
 	return true;
 }
 
-static bool jpg::decode::check_value_range()
+bool jpg::decode::check_value_range()
 {
 	int absmax;
 	int cmp, bpos, dpos;
@@ -5404,7 +5404,7 @@ void pjg::decode::ac_low(const std::unique_ptr<aricoder>& dec, int cmp)
 	delete mod_sgn;
 }
 
-static std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<aricoder>& dec) {
+std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<aricoder>& dec) {
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	auto model = INIT_MODEL_S(256 + 1, 256, 1);
 	while (true) {
