@@ -778,11 +778,11 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 // separate info for each color component
 static componentInfo cmpnfo[ 4 ];
 
-constexpr int QUANT(int cm, int bp) {
+int QUANT(int cm, int bp) {
 	return cmpnfo[cm].qtable[bp];
 }
 
-constexpr int MAX_V(int cm, int bp) {
+int MAX_V(int cm, int bp) {
 	return (QUANT(cm, bp) > 0) ? (freqmax[bp] + QUANT(cm, bp) - 1) / QUANT(cm, bp) : 0;
 }
 namespace image {
