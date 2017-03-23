@@ -282,6 +282,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "bitops.h"
 #include "dct8x8.h"
 #include "pjpgtbl.h"
+#include <algorithm>
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
@@ -617,8 +618,7 @@ namespace pjg {
 	unsigned char* zdstxlow[4] = { nullptr }; // # of non zeroes for first row
 	unsigned char* zdstylow[4] = { nullptr }; // # of non zeroes for first column
 
-	unsigned char* freqscan[4] = { nullptr }; // optimized order for frequency scans (only pointers to scans)
-	unsigned char  zsrtscan[4][64];	// zero optimized frequency scan
+	std::array<std::array<uint8_t, 64>, 4> freqscan; // optimized order for frequency scans (only pointers to scans)
 
 	namespace encode {
 		bool encode();
@@ -640,8 +640,8 @@ namespace pjg {
 		void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
 
 
-		// Get zero sort frequency scan vector.
-		void get_zerosort_scan(unsigned char* sv, int cmp);
+		// Get zero-sorted frequency scan vector.
+		std::array<uint8_t, 64> get_zerosort_scan(int cmpt);
 
 	}
 
@@ -2118,7 +2118,7 @@ static bool reset_buffers()
 		pjg::eobyhigh[ cmp ] = nullptr;
 		pjg::zdstxlow[ cmp ] = nullptr;
 		pjg::zdstylow[ cmp ] = nullptr;
-		pjg::freqscan[ cmp ] = (unsigned char*) stdscan.data();
+		pjg::freqscan[ cmp ] = stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			if ( dct::colldata[ cmp ][ bpos ] != nullptr ) free( dct::colldata[cmp][bpos] );
@@ -4439,7 +4439,7 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 {
 	// calculate zero sort scan
-	pjg::encode::get_zerosort_scan( pjg::zsrtscan[cmp], cmp );
+	const auto zsrtscan = pjg::encode::get_zerosort_scan(cmp);
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
@@ -4461,7 +4461,7 @@ void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 			// search next val != 0 in list
 			for ( tpos++; freqlist[ tpos ] == 0; tpos++ );
 			// get out if not a match
-			if ( freqlist[ tpos ] != pjg::zsrtscan[ cmp ][ c ] ) break;				
+			if ( freqlist[ tpos ] != zsrtscan[ c ] ) break;
 		}
 		if ( c == 64 ) {
 			// remaining list is in sorted scanorder
@@ -4473,7 +4473,7 @@ void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		// list is not in sorted order -> next pos hat to be encoded
 		int cpos = 1; // Coded position.
 		// encode position
-		for ( tpos = 0; freqlist[ tpos ] != pjg::zsrtscan[ cmp ][ i ]; tpos++ )
+		for ( tpos = 0; freqlist[ tpos ] != zsrtscan[ i ]; tpos++ )
 			if ( freqlist[ tpos ] != 0 ) cpos++;
 		// remove from list
 		freqlist[ tpos ] = 0;
@@ -4483,8 +4483,8 @@ void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		model->shift_context( cpos );		
 	}
 	
-	// set zero sort scan as pjg::freqscan
-	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
+	// set zero sort scan as freqscan
+	pjg::freqscan[cmp] = zsrtscan;
 }
 
 
@@ -4915,8 +4915,9 @@ void pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 {		
 	int tpos; // true position
 	
+	std::array<uint8_t, 64> zsrtscan;
 	// set first position in zero sort scan
-	pjg::zsrtscan[ cmp ][ 0 ] = 0;
+	zsrtscan[0] = 0;
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
@@ -4940,7 +4941,7 @@ void pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 			// fill the scan & make a quick exit				
 			for ( tpos = 0; i < 64; i++ ) {
 				while ( freqlist[ ++tpos ] == 0 );
-				pjg::zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
+				zsrtscan[i] = freqlist[ tpos ];
 			}
 			break;
 		}
@@ -4952,13 +4953,13 @@ void pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		}
 			
 		// write decoded position to zero sort scan
-		pjg::zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
+		zsrtscan[i] = freqlist[ tpos ];
 		// remove from list
 		freqlist[ tpos ] = 0;
 	}	
 	
-	// set zero sort scan as pjg::freqscan
-	pjg::freqscan[ cmp ] = pjg::zsrtscan[ cmp ];
+	// set zero sort scan as freqscan
+	pjg::freqscan[ cmp ] = zsrtscan;
 }
 
 
@@ -5375,7 +5376,7 @@ std::uint8_t pjg::decode::bit(const std::unique_ptr<ArithmeticDecoder>& dec)
 	return bit;
 }
 
-void pjg::encode::get_zerosort_scan(unsigned char* sv, int cmpt)  {
+std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(int cmpt)  {
 	// Preset the unsorted scan index:
 	std::array<uint8_t, 64> index;
 	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
@@ -5397,8 +5398,7 @@ void pjg::encode::get_zerosort_scan(unsigned char* sv, int cmpt)  {
 		          return zeroDist[a] < zeroDist[b];
 	          }
 	);
-
-	std::copy(std::begin(index), std::end(index), sv);
+	return index;
 }
 
 void pjg::encode::optimize_dqt(int hpos, int segment_length) {
