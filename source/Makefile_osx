@@ -5,7 +5,7 @@
 CC      = cc
 CPP     = c++
 RC      = windres
-CFLAGS  = -I. -DUNIX -DDEV_BUILD -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
+CFLAGS  = -I. -DUNIX -DDEV_BUILD -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer -std=c++14
 LDFLAGS = 
 DEPS    = bitops.h aricoder.h pjpgtbl.h dct8x8.h Makefile
 OBJ     = bitops.o aricoder.o packjpg.o
@@ -19,4 +19,4 @@ $(BIN): $(OBJ)
 	$(CPP) -o $@ $^ $(LDFLAGS)
 
 clean:
-	$(RM) $(OBJ)
+	$(RM) $(OBJ) $(BIN)
