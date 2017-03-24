@@ -677,7 +677,7 @@ std::pair<int, int> get_context_nnb(int pos, int w);
 *
 */
 namespace dct {
-	short* colldata[4][64] = { { nullptr } }; // Collection sorted DCT coefficients.
+	std::array<std::array<std::vector<int16_t>, 64>, 4> colldata; // Collection sorted DCT coefficients.
 
 	int adpt_idct_8x8[4][8 * 8 * 8 * 8]; // precalculated/adapted values for idct (8x8)
 	int adpt_idct_1x8[4][1 * 1 * 8 * 8]; // precalculated/adapted values for idct (1x8)
@@ -2116,8 +2116,7 @@ static bool reset_buffers()
 		pjg::freqscan[ cmp ] = stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			if ( dct::colldata[ cmp ][ bpos ] != nullptr ) free( dct::colldata[cmp][bpos] );
-			dct::colldata[ cmp ][ bpos ] = nullptr;
+			dct::colldata[cmp][bpos].clear();
 		}		
 	}
 	
@@ -3513,12 +3512,7 @@ bool jpg::setup_imginfo()
 	{
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			dct::colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
-			if (dct::colldata[cmp][bpos] == nullptr) {
-				sprintf( errormessage, MEM_ERRMSG.c_str() );
-				errorlevel = 2;
-				return false;
-			}
+			dct::colldata[cmp][bpos].resize(cmpnfo[cmp].bc);
 		}
 		
 		// alloc memory for zdstlist / eob x / eob y
@@ -4562,7 +4556,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	const short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	const auto& coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
 	const auto& zdstls = pjg::zdstdata[ cmp ];	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
@@ -4667,7 +4661,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		const short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
 		const int max_val = MAX_V( cmp, bpos ); // Max value.
@@ -4765,23 +4759,23 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		const short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
 		auto& zdstls = b_x == 0 ? pjg::zdstylow[cmp] : pjg::zdstxlow[cmp]; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
+				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
+				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
@@ -5036,7 +5030,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	auto& coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
 	const auto& zdstls = pjg::zdstdata[ cmp ]; // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
@@ -5141,7 +5135,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
 		const int max_val = MAX_V( cmp, bpos ); // Max value.
@@ -5238,23 +5232,23 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		short* coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
 		auto& zdstls = b_x == 0 ? pjg::zdstylow[cmp] : pjg::zdstxlow[cmp]; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
+				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
-				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
+				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
@@ -5368,11 +5362,11 @@ std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(int cmpt)  {
 	// Count the number of zeroes for each frequency:
 	const int bc = cmpnfo[cmpt].bc;
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
-	std::transform(dct::colldata[cmpt],
-	               dct::colldata[cmpt] + 64,
+	std::transform(std::begin(dct::colldata[cmpt]),
+	               std::end(dct::colldata[cmpt]),
 	               std::begin(zeroDist),
-	               [&](const short* freq) {
-		               return std::count(freq, freq + bc, 0);
+	               [&](const auto& freq) {
+		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
 	               });
 
 	// Sort in ascending order according to the number of zeroes per band:
