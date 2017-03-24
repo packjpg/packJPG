@@ -378,6 +378,12 @@ struct componentInfo {
 
 	std::array<uint8_t, 64> freqscan; // optimized order for frequency scans (only pointers to scans)
 
+	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
+
+	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8; // precalculated/adapted values for idct (8x8)
+	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
+	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
+
 	unsigned short* qtable; // quantization table
 	int huffdc; // no of huffman table (DC)
 	int huffac; // no of huffman table (AC)
@@ -677,12 +683,6 @@ std::pair<int, int> get_context_nnb(int pos, int w);
 *
 */
 namespace dct {
-	std::array<std::array<std::vector<int16_t>, 64>, 4> colldata; // Collection sorted DCT coefficients.
-
-	int adpt_idct_8x8[4][8 * 8 * 8 * 8]; // precalculated/adapted values for idct (8x8)
-	int adpt_idct_1x8[4][1 * 1 * 8 * 8]; // precalculated/adapted values for idct (1x8)
-	int adpt_idct_8x1[4][8 * 8 * 1 * 1]; // precalculated/adapted values for idct (8x1)
-
 	bool adapt_icos();
 
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
@@ -2116,7 +2116,7 @@ static bool reset_buffers()
 		cmpnfo[cmp].freqscan = stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			dct::colldata[cmp][bpos].clear();
+			cmpnfo[cmp].colldata[bpos].clear();
 		}		
 	}
 	
@@ -2526,7 +2526,7 @@ bool jpg::decode::decode()
 						
 						// copy to dct::colldata
 						for (int bpos = 0; bpos < eob; bpos++ )
-							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
+							cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2542,11 +2542,11 @@ bool jpg::decode::decode()
 						                                 block );
 						
 						// fix dc for diff coding
-						dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
-						lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
+						cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
+						lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
 						
 						// bitshift for succesive approximation
-						dct::colldata[cmp][0][dpos] <<= curr_scan::sal;
+						cmpnfo[cmp].colldata[0][dpos] <<= curr_scan::sal;
 						
 						// next mcupos if no error happened
 						if ( status != jpg::CodingStatus::ERROR )
@@ -2561,7 +2561,7 @@ bool jpg::decode::decode()
 						jpg::decode::dc_prg_sa(huffr, block);
 						
 						// shift in next bit
-						dct::colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
+						cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
 						
 						status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
@@ -2590,7 +2590,7 @@ bool jpg::decode::decode()
 						
 						// copy to dct::colldata
 						for (int bpos = 0; bpos < eob; bpos++ )
-							dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
+							cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2607,11 +2607,11 @@ bool jpg::decode::decode()
 							                                 block );
 								
 							// fix dc for diff coding
-							dct::colldata[cmp][0][dpos] = block[0] + lastdc[ cmp ];
-							lastdc[ cmp ] = dct::colldata[cmp][0][dpos];
+							cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
+							lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
 							
 							// bitshift for succesive approximation
-							dct::colldata[cmp][0][dpos] <<= curr_scan::sal;
+							cmpnfo[cmp].colldata[0][dpos] <<= curr_scan::sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( status != jpg::CodingStatus::ERROR )
@@ -2626,7 +2626,7 @@ bool jpg::decode::decode()
 							jpg::decode::dc_prg_sa(huffr, block);
 							
 							// shift in next bit
-							dct::colldata[cmp][0][dpos] += block[0] << curr_scan::sal;
+							cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
 							
 							// increment dpos
 							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
@@ -2658,7 +2658,7 @@ bool jpg::decode::decode()
 							
 								// copy to colldata
 								for (int bpos = curr_scan::from; bpos < eob; bpos++)
-									dct::colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
+									cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
 							} else eobrun--;
 							
 							// check for errors
@@ -2676,7 +2676,7 @@ bool jpg::decode::decode()
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// copy from colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
-								block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
+								block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
@@ -2707,7 +2707,7 @@ bool jpg::decode::decode()
 								
 							// copy back to colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
-								dct::colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
+								cmpnfo[cmp].colldata[ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = jpg::CodingStatus::ERROR;
@@ -2846,11 +2846,11 @@ bool jpg::encode::recode()
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
 						for (int bpos = 0; bpos < 64; bpos++)
-							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
+							block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
+						lastdc[ cmp ] = cmpnfo[cmp].colldata[ 0 ][ dpos ];
 						
 						// encode block
 						int eob = jpg::encode::block_seq( huffw,
@@ -2868,7 +2868,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation first stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						int tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
+						int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> curr_scan::sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2886,7 +2886,7 @@ bool jpg::encode::recode()
 					// ---> succesive approximation later stage <---
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = bitops::BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
+						block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], curr_scan::sal );
 						
 						// encode dc correction bit
 						jpg::encode::dc_prg_sa(huffw, block);
@@ -2902,11 +2902,11 @@ bool jpg::encode::recode()
 					while ( status == jpg::CodingStatus::OKAY ) {
 						// copy from colldata
 						for (int bpos = 0; bpos < 64; bpos++)
-							block[ bpos ] = dct::colldata[ cmp ][ bpos ][ dpos ];
+							block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = dct::colldata[ cmp ][ 0 ][ dpos ];
+						lastdc[ cmp ] = cmpnfo[cmp].colldata[ 0 ][ dpos ];
 						
 						// encode block
 						int eob = jpg::encode::block_seq( huffw,
@@ -2925,7 +2925,7 @@ bool jpg::encode::recode()
 						// ---> succesive approximation first stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							int tmp = dct::colldata[ cmp ][ 0 ][ dpos ] >> curr_scan::sal;
+							int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> curr_scan::sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
@@ -2943,7 +2943,7 @@ bool jpg::encode::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == jpg::CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = bitops::BITN(dct::colldata[ cmp ][ 0 ][ dpos ], curr_scan::sal );
+							block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], curr_scan::sal );
 							
 							// encode dc correction bit
 							jpg::encode::dc_prg_sa(huffw, block);
@@ -2961,7 +2961,7 @@ bool jpg::encode::recode()
 							// copy from colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									fdiv2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							int eob = jpg::encode::ac_prg_fs( huffw,
@@ -2983,7 +2983,7 @@ bool jpg::encode::recode()
 							// copy from colldata
 							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
 								block[ bpos ] =
-									fdiv2(dct::colldata[ cmp ][ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], curr_scan::sal );
 							
 							// encode block
 							int eob = jpg::encode::ac_prg_sa( huffw, storw,
@@ -3058,15 +3058,15 @@ bool dct::adapt_icos()
 		}
 		// adapt idct 8x8 table
 		for (int ipos = 0; ipos < 64 * 64; ipos++) {
-			dct::adpt_idct_8x8[cmp][ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
+			cmpnfo[cmp].adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
 		}
 		// adapt idct 1x8 table
 		for (int ipos = 0; ipos < 8 * 8; ipos++) {
-			dct::adpt_idct_1x8[cmp][ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
+			cmpnfo[cmp].adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
 		}
 		// adapt idct 8x1 table
 		for (int ipos = 0; ipos < 8 * 8; ipos++) {
-			dct::adpt_idct_8x1[cmp][ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
+			cmpnfo[cmp].adpt_idct_8x1[ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
 		}
 	}
 	
@@ -3094,7 +3094,7 @@ static bool predict_dc()
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
 		for ( dpos = cmpnfo[cmp].bc - 1; dpos > 0; dpos-- )	{
-			coef = &(dct::colldata[cmp][0][dpos]);
+			coef = &(cmpnfo[cmp].colldata[0][dpos]);
 			#if defined( USE_PLOCOI )
 			(*coef) -= predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
 			#else
@@ -3131,7 +3131,7 @@ static bool unpredict_dc()
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
 		for ( dpos = 1; dpos < cmpnfo[cmp].bc; dpos++ ) {
-			coef = &(dct::colldata[cmp][0][dpos]);
+			coef = &(cmpnfo[cmp].colldata[0][dpos]);
 			#if defined( USE_PLOCOI )
 			(*coef) += predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
 			#else
@@ -3158,10 +3158,10 @@ bool jpg::decode::check_value_range()
 	for ( bpos = 0; bpos < 64; bpos++ ) {
 		absmax = MAX_V( cmp, bpos );
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-		if ( ( dct::colldata[cmp][bpos][dpos] > absmax ) ||
-			 ( dct::colldata[cmp][bpos][dpos] < -absmax ) ) {
+		if ( ( cmpnfo[cmp].colldata[bpos][dpos] > absmax ) ||
+			 ( cmpnfo[cmp].colldata[bpos][dpos] < -absmax ) ) {
 			sprintf( errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
-					cmp, bpos, dct::colldata[cmp][bpos][dpos], absmax );
+					cmp, bpos, cmpnfo[cmp].colldata[bpos][dpos], absmax );
 			errorlevel = 2;
 			return false;
 		}
@@ -3194,15 +3194,15 @@ static bool calc_zdst_lists()
 			b_y = unzigzag[ bpos ] / 8;
 			if ( b_x == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (dct::colldata[cmp][bpos][dpos] != 0 ) cmpnfo[cmp].zdstylow[dpos]++;
+					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstylow[dpos]++;
 			}
 			else if ( b_y == 0 ) {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (dct::colldata[cmp][bpos][dpos] != 0 ) cmpnfo[cmp].zdstxlow[dpos]++;
+					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstxlow[dpos]++;
 			}
 			else {
 				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (dct::colldata[cmp][bpos][dpos] != 0 ) cmpnfo[cmp].zdstdata[dpos]++;
+					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstdata[dpos]++;
 			}
 		}
 	}
@@ -3512,7 +3512,7 @@ bool jpg::setup_imginfo()
 	{
 		// alloc memory for colls
 		for ( bpos = 0; bpos < 64; bpos++ ) {
-			dct::colldata[cmp][bpos].resize(cmpnfo[cmp].bc);
+			cmpnfo[cmp].colldata[bpos].resize(cmpnfo[cmp].bc);
 		}
 		
 		// alloc memory for zdstlist / eob x / eob y
@@ -4556,7 +4556,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	const auto& coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	const auto& coeffs = cmpnfo[cmp].colldata[ 0 ]; // Pointer to current coefficent data.
 	const auto& zdstls = cmpnfo[cmp].zdstdata;	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
@@ -4661,7 +4661,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		const auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
 		const int max_val = MAX_V( cmp, bpos ); // Max value.
@@ -4759,23 +4759,23 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		const auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
 		auto& zdstls = b_x == 0 ? cmpnfo[cmp].zdstylow : cmpnfo[cmp].zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - 1;
+				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - w;
+				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
@@ -5030,7 +5030,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 	
 	// locally store pointer to coefficients and zero distribution list
-	auto& coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
+	auto& coeffs = cmpnfo[cmp].colldata[ 0 ]; // Pointer to current coefficent data.
 	const auto& zdstls = cmpnfo[cmp].zdstdata; // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
@@ -5135,7 +5135,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
 		
 		// locally store pointer to coefficients
-		auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
 		const int max_val = MAX_V( cmp, bpos ); // Max value.
@@ -5232,23 +5232,23 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
 		
 		// locally store pointer to band coefficients
-		auto& coeffs = dct::colldata[ cmp ][ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
 		auto& zdstls = b_x == 0 ? cmpnfo[cmp].zdstylow : cmpnfo[cmp].zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - 1;
+				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ].data() - w;
+				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
@@ -5362,8 +5362,8 @@ std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(int cmpt)  {
 	// Count the number of zeroes for each frequency:
 	const int bc = cmpnfo[cmpt].bc;
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
-	std::transform(std::begin(dct::colldata[cmpt]),
-	               std::end(dct::colldata[cmpt]),
+	std::transform(std::begin(cmpnfo[cmpt].colldata),
+	               std::end(cmpnfo[cmpt].colldata),
 	               std::begin(zeroDist),
 	               [&](const auto& freq) {
 		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
@@ -5665,70 +5665,70 @@ int dct::idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy) {
 
 	// begin transform
 	int idct = 0;
-	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_8x8[cmp][ixy + 0];
-	idct += dct::colldata[cmp][1][dpos] * dct::adpt_idct_8x8[cmp][ixy + 1];
-	idct += dct::colldata[cmp][5][dpos] * dct::adpt_idct_8x8[cmp][ixy + 2];
-	idct += dct::colldata[cmp][6][dpos] * dct::adpt_idct_8x8[cmp][ixy + 3];
-	idct += dct::colldata[cmp][14][dpos] * dct::adpt_idct_8x8[cmp][ixy + 4];
-	idct += dct::colldata[cmp][15][dpos] * dct::adpt_idct_8x8[cmp][ixy + 5];
-	idct += dct::colldata[cmp][27][dpos] * dct::adpt_idct_8x8[cmp][ixy + 6];
-	idct += dct::colldata[cmp][28][dpos] * dct::adpt_idct_8x8[cmp][ixy + 7];
-	idct += dct::colldata[cmp][2][dpos] * dct::adpt_idct_8x8[cmp][ixy + 8];
-	idct += dct::colldata[cmp][4][dpos] * dct::adpt_idct_8x8[cmp][ixy + 9];
-	idct += dct::colldata[cmp][7][dpos] * dct::adpt_idct_8x8[cmp][ixy + 10];
-	idct += dct::colldata[cmp][13][dpos] * dct::adpt_idct_8x8[cmp][ixy + 11];
-	idct += dct::colldata[cmp][16][dpos] * dct::adpt_idct_8x8[cmp][ixy + 12];
-	idct += dct::colldata[cmp][26][dpos] * dct::adpt_idct_8x8[cmp][ixy + 13];
-	idct += dct::colldata[cmp][29][dpos] * dct::adpt_idct_8x8[cmp][ixy + 14];
-	idct += dct::colldata[cmp][42][dpos] * dct::adpt_idct_8x8[cmp][ixy + 15];
-	idct += dct::colldata[cmp][3][dpos] * dct::adpt_idct_8x8[cmp][ixy + 16];
-	idct += dct::colldata[cmp][8][dpos] * dct::adpt_idct_8x8[cmp][ixy + 17];
-	idct += dct::colldata[cmp][12][dpos] * dct::adpt_idct_8x8[cmp][ixy + 18];
-	idct += dct::colldata[cmp][17][dpos] * dct::adpt_idct_8x8[cmp][ixy + 19];
-	idct += dct::colldata[cmp][25][dpos] * dct::adpt_idct_8x8[cmp][ixy + 20];
-	idct += dct::colldata[cmp][30][dpos] * dct::adpt_idct_8x8[cmp][ixy + 21];
-	idct += dct::colldata[cmp][41][dpos] * dct::adpt_idct_8x8[cmp][ixy + 22];
-	idct += dct::colldata[cmp][43][dpos] * dct::adpt_idct_8x8[cmp][ixy + 23];
-	idct += dct::colldata[cmp][9][dpos] * dct::adpt_idct_8x8[cmp][ixy + 24];
-	idct += dct::colldata[cmp][11][dpos] * dct::adpt_idct_8x8[cmp][ixy + 25];
-	idct += dct::colldata[cmp][18][dpos] * dct::adpt_idct_8x8[cmp][ixy + 26];
-	idct += dct::colldata[cmp][24][dpos] * dct::adpt_idct_8x8[cmp][ixy + 27];
-	idct += dct::colldata[cmp][31][dpos] * dct::adpt_idct_8x8[cmp][ixy + 28];
-	idct += dct::colldata[cmp][40][dpos] * dct::adpt_idct_8x8[cmp][ixy + 29];
-	idct += dct::colldata[cmp][44][dpos] * dct::adpt_idct_8x8[cmp][ixy + 30];
-	idct += dct::colldata[cmp][53][dpos] * dct::adpt_idct_8x8[cmp][ixy + 31];
-	idct += dct::colldata[cmp][10][dpos] * dct::adpt_idct_8x8[cmp][ixy + 32];
-	idct += dct::colldata[cmp][19][dpos] * dct::adpt_idct_8x8[cmp][ixy + 33];
-	idct += dct::colldata[cmp][23][dpos] * dct::adpt_idct_8x8[cmp][ixy + 34];
-	idct += dct::colldata[cmp][32][dpos] * dct::adpt_idct_8x8[cmp][ixy + 35];
-	idct += dct::colldata[cmp][39][dpos] * dct::adpt_idct_8x8[cmp][ixy + 36];
-	idct += dct::colldata[cmp][45][dpos] * dct::adpt_idct_8x8[cmp][ixy + 37];
-	idct += dct::colldata[cmp][52][dpos] * dct::adpt_idct_8x8[cmp][ixy + 38];
-	idct += dct::colldata[cmp][54][dpos] * dct::adpt_idct_8x8[cmp][ixy + 39];
-	idct += dct::colldata[cmp][20][dpos] * dct::adpt_idct_8x8[cmp][ixy + 40];
-	idct += dct::colldata[cmp][22][dpos] * dct::adpt_idct_8x8[cmp][ixy + 41];
-	idct += dct::colldata[cmp][33][dpos] * dct::adpt_idct_8x8[cmp][ixy + 42];
-	idct += dct::colldata[cmp][38][dpos] * dct::adpt_idct_8x8[cmp][ixy + 43];
-	idct += dct::colldata[cmp][46][dpos] * dct::adpt_idct_8x8[cmp][ixy + 44];
-	idct += dct::colldata[cmp][51][dpos] * dct::adpt_idct_8x8[cmp][ixy + 45];
-	idct += dct::colldata[cmp][55][dpos] * dct::adpt_idct_8x8[cmp][ixy + 46];
-	idct += dct::colldata[cmp][60][dpos] * dct::adpt_idct_8x8[cmp][ixy + 47];
-	idct += dct::colldata[cmp][21][dpos] * dct::adpt_idct_8x8[cmp][ixy + 48];
-	idct += dct::colldata[cmp][34][dpos] * dct::adpt_idct_8x8[cmp][ixy + 49];
-	idct += dct::colldata[cmp][37][dpos] * dct::adpt_idct_8x8[cmp][ixy + 50];
-	idct += dct::colldata[cmp][47][dpos] * dct::adpt_idct_8x8[cmp][ixy + 51];
-	idct += dct::colldata[cmp][50][dpos] * dct::adpt_idct_8x8[cmp][ixy + 52];
-	idct += dct::colldata[cmp][56][dpos] * dct::adpt_idct_8x8[cmp][ixy + 53];
-	idct += dct::colldata[cmp][59][dpos] * dct::adpt_idct_8x8[cmp][ixy + 54];
-	idct += dct::colldata[cmp][61][dpos] * dct::adpt_idct_8x8[cmp][ixy + 55];
-	idct += dct::colldata[cmp][35][dpos] * dct::adpt_idct_8x8[cmp][ixy + 56];
-	idct += dct::colldata[cmp][36][dpos] * dct::adpt_idct_8x8[cmp][ixy + 57];
-	idct += dct::colldata[cmp][48][dpos] * dct::adpt_idct_8x8[cmp][ixy + 58];
-	idct += dct::colldata[cmp][49][dpos] * dct::adpt_idct_8x8[cmp][ixy + 59];
-	idct += dct::colldata[cmp][57][dpos] * dct::adpt_idct_8x8[cmp][ixy + 60];
-	idct += dct::colldata[cmp][58][dpos] * dct::adpt_idct_8x8[cmp][ixy + 61];
-	idct += dct::colldata[cmp][62][dpos] * dct::adpt_idct_8x8[cmp][ixy + 62];
-	idct += dct::colldata[cmp][63][dpos] * dct::adpt_idct_8x8[cmp][ixy + 63];
+	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 0];
+	idct += cmpnfo[cmp].colldata[1][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 1];
+	idct += cmpnfo[cmp].colldata[5][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 2];
+	idct += cmpnfo[cmp].colldata[6][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 3];
+	idct += cmpnfo[cmp].colldata[14][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 4];
+	idct += cmpnfo[cmp].colldata[15][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 5];
+	idct += cmpnfo[cmp].colldata[27][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 6];
+	idct += cmpnfo[cmp].colldata[28][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 7];
+	idct += cmpnfo[cmp].colldata[2][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 8];
+	idct += cmpnfo[cmp].colldata[4][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 9];
+	idct += cmpnfo[cmp].colldata[7][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 10];
+	idct += cmpnfo[cmp].colldata[13][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 11];
+	idct += cmpnfo[cmp].colldata[16][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 12];
+	idct += cmpnfo[cmp].colldata[26][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 13];
+	idct += cmpnfo[cmp].colldata[29][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 14];
+	idct += cmpnfo[cmp].colldata[42][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 15];
+	idct += cmpnfo[cmp].colldata[3][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 16];
+	idct += cmpnfo[cmp].colldata[8][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 17];
+	idct += cmpnfo[cmp].colldata[12][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 18];
+	idct += cmpnfo[cmp].colldata[17][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 19];
+	idct += cmpnfo[cmp].colldata[25][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 20];
+	idct += cmpnfo[cmp].colldata[30][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 21];
+	idct += cmpnfo[cmp].colldata[41][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 22];
+	idct += cmpnfo[cmp].colldata[43][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 23];
+	idct += cmpnfo[cmp].colldata[9][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 24];
+	idct += cmpnfo[cmp].colldata[11][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 25];
+	idct += cmpnfo[cmp].colldata[18][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 26];
+	idct += cmpnfo[cmp].colldata[24][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 27];
+	idct += cmpnfo[cmp].colldata[31][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 28];
+	idct += cmpnfo[cmp].colldata[40][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 29];
+	idct += cmpnfo[cmp].colldata[44][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 30];
+	idct += cmpnfo[cmp].colldata[53][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 31];
+	idct += cmpnfo[cmp].colldata[10][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 32];
+	idct += cmpnfo[cmp].colldata[19][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 33];
+	idct += cmpnfo[cmp].colldata[23][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 34];
+	idct += cmpnfo[cmp].colldata[32][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 35];
+	idct += cmpnfo[cmp].colldata[39][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 36];
+	idct += cmpnfo[cmp].colldata[45][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 37];
+	idct += cmpnfo[cmp].colldata[52][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 38];
+	idct += cmpnfo[cmp].colldata[54][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 39];
+	idct += cmpnfo[cmp].colldata[20][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 40];
+	idct += cmpnfo[cmp].colldata[22][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 41];
+	idct += cmpnfo[cmp].colldata[33][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 42];
+	idct += cmpnfo[cmp].colldata[38][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 43];
+	idct += cmpnfo[cmp].colldata[46][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 44];
+	idct += cmpnfo[cmp].colldata[51][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 45];
+	idct += cmpnfo[cmp].colldata[55][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 46];
+	idct += cmpnfo[cmp].colldata[60][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 47];
+	idct += cmpnfo[cmp].colldata[21][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 48];
+	idct += cmpnfo[cmp].colldata[34][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 49];
+	idct += cmpnfo[cmp].colldata[37][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 50];
+	idct += cmpnfo[cmp].colldata[47][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 51];
+	idct += cmpnfo[cmp].colldata[50][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 52];
+	idct += cmpnfo[cmp].colldata[56][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 53];
+	idct += cmpnfo[cmp].colldata[59][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 54];
+	idct += cmpnfo[cmp].colldata[61][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 55];
+	idct += cmpnfo[cmp].colldata[35][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 56];
+	idct += cmpnfo[cmp].colldata[36][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 57];
+	idct += cmpnfo[cmp].colldata[48][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 58];
+	idct += cmpnfo[cmp].colldata[49][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 59];
+	idct += cmpnfo[cmp].colldata[57][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 60];
+	idct += cmpnfo[cmp].colldata[58][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 61];
+	idct += cmpnfo[cmp].colldata[62][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 62];
+	idct += cmpnfo[cmp].colldata[63][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 63];
 
 	return idct;
 }
@@ -5740,14 +5740,14 @@ int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix) {
 
 	// begin transform
 	int idct = 0;
-	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_8x1[cmp][ixy + 0];
-	idct += dct::colldata[cmp][1][dpos] * dct::adpt_idct_8x1[cmp][ixy + 1];
-	idct += dct::colldata[cmp][5][dpos] * dct::adpt_idct_8x1[cmp][ixy + 2];
-	idct += dct::colldata[cmp][6][dpos] * dct::adpt_idct_8x1[cmp][ixy + 3];
-	idct += dct::colldata[cmp][14][dpos] * dct::adpt_idct_8x1[cmp][ixy + 4];
-	idct += dct::colldata[cmp][15][dpos] * dct::adpt_idct_8x1[cmp][ixy + 5];
-	idct += dct::colldata[cmp][27][dpos] * dct::adpt_idct_8x1[cmp][ixy + 6];
-	idct += dct::colldata[cmp][28][dpos] * dct::adpt_idct_8x1[cmp][ixy + 7];
+	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 0];
+	idct += cmpnfo[cmp].colldata[1][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 1];
+	idct += cmpnfo[cmp].colldata[5][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 2];
+	idct += cmpnfo[cmp].colldata[6][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 3];
+	idct += cmpnfo[cmp].colldata[14][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 4];
+	idct += cmpnfo[cmp].colldata[15][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 5];
+	idct += cmpnfo[cmp].colldata[27][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 6];
+	idct += cmpnfo[cmp].colldata[28][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 7];
 
 	return idct;
 }
@@ -5758,14 +5758,14 @@ int dct::idct_2d_fst_1x8(int cmp, int dpos, int iy) {
 
 	// begin transform
 	int idct = 0;
-	idct += dct::colldata[cmp][0][dpos] * dct::adpt_idct_1x8[cmp][ixy + 0];
-	idct += dct::colldata[cmp][2][dpos] * dct::adpt_idct_1x8[cmp][ixy + 1];
-	idct += dct::colldata[cmp][3][dpos] * dct::adpt_idct_1x8[cmp][ixy + 2];
-	idct += dct::colldata[cmp][9][dpos] * dct::adpt_idct_1x8[cmp][ixy + 3];
-	idct += dct::colldata[cmp][10][dpos] * dct::adpt_idct_1x8[cmp][ixy + 4];
-	idct += dct::colldata[cmp][20][dpos] * dct::adpt_idct_1x8[cmp][ixy + 5];
-	idct += dct::colldata[cmp][21][dpos] * dct::adpt_idct_1x8[cmp][ixy + 6];
-	idct += dct::colldata[cmp][35][dpos] * dct::adpt_idct_1x8[cmp][ixy + 7];
+	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 0];
+	idct += cmpnfo[cmp].colldata[2][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 1];
+	idct += cmpnfo[cmp].colldata[3][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 2];
+	idct += cmpnfo[cmp].colldata[9][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 3];
+	idct += cmpnfo[cmp].colldata[10][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 4];
+	idct += cmpnfo[cmp].colldata[20][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 5];
+	idct += cmpnfo[cmp].colldata[21][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 6];
+	idct += cmpnfo[cmp].colldata[35][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 7];
 
 	return idct;
 }
@@ -5777,7 +5777,7 @@ int dct::idct_2d_fst_1x8(int cmp, int dpos, int iy) {
 #if defined(USE_PLOCOI)
 int predictor::dc_coll_predictor(int cmp, int dpos)
 {
-	const short* coeffs = dct::colldata[cmp][0];
+	const short* coeffs = cmpnfo[cmp].colldata[0];
 	const int w = cmpnfo[cmp].bch;
 	int a = 0;
 	int b = 0;
@@ -5818,8 +5818,8 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	const int py = dpos / w;
 
 	// Store current block DC coefficient:
-	const short swap = dct::colldata[cmp][0][dpos];
-	dct::colldata[cmp][0][dpos] = short(0);
+	const short swap = cmpnfo[cmp].colldata[0][dpos];
+	cmpnfo[cmp].colldata[0][dpos] = short(0);
 
 	// Calculate prediction:
 	int pred = 0;
@@ -5844,7 +5844,7 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 	}
 
 	// Write back current DCT coefficient:
-	dct::colldata[cmp][0][dpos] = swap;
+	cmpnfo[cmp].colldata[0][dpos] = swap;
 
 	// Clamp and quantize predictor:
 	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
@@ -5986,14 +5986,14 @@ static bool dump_coll()
 
 		case CollectionMode::STD:
 			for (int bpos = 0; bpos < 64; bpos++) {
-				fwrite(dct::colldata[cmp][bpos], sizeof(short), cmpnfo[cmp].bc, fp);
+				fwrite(cmpnfo[cmp].colldata[bpos], sizeof(short), cmpnfo[cmp].bc, fp);
 			}
 			break;
 
 		case CollectionMode::DHF:
 			for (dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
 				for (int bpos = 0; bpos < 64; bpos++) {
-					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
+					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -6002,7 +6002,7 @@ static bool dump_coll()
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
 				const int bpos = zigzag[i++];
-				fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short),
+				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
 					cmpnfo[cmp].bch, fp);
 				if ((i % 8) == 0) {
 					dpos += cmpnfo[cmp].bch;
@@ -6020,7 +6020,7 @@ static bool dump_coll()
 				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
 					const int bpos = zigzag[((i % 8) * 8) + (j % 8)];
 					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
-					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
+					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -6029,7 +6029,7 @@ static bool dump_coll()
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
 				int bpos = even_zigzag[i++];
-				fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short),
+				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
 					cmpnfo[cmp].bch, fp);
 				if ((i % 8) == 0) {
 					dpos += cmpnfo[cmp].bch;
@@ -6047,7 +6047,7 @@ static bool dump_coll()
 				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
 					const int bpos = even_zigzag[((i % 8) * 8) + (j % 8)];
 					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
-					fwrite(&(dct::colldata[cmp][bpos][dpos]), sizeof(short), 1, fp);
+					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -6237,7 +6237,7 @@ static bool dump_dist() {
 			std::array<int, 1024 + 1> dist = { 0 };
 			// get distribution
 			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
-				dist[std::abs(dct::colldata[cmp][bpos][dpos])]++;
+				dist[std::abs(cmpnfo[cmp].colldata[bpos][dpos])]++;
 			}
 			// write to file
 			fwrite(dist.data(), sizeof(int), dist.size(), fp);
