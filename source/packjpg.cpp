@@ -635,6 +635,9 @@ private:
 	static constexpr int e_envli(int s, int v) {
 		return v - (1 << s);
 	}
+
+	std::vector<std::uint32_t> rstp; // restart markers positions in huffdata
+	std::vector<std::uint32_t> scnp; // scan start positions in huffdata
 };
 
 class JpgDecoder {
@@ -711,8 +714,6 @@ char padbit = -1; // padbit (for huffman coding)
 int scan_count = 0; // count of scans
 int rsti = 0; // restart interval
 
-std::vector<std::uint32_t> scnp; // scan start positions in huffdata
-std::vector<std::uint32_t> rstp; // restart markers positions in huffdata
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
 // Parses header for imageinfo.
@@ -2240,8 +2241,8 @@ static bool reset_buffers()
 	huffdata.clear();
 	grbgdata.clear();
 	jpg::rst_err.clear();
-	jpg::rstp.clear();
-	jpg::scnp.clear();
+
+	jpg::encode::jpeg_encoder = JpgEncoder();
 	
 	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		cmpnfo[cmp] = Component();
@@ -2481,7 +2482,7 @@ bool JpgEncoder::merge() {
 
 		// write & expand huffman coded image data
 		// ipos is the current position in image data.
-		for (std::uint32_t ipos = jpg::scnp[scan - 1]; ipos < jpg::scnp[scan]; ipos++) {
+		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
 			// write current byte
 			str_out->write_byte(huffdata[ipos]);
 			// check current byte, stuff if needed
@@ -2489,8 +2490,8 @@ bool JpgEncoder::merge() {
 				str_out->write_byte(std::uint8_t(0)); // 0xFF stuff value
 			}
 			// insert restart markers if needed
-			if (!jpg::rstp.empty()) {
-				if (ipos == jpg::rstp[rpos]) {
+			if (!rstp.empty()) {
+				if (ipos == rstp[rpos]) {
 					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 					constexpr std::uint8_t mrk = 0xFF; // marker start
 					str_out->write_byte(mrk);
@@ -2904,13 +2905,13 @@ bool JpgEncoder::recode()
 		
 		
 		// (re)alloc scan positons array
-		jpg::scnp.resize(jpg::scan_count + 2);
+		scnp.resize(jpg::scan_count + 2);
 		
 		// (re)alloc restart marker positons array if needed
 		if ( jpg::rsti > 0 ) {
 			int tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
 				( image::mcuc / jpg::rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / jpg::rsti ) );
-			jpg::rstp.resize(tmp + 1);
+			rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
@@ -2921,7 +2922,7 @@ bool JpgEncoder::recode()
 		int dpos = 0;
 		
 		// store scan position
-		jpg::scnp[ jpg::scan_count ] = huffw->getpos();
+		scnp[ jpg::scan_count ] = huffw->getpos();
 		
 		// JPEG imagedata encoding routines
 		while ( true )
@@ -3119,8 +3120,8 @@ bool JpgEncoder::recode()
 				break; // leave decoding loop, everything is done here
 			}
 			else if ( status == CodingStatus::RESTART ) {
-				if ( jpg::rsti > 0 ) // store jpg::rstp & stay in the loop
-					jpg::rstp[ rstc++ ] = huffw->getpos() - 1;
+				if ( jpg::rsti > 0 ) // store rstp & stay in the loop
+					rstp[ rstc++ ] = huffw->getpos() - 1;
 			}
 		}
 	}
@@ -3129,9 +3130,9 @@ bool JpgEncoder::recode()
 	huffdata = huffw->get_data();
 	
 	// store last scan & restart positions
-	jpg::scnp[ jpg::scan_count ] = huffdata.size();
-	if (!jpg::rstp.empty()) {
-		jpg::rstp[rstc] = huffdata.size();
+	scnp[ jpg::scan_count ] = huffdata.size();
+	if (!rstp.empty()) {
+		rstp[rstc] = huffdata.size();
 	}
 	
 	
