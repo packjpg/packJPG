@@ -3110,26 +3110,22 @@ static bool unpredict_dc()
 	return true;
 }
 
-bool jpg::decode::check_value_range()
-{
-	int absmax;
-	int cmp, bpos, dpos;
-	
+bool jpg::decode::check_value_range() {
 	// out of range should never happen with unmodified JPEGs
-	for ( cmp = 0; cmp < image::cmpc; cmp++ )
-	for ( bpos = 0; bpos < 64; bpos++ ) {
-		absmax = cmpnfo[cmp].max_v(bpos);
-		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-		if ( ( cmpnfo[cmp].colldata[bpos][dpos] > absmax ) ||
-			 ( cmpnfo[cmp].colldata[bpos][dpos] < -absmax ) ) {
-			sprintf( errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
-					cmp, bpos, cmpnfo[cmp].colldata[bpos][dpos], absmax );
-			errorlevel = 2;
-			return false;
+	for (size_t i = 0; i < cmpnfo.size(); i++) {
+		const auto& cmpt = cmpnfo[i];
+		for (int bpos = 0; bpos < 64; bpos++) {
+			const auto& coeffs = cmpt.colldata[bpos];
+			const int absmax = cmpt.max_v(bpos);
+			for (int dpos = 0; dpos < cmpt.bc; dpos++)
+				if (std::abs(coeffs[dpos]) > absmax) {
+					sprintf(errormessage, "value out of range error: cmp%u, frq%i, val %i, max %i",
+					        i, bpos, coeffs[dpos], absmax);
+					errorlevel = 2;
+					return false;
+				}
 		}
 	}
-	
-	
 	return true;
 }
 
