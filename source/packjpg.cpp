@@ -308,22 +308,6 @@ constexpr std::int16_t fdiv2(std::int16_t v, int p) {
 	return (v < 0) ? -((-v) >> p) : (v >> p);
 }
 
-constexpr int envli(int s, int v) {
-	return (v > 0) ? v : v - 1 + (1 << s);
-}
-
-constexpr int devli(int s, int n) {
-	return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
-}
-
-constexpr int e_envli(int s, int v) {
-	return v - (1 << s);
-}
-
-constexpr int e_devli(int s, int n) {
-	return n + (1 << s);
-}
-
 constexpr int pack(std::uint8_t left, std::uint8_t right) {
 	return (int(left) << 8) + int(right);
 }
@@ -404,6 +388,9 @@ struct Component {
 	int nc = -1;  // block count (all) (non interleaved)
 	int sid = -1; // statistical identity
 	int jid = -1; // jpeg internal id
+
+	uint8_t segm_cnt = 10; // number of segments
+
 
 	int quant(int bp) {
 		return qtable[bp];
@@ -598,6 +585,14 @@ int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<ab
 void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
 // Correction bits encoding routine.
 void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
+
+constexpr int envli(int s, int v) {
+	return (v > 0) ? v : v - 1 + (1 << s);
+}
+
+constexpr int e_envli(int s, int v) {
+	return v - (1 << s);
+}
 }
 
 namespace decode {
@@ -625,6 +620,14 @@ void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobr
 
 // Skips the eobrun, calculates next position.
 jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
+
+constexpr int devli(int s, int n) {
+	return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
+}
+
+constexpr int e_devli(int s, int n) {
+	return n + (1 << s);
+}
 }
 }
 
@@ -884,7 +887,6 @@ static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 #endif
 
 static unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
-static unsigned char segm_cnt[ 4 ] = {10,10,10,10}; // number of segments
 #if !defined(BUILD_LIB)
 static unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
@@ -946,7 +948,7 @@ int main( int argc, char** argv )
 		fprintf( msgout,  " custom compression settings: \n" );
 		fprintf( msgout,  " -------------------------------------------------\n" );
 		fprintf( msgout,  " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-				segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3] );
+				cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
 		fprintf( msgout,  " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
 				nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3] );
 		fprintf( msgout,  " -------------------------------------------------\n\n" );
@@ -1347,7 +1349,7 @@ static void initialize_options( int argc, char** argv )
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
 			tmp_val = ( tmp_val > 49 ) ? 49 : tmp_val;
-			segm_cnt[ i ] = tmp_val;
+			cmpnfo[i].segm_cnt = tmp_val;
 			auto_set = false;
 		}
 		else if ( sscanf(arg.c_str(), "-t%i", &tmp_val ) == 1 ) {
@@ -1362,10 +1364,10 @@ static void initialize_options( int argc, char** argv )
 		else if ( sscanf(arg.c_str(), "-s%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
 			tmp_val = ( tmp_val > 64 ) ? 64 : tmp_val;
-			segm_cnt[0] = tmp_val;
-			segm_cnt[1] = tmp_val;
-			segm_cnt[2] = tmp_val;
-			segm_cnt[3] = tmp_val;
+			cmpnfo[0].segm_cnt = tmp_val;
+			cmpnfo[1].segm_cnt = tmp_val;
+			cmpnfo[2].segm_cnt = tmp_val;
+			cmpnfo[3].segm_cnt = tmp_val;
 			auto_set = false;
 		}
 		else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
@@ -1421,10 +1423,10 @@ static void initialize_options( int argc, char** argv )
 		orig_set[ 1 ] = nois_trs[ 1 ];
 		orig_set[ 2 ] = nois_trs[ 2 ];
 		orig_set[ 3 ] = nois_trs[ 3 ];
-		orig_set[ 4 ] = segm_cnt[ 0 ];
-		orig_set[ 5 ] = segm_cnt[ 1 ];
-		orig_set[ 6 ] = segm_cnt[ 2 ];
-		orig_set[ 7 ] = segm_cnt[ 3 ];
+		orig_set[ 4 ] = cmpnfo[0].segm_cnt;
+		orig_set[ 5 ] = cmpnfo[1].segm_cnt;
+		orig_set[ 6 ] = cmpnfo[2].segm_cnt;
+		orig_set[ 7 ] = cmpnfo[3].segm_cnt;
 	}
 	else {
 		for ( i = 0; i < 8; i++ )
@@ -1981,10 +1983,10 @@ static bool check_file()
 			nois_trs[ 1 ] = orig_set[ 1 ];
 			nois_trs[ 2 ] = orig_set[ 2 ];
 			nois_trs[ 3 ] = orig_set[ 3 ];
-			segm_cnt[ 0 ] = orig_set[ 4 ];
-			segm_cnt[ 1 ] = orig_set[ 5 ];
-			segm_cnt[ 2 ] = orig_set[ 6 ];
-			segm_cnt[ 3 ] = orig_set[ 7 ];
+			cmpnfo[0].segm_cnt = orig_set[ 4 ];
+			cmpnfo[1].segm_cnt = orig_set[ 5 ];
+			cmpnfo[2].segm_cnt = orig_set[ 6 ];
+			cmpnfo[3].segm_cnt = orig_set[ 7 ];
 			auto_set = false;
 		}
 	}
@@ -3194,7 +3196,10 @@ bool pjg::encode::encode()
 		hcode = 0x00;
 		str_out->write_byte(hcode);
 		str_out->write( nois_trs, 4 );
-		str_out->write( segm_cnt, 4 );
+		str_out->write_byte(cmpnfo[0].segm_cnt);
+		str_out->write_byte(cmpnfo[1].segm_cnt);
+		str_out->write_byte(cmpnfo[2].segm_cnt);
+		str_out->write_byte(cmpnfo[3].segm_cnt);
 	}
 	
 	// store version number
@@ -3319,7 +3324,10 @@ bool pjg::decode::decode()
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
 			str_in->read( nois_trs, 4 );
-			str_in->read( segm_cnt, 4 );
+			str_in->read_byte(&cmpnfo[0].segm_cnt);
+			str_in->read_byte(&cmpnfo[1].segm_cnt);
+			str_in->read_byte(&cmpnfo[2].segm_cnt);
+			str_in->read_byte(&cmpnfo[3].segm_cnt);
 			auto_set = false;
 		}
 		else if ( hcode >= 0x14 ) {
@@ -3490,7 +3498,7 @@ bool jpg::setup_imginfo()
 			for ( i = 0;
 				conf_sets[ i ][ cmpnfo[cmp].sid ] > static_cast<uint32_t>(cmpnfo[ cmp ].bc);
 				i++ );
-			segm_cnt[ cmp ] = conf_segm;
+			cmpnfo[cmp].segm_cnt = conf_segm;
 			nois_trs[ cmp ] = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
 		}
 	}
@@ -4495,15 +4503,15 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 
 
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
 	const int max_len = bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(segm_cnt[cmp]), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
@@ -4575,11 +4583,11 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(segm_cnt[cmp])), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpnfo[cmp].segm_cnt)), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
@@ -4702,7 +4710,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(segm_cnt[cmp]), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
 	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(nois_trs[cmp])), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
@@ -4969,15 +4977,15 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
 	const int max_len = bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(segm_cnt[cmp]), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
@@ -5049,11 +5057,11 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
+	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(segm_cnt[cmp]), 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(segm_cnt[cmp]), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
@@ -5175,7 +5183,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(segm_cnt[cmp]), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
 	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(nois_trs[cmp])), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
@@ -6136,7 +6144,7 @@ static bool dump_info() {
 	// info about compression settings	
 	fprintf(fp, "\ncompression settings:\n");
 	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		segm_cnt[0], segm_cnt[1], segm_cnt[2], segm_cnt[3]);
+		cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
 	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
 		nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3]);
 	fprintf(fp, "\n");
