@@ -348,7 +348,7 @@ const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
 Enums for use in packJPG processing
 ----------------------------------------------- */
 
-enum Action {
+enum class Action {
 	A_COMPRESS = 1,
 	A_SPLIT_DUMP = 2,
 	A_COLL_DUMP = 3,
@@ -359,10 +359,16 @@ enum Action {
 	A_PGM_DUMP = 8
 };
 
-enum FileType {
+enum class FileType {
 	F_JPG = 1,
 	F_PJG = 2,
 	F_UNK = 3
+};
+
+enum class JpegType {
+	UNKNOWN = 0,
+	SEQUENTIAL = 1,
+	PROGRESSIVE = 2
 };
 
 /* -----------------------------------------------
@@ -488,13 +494,6 @@ public:
 	}
 };
 
-enum JpegType {
-	UNKNOWN = 0,
-	SEQUENTIAL = 1,
-	PROGRESSIVE = 2
-};
-
-
 /* -----------------------------------------------
 	function declarations: main interface
 	----------------------------------------------- */
@@ -523,7 +522,7 @@ static bool calc_zdst_lists();
 
 namespace jpg {
 
-enum CodingStatus {
+enum class CodingStatus {
 	OKAY = 0,
 	RESTART = 1,
 	ERROR = -1,
@@ -726,7 +725,7 @@ static bool file_exists(const std::string& filename);
 // these are developers functions, they are not needed
 // in any way to compress jpg or decompress pjg
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-enum CollectionMode {
+enum class CollectionMode {
 	STD = 0, // standard collections
 	DHF = 1, // sequential order collections, 'dhufs'
 	SQU = 2, // square collections
@@ -2091,13 +2090,7 @@ static bool compare_output() {
 	----------------------------------------------- */
 
 static bool reset_buffers()
-{
-	int bpos;
-	int i;
-	
-	
-	// -- free buffers --
-	
+{		
 	// free buffers & set pointers nullptr
 	hdrdata.clear();
 	huffdata.clear();
@@ -2124,11 +2117,10 @@ static bool reset_buffers()
 	jpg::rsti      = 0;
 	
 	// reset quantization / huffman tables
-	for ( i = 0; i < 4; i++ ) {
+	for (int i = 0; i < 4; i++ ) {
 		jpg::htrees[0][i].reset(nullptr);
 		jpg::htrees[1][i].reset(nullptr);
-		for ( bpos = 0; bpos < 64; bpos++ )
-			qtables[ i ][ bpos ] = 0;
+		qtables[i].fill(0);
 	}
 	
 	// preset jpegtype
@@ -2136,7 +2128,6 @@ static bool reset_buffers()
 	
 	// reset jpg::padbit
 	jpg::padbit = -1;
-	
 	
 	return true;
 }
@@ -3554,7 +3545,7 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 		hpos++;
 		if (lval == 0) { // 8 bit precision
 			for (int i = 0; i < 64; i++) {
-				qtables[rval][i] = (unsigned short) segment[hpos + i];
+				qtables[rval][i] = static_cast<uint16_t>(segment[hpos + i]);
 				if (qtables[rval][i] == 0) {
 					break;
 				}
