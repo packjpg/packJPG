@@ -663,7 +663,7 @@ private:
 	void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
 
 	// Skips the eobrun, calculates next position.
-	CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
+	CodingStatus skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun);
 
 	constexpr int devli(int s, int n) {
 		return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
@@ -721,7 +721,7 @@ bool rebuild_header();
 // Calculates next position for MCU.
 CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
 // Calculates next position (non interleaved).
-CodingStatus next_mcuposn(int cmpt, int* dpos, int* rstw);
+CodingStatus next_mcuposn(const Component& cmpt, int* dpos, int* rstw);
 
 namespace jfif {
 
@@ -2696,7 +2696,7 @@ bool JpgDecoder::decode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 					}
 				}
 				else if ( curr_scan::to == 0 ) {					
@@ -2717,7 +2717,7 @@ bool JpgDecoder::decode()
 							
 							// check for errors, increment dpos otherwise
 							if ( status != CodingStatus::ERROR )
-								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 					else {
@@ -2731,7 +2731,7 @@ bool JpgDecoder::decode()
 							cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
 							
 							// increment dpos
-							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 				}
@@ -2765,11 +2765,11 @@ bool JpgDecoder::decode()
 							
 							// check for errors
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = this->skip_eobrun(cmp, &dpos, &rstw, &eobrun);
+							else status = this->skip_eobrun(cmpnfo[cmp], &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
 							if ( status == CodingStatus::OKAY )
-								status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 					else {
@@ -2813,7 +2813,7 @@ bool JpgDecoder::decode()
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 				}
@@ -3018,7 +3018,7 @@ bool JpgEncoder::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmp, &dpos, &rstw);	
+						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);	
 					}
 				}
 				else if ( curr_scan::to == 0 ) {
@@ -3037,7 +3037,7 @@ bool JpgEncoder::recode()
 							                       block);							
 							
 							// check for errors, increment dpos otherwise
-							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 					else {
@@ -3051,7 +3051,7 @@ bool JpgEncoder::recode()
 							this->dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}
 					}
 				}
@@ -3072,7 +3072,7 @@ bool JpgEncoder::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3094,7 +3094,7 @@ bool JpgEncoder::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmp, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -4439,25 +4439,25 @@ CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos,
 	return sta;
 }
 
-CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
+CodingStatus jpg::next_mcuposn(const Component& cmpt, int* dpos, int* rstw)
 {
 	// increment position
 	(*dpos)++;
 	
 	// fix for non interleaved mcu - horizontal
-	if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
-		if ( (*dpos) % cmpnfo[cmpt].bch == cmpnfo[cmpt].nch )
-			(*dpos) += ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
+	if ( cmpt.bch != cmpt.nch ) {
+		if ( (*dpos) % cmpt.bch == cmpt.nch )
+			(*dpos) += ( cmpt.bch - cmpt.nch );
 	}
 	
 	// fix for non interleaved mcu - vertical
-	if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
-		if ( (*dpos) / cmpnfo[cmpt].bch == cmpnfo[cmpt].ncv )
-			(*dpos) = cmpnfo[cmpt].bc;
+	if ( cmpt.bcv != cmpt.ncv ) {
+		if ( (*dpos) / cmpt.bch == cmpt.ncv )
+			(*dpos) = cmpt.bc;
 	}
 	
 	// check position
-	if ( (*dpos) >= cmpnfo[cmpt].bc ) return CodingStatus::DONE;
+	if ( (*dpos) >= cmpt.bc ) return CodingStatus::DONE;
 	else if ( jpg::rsti > 0 )
 		if ( --(*rstw) == 0 ) return CodingStatus::RESTART;
 	
@@ -4465,7 +4465,7 @@ CodingStatus jpg::next_mcuposn(int cmpt, int* dpos, int* rstw)
 	return CodingStatus::OKAY;
 }
 
-CodingStatus JpgDecoder::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun)
+CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
@@ -4478,16 +4478,16 @@ CodingStatus JpgDecoder::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun
 		}
 		
 		// fix for non interleaved mcu - horizontal
-		if ( cmpnfo[cmpt].bch != cmpnfo[cmpt].nch ) {
-			(*dpos) += ( ( ( (*dpos) % cmpnfo[cmpt].bch ) + (*eobrun) ) /
-						cmpnfo[cmpt].nch ) * ( cmpnfo[cmpt].bch - cmpnfo[cmpt].nch );
+		if ( cmpt.bch != cmpt.nch ) {
+			(*dpos) += ( ( ( (*dpos) % cmpt.bch ) + (*eobrun) ) /
+						cmpt.nch ) * ( cmpt.bch - cmpt.nch );
 		}
 		
 		// fix for non interleaved mcu - vertical
-		if ( cmpnfo[cmpt].bcv != cmpnfo[cmpt].ncv ) {
-			if ( (*dpos) / cmpnfo[cmpt].bch >= cmpnfo[cmpt].ncv )
-				(*dpos) += ( cmpnfo[cmpt].bcv - cmpnfo[cmpt].ncv ) *
-						cmpnfo[cmpt].bch;
+		if ( cmpt.bcv != cmpt.ncv ) {
+			if ( (*dpos) / cmpt.bch >= cmpt.ncv )
+				(*dpos) += ( cmpt.bcv - cmpt.ncv ) *
+						cmpt.bch;
 		}		
 		
 		// skip blocks 
@@ -4497,8 +4497,8 @@ CodingStatus JpgDecoder::skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun
 		(*eobrun) = 0;
 		
 		// check position
-		if ( (*dpos) == cmpnfo[cmpt].bc ) return CodingStatus::DONE;
-		else if ( (*dpos) > cmpnfo[cmpt].bc ) return CodingStatus::ERROR;
+		if ( (*dpos) == cmpt.bc ) return CodingStatus::DONE;
+		else if ( (*dpos) > cmpt.bc ) return CodingStatus::ERROR;
 		else if ( jpg::rsti > 0 ) 
 			if ( (*rstw) == 0 ) return CodingStatus::RESTART;
 	}
@@ -5794,7 +5794,7 @@ int predictor::dc_1ddct_predictor(Component& cmpt, int dpos) {
 	const int py = dpos / w;
 
 	// Store current block DC coefficient:
-	const short swap = cmpt.colldata[0][dpos];
+	const auto swap = cmpt.colldata[0][dpos];
 	cmpt.colldata[0][dpos] = short(0);
 
 	// Calculate prediction:
