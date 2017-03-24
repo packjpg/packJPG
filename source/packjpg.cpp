@@ -648,19 +648,19 @@ public:
 
 private:
 	// Sequential block decoding routine.
-	int block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block);
+	int block_seq(const HuffTree& dctree, const HuffTree& actree, short* block);
 	// Progressive DC decoding routine.
-	CodingStatus dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block);
+	CodingStatus dc_prg_fs(const HuffTree& dctree, short* block);
 	// Progressive AC decoding routine.
-	int ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
+	int ac_prg_fs(const HuffTree& actree, short* block,
 		int* eobrun, int from, int to);
 	// Progressive DC SA decoding routine.
-	void dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block);
+	void dc_prg_sa(short* block);
 	// Progressive AC SA decoding routine.
-	int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
+	int ac_prg_sa(const HuffTree& actree, short* block,
 		int* eobrun, int from, int to);
 	// Run of EOB SA decoding routine.
-	void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int from, int to);
+	void eobrun_sa(short* block, int from, int to);
 
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun);
@@ -672,6 +672,8 @@ private:
 	static constexpr int e_devli(int s, int n) {
 		return n + (1 << s);
 	}
+
+	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
 
 /* -----------------------------------------------
@@ -2543,7 +2545,7 @@ bool JpgDecoder::decode()
 	short block[64]; // store block for coeffs
 	
 	// open huffman coded image data for input in abitreader
-	auto huffr = std::make_unique<abitreader>(huffdata); // bitwise reader for image data
+	huffr = std::make_unique<abitreader>(huffdata); // bitwise reader for image data
 	
 	// preset count of scans
 	jpg::scan_count = 0;
@@ -2611,10 +2613,9 @@ bool JpgDecoder::decode()
 					// ---> sequential interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq( huffr,
-						                              *jpg::htrees[ 0 ][ cmpnfo[cmp].huffdc ],
-						                              *jpg::htrees[ 1 ][ cmpnfo[cmp].huffdc ],
-						                              block );
+						eob = this->block_seq(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+						                      *jpg::htrees[1][cmpnfo[cmp].huffdc],
+						                      block);
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2639,9 +2640,8 @@ bool JpgDecoder::decode()
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
-						status = this->dc_prg_fs( huffr,
-						                                 *jpg::htrees[0][cmpnfo[cmp].huffdc],
-						                                 block );
+						status = this->dc_prg_fs(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+						                         block);
 						
 						// fix dc for diff coding
 						cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
@@ -2660,7 +2660,7 @@ bool JpgDecoder::decode()
 					// ---> succesive approximation later stage <---					
 					while ( status == CodingStatus::OKAY ) {
 						// decode next bit
-						this->dc_prg_sa(huffr, block);
+						this->dc_prg_sa(block);
 						
 						// shift in next bit
 						cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
@@ -2675,10 +2675,9 @@ bool JpgDecoder::decode()
 					// ---> sequential non interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq( huffr,
-						                              *jpg::htrees[ 0 ][ cmpnfo[cmp].huffdc ],
-						                              *jpg::htrees[ 1 ][ cmpnfo[cmp].huffdc ],
-						                              block );
+						eob = this->block_seq(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+						                      *jpg::htrees[1][cmpnfo[cmp].huffdc],
+						                      block);
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
@@ -2704,9 +2703,8 @@ bool JpgDecoder::decode()
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
-							status = this->dc_prg_fs( huffr,
-							                                 *jpg::htrees[0][cmpnfo[cmp].huffdc],
-							                                 block );
+							status = this->dc_prg_fs(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+							                         block);
 								
 							// fix dc for diff coding
 							cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
@@ -2725,7 +2723,7 @@ bool JpgDecoder::decode()
 						// ---> succesive approximation later stage <---
 						while( status == CodingStatus::OKAY ) {
 							// decode next bit
-							this->dc_prg_sa(huffr, block);
+							this->dc_prg_sa(block);
 							
 							// shift in next bit
 							cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
@@ -2742,9 +2740,8 @@ bool JpgDecoder::decode()
 						while ( status == CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
-								eob = this->ac_prg_fs( huffr,
-								                              *jpg::htrees[1][cmpnfo[cmp].huffac],
-								                              block, &eobrun, curr_scan::from, curr_scan::to );
+								eob = this->ac_prg_fs(*jpg::htrees[1][cmpnfo[cmp].huffac],
+								                      block, &eobrun, curr_scan::from, curr_scan::to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2782,9 +2779,8 @@ bool JpgDecoder::decode()
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
-								eob = this->ac_prg_sa( huffr,
-								                              *jpg::htrees[1][cmpnfo[cmp].huffac],
-								                              block, &eobrun, curr_scan::from, curr_scan::to );
+								eob = this->ac_prg_sa(*jpg::htrees[1][cmpnfo[cmp].huffac],
+								                      block, &eobrun, curr_scan::from, curr_scan::to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
@@ -2802,7 +2798,7 @@ bool JpgDecoder::decode()
 							}
 							else {
 								// decode block (short routine)
-								this->eobrun_sa(huffr, block, curr_scan::from, curr_scan::to);
+								this->eobrun_sa(block, curr_scan::from, curr_scan::to);
 								eob = 0;
 								eobrun--;
 							}
@@ -2856,6 +2852,8 @@ bool JpgDecoder::decode()
 		sprintf( errormessage, "surplus data found after coded image data" );
 		errorlevel = 1;
 	}
+
+	huffr = nullptr;
 	
 	
 	return true;
@@ -3979,7 +3977,7 @@ bool jpg::rebuild_header()
 	return true;
 }
 
-int JpgDecoder::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, const HuffTree& actree, short* block)
+int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short* block)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3990,7 +3988,7 @@ int JpgDecoder::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffTr
 	
 	
 	// decode dc
-	if (this->dc_prg_fs(huffr, dctree, block) == CodingStatus::ERROR) {
+	if (this->dc_prg_fs(dctree, block) == CodingStatus::ERROR) {
 		return -1; // Return error
 	}
 	
@@ -4064,7 +4062,7 @@ int JpgEncoder::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCo
 	return 64 - z;
 }
 
-CodingStatus JpgDecoder::dc_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& dctree, short* block)
+CodingStatus JpgDecoder::dc_prg_fs(const HuffTree& dctree, short* block)
 {
 	// decode dc
 	int hc = dctree.next_huffcode(huffr);
@@ -4088,7 +4086,7 @@ void JpgEncoder::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 	huffw->write(n, s);
 }
 
-int JpgDecoder::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
+int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4186,7 +4184,7 @@ int JpgEncoder::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCo
 	}
 }
 
-void JpgDecoder::dc_prg_sa(const std::unique_ptr<abitreader>& huffr, short* block)
+void JpgDecoder::dc_prg_sa(short* block)
 {
 	// decode next bit of dc coefficient
 	block[ 0 ] = huffr->read_bit();
@@ -4198,7 +4196,7 @@ void JpgEncoder::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::
 	huffw->write_bit(block[0]);
 }
 
-int JpgDecoder::ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block, int* eobrun, int from, int to)
+int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4347,7 +4345,7 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 	return eob;
 }
 
-void JpgDecoder::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int from, int to) {
+void JpgDecoder::eobrun_sa(short* block, int from, int to) {
 	// fast eobrun decoding routine for succesive approximation
 	for (int bpos = from; bpos <= to; bpos++) {
 		if (block[bpos] != 0) {
