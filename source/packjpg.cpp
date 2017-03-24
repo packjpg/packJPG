@@ -312,7 +312,6 @@ constexpr int clamp(int val, int lo, int hi) {
 	return (val < lo) ? lo : (val > hi ? hi : val);
 }
 
-const std::string MEM_ERRMSG("out of memory error");
 const std::string FRD_ERRMSG("could not read file / file not found: %s");
 const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
 
