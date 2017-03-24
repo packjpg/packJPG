@@ -612,11 +612,11 @@ jpg::CodingStatus skip_eobrun(int cmpt, int* dpos, int* rstw, int* eobrun);
 	----------------------------------------------- */
 
 namespace pjg {
-	unsigned char* zdstdata[4] = { nullptr }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
-	unsigned char* eobxhigh[4] = { nullptr }; // eob in x direction (for higher 7x7 block)
-	unsigned char* eobyhigh[4] = { nullptr }; // eob in y direction (for higher 7x7 block)
-	unsigned char* zdstxlow[4] = { nullptr }; // # of non zeroes for first row
-	unsigned char* zdstylow[4] = { nullptr }; // # of non zeroes for first column
+	std::array<std::vector<uint8_t>, 4> zdstdata; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
+	std::array<std::vector<uint8_t>, 4> eobxhigh; // eob in x direction (for higher 7x7 block)
+	std::array<std::vector<uint8_t>, 4> eobyhigh; // eob in y direction (for higher 7x7 block)
+	std::array<std::vector<uint8_t>, 4> zdstxlow; // # of non zeroes for first row
+	std::array<std::vector<uint8_t>, 4> zdstylow; // # of non zeroes for first column
 
 	std::array<std::array<uint8_t, 64>, 4> freqscan; // optimized order for frequency scans (only pointers to scans)
 
@@ -2108,16 +2108,11 @@ static bool reset_buffers()
 	
 	// free image arrays
 	for ( cmp = 0; cmp < 4; cmp++ )	{
-		if ( pjg::zdstdata[ cmp ] != nullptr ) free( pjg::zdstdata[cmp] );
-		if ( pjg::eobxhigh[ cmp ] != nullptr) free( pjg::eobxhigh[cmp] );
-		if ( pjg::eobyhigh[ cmp ] != nullptr) free( pjg::eobyhigh[cmp] );
-		if ( pjg::zdstxlow[ cmp ] != nullptr) free( pjg::zdstxlow[cmp] );
-		if ( pjg::zdstylow[ cmp ] != nullptr) free( pjg::zdstylow[cmp] );
-		pjg::zdstdata[ cmp ] = nullptr;
-		pjg::eobxhigh[ cmp ] = nullptr;
-		pjg::eobyhigh[ cmp ] = nullptr;
-		pjg::zdstxlow[ cmp ] = nullptr;
-		pjg::zdstylow[ cmp ] = nullptr;
+		pjg::zdstdata[ cmp ].clear();
+		pjg::eobxhigh[ cmp ].clear();
+		pjg::eobyhigh[ cmp ].clear();
+		pjg::zdstxlow[ cmp ].clear();
+		pjg::zdstylow[ cmp ].clear();
 		pjg::freqscan[ cmp ] = stdscan;
 		
 		for ( bpos = 0; bpos < 64; bpos++ ) {
@@ -3192,7 +3187,7 @@ static bool calc_zdst_lists()
 	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	{
 		// preset zdstlist
-		memset( pjg::zdstdata[cmp], 0, cmpnfo[cmp].bc * sizeof( char ) );
+		std::fill(std::begin(pjg::zdstdata[cmp]), std::end(pjg::zdstdata[cmp]), static_cast<uint8_t>(0));
 		
 		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/collumn)
 		for ( bpos = 1; bpos < 64; bpos++ ) {
@@ -3527,18 +3522,11 @@ bool jpg::setup_imginfo()
 		}
 		
 		// alloc memory for zdstlist / eob x / eob y
-		pjg::zdstdata[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		pjg::eobxhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		pjg::eobyhigh[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		pjg::zdstxlow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		pjg::zdstylow[cmp] = (unsigned char*) calloc( cmpnfo[cmp].bc, sizeof( char ) );
-		if ( ( pjg::zdstdata[cmp] == nullptr) ||
-			( pjg::eobxhigh[cmp] == nullptr) || ( pjg::eobyhigh[cmp] == nullptr) ||
-			( pjg::zdstxlow[cmp] == nullptr) || ( pjg::zdstylow[cmp] == nullptr) ) {
-			sprintf( errormessage, MEM_ERRMSG.c_str());
-			errorlevel = 2;
-			return false;
-		}
+		pjg::zdstdata[cmp] = std::vector<uint8_t>(cmpnfo[cmp].bc);
+		pjg::eobxhigh[cmp] = std::vector<uint8_t>(cmpnfo[cmp].bc);
+		pjg::eobyhigh[cmp] = std::vector<uint8_t>(cmpnfo[cmp].bc);
+		pjg::zdstxlow[cmp] = std::vector<uint8_t>(cmpnfo[cmp].bc);
+		pjg::zdstylow[cmp] = std::vector<uint8_t>(cmpnfo[cmp].bc);
 	}
 	
 	// also decide automatic settings here
@@ -4495,7 +4483,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, int c
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	const unsigned char* zdstls = pjg::zdstdata[ cmp ];
+	const auto& zdstls = pjg::zdstdata[ cmp ];
 	const int w = cmpnfo[cmp].bch;
 	const int bc = cmpnfo[cmp].bc;
 
@@ -4520,11 +4508,11 @@ void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cm
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-	const unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
-	const unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
-	const unsigned char* ctx_eobx = pjg::eobxhigh[ cmp ];
-	const unsigned char* ctx_eoby = pjg::eobyhigh[ cmp ];
-	const unsigned char* ctx_zdst = pjg::zdstdata[ cmp ];
+	const auto& zdstls_x = pjg::zdstxlow[ cmp ];
+	const auto& zdstls_y = pjg::zdstylow[ cmp ];
+	const auto& ctx_eobx = pjg::eobxhigh[ cmp ];
+	const auto& ctx_eoby = pjg::eobyhigh[ cmp ];
+	const auto& ctx_zdst = pjg::zdstdata[ cmp ];
 	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
@@ -4575,7 +4563,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	
 	// locally store pointer to coefficients and zero distribution list
 	const short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
-	const unsigned char* zdstls = pjg::zdstdata[ cmp ];	 // Pointer to zero distribution list.
+	const auto& zdstls = pjg::zdstdata[ cmp ];	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++ )
@@ -4646,19 +4634,19 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 	// allocate memory for absolute values & signs storage
 	std::vector<unsigned short> absv_store(bc);	// absolute coefficients values storage
 	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
-	std::vector<unsigned char> zdstls(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
+	auto zdstls = pjg::zdstdata[cmp]; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
 	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	unsigned char* eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
-	unsigned char* eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
+	auto& eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
+	auto& eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
 	
 	// preset x/y eobs
-	std::fill(eob_x, eob_x + bc, unsigned char(0));
-	std::fill(eob_y, eob_y + bc, unsigned char(0));
+	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
+	std::fill(std::begin(eob_y), std::end(eob_y), static_cast<uint8_t>(0));
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
@@ -4781,14 +4769,13 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		unsigned char* zdstls; // Pointer to row/col # of non-zeroes.
+		auto& zdstls = b_x == 0 ? pjg::zdstylow[cmp] : pjg::zdstxlow[cmp]; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
-			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
@@ -4797,7 +4784,6 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
-			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
 		
@@ -4970,7 +4956,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, int c
 {		
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	unsigned char* zdstls = pjg::zdstdata[ cmp ];
+	auto& zdstls = pjg::zdstdata[ cmp ];
 	const int w = cmpnfo[cmp].bch;
 	const int bc = cmpnfo[cmp].bc;
 	
@@ -4996,12 +4982,12 @@ void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cm
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
-	unsigned char* zdstls_x = pjg::zdstxlow[ cmp ];
-	unsigned char* zdstls_y = pjg::zdstylow[ cmp ];
+	auto& zdstls_x = pjg::zdstxlow[ cmp ];
+	auto& zdstls_y = pjg::zdstylow[ cmp ];
 
-	const unsigned char* ctx_eobx = pjg::eobxhigh[ cmp ];
-	const unsigned char* ctx_eoby = pjg::eobyhigh[ cmp ];
-	const unsigned char* ctx_zdst = pjg::zdstdata[ cmp ];
+	const auto& ctx_eobx = pjg::eobxhigh[ cmp ];
+	const auto& ctx_eoby = pjg::eobyhigh[ cmp ];
+	const auto& ctx_zdst = pjg::zdstdata[ cmp ];
 	const int bc = cmpnfo[cmp].bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
@@ -5051,7 +5037,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	
 	// locally store pointer to coefficients and zero distribution list
 	short* coeffs = dct::colldata[ cmp ][ 0 ]; // Pointer to current coefficent data.
-	const unsigned char* zdstls = pjg::zdstdata[ cmp ]; // Pointer to zero distribution list.
+	const auto& zdstls = pjg::zdstdata[ cmp ]; // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++ )
@@ -5122,19 +5108,19 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 	// allocate memory for absolute values & signs storage
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
-	std::vector<unsigned char> zdstls(pjg::zdstdata[cmp], pjg::zdstdata[cmp] + bc); // copy of zero distribution list
+	auto zdstls = pjg::zdstdata[cmp]; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
 	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	unsigned char* eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
-	unsigned char* eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
+	auto& eob_x = pjg::eobxhigh[ cmp ]; // Pointer to x eobs.
+	auto& eob_y = pjg::eobyhigh[ cmp ]; // Pointer to y eobs.
 	
 	// preset x/y eobs
-	std::fill(eob_x, eob_x + bc, unsigned char(0));
-	std::fill(eob_y, eob_y + bc, unsigned char(0));
+	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
+	std::fill(std::begin(eob_y), std::end(eob_y), static_cast<uint8_t>(0));
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
@@ -5256,14 +5242,13 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		unsigned char* zdstls; // Pointer to row/col # of non-zeroes.
+		auto& zdstls = b_x == 0 ? pjg::zdstylow[cmp] : pjg::zdstxlow[cmp]; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ];
 				coeffs_a[ b_x ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - 1;
 				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
-			zdstls = pjg::zdstylow[ cmp ];
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
@@ -5272,7 +5257,6 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 				coeffs_a[ b_y ] = dct::colldata[ cmp ][ zigzag[b_x+(8*b_y)] ] - w;
 				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
 			}
-			zdstls = pjg::zdstxlow[ cmp ];
 			edge_c = &p_y;
 		}
 		
