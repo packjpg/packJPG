@@ -369,7 +369,7 @@ enum FileType {
 	struct declarations
 	----------------------------------------------- */
 
-struct componentInfo {
+struct Component {
 	std::vector<uint8_t> zdstdata; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
 	std::vector<uint8_t> eobxhigh; // eob in x direction (for higher 7x7 block)
 	std::vector<uint8_t> eobyhigh; // eob in y direction (for higher 7x7 block)
@@ -384,7 +384,7 @@ struct componentInfo {
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
-	unsigned short* qtable; // quantization table
+	std::array<uint16_t, 64> qtable; // quantization table
 	int huffdc; // no of huffman table (DC)
 	int huffac; // no of huffman table (AC)
 	int sfv; // sample factor vertical
@@ -762,7 +762,7 @@ static int lib_out_type = -1;
 	global variables: data storage
 	----------------------------------------------- */
 
-static unsigned short qtables[4][64];				// quantization tables
+static std::array<std::array<uint16_t, 64>, 4> qtables; // quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
 static std::vector<std::uint8_t> hdrdata;   // header data
@@ -773,7 +773,7 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 	----------------------------------------------- */
 
 // separate info for each color component
-static componentInfo cmpnfo[ 4 ];
+static std::array<Component, 4> cmpnfo;
 
 int QUANT(int cm, int bp) {
 	return cmpnfo[cm].qtable[bp];
@@ -2136,7 +2136,7 @@ static bool reset_buffers()
 		cmpnfo[ cmp ].nc  = -1;
 		cmpnfo[ cmp ].sid = -1;
 		cmpnfo[ cmp ].jid = -1;
-		cmpnfo[ cmp ].qtable = nullptr;
+		cmpnfo[ cmp ].qtable.fill(static_cast<uint16_t>(0));
 		cmpnfo[ cmp ].huffdc = -1;
 		cmpnfo[ cmp ].huffac = -1;
 	}
@@ -3470,7 +3470,7 @@ bool jpg::setup_imginfo()
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		if ( ( cmpnfo[cmp].sfv == 0 ) ||
 			 ( cmpnfo[cmp].sfh == 0 ) ||
-			 ( cmpnfo[cmp].qtable == nullptr ) ||
+			 //( cmpnfo[cmp].qtable == nullptr ) ||
 			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
 			 ( jpegtype == JpegType::UNKNOWN ) ) {
 			sprintf( errormessage, "header information is incomplete" );
