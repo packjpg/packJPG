@@ -384,20 +384,20 @@ struct Component {
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
-	std::array<uint16_t, 64> qtable; // quantization table
-	int huffdc; // no of huffman table (DC)
-	int huffac; // no of huffman table (AC)
-	int sfv; // sample factor vertical
-	int sfh; // sample factor horizontal	
-	int mbs; // blocks in mcu
-	int bcv; // block count vertical (interleaved)
-	int bch; // block count horizontal (interleaved)
-	int bc;  // block count (all) (interleaved)
-	int ncv; // block count vertical (non interleaved)
-	int nch; // block count horizontal (non interleaved)
-	int nc;  // block count (all) (non interleaved)
-	int sid; // statistical identity
-	int jid; // jpeg internal id
+	std::array<uint16_t, 64> qtable = std::array<uint16_t, 64>{ 0 }; // quantization table
+	int huffdc = -1; // no of huffman table (DC)
+	int huffac = -1; // no of huffman table (AC)
+	int sfv = -1; // sample factor vertical
+	int sfh = -1; // sample factor horizontal	
+	int mbs = -1; // blocks in mcu
+	int bcv = -1; // block count vertical (interleaved)
+	int bch = -1; // block count horizontal (interleaved)
+	int bc = -1;  // block count (all) (interleaved)
+	int ncv = -1; // block count vertical (non interleaved)
+	int nch = -1; // block count horizontal (non interleaved)
+	int nc = -1;  // block count (all) (non interleaved)
+	int sid = -1; // statistical identity
+	int jid = -1; // jpeg internal id
 };
 
 struct HuffCodes {
@@ -2092,7 +2092,7 @@ static bool compare_output() {
 
 static bool reset_buffers()
 {
-	int cmp, bpos;
+	int bpos;
 	int i;
 	
 	
@@ -2106,39 +2106,8 @@ static bool reset_buffers()
 	jpg::rstp.clear();
 	jpg::scnp.clear();
 	
-	// free image arrays
-	for ( cmp = 0; cmp < 4; cmp++ )	{
-		cmpnfo[cmp].zdstdata.clear();
-		cmpnfo[cmp].eobxhigh.clear();
-		cmpnfo[cmp].eobyhigh.clear();
-		cmpnfo[cmp].zdstxlow.clear();
-		cmpnfo[cmp].zdstylow.clear();
-		cmpnfo[cmp].freqscan = stdscan;
-		
-		for ( bpos = 0; bpos < 64; bpos++ ) {
-			cmpnfo[cmp].colldata[bpos].clear();
-		}		
-	}
-	
-	
-	// -- set variables --
-	
-	// preset componentinfo
-	for ( cmp = 0; cmp < 4; cmp++ ) {
-		cmpnfo[ cmp ].sfv = -1;
-		cmpnfo[ cmp ].sfh = -1;
-		cmpnfo[ cmp ].mbs = -1;
-		cmpnfo[ cmp ].bcv = -1;
-		cmpnfo[ cmp ].bch = -1;
-		cmpnfo[ cmp ].bc  = -1;
-		cmpnfo[ cmp ].ncv = -1;
-		cmpnfo[ cmp ].nch = -1;
-		cmpnfo[ cmp ].nc  = -1;
-		cmpnfo[ cmp ].sid = -1;
-		cmpnfo[ cmp ].jid = -1;
-		cmpnfo[ cmp ].qtable.fill(static_cast<uint16_t>(0));
-		cmpnfo[ cmp ].huffdc = -1;
-		cmpnfo[ cmp ].huffac = -1;
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+		cmpnfo[cmp] = Component();
 	}
 	
 	// preset imgwidth / imgheight / component count 
