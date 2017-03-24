@@ -2198,7 +2198,7 @@ bool jpg::decode::read()
 							// realloc and set only if needed
 							jpg::rst_err.resize(jpg::scan_count + 1);
 							if ( crst > 255 ) {
-								sprintf( errormessage, "Severe false use of RST markers (%i)", (int) crst );
+								sprintf( errormessage, "Severe false use of RST markers (%u)", crst );
 								errorlevel = 1;
 								crst = 255;
 							}
@@ -2260,7 +2260,7 @@ bool jpg::decode::read()
 		
 		// read rest of segment, store back in header writer
 		if ( str_in->read(segment, len - 4 , 4) !=
-			( unsigned short ) ( len - 4 ) ) break;
+			static_cast<size_t>( len - 4 ) ) break;
 		hdrw->write_n( segment.data(), len );
 	}
 	// JPEG reader loop end
@@ -3444,18 +3444,18 @@ bool jpg::setup_imginfo()
 		if ( cmpnfo[ cmp ].sfh > image::sfhm ) image::sfhm = cmpnfo[ cmp ].sfh;
 		if ( cmpnfo[ cmp ].sfv > image::sfvm ) image::sfvm = cmpnfo[ cmp ].sfv;
 	}
-	image::mcuv = ( int ) ceil( (float)image::imgheight / (float) ( 8 * image::sfhm ) );
-	image::mcuh = ( int ) ceil( (float)image::imgwidth  / (float) ( 8 * image::sfvm ) );
+	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * image::sfhm) ) );
+	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth)  / static_cast<float>( 8 * image::sfvm ) ));
 	image::mcuc  = image::mcuv * image::mcuh;
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		cmpnfo[ cmp ].mbs = cmpnfo[ cmp ].sfv * cmpnfo[ cmp ].sfh;		
 		cmpnfo[ cmp ].bcv = image::mcuv * cmpnfo[ cmp ].sfh;
 		cmpnfo[ cmp ].bch = image::mcuh * cmpnfo[ cmp ].sfv;
 		cmpnfo[ cmp ].bc  = cmpnfo[ cmp ].bcv * cmpnfo[ cmp ].bch;
-		cmpnfo[ cmp ].ncv = ( int ) ceil( (float)image::imgheight *
-							( (float) cmpnfo[ cmp ].sfh / ( 8.0 * image::sfhm ) ) );
-		cmpnfo[ cmp ].nch = ( int ) ceil( (float)image::imgwidth *
-							( (float) cmpnfo[ cmp ].sfv / ( 8.0 * image::sfvm ) ) );
+		cmpnfo[ cmp ].ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
+							(static_cast<float>(cmpnfo[ cmp ].sfh) / ( 8.0 * image::sfhm ) ) ));
+		cmpnfo[ cmp ].nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
+							(static_cast<float>(cmpnfo[ cmp ].sfv) / ( 8.0 * image::sfvm ) ) ));
 		cmpnfo[ cmp ].nc  = cmpnfo[ cmp ].ncv * cmpnfo[ cmp ].nch;
 	}
 	
@@ -3487,7 +3487,7 @@ bool jpg::setup_imginfo()
 	if ( auto_set ) {
 		for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 			for ( i = 0;
-				conf_sets[ i ][ cmpnfo[cmp].sid ] > (unsigned int) cmpnfo[ cmp ].bc;
+				conf_sets[ i ][ cmpnfo[cmp].sid ] > static_cast<uint32_t>(cmpnfo[ cmp ].bc);
 				i++ );
 			segm_cnt[ cmp ] = conf_segm;
 			nois_trs[ cmp ] = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
@@ -3516,7 +3516,7 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 
 		int skip = 16;
 		for (int i = 0; i < 16; i++) {
-			skip += (int)segment[hpos + i];
+			skip += static_cast<int>(segment[hpos + i]);
 		}
 		hpos += skip;
 	}
@@ -3874,7 +3874,7 @@ int jpg::decode::block_seq(const std::unique_ptr<abitreader>& huffr, const HuffT
 				block[ bpos++ ] = 0;
 				z--;
 			}
-			block[ bpos++ ] = ( short ) devli( s, n ); // decode cvli
+			block[ bpos++ ] = static_cast<short>(devli( s, n )); // decode cvli
 		}
 		else if ( hc == 0 ) { // EOB
 			eob = bpos;			
@@ -3983,7 +3983,7 @@ int jpg::decode::ac_prg_fs(const std::unique_ptr<abitreader>& huffr, const HuffT
 				block[ bpos++ ] = 0;
 				z--;
 			}			
-			block[ bpos++ ] = ( short ) devli( s, n ); // decode cvli
+			block[ bpos++ ] = static_cast<short>(devli(s, n)); // decode cvli
 		}
 		else { // decode eobrun
 			eob = bpos;
@@ -4606,7 +4606,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		const int bpos = (int) cmpnfo[cmp].freqscan[i];
+		const int bpos = static_cast<int>(cmpnfo[cmp].freqscan[i]);
 		const int b_x = unzigzag[ bpos ] % 8;
 		const int b_y = unzigzag[ bpos ] / 8;
 	
@@ -4716,7 +4716,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		// alternate between first row and first collumn
 		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
 		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
+		const int bpos = static_cast<int>(zigzag[ b_x + (8*b_y) ]);
 		
 		// locally store pointer to band coefficients
 		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5080,7 +5080,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		const int bpos = (int) cmpnfo[cmp].freqscan[i];
+		const int bpos = static_cast<int>(cmpnfo[cmp].freqscan[i]);
 		const int b_x = unzigzag[ bpos ] % 8;
 		const int b_y = unzigzag[ bpos ] / 8;
 		
@@ -5189,7 +5189,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		// alternate between first row and first collumn
 		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
 		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		const int bpos = (int) zigzag[ b_x + (8*b_y) ];
+		const int bpos = static_cast<int>(zigzag[b_x + (8*b_y)]);
 		
 		// locally store pointer to band coefficients
 		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5296,7 +5296,7 @@ std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<ArithmeticD
 		if (c == 256) {
 			break;
 		}
-		bwrt->write((unsigned char)c);
+		bwrt->write(static_cast<uint8_t>(c));
 		model->shift_context(c);
 	}
 
@@ -5320,7 +5320,6 @@ std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(int cmpt)  {
 	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
 
 	// Count the number of zeroes for each frequency:
-	const int bc = cmpnfo[cmpt].bc;
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
 	std::transform(std::begin(cmpnfo[cmpt].colldata),
 	               std::end(cmpnfo[cmpt].colldata),
