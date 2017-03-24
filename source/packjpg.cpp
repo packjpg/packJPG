@@ -404,6 +404,14 @@ struct Component {
 	int nc = -1;  // block count (all) (non interleaved)
 	int sid = -1; // statistical identity
 	int jid = -1; // jpeg internal id
+
+	int quant(int bp) {
+		return qtable[bp];
+	}
+
+	int max_v(int bp) {
+		return (quant(bp) > 0) ? (freqmax[bp] + quant(bp) - 1) / quant(bp) : 0;
+	}
 };
 
 struct HuffCodes {
@@ -774,13 +782,6 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 // separate info for each color component
 static std::array<Component, 4> cmpnfo;
 
-int QUANT(int cm, int bp) {
-	return cmpnfo[cm].qtable[bp];
-}
-
-int MAX_V(int cm, int bp) {
-	return (QUANT(cm, bp) > 0) ? (freqmax[bp] + QUANT(cm, bp) - 1) / QUANT(cm, bp) : 0;
-}
 namespace image {
 int cmpc = 0; // component count
 int imgwidth = 0; // width of image
@@ -3011,7 +3012,7 @@ bool dct::adapt_icos()
 	for (int cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// make a local copy of the quantization values, check
 		for (int ipos = 0; ipos < 64; ipos++) {
-			quant[ipos] = QUANT(cmp, zigzag[ipos]);
+			quant[ipos] = cmpnfo[cmp].quant(zigzag[ipos]);
 			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
 				quant[ipos] = 0;
 			}
@@ -3049,7 +3050,7 @@ static bool predict_dc()
 	
 	// apply prediction, store prediction error instead of DC
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		absmaxp = MAX_V( cmp, 0 );
+		absmaxp = cmpnfo[cmp].max_v(0);
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
@@ -3086,7 +3087,7 @@ static bool unpredict_dc()
 	
 	// remove prediction, store DC instead of prediction error
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		absmaxp = MAX_V( cmp, 0 );
+		absmaxp = cmpnfo[cmp].max_v(0);
 		absmaxn = -absmaxp;
 		corr_f = ( ( 2 * absmaxp ) + 1 );
 		
@@ -3116,7 +3117,7 @@ bool jpg::decode::check_value_range()
 	// out of range should never happen with unmodified JPEGs
 	for ( cmp = 0; cmp < image::cmpc; cmp++ )
 	for ( bpos = 0; bpos < 64; bpos++ ) {
-		absmax = MAX_V( cmp, bpos );
+		absmax = cmpnfo[cmp].max_v(bpos);
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
 		if ( ( cmpnfo[cmp].colldata[bpos][dpos] > absmax ) ||
 			 ( cmpnfo[cmp].colldata[bpos][dpos] < -absmax ) ) {
@@ -4497,7 +4498,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
-	const int max_val = MAX_V( cmp, 0 ); // Max value.
+	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
 	const int max_len = bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
@@ -4624,7 +4625,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		const int max_val = MAX_V( cmp, bpos ); // Max value.
+		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
 		const int max_len = bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loo
@@ -4728,7 +4729,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
 				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
@@ -4736,13 +4737,13 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 			for ( ; b_y < 8; b_y++ ) {
 				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
 				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
 		
 		// get max bit length / other info
-		const int max_valp = MAX_V( cmp, bpos ); // Max value (positive).
+		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = bitlen1024p( max_valp ); // Max bitlength
 		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // residual threshold bitplane	
@@ -4971,7 +4972,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	const unsigned char* segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// get max absolute value/bit length
-	const int max_val = MAX_V( cmp, 0 ); // Max value.
+	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
 	const int max_len = bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
@@ -5098,7 +5099,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		const int max_val = MAX_V( cmp, bpos ); // Max value.
+		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
 		const int max_len = bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loop
@@ -5201,7 +5202,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
 				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
@@ -5209,13 +5210,13 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 			for ( ; b_y < 8; b_y++ ) {
 				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
 				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * QUANT ( cmp, zigzag[b_x+(8*b_y)] );
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
 		
 		// get max bit length / other info
-		const int max_valp = MAX_V( cmp, bpos ); // Max value (positive).
+		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = bitlen1024p( max_valp ); // Max bitlength.
 		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // Residual threshold bitplane.
@@ -5807,7 +5808,7 @@ int predictor::dc_1ddct_predictor(int cmp, int dpos) {
 
 	// Clamp and quantize predictor:
 	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
-	pred = pred / QUANT(cmp, 0);
+	pred = pred / cmpnfo[cmp].quant(0);
 	pred = dct::DCT_RESCALE(pred);
 
 	return pred;
@@ -6156,7 +6157,7 @@ static bool dump_info() {
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
-			fprintf(fp, "%4i, ", QUANT(cmp, bpos));
+			fprintf(fp, "%4i, ", cmpnfo[cmp].QUANT(bpos));
 		}
 		fprintf(fp, "\n");
 		fprintf(fp, "maximum values ->");
