@@ -3138,38 +3138,38 @@ bool jpg::decode::check_value_range()
 	calculate zero distribution lists
 	----------------------------------------------- */
 	
-static bool calc_zdst_lists()
-{
-	int cmp, bpos, dpos;
-	int b_x, b_y;
-	
-	
+static bool calc_zdst_lists() {
 	// this functions counts, for each DCT block, the number of non-zero coefficients
-	for ( cmp = 0; cmp < image::cmpc; cmp++ )
-	{
+	for (auto& cmpt : cmpnfo) {
 		// preset zdstlist
-		std::fill(std::begin(cmpnfo[cmp].zdstdata), std::end(cmpnfo[cmp].zdstdata), static_cast<uint8_t>(0));
-		
+		std::fill(std::begin(cmpt.zdstdata), std::end(cmpt.zdstdata), static_cast<uint8_t>(0));
+
 		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/collumn)
-		for ( bpos = 1; bpos < 64; bpos++ ) {
-			b_x = unzigzag[ bpos ] % 8;
-			b_y = unzigzag[ bpos ] / 8;
-			if ( b_x == 0 ) {
-				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstylow[dpos]++;
-			}
-			else if ( b_y == 0 ) {
-				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstxlow[dpos]++;
-			}
-			else {
-				for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
-					if (cmpnfo[cmp].colldata[bpos][dpos] != 0 ) cmpnfo[cmp].zdstdata[dpos]++;
+		for (int bpos = 1; bpos < 64; bpos++) {
+			const int b_x = unzigzag[bpos] % 8;
+			const int b_y = unzigzag[bpos] / 8;
+			if (b_x == 0) {
+				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
+					if (cmpt.colldata[bpos][dpos] != 0) {
+						cmpt.zdstylow[dpos]++;
+					}
+				}
+			} else if (b_y == 0) {
+				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
+					if (cmpt.colldata[bpos][dpos] != 0) {
+						cmpt.zdstxlow[dpos]++;
+					}
+				}
+			} else {
+				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
+					if (cmpt.colldata[bpos][dpos] != 0) {
+						cmpt.zdstdata[dpos]++;
+					}
+				}
 			}
 		}
 	}
-	
-	
+
 	return true;
 }
 
