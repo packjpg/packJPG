@@ -378,6 +378,7 @@ struct Component {
 	int jid = -1; // jpeg internal id
 
 	uint8_t segm_cnt = 10; // number of segments
+	uint8_t nois_trs = 6; // bit pattern noise threshold
 
 
 	int quant(int bp) {
@@ -886,7 +887,6 @@ static bool auto_set   = true;	// automatic find best settings yes/no
 static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 #endif
 
-static unsigned char nois_trs[ 4 ] = {6,6,6,6}; // bit pattern noise threshold
 #if !defined(BUILD_LIB)
 static unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
 #endif
@@ -950,7 +950,7 @@ int main( int argc, char** argv )
 		fprintf( msgout,  " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
 				cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
 		fprintf( msgout,  " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-				nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3] );
+				cmpnfo[0].nois_trs, cmpnfo[1].nois_trs, cmpnfo[2].nois_trs, cmpnfo[3].nois_trs );
 		fprintf( msgout,  " -------------------------------------------------\n\n" );
 	}
 	
@@ -1355,10 +1355,10 @@ static void initialize_options( int argc, char** argv )
 		else if ( sscanf(arg.c_str(), "-t%i", &tmp_val ) == 1 ) {
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
 			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
-			nois_trs[0] = tmp_val;
-			nois_trs[1] = tmp_val;
-			nois_trs[2] = tmp_val;
-			nois_trs[3] = tmp_val;
+			cmpnfo[0].nois_trs = tmp_val;
+			cmpnfo[1].nois_trs = tmp_val;
+			cmpnfo[2].nois_trs = tmp_val;
+			cmpnfo[3].nois_trs = tmp_val;
 			auto_set = false;
 		}
 		else if ( sscanf(arg.c_str(), "-s%i", &tmp_val ) == 1 ) {
@@ -1419,10 +1419,10 @@ static void initialize_options( int argc, char** argv )
 	
 	// backup settings - needed to restore original setting later
 	if ( !auto_set ) {
-		orig_set[ 0 ] = nois_trs[ 0 ];
-		orig_set[ 1 ] = nois_trs[ 1 ];
-		orig_set[ 2 ] = nois_trs[ 2 ];
-		orig_set[ 3 ] = nois_trs[ 3 ];
+		orig_set[ 0 ] = cmpnfo[0].nois_trs;
+		orig_set[ 1 ] = cmpnfo[1].nois_trs;
+		orig_set[ 2 ] = cmpnfo[3].nois_trs;
+		orig_set[ 3 ] = cmpnfo[3].nois_trs;
 		orig_set[ 4 ] = cmpnfo[0].segm_cnt;
 		orig_set[ 5 ] = cmpnfo[1].segm_cnt;
 		orig_set[ 6 ] = cmpnfo[2].segm_cnt;
@@ -1979,10 +1979,10 @@ static bool check_file()
 		if ( orig_set[ 0 ] == 0 )
 			auto_set = true;
 		else {	
-			nois_trs[ 0 ] = orig_set[ 0 ];
-			nois_trs[ 1 ] = orig_set[ 1 ];
-			nois_trs[ 2 ] = orig_set[ 2 ];
-			nois_trs[ 3 ] = orig_set[ 3 ];
+			cmpnfo[0].nois_trs = orig_set[ 0 ];
+			cmpnfo[1].nois_trs = orig_set[ 1 ];
+			cmpnfo[3].nois_trs = orig_set[ 2 ];
+			cmpnfo[3].nois_trs = orig_set[ 3 ];
 			cmpnfo[0].segm_cnt = orig_set[ 4 ];
 			cmpnfo[1].segm_cnt = orig_set[ 5 ];
 			cmpnfo[2].segm_cnt = orig_set[ 6 ];
@@ -3195,7 +3195,10 @@ bool pjg::encode::encode()
 	if ( !auto_set ) {
 		hcode = 0x00;
 		str_out->write_byte(hcode);
-		str_out->write( nois_trs, 4 );
+		str_out->write_byte(cmpnfo[0].nois_trs);
+		str_out->write_byte(cmpnfo[1].nois_trs);
+		str_out->write_byte(cmpnfo[2].nois_trs);
+		str_out->write_byte(cmpnfo[3].nois_trs);
 		str_out->write_byte(cmpnfo[0].segm_cnt);
 		str_out->write_byte(cmpnfo[1].segm_cnt);
 		str_out->write_byte(cmpnfo[2].segm_cnt);
@@ -3323,7 +3326,10 @@ bool pjg::decode::decode()
 		str_in->read_byte(&hcode);
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
-			str_in->read( nois_trs, 4 );
+			str_in->read_byte(&cmpnfo[0].nois_trs);
+			str_in->read_byte(&cmpnfo[1].nois_trs);
+			str_in->read_byte(&cmpnfo[2].nois_trs);
+			str_in->read_byte(&cmpnfo[3].nois_trs);
 			str_in->read_byte(&cmpnfo[0].segm_cnt);
 			str_in->read_byte(&cmpnfo[1].segm_cnt);
 			str_in->read_byte(&cmpnfo[2].segm_cnt);
@@ -3499,7 +3505,7 @@ bool jpg::setup_imginfo()
 				conf_sets[ i ][ cmpnfo[cmp].sid ] > static_cast<uint32_t>(cmpnfo[ cmp ].bc);
 				i++ );
 			cmpnfo[cmp].segm_cnt = conf_segm;
-			nois_trs[ cmp ] = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
+			cmpnfo[cmp].nois_trs = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
 		}
 	}
 	
@@ -4712,7 +4718,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(nois_trs[cmp])), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpnfo[cmp].nois_trs)), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
@@ -4754,7 +4760,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength
-		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // residual threshold bitplane	
+		const int thrs_bp = ( max_len > cmpnfo[cmp].nois_trs ) ? max_len - cmpnfo[cmp].nois_trs : 0; // residual threshold bitplane	
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -5185,7 +5191,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(nois_trs[cmp])), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpnfo[cmp].nois_trs)), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
@@ -5227,7 +5233,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength.
-		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // Residual threshold bitplane.
+		const int thrs_bp = ( max_len > cmpnfo[cmp].nois_trs ) ? max_len - cmpnfo[cmp].nois_trs : 0; // Residual threshold bitplane.
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -6146,7 +6152,7 @@ static bool dump_info() {
 	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
 		cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
 	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		nois_trs[0], nois_trs[1], nois_trs[2], nois_trs[3]);
+		cmpnfo[0].nois_trs, cmpnfo[1].nois_trs, cmpnfo[2].nois_trs, cmpnfo[3].nois_trs);
 	fprintf(fp, "\n");
 
 	// info about components
