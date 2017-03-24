@@ -731,23 +731,23 @@ namespace dct {
 
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy);
+	int idct_2d_fst_8x8(const Component& cmp, int dpos, int ix, int iy);
 #endif
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_1x8(int cmp, int dpos, int iy);
+	int idct_2d_fst_1x8(const Component& cmpt, int dpos, int iy);
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_8x1(int cmp, int dpos, int ix);
+	int idct_2d_fst_8x1(const Component& cmpt, int dpos, int ix);
 }
 
 namespace predictor {
 #if defined( USE_PLOCOI )
 	// Returns predictor for collection data.
-	int dc_coll_predictor(int cmp, int dpos);
+	int dc_coll_predictor(const Component& cmp, int dpos);
 	// loco-i predictor.
 	int plocoi(int a, int b, int c);
 #else
 	// 1D DCT predictor for DC coefficients.
-	int dc_1ddct_predictor(int cmp, int dpos);
+	int dc_1ddct_predictor(Component& cmpt, int dpos);
 #endif
 }
 
@@ -3074,35 +3074,28 @@ bool dct::adapt_icos()
 	filter DC coefficients
 	----------------------------------------------- */
 
-static bool predict_dc()
-{
-	signed short* coef;
-	int absmaxp;
-	int absmaxn;
-	int corr_f;
-	int cmp, dpos;	
-	
-	
+static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		absmaxp = cmpnfo[cmp].max_v(0);
-		absmaxn = -absmaxp;
-		corr_f = ( ( 2 * absmaxp ) + 1 );
-		
-		for ( dpos = cmpnfo[cmp].bc - 1; dpos > 0; dpos-- )	{
-			coef = &(cmpnfo[cmp].colldata[0][dpos]);
-			#if defined( USE_PLOCOI )
-			(*coef) -= predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
-			#else
-			(*coef) -= predictor::dc_1ddct_predictor( cmp, dpos ); // 1d dct
-			#endif
-			
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+		Component& cmpt = cmpnfo[cmp];
+		const int absmaxp = cmpt.max_v(0);
+		const int corr_f = (2 * absmaxp) + 1;
+
+		for (int dpos = cmpt.bc - 1; dpos > 0; dpos--) {
+			auto& coef = cmpt.colldata[0][dpos];
+#if defined(USE_PLOCOI)
+			coef -= predictor::dc_coll_predictor(cmpt, dpos); // loco-i predictor
+#else
+			coef -= predictor::dc_1ddct_predictor(cmpt, dpos); // 1d dct
+#endif
 			// fix range
-			if ( (*coef) > absmaxp ) (*coef) -= corr_f;
-			else if ( (*coef) < absmaxn ) (*coef) += corr_f;
+			if (coef > absmaxp) {
+				coef -= corr_f;
+			} else if (coef < -absmaxp) {
+				coef += corr_f;
+			}
 		}
 	}
-	
 	return true;
 }
 
@@ -3111,36 +3104,28 @@ static bool predict_dc()
 	unpredict DC coefficients
 	----------------------------------------------- */
 
-static bool unpredict_dc()
-{	
-	signed short* coef;
-	int absmaxp;
-	int absmaxn;
-	int corr_f;
-	int cmp, dpos;
-	
-	
+static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		absmaxp = cmpnfo[cmp].max_v(0);
-		absmaxn = -absmaxp;
-		corr_f = ( ( 2 * absmaxp ) + 1 );
-		
-		for ( dpos = 1; dpos < cmpnfo[cmp].bc; dpos++ ) {
-			coef = &(cmpnfo[cmp].colldata[0][dpos]);
-			#if defined( USE_PLOCOI )
-			(*coef) += predictor::dc_coll_predictor( cmp, dpos ); // loco-i predictor
-			#else
-			(*coef) += predictor::dc_1ddct_predictor( cmp, dpos ); // 1d dct predictor
-			#endif
-			
+	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+		Component& cmpt = cmpnfo[cmp];
+		const int absmaxp = cmpt.max_v(0);
+		const int corr_f = (2 * absmaxp) + 1;
+
+		for (int dpos = 1; dpos < cmpt.bc; dpos++) {
+			auto& coef = cmpt.colldata[0][dpos];
+#if defined(USE_PLOCOI)
+			coef += predictor::dc_coll_predictor(cmpt, dpos); // loco-i predictor
+#else
+			coef += predictor::dc_1ddct_predictor(cmpt, dpos); // 1d dct predictor
+#endif
 			// fix range
-			if ( (*coef) > absmaxp ) (*coef) -= corr_f;
-			else if ( (*coef) < absmaxn ) (*coef) += corr_f;
+			if (coef > absmaxp) {
+				coef -= corr_f;
+			} else if (coef < -absmaxp) {
+				coef += corr_f;
+			}
 		}
 	}
-	
-	
 	return true;
 }
 
@@ -5659,113 +5644,113 @@ std::pair<int, int> pjg::get_context_nnb(int pos, int w)
 /* ----------------------- Begin of DCT specific functions -------------------------- */
 
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
-int dct::idct_2d_fst_8x8(int cmp, int dpos, int ix, int iy) {
+int dct::idct_2d_fst_8x8(const Component& cmpt, int dpos, int ix, int iy) {
 	// calculate start index
 	const int ixy = ((iy << 3) + ix) << 6;
 
 	// begin transform
 	int idct = 0;
-	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 0];
-	idct += cmpnfo[cmp].colldata[1][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 1];
-	idct += cmpnfo[cmp].colldata[5][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 2];
-	idct += cmpnfo[cmp].colldata[6][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 3];
-	idct += cmpnfo[cmp].colldata[14][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 4];
-	idct += cmpnfo[cmp].colldata[15][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 5];
-	idct += cmpnfo[cmp].colldata[27][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 6];
-	idct += cmpnfo[cmp].colldata[28][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 7];
-	idct += cmpnfo[cmp].colldata[2][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 8];
-	idct += cmpnfo[cmp].colldata[4][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 9];
-	idct += cmpnfo[cmp].colldata[7][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 10];
-	idct += cmpnfo[cmp].colldata[13][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 11];
-	idct += cmpnfo[cmp].colldata[16][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 12];
-	idct += cmpnfo[cmp].colldata[26][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 13];
-	idct += cmpnfo[cmp].colldata[29][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 14];
-	idct += cmpnfo[cmp].colldata[42][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 15];
-	idct += cmpnfo[cmp].colldata[3][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 16];
-	idct += cmpnfo[cmp].colldata[8][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 17];
-	idct += cmpnfo[cmp].colldata[12][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 18];
-	idct += cmpnfo[cmp].colldata[17][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 19];
-	idct += cmpnfo[cmp].colldata[25][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 20];
-	idct += cmpnfo[cmp].colldata[30][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 21];
-	idct += cmpnfo[cmp].colldata[41][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 22];
-	idct += cmpnfo[cmp].colldata[43][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 23];
-	idct += cmpnfo[cmp].colldata[9][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 24];
-	idct += cmpnfo[cmp].colldata[11][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 25];
-	idct += cmpnfo[cmp].colldata[18][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 26];
-	idct += cmpnfo[cmp].colldata[24][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 27];
-	idct += cmpnfo[cmp].colldata[31][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 28];
-	idct += cmpnfo[cmp].colldata[40][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 29];
-	idct += cmpnfo[cmp].colldata[44][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 30];
-	idct += cmpnfo[cmp].colldata[53][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 31];
-	idct += cmpnfo[cmp].colldata[10][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 32];
-	idct += cmpnfo[cmp].colldata[19][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 33];
-	idct += cmpnfo[cmp].colldata[23][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 34];
-	idct += cmpnfo[cmp].colldata[32][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 35];
-	idct += cmpnfo[cmp].colldata[39][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 36];
-	idct += cmpnfo[cmp].colldata[45][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 37];
-	idct += cmpnfo[cmp].colldata[52][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 38];
-	idct += cmpnfo[cmp].colldata[54][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 39];
-	idct += cmpnfo[cmp].colldata[20][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 40];
-	idct += cmpnfo[cmp].colldata[22][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 41];
-	idct += cmpnfo[cmp].colldata[33][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 42];
-	idct += cmpnfo[cmp].colldata[38][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 43];
-	idct += cmpnfo[cmp].colldata[46][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 44];
-	idct += cmpnfo[cmp].colldata[51][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 45];
-	idct += cmpnfo[cmp].colldata[55][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 46];
-	idct += cmpnfo[cmp].colldata[60][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 47];
-	idct += cmpnfo[cmp].colldata[21][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 48];
-	idct += cmpnfo[cmp].colldata[34][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 49];
-	idct += cmpnfo[cmp].colldata[37][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 50];
-	idct += cmpnfo[cmp].colldata[47][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 51];
-	idct += cmpnfo[cmp].colldata[50][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 52];
-	idct += cmpnfo[cmp].colldata[56][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 53];
-	idct += cmpnfo[cmp].colldata[59][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 54];
-	idct += cmpnfo[cmp].colldata[61][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 55];
-	idct += cmpnfo[cmp].colldata[35][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 56];
-	idct += cmpnfo[cmp].colldata[36][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 57];
-	idct += cmpnfo[cmp].colldata[48][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 58];
-	idct += cmpnfo[cmp].colldata[49][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 59];
-	idct += cmpnfo[cmp].colldata[57][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 60];
-	idct += cmpnfo[cmp].colldata[58][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 61];
-	idct += cmpnfo[cmp].colldata[62][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 62];
-	idct += cmpnfo[cmp].colldata[63][dpos] * cmpnfo[cmp].adpt_idct_8x8[ixy + 63];
+	idct += cmpt.colldata[0][dpos] * cmpt.adpt_idct_8x8[ixy + 0];
+	idct += cmpt.colldata[1][dpos] * cmpt.adpt_idct_8x8[ixy + 1];
+	idct += cmpt.colldata[5][dpos] * cmpt.adpt_idct_8x8[ixy + 2];
+	idct += cmpt.colldata[6][dpos] * cmpt.adpt_idct_8x8[ixy + 3];
+	idct += cmpt.colldata[14][dpos] * cmpt.adpt_idct_8x8[ixy + 4];
+	idct += cmpt.colldata[15][dpos] * cmpt.adpt_idct_8x8[ixy + 5];
+	idct += cmpt.colldata[27][dpos] * cmpt.adpt_idct_8x8[ixy + 6];
+	idct += cmpt.colldata[28][dpos] * cmpt.adpt_idct_8x8[ixy + 7];
+	idct += cmpt.colldata[2][dpos] * cmpt.adpt_idct_8x8[ixy + 8];
+	idct += cmpt.colldata[4][dpos] * cmpt.adpt_idct_8x8[ixy + 9];
+	idct += cmpt.colldata[7][dpos] * cmpt.adpt_idct_8x8[ixy + 10];
+	idct += cmpt.colldata[13][dpos] * cmpt.adpt_idct_8x8[ixy + 11];
+	idct += cmpt.colldata[16][dpos] * cmpt.adpt_idct_8x8[ixy + 12];
+	idct += cmpt.colldata[26][dpos] * cmpt.adpt_idct_8x8[ixy + 13];
+	idct += cmpt.colldata[29][dpos] * cmpt.adpt_idct_8x8[ixy + 14];
+	idct += cmpt.colldata[42][dpos] * cmpt.adpt_idct_8x8[ixy + 15];
+	idct += cmpt.colldata[3][dpos] * cmpt.adpt_idct_8x8[ixy + 16];
+	idct += cmpt.colldata[8][dpos] * cmpt.adpt_idct_8x8[ixy + 17];
+	idct += cmpt.colldata[12][dpos] * cmpt.adpt_idct_8x8[ixy + 18];
+	idct += cmpt.colldata[17][dpos] * cmpt.adpt_idct_8x8[ixy + 19];
+	idct += cmpt.colldata[25][dpos] * cmpt.adpt_idct_8x8[ixy + 20];
+	idct += cmpt.colldata[30][dpos] * cmpt.adpt_idct_8x8[ixy + 21];
+	idct += cmpt.colldata[41][dpos] * cmpt.adpt_idct_8x8[ixy + 22];
+	idct += cmpt.colldata[43][dpos] * cmpt.adpt_idct_8x8[ixy + 23];
+	idct += cmpt.colldata[9][dpos] * cmpt.adpt_idct_8x8[ixy + 24];
+	idct += cmpt.colldata[11][dpos] * cmpt.adpt_idct_8x8[ixy + 25];
+	idct += cmpt.colldata[18][dpos] * cmpt.adpt_idct_8x8[ixy + 26];
+	idct += cmpt.colldata[24][dpos] * cmpt.adpt_idct_8x8[ixy + 27];
+	idct += cmpt.colldata[31][dpos] * cmpt.adpt_idct_8x8[ixy + 28];
+	idct += cmpt.colldata[40][dpos] * cmpt.adpt_idct_8x8[ixy + 29];
+	idct += cmpt.colldata[44][dpos] * cmpt.adpt_idct_8x8[ixy + 30];
+	idct += cmpt.colldata[53][dpos] * cmpt.adpt_idct_8x8[ixy + 31];
+	idct += cmpt.colldata[10][dpos] * cmpt.adpt_idct_8x8[ixy + 32];
+	idct += cmpt.colldata[19][dpos] * cmpt.adpt_idct_8x8[ixy + 33];
+	idct += cmpt.colldata[23][dpos] * cmpt.adpt_idct_8x8[ixy + 34];
+	idct += cmpt.colldata[32][dpos] * cmpt.adpt_idct_8x8[ixy + 35];
+	idct += cmpt.colldata[39][dpos] * cmpt.adpt_idct_8x8[ixy + 36];
+	idct += cmpt.colldata[45][dpos] * cmpt.adpt_idct_8x8[ixy + 37];
+	idct += cmpt.colldata[52][dpos] * cmpt.adpt_idct_8x8[ixy + 38];
+	idct += cmpt.colldata[54][dpos] * cmpt.adpt_idct_8x8[ixy + 39];
+	idct += cmpt.colldata[20][dpos] * cmpt.adpt_idct_8x8[ixy + 40];
+	idct += cmpt.colldata[22][dpos] * cmpt.adpt_idct_8x8[ixy + 41];
+	idct += cmpt.colldata[33][dpos] * cmpt.adpt_idct_8x8[ixy + 42];
+	idct += cmpt.colldata[38][dpos] * cmpt.adpt_idct_8x8[ixy + 43];
+	idct += cmpt.colldata[46][dpos] * cmpt.adpt_idct_8x8[ixy + 44];
+	idct += cmpt.colldata[51][dpos] * cmpt.adpt_idct_8x8[ixy + 45];
+	idct += cmpt.colldata[55][dpos] * cmpt.adpt_idct_8x8[ixy + 46];
+	idct += cmpt.colldata[60][dpos] * cmpt.adpt_idct_8x8[ixy + 47];
+	idct += cmpt.colldata[21][dpos] * cmpt.adpt_idct_8x8[ixy + 48];
+	idct += cmpt.colldata[34][dpos] * cmpt.adpt_idct_8x8[ixy + 49];
+	idct += cmpt.colldata[37][dpos] * cmpt.adpt_idct_8x8[ixy + 50];
+	idct += cmpt.colldata[47][dpos] * cmpt.adpt_idct_8x8[ixy + 51];
+	idct += cmpt.colldata[50][dpos] * cmpt.adpt_idct_8x8[ixy + 52];
+	idct += cmpt.colldata[56][dpos] * cmpt.adpt_idct_8x8[ixy + 53];
+	idct += cmpt.colldata[59][dpos] * cmpt.adpt_idct_8x8[ixy + 54];
+	idct += cmpt.colldata[61][dpos] * cmpt.adpt_idct_8x8[ixy + 55];
+	idct += cmpt.colldata[35][dpos] * cmpt.adpt_idct_8x8[ixy + 56];
+	idct += cmpt.colldata[36][dpos] * cmpt.adpt_idct_8x8[ixy + 57];
+	idct += cmpt.colldata[48][dpos] * cmpt.adpt_idct_8x8[ixy + 58];
+	idct += cmpt.colldata[49][dpos] * cmpt.adpt_idct_8x8[ixy + 59];
+	idct += cmpt.colldata[57][dpos] * cmpt.adpt_idct_8x8[ixy + 60];
+	idct += cmpt.colldata[58][dpos] * cmpt.adpt_idct_8x8[ixy + 61];
+	idct += cmpt.colldata[62][dpos] * cmpt.adpt_idct_8x8[ixy + 62];
+	idct += cmpt.colldata[63][dpos] * cmpt.adpt_idct_8x8[ixy + 63];
 
 	return idct;
 }
 #endif
 
-int dct::idct_2d_fst_8x1(int cmp, int dpos, int ix) {
+int dct::idct_2d_fst_8x1(const Component& cmpt, int dpos, int ix) {
 	// calculate start index
 	const int ixy = ix << 3;
 
 	// begin transform
 	int idct = 0;
-	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 0];
-	idct += cmpnfo[cmp].colldata[1][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 1];
-	idct += cmpnfo[cmp].colldata[5][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 2];
-	idct += cmpnfo[cmp].colldata[6][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 3];
-	idct += cmpnfo[cmp].colldata[14][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 4];
-	idct += cmpnfo[cmp].colldata[15][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 5];
-	idct += cmpnfo[cmp].colldata[27][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 6];
-	idct += cmpnfo[cmp].colldata[28][dpos] * cmpnfo[cmp].adpt_idct_8x1[ixy + 7];
+	idct += cmpt.colldata[0][dpos] * cmpt.adpt_idct_8x1[ixy + 0];
+	idct += cmpt.colldata[1][dpos] * cmpt.adpt_idct_8x1[ixy + 1];
+	idct += cmpt.colldata[5][dpos] * cmpt.adpt_idct_8x1[ixy + 2];
+	idct += cmpt.colldata[6][dpos] * cmpt.adpt_idct_8x1[ixy + 3];
+	idct += cmpt.colldata[14][dpos] * cmpt.adpt_idct_8x1[ixy + 4];
+	idct += cmpt.colldata[15][dpos] * cmpt.adpt_idct_8x1[ixy + 5];
+	idct += cmpt.colldata[27][dpos] * cmpt.adpt_idct_8x1[ixy + 6];
+	idct += cmpt.colldata[28][dpos] * cmpt.adpt_idct_8x1[ixy + 7];
 
 	return idct;
 }
 
-int dct::idct_2d_fst_1x8(int cmp, int dpos, int iy) {
+int dct::idct_2d_fst_1x8(const Component& cmpt, int dpos, int iy) {
 	// calculate start index
 	const int ixy = iy << 3;
 
 	// begin transform
 	int idct = 0;
-	idct += cmpnfo[cmp].colldata[0][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 0];
-	idct += cmpnfo[cmp].colldata[2][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 1];
-	idct += cmpnfo[cmp].colldata[3][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 2];
-	idct += cmpnfo[cmp].colldata[9][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 3];
-	idct += cmpnfo[cmp].colldata[10][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 4];
-	idct += cmpnfo[cmp].colldata[20][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 5];
-	idct += cmpnfo[cmp].colldata[21][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 6];
-	idct += cmpnfo[cmp].colldata[35][dpos] * cmpnfo[cmp].adpt_idct_1x8[ixy + 7];
+	idct += cmpt.colldata[0][dpos] * cmpt.adpt_idct_1x8[ixy + 0];
+	idct += cmpt.colldata[2][dpos] * cmpt.adpt_idct_1x8[ixy + 1];
+	idct += cmpt.colldata[3][dpos] * cmpt.adpt_idct_1x8[ixy + 2];
+	idct += cmpt.colldata[9][dpos] * cmpt.adpt_idct_1x8[ixy + 3];
+	idct += cmpt.colldata[10][dpos] * cmpt.adpt_idct_1x8[ixy + 4];
+	idct += cmpt.colldata[20][dpos] * cmpt.adpt_idct_1x8[ixy + 5];
+	idct += cmpt.colldata[21][dpos] * cmpt.adpt_idct_1x8[ixy + 6];
+	idct += cmpt.colldata[35][dpos] * cmpt.adpt_idct_1x8[ixy + 7];
 
 	return idct;
 }
@@ -5775,10 +5760,10 @@ int dct::idct_2d_fst_1x8(int cmp, int dpos, int iy) {
 /* ----------------------- Begin of prediction functions -------------------------- */
 
 #if defined(USE_PLOCOI)
-int predictor::dc_coll_predictor(int cmp, int dpos)
+int predictor::dc_coll_predictor(const Component& cmpt, int dpos)
 {
-	const short* coeffs = cmpnfo[cmp].colldata[0];
-	const int w = cmpnfo[cmp].bch;
+	const short* coeffs = cmpt.colldata[0];
+	const int w = cmpt.bch;
 	int a = 0;
 	int b = 0;
 	int c = 0;
@@ -5812,43 +5797,43 @@ int predictor::plocoi(int a, int b, int c)
 #endif
 
 #if !defined(USE_PLOCOI)
-int predictor::dc_1ddct_predictor(int cmp, int dpos) {
-	const int w = cmpnfo[cmp].bch;
+int predictor::dc_1ddct_predictor(Component& cmpt, int dpos) {
+	const int w = cmpt.bch;
 	const int px = dpos % w;
 	const int py = dpos / w;
 
 	// Store current block DC coefficient:
-	const short swap = cmpnfo[cmp].colldata[0][dpos];
-	cmpnfo[cmp].colldata[0][dpos] = short(0);
+	const short swap = cmpt.colldata[0][dpos];
+	cmpt.colldata[0][dpos] = short(0);
 
 	// Calculate prediction:
 	int pred = 0;
 	if (px > 0 && py > 0) {
-		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7);
-		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0);
+		const int pa = dct::idct_2d_fst_8x1(cmpt, dpos - 1, 7);
+		const int xa = dct::idct_2d_fst_8x1(cmpt, dpos, 0);
 
-		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 7);
-		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0);
+		const int pb = dct::idct_2d_fst_1x8(cmpt, dpos - w, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmpt, dpos, 0);
 
 		pred = ((pa - xa) + (pb - xb)) * 4;
 	} else if (px > 0) {
-		const int pa = dct::idct_2d_fst_8x1(cmp, dpos - 1, 7);
-		const int xa = dct::idct_2d_fst_8x1(cmp, dpos, 0);
+		const int pa = dct::idct_2d_fst_8x1(cmpt, dpos - 1, 7);
+		const int xa = dct::idct_2d_fst_8x1(cmpt, dpos, 0);
 
 		pred = (pa - xa) * 8;
 	} else if (py > 0) {
-		const int pb = dct::idct_2d_fst_1x8(cmp, dpos - w, 7);
-		const int xb = dct::idct_2d_fst_1x8(cmp, dpos, 0);
+		const int pb = dct::idct_2d_fst_1x8(cmpt, dpos - w, 7);
+		const int xb = dct::idct_2d_fst_1x8(cmpt, dpos, 0);
 
 		pred = (pb - xb) * 8;
 	}
 
 	// Write back current DCT coefficient:
-	cmpnfo[cmp].colldata[0][dpos] = swap;
+	cmpt.colldata[0][dpos] = swap;
 
 	// Clamp and quantize predictor:
 	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
-	pred = pred / cmpnfo[cmp].quant(0);
+	pred = pred / cmpt.quant(0);
 	pred = dct::DCT_RESCALE(pred);
 
 	return pred;
@@ -6279,7 +6264,7 @@ static bool dump_pgm() {
 				int ypos = dcpos + (y * (cmpnfo[cmp].bch << 3));
 				for (int x = 0; x < 8; x++) {
 					int xpos = ypos + x;
-					int pix_v = dct::idct_2d_fst_8x8(cmp, dpos, x, y);
+					int pix_v = dct::idct_2d_fst_8x8(cmpnfo[cmp], dpos, x, y);
 					pix_v = dct::DCT_RESCALE(pix_v);
 					pix_v = pix_v + 128;
 					imgdata[xpos] = std::uint8_t(clamp(pix_v, 0, 255));
