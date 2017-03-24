@@ -304,20 +304,8 @@ int bitlen(int v) {
 	return length;
 }
 
-constexpr std::int16_t fdiv2(std::int16_t v, int p) {
-	return (v < 0) ? -((-v) >> p) : (v >> p);
-}
-
 constexpr int pack(std::uint8_t left, std::uint8_t right) {
 	return (int(left) << 8) + int(right);
-}
-
-constexpr int bitlen1024p(int v) {
-	return pbitlen_0_1024[v];
-}
-
-constexpr int bitlen2048n(int v) {
-	return pbitlen_n2048_2047[v + 2048];
 }
 
 constexpr int clamp(int val, int lo, int hi) {
@@ -586,6 +574,10 @@ void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, in
 // Correction bits encoding routine.
 void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
 
+constexpr std::int16_t fdiv2(std::int16_t v, int p) {
+	return (v < 0) ? -((-v) >> p) : (v >> p);
+}
+
 constexpr int envli(int s, int v) {
 	return (v > 0) ? v : v - 1 + (1 << s);
 }
@@ -685,6 +677,14 @@ namespace pjg {
 	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, int cmp);
 	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
 	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
+
+	constexpr int bitlen1024p(int v) {
+		return pbitlen_0_1024[v];
+	}
+
+	constexpr int bitlen2048n(int v) {
+		return pbitlen_n2048_2047[v + 2048];
+	}
 std::pair<int, int> get_context_nnb(int pos, int w);
 }
 
@@ -3917,7 +3917,7 @@ int jpg::encode::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffC
 				z -= 16;
 			}
 			// vli encode
-			int s = bitlen2048n( block[ bpos ] );
+			int s = pjg::bitlen2048n( block[ bpos ] );
 			std::uint16_t n = envli( s, block[ bpos ] );
 			int hc = ((z << 4) + s);
 			// write to huffman writer
@@ -3955,7 +3955,7 @@ jpg::CodingStatus jpg::decode::dc_prg_fs(const std::unique_ptr<abitreader>& huff
 void jpg::encode::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block)
 {
 	// encode DC	
-	int s = bitlen2048n( block[ 0 ] );
+	int s = pjg::bitlen2048n( block[ 0 ] );
 	std::uint16_t n = envli( s, block[ 0 ] );
 	huffw->write(dctbl.cval[s], dctbl.clen[s]);
 	huffw->write(n, s);
@@ -4032,7 +4032,7 @@ int jpg::encode::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 				z -= 16;
 			}			
 			// vli encode
-			s = bitlen2048n( block[ bpos ] );
+			s = pjg::bitlen2048n( block[ bpos ] );
 			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
@@ -4180,7 +4180,7 @@ int jpg::encode::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::
 		// if nonzero is encountered
 		else if ( ( block[ bpos ] == 1 ) || ( block[ bpos ] == -1 ) ) {
 			// vli encode			
-			s = bitlen2048n( block[ bpos ] );
+			s = pjg::bitlen2048n( block[ bpos ] );
 			n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
@@ -4507,7 +4507,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	
 	// get max absolute value/bit length
 	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
-	const int max_len = bitlen1024p( max_val ); // Max bitlength.
+	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
 	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
@@ -4541,7 +4541,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
 		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
-		const int ctx_len = bitlen1024p( ctx_avr ); // Bitlength context.
+		const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
 		
@@ -4553,7 +4553,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		else {
 			// get absolute val, sign & bit length for current coefficient
 			const int absv = std::abs( coeffs[dpos] );
-			const int clen = bitlen1024p( absv );
+			const int clen = pjg::bitlen1024p( absv );
 			const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 			// encode bit length of current coefficient
 			enc->encode(mod_len.get(), clen );
@@ -4634,7 +4634,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		
 		// get max bit length
 		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
-		const int max_len = bitlen1024p( max_val ); // Max bitlength.
+		const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loo
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -4652,7 +4652,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
 			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
-			const int ctx_len = bitlen1024p( ctx_avr ); // Bitlength context.
+			const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
 			mod_len->exclude_symbols(max_len);		
@@ -4665,7 +4665,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 			else {
 				// get absolute val, sign & bit length for current coefficient
 				const int absv = std::abs( coeffs[dpos] );
-				const int clen = bitlen1024p( absv );
+				const int clen = pjg::bitlen1024p( absv );
 				const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient				
 				enc->encode(mod_len.get(), clen );
@@ -4753,7 +4753,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		// get max bit length / other info
 		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
-		const int max_len = bitlen1024p( max_valp ); // Max bitlength
+		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength
 		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // residual threshold bitplane	
 		
 		// arithmetic compression loop
@@ -4776,7 +4776,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 				ctx_lak = 0;
 			}
 			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
-			const int ctx_len = bitlen2048n( ctx_lak ); // Context for bitlength.
+			const int ctx_len = pjg::bitlen2048n( ctx_lak ); // Context for bitlength.
 			
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, zdstls[ dpos ]);
@@ -4789,7 +4789,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 			} else {
 				// get absolute val, sign & bit length for current coefficient
 				const int absv = std::abs( coeffs[dpos] );
-				const int clen = bitlen2048n( absv );
+				const int clen = pjg::bitlen2048n( absv );
 				const int sgn = ( coeffs[dpos] > 0 ) ? 0 : 1;
 				// encode bit length of current coefficient
 				enc->encode(mod_len.get(), clen );
@@ -4981,7 +4981,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 	
 	// get max absolute value/bit length
 	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
-	const int max_len = bitlen1024p( max_val ); // Max bitlength.
+	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
@@ -5015,7 +5015,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
 		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
-		const int ctx_len = bitlen1024p( ctx_avr ); // Bitlength context				
+		const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
 		// decode bit length of current coefficient
@@ -5108,7 +5108,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		
 		// get max bit length
 		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
-		const int max_len = bitlen1024p( max_val ); // Max bitlength.
+		const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -5126,7 +5126,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
 			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
-			const int ctx_len = bitlen1024p( ctx_avr ); // Bitlength context.
+			const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
 			mod_len->exclude_symbols(max_len);
@@ -5226,7 +5226,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		// get max bit length / other info
 		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
-		const int max_len = bitlen1024p( max_valp ); // Max bitlength.
+		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength.
 		const int thrs_bp = ( max_len > nois_trs[cmp] ) ? max_len - nois_trs[cmp] : 0; // Residual threshold bitplane.
 		
 		// arithmetic compression loop
@@ -5246,7 +5246,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
 			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
-			const int ctx_len = bitlen2048n( ctx_lak ); // Bitlength context.				
+			const int ctx_len = pjg::bitlen2048n( ctx_lak ); // Bitlength context.				
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, zdstls[ dpos ]);
 			mod_len->exclude_symbols(max_len);
