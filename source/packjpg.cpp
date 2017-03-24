@@ -269,6 +269,7 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <memory>
@@ -282,7 +283,6 @@ packJPG by Matthias Stirner, 01/2016
 #include "bitops.h"
 #include "dct8x8.h"
 #include "pjpgtbl.h"
-#include <algorithm>
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
@@ -381,11 +381,11 @@ struct Component {
 	uint8_t nois_trs = 6; // bit pattern noise threshold
 
 
-	int quant(int bp) {
+	int quant(int bp) const {
 		return qtable[bp];
 	}
 
-	int max_v(int bp) {
+	int max_v(int bp) const {
 		return (quant(bp) > 0) ? (freqmax[bp] + quant(bp) - 1) / quant(bp) : 0;
 	}
 };
@@ -639,18 +639,18 @@ namespace pjg {
 		// Optimizes JFIF header for compression.
 		void optimize_header();
 
-		void zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
-		void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
-		void zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
-		void dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
-		void ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
-		void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp);
+		std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
+		void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+		void zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+		void dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+		void ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
+		void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
 		void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data);
 		void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
 
 
 		// Get zero-sorted frequency scan vector.
-		std::array<uint8_t, 64> get_zerosort_scan(int cmpt);
+		std::array<uint8_t, 64> get_zerosort_scan(const Component& cmpt);
 
 	}
 
@@ -664,18 +664,18 @@ namespace pjg {
 		// Undoes DHT and DQT (header) optimizations.
 		void deoptimize_header();
 
-	void zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
-	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
-	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
-	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
-	void ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
-	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp);
+	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
+	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
 	std::vector<std::uint8_t> generic(const std::unique_ptr<ArithmeticDecoder>& dec);
 	std::uint8_t bit(const std::unique_ptr<ArithmeticDecoder>& dec);
 	}
 
 	constexpr std::array<int, 6> get_weights();
-	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, int cmp);
+	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt);
 	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
 	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
 
@@ -3243,41 +3243,41 @@ bool pjg::encode::encode()
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		pjg::encode::zstscan(encoder, cmp);
+		cmpnfo[cmp].freqscan = pjg::encode::zstscan(encoder, cmpnfo[cmp]); // set zero sort scan as freqscan
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmp);
+		pjg::encode::zdst_high(encoder, cmpnfo[cmp]);
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmp);
+		pjg::encode::ac_high(encoder, cmpnfo[cmp]);
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmp);
+		pjg::encode::zdst_low(encoder, cmpnfo[cmp]);
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmp);
+		pjg::encode::ac_low(encoder, cmpnfo[cmp]);
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmp);
+		pjg::encode::dc(encoder, cmpnfo[cmp]);
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		pjg::encode::zstscan(encoder, cmp);
+		cmpnfo[cmp].freqscan = pjg::encode::zstscan(encoder, cmpnfo[cmp]); // set zero sort scan as freqscan
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmp);
+		pjg::encode::zdst_high(encoder, cmpnfo[cmp]);
 		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmp);
+		pjg::encode::ac_high(encoder, cmpnfo[cmp]);
 		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmp);
+		pjg::encode::zdst_low(encoder, cmpnfo[cmp]);
 		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmp);
+		pjg::encode::ac_low(encoder, cmpnfo[cmp]);
 		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmp);
+		pjg::encode::dc(encoder, cmpnfo[cmp]);
 		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
 		dev_size_cmp[ cmp ] = 
 			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
@@ -3379,17 +3379,17 @@ bool pjg::decode::decode()
 	// decode actual components data
 	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
 		// decode frequency scan ('zero-sort-scan')
-		pjg::decode::zstscan(decoder, cmp);
+		cmpnfo[cmp].freqscan = pjg::decode::zstscan(decoder); // set zero sort scan as freqscan
 		// decode zero-distribution-lists for higher (7x7) ACs
-		pjg::decode::zdst_high(decoder, cmp);
+		pjg::decode::zdst_high(decoder, cmpnfo[cmp]);
 		// decode coefficients for higher (7x7) ACs
-		pjg::decode::ac_high(decoder, cmp);
+		pjg::decode::ac_high(decoder, cmpnfo[cmp]);
 		// decode zero-distribution-lists for lower ACs
-		pjg::decode::zdst_low(decoder, cmp);
+		pjg::decode::zdst_low(decoder, cmpnfo[cmp]);
 		// decode coefficients for first row / collumn ACs
-		pjg::decode::ac_low(decoder, cmp);
+		pjg::decode::ac_low(decoder, cmpnfo[cmp]);
 		// decode coefficients for DC
-		pjg::decode::dc(decoder, cmp);
+		pjg::decode::dc(decoder, cmpnfo[cmp]);
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
@@ -4393,10 +4393,10 @@ jpg::CodingStatus jpg::decode::skip_eobrun(int cmpt, int* dpos, int* rstw, int* 
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+std::array<uint8_t, 64> pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// calculate zero sort scan
-	const auto zsrtscan = pjg::encode::get_zerosort_scan(cmp);
+	const auto zsrtscan = pjg::encode::get_zerosort_scan(cmpt);
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
@@ -4440,24 +4440,22 @@ void pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		model->shift_context( cpos );		
 	}
 	
-	// set zero sort scan as freqscan
-	cmpnfo[cmp].freqscan = zsrtscan;
+	return zsrtscan;
 }
 
 
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (high)
 	----------------------------------------------- */
-void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	const auto& zdstls = cmpnfo[cmp].zdstdata;
-	const int w = cmpnfo[cmp].bch;
-	const int bc = cmpnfo[cmp].bc;
+	const auto& zdstls = cmpt.zdstdata;
+	const int w = cmpt.bch;
 
 	// arithmetic encode zero-distribution-list
-	for (int dpos = 0; dpos < bc; dpos++) {
+	for (int dpos = 0; dpos < zdstls.size(); dpos++) {
 		// context modelling - use average of above and left as context
 		auto coords = get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
@@ -4473,16 +4471,16 @@ void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, int c
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (low)
 	----------------------------------------------- */
-void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-	const auto& zdstls_x = cmpnfo[cmp].zdstxlow;
-	const auto& zdstls_y = cmpnfo[cmp].zdstylow;
-	const auto& ctx_eobx = cmpnfo[cmp].eobxhigh;
-	const auto& ctx_eoby = cmpnfo[cmp].eobyhigh;
-	const auto& ctx_zdst = cmpnfo[cmp].zdstdata;
-	const int bc = cmpnfo[cmp].bc;
+	const auto& zdstls_x = cmpt.zdstxlow;
+	const auto& zdstls_y = cmpt.zdstylow;
+	const auto& ctx_eobx = cmpt.eobxhigh;
+	const auto& ctx_eoby = cmpt.eobyhigh;
+	const auto& ctx_zdst = cmpt.zdstdata;
+	const int bc = cmpt.bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
 	for (int dpos = 0; dpos < bc; dpos++ ) {
@@ -4502,37 +4500,37 @@ void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cm
 /* -----------------------------------------------
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 
 
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
+	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
-	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
+	const int max_val = cmpt.max_v(0); // Max value.
 	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpt.segm_cnt), max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
+	pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
 	
 	// locally store pointer to coefficients and zero distribution list
-	const auto& coeffs = cmpnfo[cmp].colldata[ 0 ]; // Pointer to current coefficent data.
-	const auto& zdstls = cmpnfo[cmp].zdstdata;	 // Pointer to zero distribution list.
+	const auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
+	const auto& zdstls = cmpt.zdstdata;	 // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++ )
@@ -4583,35 +4581,35 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 /* -----------------------------------------------
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
+	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpnfo[cmp].segm_cnt)), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpt.segm_cnt)), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
 	std::vector<unsigned short> absv_store(bc);	// absolute coefficients values storage
 	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
-	auto zdstls = cmpnfo[cmp].zdstdata; // copy of zero distribution list
+	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
 	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	auto& eob_x = cmpnfo[cmp].eobxhigh; // Pointer to x eobs.
-	auto& eob_y = cmpnfo[cmp].eobyhigh; // Pointer to y eobs.
+	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
+	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
 	
 	// preset x/y eobs
 	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
@@ -4621,7 +4619,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		const int bpos = static_cast<int>(cmpnfo[cmp].freqscan[i]);
+		const int bpos = static_cast<int>(cmpt.freqscan[i]);
 		const int b_x = unzigzag[ bpos ] % 8;
 		const int b_y = unzigzag[ bpos ] / 8;
 	
@@ -4633,13 +4631,13 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
+		pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
-		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
+		const int max_val = cmpt.max_v(bpos); // Max value.
 		const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loo
@@ -4708,7 +4706,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp
 /* -----------------------------------------------
 	encodes first row/col AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
+void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	
 	short* coeffs_x[ 8 ]; // prediction coeffs - current block
@@ -4716,14 +4714,14 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpnfo[cmp].nois_trs)), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpt.nois_trs)), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// work through each first row / first collumn band
 	for (int i = 2; i < 16; i++ )
@@ -4734,33 +4732,33 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, int cmp)
 		const int bpos = static_cast<int>(zigzag[ b_x + (8*b_y) ]);
 		
 		// locally store pointer to band coefficients
-		const auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
+		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		auto& zdstls = b_x == 0 ? cmpnfo[cmp].zdstylow : cmpnfo[cmp].zdstxlow; // Pointer to row/col # of non-zeroes.
+		auto& zdstls = b_x == 0 ? cmpt.zdstylow : cmpt.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
 		
 		// get max bit length / other info
-		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
+		const int max_valp = cmpt.max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength
-		const int thrs_bp = ( max_len > cmpnfo[cmp].nois_trs ) ? max_len - cmpnfo[cmp].nois_trs : 0; // residual threshold bitplane	
+		const int thrs_bp = ( max_len > cmpt.nois_trs ) ? max_len - cmpt.nois_trs : 0; // residual threshold bitplane	
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -4866,7 +4864,7 @@ void pjg::encode::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned ch
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-void pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+std::array<uint8_t, 64> pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec)
 {		
 	int tpos; // true position
 	
@@ -4913,21 +4911,20 @@ void pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		freqlist[ tpos ] = 0;
 	}	
 	
-	// set zero sort scan as freqscan
-	cmpnfo[cmp].freqscan = zsrtscan;
+	return zsrtscan;
 }
 
 
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (high)
 	----------------------------------------------- */
-void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {		
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	auto& zdstls = cmpnfo[cmp].zdstdata;
-	const int w = cmpnfo[cmp].bch;
-	const int bc = cmpnfo[cmp].bc;
+	auto& zdstls = cmpt.zdstdata;
+	const int w = cmpt.bch;
+	const int bc = cmpt.bc;
 	
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++)	{
@@ -4946,18 +4943,18 @@ void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, int c
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (low)
 	----------------------------------------------- */
-void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
-	auto& zdstls_x = cmpnfo[cmp].zdstxlow;
-	auto& zdstls_y = cmpnfo[cmp].zdstylow;
+	auto& zdstls_x = cmpt.zdstxlow;
+	auto& zdstls_y = cmpt.zdstylow;
 
-	const auto& ctx_eobx = cmpnfo[cmp].eobxhigh;
-	const auto& ctx_eoby = cmpnfo[cmp].eobyhigh;
-	const auto& ctx_zdst = cmpnfo[cmp].zdstdata;
-	const int bc = cmpnfo[cmp].bc;
+	const auto& ctx_eobx = cmpt.eobxhigh;
+	const auto& ctx_eoby = cmpt.eobyhigh;
+	const auto& ctx_zdst = cmpt.zdstdata;
+	const int bc = cmpt.bc;
 	
 	// arithmetic encode zero-distribution-list (first row)
 	for (int dpos = 0; dpos < bc; dpos++ ) {
@@ -4977,36 +4974,36 @@ void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cm
 /* -----------------------------------------------
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
-void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
+	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
-	const int max_val = cmpnfo[cmp].max_v(0); // Max value.
+	const int max_val = cmpt.max_v(0); // Max value.
 	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpnfo[cmp].segm_cnt), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpt.segm_cnt), max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
+	pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
 	
 	// locally store pointer to coefficients and zero distribution list
-	auto& coeffs = cmpnfo[cmp].colldata[ 0 ]; // Pointer to current coefficent data.
-	const auto& zdstls = cmpnfo[cmp].zdstdata; // Pointer to zero distribution list.
+	auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
+	const auto& zdstls = cmpt.zdstdata; // Pointer to zero distribution list.
 	
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++ )
@@ -5057,35 +5054,35 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[ cmpnfo[cmp].segm_cnt - 1 ];
+	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpnfo[cmp].segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
-	auto zdstls = cmpnfo[cmp].zdstdata; // copy of zero distribution list
+	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
 	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
 	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
-	auto& eob_x = cmpnfo[cmp].eobxhigh; // Pointer to x eobs.
-	auto& eob_y = cmpnfo[cmp].eobyhigh; // Pointer to y eobs.
+	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
+	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
 	
 	// preset x/y eobs
 	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
@@ -5095,7 +5092,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 	for (int i = 1; i < 64; i++ )
 	{		
 		// work through blocks in order of frequency scan
-		const int bpos = static_cast<int>(cmpnfo[cmp].freqscan[i]);
+		const int bpos = static_cast<int>(cmpt.freqscan[i]);
 		const int b_x = unzigzag[ bpos ] % 8;
 		const int b_y = unzigzag[ bpos ] / 8;
 		
@@ -5107,13 +5104,13 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, absv_store.data(), cmp );
+		pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
-		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
 		
 		// get max bit length
-		const int max_val = cmpnfo[cmp].max_v(bpos); // Max value.
+		const int max_val = cmpt.max_v(bpos); // Max value.
 		const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 		
 		// arithmetic compression loop
@@ -5182,21 +5179,21 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
+void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
 	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
 	int pred_cf[ 8 ]; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpnfo[cmp].segm_cnt), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpnfo[cmp].nois_trs)), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpt.nois_trs)), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
-	const int bc = cmpnfo[cmp].bc;
-	const int w = cmpnfo[cmp].bch;
+	const int bc = cmpt.bc;
+	const int w = cmpt.bch;
 	
 	// work through each first row / first collumn band
 	for (int i = 2; i < 16; i++ )
@@ -5207,33 +5204,33 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, int cmp)
 		const int bpos = static_cast<int>(zigzag[b_x + (8*b_y)]);
 		
 		// locally store pointer to band coefficients
-		auto& coeffs = cmpnfo[cmp].colldata[ bpos ]; // Pointer to current coefficent data.
+		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		auto& zdstls = b_x == 0 ? cmpnfo[cmp].zdstylow : cmpnfo[cmp].zdstxlow; // Pointer to row/col # of non-zeroes.
+		auto& zdstls = b_x == 0 ? cmpt.zdstylow : cmpt.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = cmpnfo[cmp].colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpnfo[cmp].quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
 		
 		// get max bit length / other info
-		const int max_valp = cmpnfo[cmp].max_v(bpos); // Max value (positive).
+		const int max_valp = cmpt.max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength.
-		const int thrs_bp = ( max_len > cmpnfo[cmp].nois_trs ) ? max_len - cmpnfo[cmp].nois_trs : 0; // Residual threshold bitplane.
+		const int thrs_bp = ( max_len > cmpt.nois_trs ) ? max_len - cmpt.nois_trs : 0; // Residual threshold bitplane.
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -5329,15 +5326,15 @@ std::uint8_t pjg::decode::bit(const std::unique_ptr<ArithmeticDecoder>& dec)
 	return bit;
 }
 
-std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(int cmpt)  {
+std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(const Component& cmpt)  {
 	// Preset the unsorted scan index:
 	std::array<uint8_t, 64> index;
 	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
 
 	// Count the number of zeroes for each frequency:
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
-	std::transform(std::begin(cmpnfo[cmpt].colldata),
-	               std::end(cmpnfo[cmpt].colldata),
+	std::transform(std::begin(cmpt.colldata),
+	               std::end(cmpt.colldata),
 	               std::begin(zeroDist),
 	               [&](const auto& freq) {
 		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
@@ -5505,9 +5502,9 @@ constexpr std::array<int, 6> pjg::get_weights() {
 /* -----------------------------------------------
 	preparations for special average context
 	----------------------------------------------- */
-void pjg::aavrg_prepare( std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, int cmp )
+void pjg::aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt)
 {
-	int w = cmpnfo[cmp].bch;
+	int w = cmpt.bch;
 	
 	// set up quick access arrays for all prediction positions
 	abs_coeffs[ 0 ] = abs_store + (  0 + ((-2)*w) ); // top-top
