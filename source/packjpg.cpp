@@ -624,15 +624,15 @@ private:
 	// Correction bits encoding routine.
 	void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw);
 
-	constexpr std::int16_t fdiv2(std::int16_t v, int p) {
+	static constexpr std::int16_t fdiv2(std::int16_t v, int p) {
 		return (v < 0) ? -((-v) >> p) : (v >> p);
 	}
 
-	constexpr int envli(int s, int v) {
+	static constexpr int envli(int s, int v)  {
 		return (v > 0) ? v : v - 1 + (1 << s);
 	}
 
-	constexpr int e_envli(int s, int v) {
+	static constexpr int e_envli(int s, int v) {
 		return v - (1 << s);
 	}
 };
@@ -660,16 +660,16 @@ private:
 	int ac_prg_sa(const std::unique_ptr<abitreader>& huffr, const HuffTree& actree, short* block,
 		int* eobrun, int from, int to);
 	// Run of EOB SA decoding routine.
-	void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to);
+	void eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int from, int to);
 
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun);
 
-	constexpr int devli(int s, int n) {
+	static constexpr int devli(int s, int n) {
 		return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
 	}
 
-	constexpr int e_devli(int s, int n) {
+	static constexpr int e_devli(int s, int n) {
 		return n + (1 << s);
 	}
 };
@@ -2802,7 +2802,7 @@ bool JpgDecoder::decode()
 							}
 							else {
 								// decode block (short routine)
-								this->eobrun_sa(huffr, block, &eobrun, curr_scan::from, curr_scan::to);
+								this->eobrun_sa(huffr, block, curr_scan::from, curr_scan::to);
 								eob = 0;
 								eobrun--;
 							}
@@ -4347,17 +4347,12 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 	return eob;
 }
 
-void JpgDecoder::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int* eobrun, int from, int to)
-{
-	unsigned short n;
-	int bpos;
-	
-	
+void JpgDecoder::eobrun_sa(const std::unique_ptr<abitreader>& huffr, short* block, int from, int to) {
 	// fast eobrun decoding routine for succesive approximation
-	for ( bpos = from; bpos <= to; bpos++ ) {
-		if ( block[ bpos ] != 0 ) {
-			n = huffr->read_bit();
-			block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
+	for (int bpos = from; bpos <= to; bpos++) {
+		if (block[bpos] != 0) {
+			uint16_t n = huffr->read_bit();
+			block[bpos] = (block[bpos] > 0) ? n : -n;
 		}
 	}
 }
