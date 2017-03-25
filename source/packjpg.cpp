@@ -1174,7 +1174,7 @@ namespace program_info {
 	const std::string appname = "packjpg";
 	const std::string versiondate = "01/22/2016";
 	const std::string author = "Matthias Stirner / Se";
-	const std::array<std::uint8_t, 2> pjg_magic = { 'J', 'S' };
+	const std::array<std::uint8_t, 2> pjg_magic{ 'J', 'S' };
 #if !defined(BUILD_LIB)
 	const std::string website = "http://packjpg.encode.ru/";
 	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
