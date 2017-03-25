@@ -1616,7 +1616,7 @@ static void initialize_options( int argc, char** argv )
 			i = ( i > 3 ) ? 3 : i;
 			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
 			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
-			nois_trs[ i ] = tmp_val;
+			cmpnfo[i].nois_trs = tmp_val;
 			auto_set = false;
 		}
 		else if ( sscanf(arg.c_str(), "-s%i,%i", &i, &tmp_val ) == 2 ) {
@@ -3393,7 +3393,7 @@ bool JpgDecoder::check_value_range() {
 			const int absmax = cmpt.max_v(bpos);
 			for (int dpos = 0; dpos < cmpt.bc; dpos++)
 				if (std::abs(coeffs[dpos]) > absmax) {
-					sprintf(errormessage, "value out of range error: cmp%u, frq%i, val %i, max %i",
+					sprintf(errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
 					        i, bpos, coeffs[dpos], absmax);
 					errorlevel = 2;
 					return false;
@@ -3464,14 +3464,13 @@ bool PjgEncoder::encode()
 	if ( !auto_set ) {
 		hcode = 0x00;
 		str_out->write_byte(hcode);
-		str_out->write_byte(cmpnfo[0].nois_trs);
-		str_out->write_byte(cmpnfo[1].nois_trs);
-		str_out->write_byte(cmpnfo[2].nois_trs);
-		str_out->write_byte(cmpnfo[3].nois_trs);
-		str_out->write_byte(cmpnfo[0].segm_cnt);
-		str_out->write_byte(cmpnfo[1].segm_cnt);
-		str_out->write_byte(cmpnfo[2].segm_cnt);
-		str_out->write_byte(cmpnfo[3].segm_cnt);
+		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+			str_out->write_byte(cmpnfo[cmpt].nois_trs);
+		}
+
+		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+			str_out->write_byte(cmpnfo[cmpt].segm_cnt);
+		}
 	}
 	
 	// store version number
@@ -3736,8 +3735,8 @@ bool jpg::setup_imginfo()
 
 	// decide components' statistical ids
 	if (cmpnfo.size() <= 3) {
-		for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
-			cmpnfo[cmp].sid = cmp;
+		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+			cmpnfo[cmpt].sid = cmpt;
 		}
 	} else {
 		for (auto& cmpt : cmpnfo) {
@@ -5913,7 +5912,7 @@ static bool dump_coll()
 	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
 	const auto& base = filelist[file_no];
 
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		// create filename
 		const auto fn = create_filename(base, ext[cmp]);
 
@@ -5930,7 +5929,7 @@ static bool dump_coll()
 
 		case CollectionMode::STD:
 			for (int bpos = 0; bpos < 64; bpos++) {
-				fwrite(cmpnfo[cmp].colldata[bpos], sizeof(short), cmpnfo[cmp].bc, fp);
+				fwrite(cmpnfo[cmp].colldata[bpos].data(), sizeof(short), cmpnfo[cmp].bc, fp);
 			}
 			break;
 
@@ -6010,8 +6009,8 @@ static bool dump_zdst() {
 	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
 	const auto basename = filelist[file_no];
 
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
-		if (!dump_file(basename, ext[cmp], cmpnfo[cmp].zdstdata, 1, cmpnfo[cmp].bc)) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+		if (!dump_file(basename, ext[cmp], cmpnfo[cmp].zdstdata.data(), 1, cmpnfo[cmp].bc)) {
 			return false;
 		}
 	}
@@ -6100,7 +6099,7 @@ static bool dump_info() {
 	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
 	// fprintf( fp, "no of scans: %i\n", jpg::scan_count );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", image::imgheight, image::imgwidth );
-	fprintf( fp, "component count: %i\n", image::cmpc );
+	fprintf( fp, "component count: %u\n", cmpnfo.size());
 	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
 	
 	// info about header
@@ -6126,7 +6125,7 @@ static bool dump_info() {
 	fprintf(fp, "\n");
 
 	// info about components
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		fprintf(fp, "\n");
 		fprintf(fp, "component number %i ->\n", cmp);
 		fprintf(fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh);
@@ -6141,7 +6140,7 @@ static bool dump_info() {
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
-			fprintf(fp, "%4i, ", cmpnfo[cmp].QUANT(bpos));
+			fprintf(fp, "%4i, ", cmpnfo[cmp].quant(bpos));
 		}
 		fprintf(fp, "\n");
 		fprintf(fp, "maximum values ->");
@@ -6150,7 +6149,7 @@ static bool dump_info() {
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
-			fprintf(fp, "%4i, ", MAX_V(cmp, bpos));
+			fprintf(fp, "%4i, ", cmpnfo[cmp].max_v(bpos));
 		}
 		fprintf(fp, "\n\n");
 	}
@@ -6176,7 +6175,7 @@ static bool dump_dist() {
 	}
 
 	// calculate & write distributions for each frequency
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		for (int bpos = 0; bpos < 64; bpos++) {
 			std::array<int, 1024 + 1> dist = { 0 };
 			// get distribution
@@ -6200,7 +6199,7 @@ static bool dump_dist() {
 static bool dump_pgm() {
 	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		// create filename
 		const auto fn = create_filename(filelist[file_no], ext[cmp]);
 
