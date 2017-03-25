@@ -666,7 +666,7 @@ private:
 	void eobrun_sa(short* block, int from, int to);
 
 	// Skips the eobrun, calculates next position.
-	CodingStatus skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun);
+	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun);
 
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
 
@@ -721,7 +721,6 @@ namespace jpg {
 
 char padbit = -1; // padbit (for huffman coding)
 int scan_count = 0; // count of scans
-int rsti = 0; // restart interval
 
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
@@ -731,9 +730,9 @@ bool setup_imginfo();
 bool rebuild_header();
 
 // Calculates next position for MCU.
-CodingStatus next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+CodingStatus next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
 // Calculates next position (non interleaved).
-CodingStatus next_mcuposn(const Component& cmpt, int* dpos, int* rstw);
+CodingStatus next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* rstw);
 
 namespace jfif {
 
@@ -750,7 +749,7 @@ ScanInfo parse_sos(const unsigned char* segment);
 // Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
 bool parse_sof(unsigned char type, const unsigned char* segment);
 // Helper function that parses DRI segments.
-void parse_dri(const unsigned char* segment);
+int parse_dri(const unsigned char* segment);
 }
 
 namespace encode {
@@ -2245,7 +2244,6 @@ static bool reset_buffers()
 	image::mcuc      = 0;
 	image::mcuh      = 0;
 	image::mcuv      = 0;
-	jpg::rsti      = 0;
 	
 	// reset quantization
 	for (int i = 0; i < 4; i++ ) {
@@ -2548,6 +2546,7 @@ bool JpgDecoder::decode()
 	jpg::scan_count = 0;
 	
 	// JPEG decompression loop
+	int rsti = 0; // restart interval
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
 	while ( true )
@@ -2562,11 +2561,8 @@ bool JpgDecoder::decode()
 			if (type == 0xC4) { // DHT segment.
 				hcodes = jpg::jfif::parse_dht(len, hdrdata.data() + hpos);
 				htrees = build_trees(hcodes);
-				//htrees = this->build_trees(hcodes);
 			} else if ( type == 0xDD ) {
-				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
-					return false;
-				}
+				rsti = jpg::jfif::parse_dri(hdrdata.data() + hpos);
 			} else if (type == 0xDA) { // SOS segment.
 				try {
 					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
@@ -2614,7 +2610,7 @@ bool JpgDecoder::decode()
 			int peobrun = 0; // previous eobrun
 			
 			// (re)set rst wait counter
-			int rstw = jpg::rsti; // restart wait counter
+			int rstw = rsti; // restart wait counter
 			
 			// decoding for interleaved data
 			if ( scan_info.cmpc > 1 )
@@ -2643,7 +2639,7 @@ bool JpgDecoder::decode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						else status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.sah == 0 ) {
@@ -2662,7 +2658,7 @@ bool JpgDecoder::decode()
 						
 						// next mcupos if no error happened
 						if ( status != CodingStatus::ERROR )
-							status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+							status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -2675,7 +2671,7 @@ bool JpgDecoder::decode()
 						// shift in next bit
 						cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 						
-						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -2705,7 +2701,7 @@ bool JpgDecoder::decode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+						else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.to == 0 ) {					
@@ -2725,7 +2721,7 @@ bool JpgDecoder::decode()
 							
 							// check for errors, increment dpos otherwise
 							if ( status != CodingStatus::ERROR )
-								status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2739,7 +2735,7 @@ bool JpgDecoder::decode()
 							cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 							
 							// increment dpos
-							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -2772,11 +2768,11 @@ bool JpgDecoder::decode()
 							
 							// check for errors
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = this->skip_eobrun(cmpnfo[cmp], &dpos, &rstw, &eobrun);
+							else status = this->skip_eobrun(cmpnfo[cmp], rsti, &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
 							if ( status == CodingStatus::OKAY )
-								status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2819,7 +2815,7 @@ bool JpgDecoder::decode()
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -2887,6 +2883,7 @@ bool JpgEncoder::recode()
 	int rstc = 0; // count of restart markers
 	
 	// JPEG decompression loop
+	int rsti = 0; // Restart interval.
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	while ( true )
 	{
@@ -2902,9 +2899,7 @@ bool JpgEncoder::recode()
 			if (type == 0xC4) { // DHT segment.
 				hcodes = jpg::jfif::parse_dht(len, hdrdata.data() + hpos);
 			} else if (type == 0xDD) {
-				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
-					return false;
-				}
+				rsti = jpg::jfif::parse_dri(hdrdata.data() + hpos);
 			} else if (type == 0xDA) { // SOS segment.
 				try {
 					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
@@ -2923,9 +2918,9 @@ bool JpgEncoder::recode()
 		scnp.resize(jpg::scan_count + 2);
 		
 		// (re)alloc restart marker positons array if needed
-		if ( jpg::rsti > 0 ) {
+		if ( rsti > 0 ) {
 			int tmp = rstc + ( ( scan_info.cmpc > 1 ) ?
-				( image::mcuc / jpg::rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / jpg::rsti ) );
+				( image::mcuc / rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / rsti ) );
 			rstp.resize(tmp + 1);
 		}		
 		
@@ -2952,7 +2947,7 @@ bool JpgEncoder::recode()
 			int eobrun = 0; // run of eobs
 			
 			// (re)set rst wait counter
-			int rstw = jpg::rsti; // restart wait counter
+			int rstw = rsti; // restart wait counter
 			
 			// encoding for interleaved data
 			if ( scan_info.cmpc > 1 )
@@ -2976,7 +2971,7 @@ bool JpgEncoder::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						else status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.sah == 0 ) {
@@ -2994,7 +2989,7 @@ bool JpgEncoder::recode()
 						                       block);
 						
 						// next mcupos
-						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -3007,7 +3002,7 @@ bool JpgEncoder::recode()
 						// encode dc correction bit
 						this->dc_prg_sa(huffw, block);
 						
-						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -3032,7 +3027,7 @@ bool JpgEncoder::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);	
+						else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.to == 0 ) {
@@ -3051,7 +3046,7 @@ bool JpgEncoder::recode()
 							                       block);							
 							
 							// check for errors, increment dpos otherwise
-							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -3065,7 +3060,7 @@ bool JpgEncoder::recode()
 							this->dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -3086,7 +3081,7 @@ bool JpgEncoder::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3108,7 +3103,7 @@ bool JpgEncoder::recode()
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
@@ -3135,7 +3130,7 @@ bool JpgEncoder::recode()
 				break; // leave decoding loop, everything is done here
 			}
 			else if ( status == CodingStatus::RESTART ) {
-				if ( jpg::rsti > 0 ) // store rstp & stay in the loop
+				if ( rsti > 0 ) // store rstp & stay in the loop
 					rstp[ rstc++ ] = huffw->getpos() - 1;
 			}
 		}
@@ -3717,9 +3712,9 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 }
 
 // define restart interval
-void jpg::jfif::parse_dri(const unsigned char* segment) {
+int jpg::jfif::parse_dri(const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
-	jpg::rsti = pack( segment[ hpos ], segment[ hpos + 1 ] );
+	return pack( segment[ hpos ], segment[ hpos + 1 ] );
 }
 
 bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
@@ -3829,8 +3824,7 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 			return jpg::jfif::parse_dqt(len, segment);
 			
 		case 0xDD: // DRI segment
-			jpg::jfif::parse_dri(segment);
-			return true;
+			return false;
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
@@ -4403,7 +4397,7 @@ void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::uni
 	storw->reset();
 }
 
-CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
+CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
 	CodingStatus sta = CodingStatus::OKAY;
 	
@@ -4417,7 +4411,7 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int
 			(*cmp) = scan_info.cmp[ 0 ];
 			(*mcu)++;
 			if ( (*mcu) >= image::mcuc ) sta = CodingStatus::DONE;
-			else if ( jpg::rsti > 0 )
+			else if ( rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = CodingStatus::RESTART;
 		}
 		else {
@@ -4444,7 +4438,7 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int
 	return sta;
 }
 
-CodingStatus jpg::next_mcuposn(const Component& cmpt, int* dpos, int* rstw)
+CodingStatus jpg::next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* rstw)
 {
 	// increment position
 	(*dpos)++;
@@ -4463,19 +4457,19 @@ CodingStatus jpg::next_mcuposn(const Component& cmpt, int* dpos, int* rstw)
 	
 	// check position
 	if ( (*dpos) >= cmpt.bc ) return CodingStatus::DONE;
-	else if ( jpg::rsti > 0 )
+	else if ( rsti > 0 )
 		if ( --(*rstw) == 0 ) return CodingStatus::RESTART;
 	
 
 	return CodingStatus::OKAY;
 }
 
-CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun)
+CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun)
 {
 	if ( (*eobrun) > 0 ) // error check for eobrun
 	{		
 		// compare rst wait counter if needed
-		if ( jpg::rsti > 0 ) {
+		if ( rsti > 0 ) {
 			if ( (*eobrun) > (*rstw) )
 				return CodingStatus::ERROR;
 			else
@@ -4504,7 +4498,7 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int* dpos, int* rstw
 		// check position
 		if ( (*dpos) == cmpt.bc ) return CodingStatus::DONE;
 		else if ( (*dpos) > cmpt.bc ) return CodingStatus::ERROR;
-		else if ( jpg::rsti > 0 ) 
+		else if ( rsti > 0 ) 
 			if ( (*rstw) == 0 ) return CodingStatus::RESTART;
 	}
 	
