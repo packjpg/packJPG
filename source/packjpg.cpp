@@ -948,31 +948,31 @@ int parse_dri(const unsigned char* segment);
 }
 
 namespace encode {
-	JpgEncoder jpeg_encoder;
+	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>();
 	// JPEG encoding routine.
 	bool recode() {
-		return jpeg_encoder.recode();
+		return jpeg_encoder->recode();
 	}
 	// Merges header & image data to jpeg.
 	bool merge() {
-		return jpeg_encoder.merge();
+		return jpeg_encoder->merge();
 	}
 }
 
 namespace decode {
-	JpgDecoder jpeg_decoder;
+	std::unique_ptr<JpgDecoder> jpeg_decoder = std::make_unique<JpgDecoder>();
 
 	// Read in header and image data.
 	bool read() {
-		return jpeg_decoder.read();
+		return jpeg_decoder->read();
 	}
 	// JPEG decoding routine.
 	bool decode() {
-		return jpeg_decoder.decode();
+		return jpeg_decoder->decode();
 	}
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
-		return jpeg_decoder.check_value_range();
+		return jpeg_decoder->check_value_range();
 	}
 
 }
@@ -1114,8 +1114,6 @@ static std::unique_ptr<iostream> str_str;	// storage stream
 static std::vector<std::string> filelist; // list of files to process 
 static int    file_no  = 0;			// number of current file
 
-static std::vector<std::string> err_list; // list of error messages 
-static std::vector<int> err_tp; // list of error types
 #endif
 
 #if defined(DEV_INFOS)
@@ -1234,6 +1232,8 @@ int main( int argc, char** argv )
 	reset_buffers();
 	
 	// process file(s) - this is the main function routine
+	static std::vector<std::string> err_list(filelist.size()); // list of error messages 
+	static std::vector<int> err_tp(filelist.size()); // list of error types
 
 	auto begin = std::chrono::steady_clock::now();
 	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
@@ -1684,10 +1684,6 @@ static void initialize_options( int argc, char** argv )
 			filelist.push_back(arg);
 		}		
 	}
-	
-	// alloc arrays for error messages and types storage
-	err_list = std::vector<std::string>(filelist.size());
-	err_tp   = std::vector<int>(filelist.size());
 	
 	// backup settings - needed to restore original setting later
 	if ( !auto_set ) {
@@ -2371,7 +2367,7 @@ static bool reset_buffers()
 	grbgdata.clear();
 	jpg::rst_err.clear();
 
-	jpg::encode::jpeg_encoder = JpgEncoder();
+	jpg::encode::jpeg_encoder = std::make_unique<JpgEncoder>();
 	
 	cmpnfo.clear();
 	
