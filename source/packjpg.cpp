@@ -277,6 +277,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "bitops.h"
 #include "dct8x8.h"
 #include "pjpgtbl.h"
+#include "segment.h"
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB
@@ -834,9 +835,9 @@ public:
 	bool encode();
 private:
 	// Optimizes DHT segments for compression.
-	void optimize_dht(int hpos, const int len);
+	void optimize_dht(Segment& segment);
 	// Optimizes DQT segments for compression.
-	void optimize_dqt(int hpos, const int len);
+	void optimize_dqt(Segment& segment);
 	// Optimizes JFIF header for compression.
 	void optimize_header();
 
@@ -846,6 +847,7 @@ private:
 	void dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
 	void ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
 	void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
+	void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<Segment>& segments);
 	void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data);
 	void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
 	
@@ -860,9 +862,9 @@ public:
 	bool decode();
 private:
 	// Undoes DHT segment optimizations.
-	void deoptimize_dht(int hpos, int segment_length);
+	void deoptimize_dht(Segment& segment);
 	// Undoes DQT segment optimizations.
-	void deoptimize_dqt(int hpos, int segment_length);
+	void deoptimize_dqt(Segment& segment);
 	// Undoes DHT and DQT (header) optimizations.
 	void deoptimize_header();
 
@@ -932,19 +934,19 @@ CodingStatus next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* rstw)
 namespace jfif {
 
 // Parses JFIF segment, returning true if the segment is valid in packjpg and the parse was successful, false otherwise.
-bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
+bool parse_jfif(const Segment& segment);
 
 // Helper function that parses DHT segments, returning true if the parse succeeds.
-void parse_dht(unsigned int len, const unsigned char* segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
+void parse_dht(const std::vector<uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
 
 // Helper function that parses DQT segments, returning true if the parse succeeds.
-bool parse_dqt(unsigned len, const unsigned char* segment);
+bool parse_dqt(const std::vector<uint8_t>& segment);
 // Helper function that parses SOS segments, returning true if the parse succeeds.
-ScanInfo parse_sos(const unsigned char* segment);
+ScanInfo parse_sos(const std::vector<uint8_t>& segment);
 // Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
-bool parse_sof(unsigned char type, const unsigned char* segment);
+bool parse_sof(Marker type, const std::vector<uint8_t>& segment);
 // Helper function that parses DRI segments.
-int parse_dri(const unsigned char* segment);
+int parse_dri(const std::vector<uint8_t>& segment);
 }
 
 namespace encode {
@@ -1076,7 +1078,7 @@ static int lib_out_type = -1;
 static std::array<std::array<uint16_t, 64>, 4> qtables; // quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
-static std::vector<std::uint8_t> hdrdata;   // header data
+static std::vector<Segment> segments; // Header segments.
 static std::vector<std::uint8_t> huffdata; // huffman coded data
 
 /* -----------------------------------------------
@@ -2334,7 +2336,8 @@ static bool compare_output() {
 	const auto& input_data = str_str->get_data();
 	const auto& verif_data = str_out->get_data();
 	if (std::size(input_data) != std::size(verif_data)) {
-		sprintf(errormessage, "%u, %u", std::size(input_data), std::size(verif_data));
+		sprintf(errormessage, "expected size: %u, verif size: %u", std::size(input_data), std::size(verif_data));
+		errorlevel = 2;
 		return false;
 	}
 
@@ -2345,7 +2348,7 @@ static bool compare_output() {
 	if (result.first != std::end(input_data)
 		|| result.second != std::end(verif_data)) {
 		const auto first_diff = std::distance(std::begin(input_data), result.first);
-		sprintf(errormessage, "difference found at 0x%X", first_diff);
+		sprintf(errormessage, "difference found at byte position %u", first_diff);
 		errorlevel = 2;
 		return false;
 	}
@@ -2362,7 +2365,7 @@ static bool compare_output() {
 static bool reset_buffers()
 {		
 	// free buffers & set pointers nullptr
-	hdrdata.clear();
+	segments.clear();
 	huffdata.clear();
 	grbgdata.clear();
 	jpg::rst_err.clear();
@@ -2503,7 +2506,7 @@ bool JpgDecoder::read()
 		// if EOI is encountered make a quick exit
 		if ( type == 0xD9 ) {
 			// get pointer for header data & size
-			hdrdata  = hdrw->get_data();
+			segments = Segment::parse_segments(hdrw->get_data());
 			// get pointer for huffman data & size
 			huffdata = huffw->get_data();
 			// everything is done here now
@@ -2528,7 +2531,7 @@ bool JpgDecoder::read()
 	// JPEG reader loop end
 	
 	// check if everything went OK
-	if (hdrdata.empty() || huffdata.empty()) {
+	if (segments.empty() || huffdata.empty()) {
 		sprintf( errormessage, "unexpected end of data encountered" );
 		errorlevel = 2;
 		return false;
@@ -2561,7 +2564,6 @@ bool JpgDecoder::read()
 }
 
 bool JpgEncoder::merge() {
-	int hpos = 0; // current position in header
 	int rpos = 0; // current restart marker position
 	int scan = 1; // number of current scan	
 
@@ -2570,29 +2572,14 @@ bool JpgEncoder::merge() {
 	str_out->write(SOI.data(), 2);
 
 	// JPEG writing loop
-	while (true) {
-		// store current header position
-		std::uint32_t tmp = hpos;
-
-		// seek till start-of-scan
-		std::uint8_t type; // type of current marker segment
-		for (type = 0x00; type != 0xDA;) {
-			if (hpos >= hdrdata.size()) {
-				break;
-			}
-			type = hdrdata[hpos + 1];
-			int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			hpos += len;
-		}
-
+	for (const auto& segment : segments) {
 		// write header data to file
-		str_out->write(hdrdata.data() + tmp, hpos - tmp);
+		str_out->write(segment.get_data().data(), segment.get_data().size());
 
 		// get out if last marker segment type was not SOS
-		if (type != 0xDA) {
-			break;
+		if (segment.get_type() != Marker::kSOS) {
+			continue;
 		}
-
 
 		// (re)set corrected rst pos
 		std::uint32_t cpos = 0; // in scan corrected rst marker position
@@ -2667,9 +2654,7 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 }
 
 bool JpgDecoder::decode()
-{	
-	unsigned int hpos = 0; // current position in header
-	
+{		
 	short block[64]; // store block for coeffs
 	
 	// open huffman coded image data for input in abitreader
@@ -2682,32 +2667,30 @@ bool JpgDecoder::decode()
 	int rsti = 0; // restart interval
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
-	while ( true )
-	{
+	for (const auto& segment : segments) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
-		std::uint8_t type; // type of current marker segment
 		ScanInfo scan_info;
-		for ( type = 0x00; type != 0xDA; ) {
-			if (hpos >= hdrdata.size()) break;
-			type = hdrdata[ hpos + 1 ];
-			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if (type == 0xC4) { // DHT segment.
-				jpg::jfif::parse_dht(len, hdrdata.data() + hpos, hcodes);
-				build_trees(hcodes, htrees);
-			} else if ( type == 0xDD ) {
-				rsti = jpg::jfif::parse_dri(hdrdata.data() + hpos);
-			} else if (type == 0xDA) { // SOS segment.
-				try {
-					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
-				} catch (std::runtime_error&) {
-					return false;
-				}
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			jpg::jfif::parse_dht(segment.get_data(), hcodes);
+			build_trees(hcodes, htrees);
+		} else if (type == Marker::kDRI) {
+			rsti = jpg::jfif::parse_dri(segment.get_data());
+		} else if (type == Marker::kSOS) {
+			try {
+				scan_info = jpg::jfif::parse_sos(segment.get_data());
 			}
-			hpos += len;
+			catch (std::runtime_error&) {
+				return false;
+			}
+		} else {
+			continue;
 		}
 		
 		// get out if last marker segment type was not SOS
-		if ( type != 0xDA ) break;
+		if (type != Marker::kSOS) {
+			continue;
+		}
 		
 		// check if huffman tables are available
 		for (int csc = 0; csc < scan_info.cmpc; csc++) {
@@ -2999,9 +2982,7 @@ bool JpgDecoder::decode()
 }
 
 bool JpgEncoder::recode()
-{	
-	int hpos = 0; // current position in header
-	
+{		
 	std::array<std::int16_t, 64> block; // store block for coeffs
 	
 	// open huffman coded image data in abitwriter
@@ -3018,34 +2999,28 @@ bool JpgEncoder::recode()
 	// JPEG decompression loop
 	int rsti = 0; // Restart interval.
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
-	while ( true )
-	{
+	for (const auto& segment : segments) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
-		std::uint8_t type; // type of current marker segment
 		ScanInfo scan_info;
-		for ( type = 0x00; type != 0xDA; ) {
-			if (hpos >= int(hdrdata.size())) {
-				break;
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			jpg::jfif::parse_dht(segment.get_data(), hcodes);
+		} else if (type == Marker::kDRI) {
+			rsti = jpg::jfif::parse_dri(segment.get_data());
+		} else if (type == Marker::kSOS) {
+			try {
+				scan_info = jpg::jfif::parse_sos(segment.get_data());
+			} catch (std::runtime_error&) {
+				return false;
 			}
-			type = hdrdata[ hpos + 1 ];
-			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if (type == 0xC4) { // DHT segment.
-				jpg::jfif::parse_dht(len, hdrdata.data() + hpos, hcodes);
-			} else if (type == 0xDD) {
-				rsti = jpg::jfif::parse_dri(hdrdata.data() + hpos);
-			} else if (type == 0xDA) { // SOS segment.
-				try {
-					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
-				} catch (std::runtime_error&) {
-					return false;
-				}
-			} 
-			hpos += len;
+		} else {
+			continue;
 		}
-		
+
 		// get out if last marker segment type was not SOS
-		if ( type != 0xDA ) break;
-		
+		if (type != Marker::kSOS) {
+			continue;
+		}
 		
 		// (re)alloc scan positons array
 		scnp.resize(scan_count + 2);
@@ -3479,7 +3454,7 @@ bool PjgEncoder::encode()
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
-	this->generic(encoder, hdrdata);
+	this->generic(encoder, segments);
 	#else
 	dev_size = str_out->getpos();
 	pjg::encode::generic(encoder, hdrdata);
@@ -3610,7 +3585,7 @@ bool PjgDecoder::decode()
 	auto decoder = std::make_unique<ArithmeticDecoder>(str_in.get());
 	
 	// decode JPG header
-	hdrdata = this->generic(decoder);
+	segments = Segment::parse_segments(this->generic(decoder));
 	// retrieve padbit from stream
 	jpg::padbit = this->bit(decoder);
 	// decode one bit that signals false /correct use of RST markers
@@ -3662,20 +3637,17 @@ bool PjgDecoder::decode()
 
 bool jpg::setup_imginfo()
 {
-	unsigned char  type; // type of current marker segment
-	unsigned int   len; // length of current marker segment
-	unsigned int   hpos = 0; // position in header
 		
 	// header parser loop
-	while (hpos < int(hdrdata.size())) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
-		// do not parse DHT, DRI, or SOS
-		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
-			if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
+	for (const auto& segment : segments) {
+		const Marker type = segment.get_type();
+		if (type != Marker::kDHT
+			&& type != Marker::kDRI
+			&& type != Marker::kSOS) {
+			if (!jpg::jfif::parse_jfif(segment)) {
 				return false;
+			}
 		}
-		hpos += len;
 	}
 
 	// check if information is complete
@@ -3756,10 +3728,10 @@ bool jpg::setup_imginfo()
 }
 
 // Builds Huffman trees and codes.
-void jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
+void jpg::jfif::parse_dht(const std::vector<uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 	int hpos = 4; // current position in segment, start after segment header
 	// build huffman trees & codes
-	while (hpos < len) {
+	while (hpos < segment.size()) {
 		int lval = bitops::LBITS(segment[hpos], 4);
 		int rval = bitops::RBITS(segment[hpos], 4);
 		if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
@@ -3777,7 +3749,7 @@ void jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment, std::a
 		hpos += skip;
 	}
 
-	if (hpos != len) {
+	if (hpos != segment.size()) {
 		// if we get here, something went wrong
 		sprintf(errormessage, "size mismatch in dht marker");
 		errorlevel = 2;
@@ -3786,9 +3758,9 @@ void jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment, std::a
 }
 
 // Copy quantization tables to internal memory
-bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
+bool jpg::jfif::parse_dqt(const std::vector<uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
-	while (hpos < len) {
+	while (hpos < segment.size()) {
 		int lval = bitops::LBITS( segment[ hpos ], 4 );
 		int rval = bitops::RBITS( segment[ hpos ], 4 );
 		if (lval < 0 || lval >= 2) {
@@ -3818,7 +3790,7 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 		}
 	}
 
-	if (hpos != len) {
+	if (hpos != segment.size()) {
 		// if we get here, something went wrong
 		sprintf(errormessage, "size mismatch in dqt marker");
 		errorlevel = 2;
@@ -3828,16 +3800,16 @@ bool jpg::jfif::parse_dqt(unsigned len, const unsigned char* segment) {
 }
 
 // define restart interval
-int jpg::jfif::parse_dri(const unsigned char* segment) {
+int jpg::jfif::parse_dri(const std::vector<uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	return pack( segment[ hpos ], segment[ hpos + 1 ] );
 }
 
-bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
+bool jpg::jfif::parse_sof(Marker type, const std::vector<uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 
 	// set JPEG coding type
-	if (type == 0xC2) {
+	if (type == Marker::kSOF2) {
 		jpegtype = JpegType::PROGRESSIVE;
 	} else {
 		jpegtype = JpegType::SEQUENTIAL;
@@ -3879,7 +3851,7 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 	return true;
 }
 
-ScanInfo jpg::jfif::parse_sos(const unsigned char* segment) {
+ScanInfo jpg::jfif::parse_sos(const std::vector<uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	ScanInfo scan_info;
 	scan_info.cmpc = segment[hpos];
@@ -3928,145 +3900,140 @@ ScanInfo jpg::jfif::parse_sos(const unsigned char* segment) {
 	return scan_info;
 }
 
-bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment)
+bool jpg::jfif::parse_jfif(const Segment& segment)
 {
-	
-	switch ( type )
-	{
-		case 0xC4: // DHT segment
-			return false;
-		
-		case 0xDB: // DQT segment
-			return jpg::jfif::parse_dqt(len, segment);
-			
-		case 0xDD: // DRI segment
-			return false;
-			
-		case 0xDA: // SOS segment
-			// prepare next scan
-			return false;
-		
-		case 0xC0: // SOF0 segment
-			// coding process: baseline DCT
-			
-		case 0xC1: // SOF1 segment
-			// coding process: extended sequential DCT
-		
-		case 0xC2: // SOF2 segment
-			// coding process: progressive DCT
+	switch (segment.get_type()) {
+	case Marker::kDHT:
+		return true;
+	case Marker::kDQT:
+		return jpg::jfif::parse_dqt(segment.get_data());
+	case Marker::kDRI:
+		return true;
+	case Marker::kSOS:
+		// prepare next scan
+		return true;
 
-			return jpg::jfif::parse_sof(type, segment);
-		
-		case 0xC3: // SOF3 segment
-			// coding process: lossless sequential
-			sprintf( errormessage, "sof3 marker found, image is coded lossless" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xC5: // SOF5 segment
-			// coding process: differential sequential DCT
-			sprintf( errormessage, "sof5 marker found, image is coded diff. sequential" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xC6: // SOF6 segment
-			// coding process: differential progressive DCT
-			sprintf( errormessage, "sof6 marker found, image is coded diff. progressive" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xC7: // SOF7 segment
-			// coding process: differential lossless
-			sprintf( errormessage, "sof7 marker found, image is coded diff. lossless" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xC9: // SOF9 segment
-			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof9 marker found, image is coded arithm. sequential" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xCA: // SOF10 segment
-			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof10 marker found, image is coded arithm. progressive" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xCB: // SOF11 segment
-			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof11 marker found, image is coded arithm. lossless" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xCD: // SOF13 segment
-			// coding process: arithmetic differntial sequential DCT
-			sprintf( errormessage, "sof13 marker found, image is coded arithm. diff. sequential" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xCE: // SOF14 segment
-			// coding process: arithmetic differential progressive DCT
-			sprintf( errormessage, "sof14 marker found, image is coded arithm. diff. progressive" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xCF: // SOF15 segment
-			// coding process: arithmetic differntial lossless
-			sprintf( errormessage, "sof15 marker found, image is coded arithm. diff. lossless" );
-			errorlevel = 2;
-			return false;
-			
-		case 0xE0: // APP0 segment	
-		case 0xE1: // APP1 segment
-		case 0xE2: // APP2 segment
-		case 0xE3: // APP3 segment
-		case 0xE4: // APP4 segment
-		case 0xE5: // APP5 segment
-		case 0xE6: // APP6 segment
-		case 0xE7: // APP7 segment
-		case 0xE8: // APP8 segment
-		case 0xE9: // APP9 segment
-		case 0xEA: // APP10 segment
-		case 0xEB: // APP11 segment
-		case 0xEC: // APP12 segment
-		case 0xED: // APP13 segment
-		case 0xEE: // APP14 segment
-		case 0xEF: // APP15 segment
-		case 0xFE: // COM segment
-			// do nothing - return true
-			return true;
-			
-		case 0xD0: // RST0 segment
-		case 0xD1: // RST1 segment
-		case 0xD2: // RST2 segment
-		case 0xD3: // RST3 segment
-		case 0xD4: // RST4 segment
-		case 0xD5: // RST5 segment
-		case 0xD6: // RST6 segment
-		case 0xD7: // RST7 segment
-			// return errormessage - RST is out of place here
-			sprintf( errormessage, "rst marker found out of place" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xD8: // SOI segment
-			// return errormessage - start-of-image is out of place here
-			sprintf( errormessage, "soi marker found out of place" );
-			errorlevel = 2;
-			return false;
-		
-		case 0xD9: // EOI segment
-			// return errormessage - end-of-image is out of place here
-			sprintf( errormessage, "eoi marker found out of place" );
-			errorlevel = 2;
-			return false;
-			
-		default: // unknown marker segment
-			// return warning
-			sprintf( errormessage, "unknown marker found: FF %2X", type );
-			errorlevel = 1;
-			return true;
+	case Marker::kSOF0:
+		// coding process: baseline DCT
+
+	case Marker::kSOF1:
+		// coding process: extended sequential DCT
+
+	case Marker::kSOF2:
+		// coding process: progressive DCT
+
+		return jpg::jfif::parse_sof(segment.get_type(), segment.get_data());
+
+	case Marker::kSOF3:
+		// coding process: lossless sequential
+		sprintf(errormessage, "sof3 marker found, image is coded lossless");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF5:
+		// coding process: differential sequential DCT
+		sprintf(errormessage, "sof5 marker found, image is coded diff. sequential");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF6:
+		// coding process: differential progressive DCT
+		sprintf(errormessage, "sof6 marker found, image is coded diff. progressive");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF7:
+		// coding process: differential lossless
+		sprintf(errormessage, "sof7 marker found, image is coded diff. lossless");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF9:
+		// coding process: arithmetic extended sequential DCT
+		sprintf(errormessage, "sof9 marker found, image is coded arithm. sequential");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF10:
+		// coding process: arithmetic extended sequential DCT
+		sprintf(errormessage, "sof10 marker found, image is coded arithm. progressive");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF11:
+		// coding process: arithmetic extended sequential DCT
+		sprintf(errormessage, "sof11 marker found, image is coded arithm. lossless");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF13:
+		// coding process: arithmetic differntial sequential DCT
+		sprintf(errormessage, "sof13 marker found, image is coded arithm. diff. sequential");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF14:
+		// coding process: arithmetic differential progressive DCT
+		sprintf(errormessage, "sof14 marker found, image is coded arithm. diff. progressive");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOF15:
+		// coding process: arithmetic differntial lossless
+		sprintf(errormessage, "sof15 marker found, image is coded arithm. diff. lossless");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kAPP0:
+	case Marker::kAPP1:
+	case Marker::kAPP2:
+	case Marker::kAPP3:
+	case Marker::kAPP4:
+	case Marker::kAPP5:
+	case Marker::kAPP6:
+	case Marker::kAPP7:
+	case Marker::kAPP8:
+	case Marker::kAPP9:
+	case Marker::kAPP10:
+	case Marker::kAPP11:
+	case Marker::kAPP12:
+	case Marker::kAPP13:
+	case Marker::kAPP14:
+	case Marker::kAPP15:
+	case Marker::kCOM:
+		// do nothing - return true
+		return true;
+
+	case Marker::kRST0:
+	case Marker::kRST1:
+	case Marker::kRST2:
+	case Marker::kRST3:
+	case Marker::kRST4:
+	case Marker::kRST5:
+	case Marker::kRST6:
+	case Marker::kRST7:
+		// return errormessage - RST is out of place here
+		sprintf(errormessage, "rst marker found out of place");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kSOI:
+		// return errormessage - start-of-image is out of place here
+		sprintf(errormessage, "soi marker found out of place");
+		errorlevel = 2;
+		return false;
+
+	case Marker::kEOI:
+		// return errormessage - end-of-image is out of place here
+		sprintf(errormessage, "eoi marker found out of place");
+		errorlevel = 2;
+		return false;
+
+	default: // unknown marker segment
+			 // return warning
+		sprintf(errormessage, "unknown marker found: FF %2X", std::uint8_t(segment.get_type()));
+		errorlevel = 1;
+		return true;
 	}
 }
 
@@ -5039,6 +5006,23 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 	}
 }
 
+/* -----------------------------------------------
+encodes a stream of generic (8bit) data to pjg
+----------------------------------------------- */
+void PjgEncoder::generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<Segment>& segments)
+{
+	// arithmetic encode data
+	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
+
+	for (const auto& segment : segments) {
+		for (uint8_t byte : segment.get_data()) {
+			enc->encode(model.get(), byte);
+			model->shift_context(byte);
+		}
+	}
+	// encode end-of-data symbol (256)
+	enc->encode(model.get(), 256);
+}
 
 /* -----------------------------------------------
 	encodes a stream of generic (8bit) data to pjg
@@ -5557,11 +5541,11 @@ std::array<uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt)  {
 	return index;
 }
 
-void PjgEncoder::optimize_dqt(int hpos, int segment_length) {
-	const int fpos = hpos + segment_length; // End of marker position.
-	hpos += 4; // Skip marker and segment length data.
-	while (hpos < fpos) {
-		const int i = bitops::LBITS(hdrdata[hpos], 4);
+void PjgEncoder::optimize_dqt(Segment& segment) {
+	auto data = segment.get_data();
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data.size()) {
+		const int i = bitops::LBITS(data[hpos], 4);
 		hpos++;
 		// table found
 		if (i == 1) { // get out for 16 bit precision
@@ -5570,23 +5554,24 @@ void PjgEncoder::optimize_dqt(int hpos, int segment_length) {
 		}
 		// do diff coding for 8 bit precision
 		for (int sub_pos = 63; sub_pos > 0; sub_pos--) {
-			hdrdata[hpos + sub_pos] -= hdrdata[hpos + sub_pos - 1];
+			data[hpos + sub_pos] -= data[hpos + sub_pos - 1];
 		}
 
 		hpos += 64;
 	}
+	segment.set_data(data);
 }
 
-void PjgEncoder::optimize_dht(int hpos, int segment_length) {
-	const int fpos = hpos + segment_length; // End of marker position.
-	hpos += 4; // Skip marker and segment length data.
-	while (hpos < fpos) {
+void PjgEncoder::optimize_dht(Segment& segment) {
+	auto data = segment.get_data();
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data.size()) {
 		hpos++;
 		// table found - compare with each of the four standard tables		
 		for (int i = 0; i < 4; i++) {
 			int sub_pos;
 			for (sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				if (hdrdata[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
+				if (data[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
 					break;
 				}
 			}
@@ -5597,10 +5582,10 @@ void PjgEncoder::optimize_dht(int hpos, int segment_length) {
 
 			// if we get here, the table matches the standard table
 			// number 'i', so it can be replaced
-			hdrdata[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
-			hdrdata[hpos + 1] = i;
+			data[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
+			data[hpos + 1] = i;
 			for (sub_pos = 2; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				hdrdata[hpos + sub_pos] = 0x00;
+				data[hpos + sub_pos] = 0x00;
 			}
 			// everything done here, so leave
 			break;
@@ -5608,36 +5593,30 @@ void PjgEncoder::optimize_dht(int hpos, int segment_length) {
 
 		int skip = 16; // Num bytes to skip.
 		for (int i = 0; i < 16; i++) {
-			skip += int(hdrdata[hpos + i]);
+			skip += int(data[hpos + i]);
 		}
 		hpos += skip;
 	}
+	segment.set_data(data);
 }
 
 void PjgEncoder::optimize_header() {
-	int hpos = 0; // Current position in the header.
-
-	// Header parser loop:
-	while (hpos < int(hdrdata.size())) {
-		const std::uint8_t type = hdrdata[hpos + 1]; // Type of the current marker segment.
-		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of the current marker segment.
-		if (type == 0xC4) { // DHT segment:
-			this->optimize_dht(hpos, len);
-		} else if (type == 0xDB) { // DQT segment:
-			this->optimize_dqt(hpos, len);
-		} else {
-			// Skip other segments.
+	for (auto& segment : segments) {
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			this->optimize_dht(segment);
+		} else if (type == Marker::kDQT) {
+			this->optimize_dqt(segment);
 		}
-		hpos += len;
 	}
 }
 
 
-void PjgDecoder::deoptimize_dqt(int hpos, int segment_length) {
-	int fpos = hpos + segment_length;
-	hpos += 4; // Skip marker and segment length data.
-	while (hpos < fpos) {
-		const int i = bitops::LBITS( hdrdata[ hpos ], 4 );
+void PjgDecoder::deoptimize_dqt(Segment& segment) {
+	auto data = segment.get_data();
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data.size()) {
+		const int i = bitops::LBITS(data[hpos], 4);
 		hpos++;
 		// table found
 		if (i == 1) { // get out for 16 bit precision
@@ -5646,51 +5625,45 @@ void PjgDecoder::deoptimize_dqt(int hpos, int segment_length) {
 		}
 		// undo diff coding for 8 bit precision
 		for (int sub_pos = 1; sub_pos < 64; sub_pos++) {
-			hdrdata[hpos + sub_pos] += hdrdata[hpos + sub_pos - 1];
+			data[hpos + sub_pos] += data[hpos + sub_pos - 1];
 		}
 
 		hpos += 64;
 	}
+	segment.set_data(data);
 }
 
-void PjgDecoder::deoptimize_dht(int hpos, int segment_length) {
-	const int fpos = hpos + segment_length; // End of segment in hdrdata.
-	hpos += 4; // Skip marker and segment length data.
-	while (hpos < fpos) {
+void PjgDecoder::deoptimize_dht(Segment& segment) {
+	auto data = segment.get_data();
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data.size()) {
 		hpos++;
 		// table found - check if modified
-		if (hdrdata[hpos] > 2) {
+		if (data[hpos] > 2) {
 			// reinsert the standard table
-			const int i = hdrdata[hpos + 1];
+			const int i = data[hpos + 1];
 			for (int sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				hdrdata[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
+				data[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
 			}
 		}
 
 		int skip = 16; // Num bytes to skip.
 		for (int i = 0; i < 16; i++) {
-			skip += int(hdrdata[hpos + i]);
+			skip += int(data[hpos + i]);
 		}
 		hpos += skip;
 	}
+	segment.set_data(data);
 }
 
 void PjgDecoder::deoptimize_header() {
-	int hpos = 0; // Current position in the header.
-
-	// Header parser loop:
-	while (hpos < int(hdrdata.size())) {
-		const std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
-		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
-
-		if (type == 0xC4) { // DHT segment.
-			this->deoptimize_dht(hpos, len);
-		} else if (type == 0xDB) { // DQT segment.
-			this->deoptimize_dqt(hpos, len);
-		} else {
-			// Skip other segments.
+	for (auto& segment : segments) {
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			this->deoptimize_dht(segment);
+		} else if (type == Marker::kDQT) {
+			this->deoptimize_dqt(segment);
 		}
-		hpos += len;
 	}
 }
 
