@@ -386,7 +386,7 @@ struct Component {
 	}
 
 	int max_v(int bp) const {
-		return (quant(bp) > 0) ? (freqmax[bp] + quant(bp) - 1) / quant(bp) : 0;
+		return (quant(bp) > 0) ? (pjg::freqmax[bp] + quant(bp) - 1) / quant(bp) : 0;
 	}
 
 #if !defined(BUILD_LIB) && defined(DEV_BUILD)
@@ -675,6 +675,8 @@ private:
 	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
 
+
+
 class PjgEncoder {
 public:
 	bool encode();
@@ -843,14 +845,6 @@ namespace pjg {
 	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt);
 	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
 	int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);
-
-	constexpr int bitlen1024p(int v) {
-		return pbitlen_0_1024[v];
-	}
-
-	constexpr int bitlen2048n(int v) {
-		return pbitlen_n2048_2047[v + 2048];
-	}
 std::pair<int, int> get_context_nnb(int pos, int w);
 }
 
@@ -3161,7 +3155,7 @@ bool dct::adapt_icos()
 	for (auto& cmpt : cmpnfo) {
 		// make a local copy of the quantization values, check
 		for (int ipos = 0; ipos < 64; ipos++) {
-			quant[ipos] = cmpt.quant(zigzag[ipos]);
+			quant[ipos] = cmpt.quant(pjg::zigzag[ipos]);
 			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
 				quant[ipos] = 0;
 			}
@@ -3273,8 +3267,8 @@ static bool calc_zdst_lists() {
 
 		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/collumn)
 		for (int bpos = 1; bpos < 64; bpos++) {
-			const int b_x = unzigzag[bpos] % 8;
-			const int b_y = unzigzag[bpos] / 8;
+			const int b_x = pjg::unzigzag[bpos] % 8;
+			const int b_y = pjg::unzigzag[bpos] / 8;
 			if (b_x == 0) {
 				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
 					if (cmpt.colldata[bpos][dpos] != 0) {
@@ -3619,10 +3613,10 @@ bool jpg::setup_imginfo()
 		for (auto& cmpt : cmpnfo) {
 			int i;
 			for (i = 0;
-			     conf_sets[i][cmpt.sid] > static_cast<uint32_t>(cmpt.bc);
+			     pjg::conf_sets[i][cmpt.sid] > static_cast<uint32_t>(cmpt.bc);
 			     i++);
-			cmpt.segm_cnt = conf_segm;
-			cmpt.nois_trs = conf_ntrs[i][cmpt.sid];
+			cmpt.segm_cnt = pjg::conf_segm;
+			cmpt.nois_trs = pjg::conf_ntrs[i][cmpt.sid];
 		}
 	}
 	
@@ -4484,7 +4478,7 @@ std::array<uint8_t, 64> PjgEncoder::zstscan(const std::unique_ptr<ArithmeticEnco
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
-	std::copy(std::begin(stdscan), std::end(stdscan), std::begin(freqlist));
+	std::copy(std::begin(pjg::stdscan), std::end(pjg::stdscan), std::begin(freqlist));
 		
 	// init model
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
@@ -4591,7 +4585,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 
 
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
+	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -4671,7 +4665,7 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
+	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpt.segm_cnt)), 2);
@@ -4704,8 +4698,8 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	{		
 		// work through blocks in order of frequency scan
 		const int bpos = static_cast<int>(cmpt.freqscan[i]);
-		const int b_x = unzigzag[ bpos ] % 8;
-		const int b_y = unzigzag[ bpos ] / 8;
+		const int b_x = pjg::unzigzag[ bpos ] % 8;
+		const int b_y = pjg::unzigzag[ bpos ] / 8;
 	
 		if ( ( b_x == 0 ) || ( b_y == 0 ) )
 			continue; // process remaining coefficients elsewhere
@@ -4813,7 +4807,7 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 		// alternate between first row and first collumn
 		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
 		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		const int bpos = static_cast<int>(zigzag[ b_x + (8*b_y) ]);
+		const int bpos = static_cast<int>(pjg::zigzag[ b_x + (8*b_y) ]);
 		
 		// locally store pointer to band coefficients
 		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -4823,17 +4817,17 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 		auto& zdstls = b_x == 0 ? cmpt.zdstylow : cmpt.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_x ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data() - 1;
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(pjg::zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_y ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data() - w;
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(pjg::zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
@@ -4958,7 +4952,7 @@ std::array<uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<ArithmeticDeco
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
-	std::copy(std::begin(stdscan), std::end(stdscan), std::begin(freqlist));
+	std::copy(std::begin(pjg::stdscan), std::end(pjg::stdscan), std::begin(freqlist));
 		
 	// init model
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
@@ -5064,7 +5058,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1 ];
+	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -5144,7 +5138,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = segm_tables[cmpt.segm_cnt - 1];
+	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
@@ -5177,8 +5171,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	{		
 		// work through blocks in order of frequency scan
 		const int bpos = static_cast<int>(cmpt.freqscan[i]);
-		const int b_x = unzigzag[ bpos ] % 8;
-		const int b_y = unzigzag[ bpos ] / 8;
+		const int b_x = pjg::unzigzag[ bpos ] % 8;
+		const int b_y = pjg::unzigzag[ bpos ] / 8;
 		
 		if ( ( b_x == 0 ) || ( b_y == 0 ) )
 				continue; // process remaining coefficients elsewhere
@@ -5285,7 +5279,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 		// alternate between first row and first collumn
 		int b_x = ( i % 2 == 0 ) ? i / 2 : 0;
 		int b_y = ( i % 2 == 1 ) ? i / 2 : 0;
-		const int bpos = static_cast<int>(zigzag[b_x + (8*b_y)]);
+		const int bpos = static_cast<int>(pjg::zigzag[b_x + (8*b_y)]);
 		
 		// locally store pointer to band coefficients
 		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5295,17 +5289,17 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 		auto& zdstls = b_x == 0 ? cmpt.zdstylow : cmpt.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if ( b_x == 0 ) {
 			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_x ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - 1;
-				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_x ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_x ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data() - 1;
+				pred_cf[ b_x ] = dct::icos_base_8x8[ b_x * 8 ] * cmpt.quant(pjg::zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_x;
 		}
 		else { // if ( b_y == 0 )
 			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data();
-				coeffs_a[ b_y ] = cmpt.colldata[ zigzag[b_x+(8*b_y)] ].data() - w;
-				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(zigzag[b_x+(8*b_y)] );
+				coeffs_x[ b_y ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data();
+				coeffs_a[ b_y ] = cmpt.colldata[pjg::zigzag[b_x+(8*b_y)] ].data() - w;
+				pred_cf[ b_y ] = dct::icos_base_8x8[ b_y * 8 ] * cmpt.quant(pjg::zigzag[b_x+(8*b_y)] );
 			}
 			edge_c = &p_y;
 		}
@@ -5462,21 +5456,21 @@ void PjgEncoder::optimize_dht(int hpos, int segment_length) {
 		// table found - compare with each of the four standard tables		
 		for (int i = 0; i < 4; i++) {
 			int sub_pos;
-			for (sub_pos = 0; sub_pos < std_huff_lengths[i]; sub_pos++) {
-				if (hdrdata[hpos + sub_pos] != std_huff_tables[i][sub_pos]) {
+			for (sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
+				if (hdrdata[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
 					break;
 				}
 			}
 			// check if comparison ok
-			if (sub_pos != std_huff_lengths[i]) {
+			if (sub_pos != pjg::std_huff_lengths[i]) {
 				continue;
 			}
 
 			// if we get here, the table matches the standard table
 			// number 'i', so it can be replaced
-			hdrdata[hpos + 0] = std_huff_lengths[i] - 16 - i;
+			hdrdata[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
 			hdrdata[hpos + 1] = i;
-			for (sub_pos = 2; sub_pos < std_huff_lengths[i]; sub_pos++) {
+			for (sub_pos = 2; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
 				hdrdata[hpos + sub_pos] = 0x00;
 			}
 			// everything done here, so leave
@@ -5539,8 +5533,8 @@ void PjgDecoder::deoptimize_dht(int hpos, int segment_length) {
 		if (hdrdata[hpos] > 2) {
 			// reinsert the standard table
 			const int i = hdrdata[hpos + 1];
-			for (int sub_pos = 0; sub_pos < std_huff_lengths[i]; sub_pos++) {
-				hdrdata[hpos + sub_pos] = std_huff_tables[i][sub_pos];
+			for (int sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
+				hdrdata[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
 			}
 		}
 
@@ -5574,12 +5568,12 @@ void PjgDecoder::deoptimize_header() {
 // copy context weighting factors
 constexpr std::array<int, 6> pjg::get_weights() {
 	return std::array<int, 6> {
-		abs_ctx_weights_lum[0][0][2], // top-top
-		abs_ctx_weights_lum[0][1][1], // top-left
-		abs_ctx_weights_lum[0][1][2], // top
-		abs_ctx_weights_lum[0][1][3], // top-right
-		abs_ctx_weights_lum[0][2][0], // left-left
-		abs_ctx_weights_lum[0][2][1]  // left
+		pjg::abs_ctx_weights_lum[0][0][2], // top-top
+		pjg::abs_ctx_weights_lum[0][1][1], // top-left
+		pjg::abs_ctx_weights_lum[0][1][2], // top
+		pjg::abs_ctx_weights_lum[0][1][3], // top-right
+		pjg::abs_ctx_weights_lum[0][2][0], // left-left
+		pjg::abs_ctx_weights_lum[0][2][1]  // left
 	};
 }
 
@@ -5939,7 +5933,7 @@ static bool dump_coll()
 		case CollectionMode::SQU:
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
-				const int bpos = zigzag[i++];
+				const int bpos = pjg::zigzag[i++];
 				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
 					cmpnfo[cmp].bch, fp);
 				if ((i % 8) == 0) {
@@ -5956,7 +5950,7 @@ static bool dump_coll()
 		case CollectionMode::UNC:
 			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
 				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
-					const int bpos = zigzag[((i % 8) * 8) + (j % 8)];
+					const int bpos = pjg::zigzag[((i % 8) * 8) + (j % 8)];
 					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
 					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
@@ -5966,7 +5960,7 @@ static bool dump_coll()
 		case CollectionMode::SQU_ALT:
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
-				int bpos = even_zigzag[i++];
+				int bpos = pjg::even_zigzag[i++];
 				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
 					cmpnfo[cmp].bch, fp);
 				if ((i % 8) == 0) {
@@ -5983,7 +5977,7 @@ static bool dump_coll()
 		case CollectionMode::UNC_ALT:
 			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
 				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
-					const int bpos = even_zigzag[((i % 8) * 8) + (j % 8)];
+					const int bpos = pjg::even_zigzag[((i % 8) * 8) + (j % 8)];
 					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
 					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
@@ -6131,7 +6125,7 @@ static bool dump_info() {
 			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch);
 		fprintf(fp, "quantiser table ->");
 		for (int i = 0; i < 64; i++) {
-			int bpos = zigzag[i];
+			int bpos = pjg::zigzag[i];
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
@@ -6140,7 +6134,7 @@ static bool dump_info() {
 		fprintf(fp, "\n");
 		fprintf(fp, "maximum values ->");
 		for (int i = 0; i < 64; i++) {
-			int bpos = zigzag[i];
+			int bpos = pjg::zigzag[i];
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}

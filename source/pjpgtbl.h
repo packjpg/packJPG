@@ -4,13 +4,15 @@
 #include <array>
 #include <cstdint>
 
+namespace pjg {
+
 /* -----------------------------------------------
 	Compression helper tables
 	----------------------------------------------- */
 
 // Maxima for each frequency in zigzag order
 // DC maximum is fixed by offset (+4/QUANT):
-static constexpr std::array<std::uint16_t, 64> freqmax =
+constexpr std::array<std::uint16_t, 64> freqmax =
 {
 	1024,  931,  932,  985,  858,  985,  968,  884, 
 	 884,  967, 1020,  841,  871,  840, 1020,  968, 
@@ -23,7 +25,7 @@ static constexpr std::array<std::uint16_t, 64> freqmax =
 };
 
 // Standard scan is the zigzag scan:
-static constexpr std::array<std::uint8_t, 64> stdscan =
+constexpr std::array<std::uint8_t, 64> stdscan =
 {
 	 0,  1,  2,  3,  4,  5,  6,  7,
 	 8,  9, 10, 11, 12, 13, 14, 15,
@@ -36,7 +38,7 @@ static constexpr std::array<std::uint8_t, 64> stdscan =
 };
 
 // Zigzag scan conversion table:
-static constexpr std::array<std::uint8_t, 64> zigzag =
+constexpr std::array<std::uint8_t, 64> zigzag =
 {
 	 0,  1,  5,  6, 14, 15, 27, 28,
 	 2,  4,  7, 13, 16, 26, 29, 42,
@@ -49,7 +51,7 @@ static constexpr std::array<std::uint8_t, 64> zigzag =
 };
 
 // Zigzag scan reverse conversion table:
-static constexpr std::array<std::uint8_t, 64> unzigzag =
+constexpr std::array<std::uint8_t, 64> unzigzag =
 {
 	 0,  1,  8, 16,  9,  2,  3, 10,
 	17, 24, 32, 25, 18, 11,  4,  5,
@@ -62,7 +64,7 @@ static constexpr std::array<std::uint8_t, 64> unzigzag =
 };
 
 // Even/uneven zigzag scan conversion table:
-static constexpr std::array<std::uint8_t, 64> even_zigzag =
+constexpr std::array<std::uint8_t, 64> even_zigzag =
 {
 
 	 0,  5, 14, 27,  1,  6, 15, 28, 
@@ -76,7 +78,7 @@ static constexpr std::array<std::uint8_t, 64> even_zigzag =
 };
 
 // Context weighting for each band (luminance) (from POTY 2006/2007):
-static constexpr int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
+constexpr int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
 {
 	{ // DCT(0/0)
 		{  0,  0,  7,  0,  0, },
@@ -401,7 +403,7 @@ static constexpr int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
 };
 
 // Thresholds (size of component) for configuration sets:
-static constexpr std::uint32_t conf_sets[6][3] =
+constexpr std::uint32_t conf_sets[6][3] =
 {
 	{ 76800, 19200, 19200 }, // 2480x1920
 	{ 19200,  4800,  4800 }, // 1280x960
@@ -412,10 +414,10 @@ static constexpr std::uint32_t conf_sets[6][3] =
 };
 
 // Configuration sets for number of segments:
-static constexpr std::uint8_t conf_segm = 10;
+constexpr std::uint8_t conf_segm = 10;
 
 // Configuration sets for noise thresholds:
-static constexpr std::uint8_t conf_ntrs[6][3] =
+constexpr std::uint8_t conf_ntrs[6][3] =
 {
 	{  7,  7,  7 },
 	{  6,  6,  6 },
@@ -427,7 +429,7 @@ static constexpr std::uint8_t conf_ntrs[6][3] =
 
 
 // Standard huffman tables, found in JPEG specification, Chapter K.3:
-static constexpr std::uint8_t std_huff_tables[4][272] =
+constexpr std::uint8_t std_huff_tables[4][272] =
 {
 	{	// standard luma dc table (0/0)
 		0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -468,11 +470,11 @@ static constexpr std::uint8_t std_huff_tables[4][272] =
 };
 
 // :engths of standard huffmann tables:
-static constexpr std::array<std::uint8_t , 4> std_huff_lengths = { 28, 28, 178, 178 };
+constexpr std::array<std::uint8_t , 4> std_huff_lengths = { 28, 28, 178, 178 };
 
 
 // Precalculated bit lengths for values from 0 to 1024:
-static constexpr std::array<int, 1025> pbitlen_0_1024 =
+constexpr std::array<int, 1025> pbitlen_0_1024 =
 {
 	 0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // 32
 	 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // 64
@@ -510,7 +512,7 @@ static constexpr std::array<int, 1025> pbitlen_0_1024 =
 };
 
 // Precalculated bit lengths for values from -2048 to 2047:
-static constexpr std::array<int, 4096> pbitlen_n2048_2047 =
+constexpr std::array<int, 4096> pbitlen_n2048_2047 =
 {
 	12,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -2016
 	11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -1984
@@ -745,5 +747,15 @@ static constexpr std::uint8_t segm_tables[ 49 ][ 50 ] =
 	{  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 
 	  25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 48, }, // s48
 };
+
+constexpr int bitlen1024p(int v) {
+	return pbitlen_0_1024[v];
+}
+
+constexpr int bitlen2048n(int v) {
+	return pbitlen_n2048_2047[v + 2048];
+}
+
+}
 
 #endif
