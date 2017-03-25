@@ -932,8 +932,6 @@ namespace image {
 int imgwidth = 0; // width of image
 int imgheight = 0; // height of image
 
-int sfhm = 0; // max horizontal sample factor
-int sfvm = 0; // max verical sample factor
 int mcuv = 0; // mcus per line
 int mcuh = 0; // mcus per collumn
 int mcuc = 0; // count of mcus
@@ -2250,8 +2248,6 @@ static bool reset_buffers()
 	image::imgheight = 0;
 	
 	// preset mcu info variables / restart interval
-	image::sfhm      = 0;
-	image::sfvm      = 0;
 	image::mcuc      = 0;
 	image::mcuh      = 0;
 	image::mcuv      = 0;
@@ -3563,12 +3559,14 @@ bool jpg::setup_imginfo()
 	}
 
 	// do all remaining component info calculations
+	int sfhm = -1; // max horizontal sample factor
+	int sfvm = -1; // max verical sample factor
 	for (const auto& cmpt : cmpnfo) {
-		image::sfhm = std::max(cmpt.sfh, image::sfhm);
-		image::sfvm = std::max(cmpt.sfv, image::sfvm);
+		sfhm = std::max(cmpt.sfh, sfhm);
+		sfvm = std::max(cmpt.sfv, sfvm);
 	}
-	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * image::sfhm)));
-	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * image::sfvm)));
+	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm)));
+	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * sfvm)));
 	image::mcuc = image::mcuv * image::mcuh;
 	for (auto& cmpt : cmpnfo) {
 		cmpt.mbs = cmpt.sfv * cmpt.sfh;
@@ -3576,9 +3574,9 @@ bool jpg::setup_imginfo()
 		cmpt.bch = image::mcuh * cmpt.sfv;
 		cmpt.bc = cmpt.bcv * cmpt.bch;
 		cmpt.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
-			(static_cast<float>(cmpt.sfh) / (8.0 * image::sfhm))));
+			(static_cast<float>(cmpt.sfh) / (8.0 * sfhm))));
 		cmpt.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
-			(static_cast<float>(cmpt.sfv) / (8.0 * image::sfvm))));
+			(static_cast<float>(cmpt.sfv) / (8.0 * sfvm))));
 		cmpt.nc = cmpt.ncv * cmpt.nch;
 	}
 
