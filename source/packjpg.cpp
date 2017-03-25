@@ -66,7 +66,7 @@ Command line switches
 
  -ver  verify files after processing
  -v?   level of verbosity; 0,1 or 2 is allowed (default 0)
- -np   no pause after processing files
+ -w	   wait after processing files
  -o    overwrite existing files
  -p    proceed on warnings
 
@@ -539,8 +539,8 @@ struct HuffCodes {
 
 class HuffTree {
 private:
-	std::array<std::uint16_t, 256> l = { 0 };
-	std::array<std::uint16_t, 256> r = { 0 };
+	std::array<std::uint16_t, 256> l{};
+	std::array<std::uint16_t, 256> r{};
 
 public:
 	// Constructs a Huffman tree from the given Huffman codes.
@@ -1148,27 +1148,23 @@ static int  errorlevel;
 	global variables: settings
 	----------------------------------------------- */
 
+static int  err_tol = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
+static bool auto_set = true;	// automatic find best settings yes/no
+static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
+
 #if !defined(BUILD_LIB)
 static int  verbosity  = -1;	// level of verbosity
 static bool overwrite  = false;	// overwrite files yes / no
-static bool wait_exit  = true;	// pause after finished yes / no
+static bool wait_on_finish  = false;	// pause after finished yes / no
 static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
-static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
 
 static bool developer  = false;	// allow developers functions yes/no
-static bool auto_set   = true;	// automatic find best settings yes/no
-static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
-#else
-static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-static bool auto_set   = true;	// automatic find best settings yes/no
-static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
-#endif
 
-#if !defined(BUILD_LIB)
-static unsigned char orig_set[ 8 ] = { 0 }; // store array for settings
+static unsigned char orig_set[8] = { 0 }; // store array for settings
+
 #endif
 
 namespace program_info {
@@ -1327,7 +1323,7 @@ int main( int argc, char** argv )
 	}
 	
 	// pause before exit
-	if ( wait_exit && ( msgout != stderr ) ) {
+	if ( wait_on_finish && ( msgout != stderr ) ) {
 		fprintf( msgout, "\n\n< press ENTER >\n" );
 		fgetc( stdin );
 	}
@@ -1599,8 +1595,8 @@ static void initialize_options( int argc, char** argv )
 		else if (arg == "-vp") {
 			verbosity = -1;
 		}
-		else if (arg == "-np") {
-			wait_exit = false;
+		else if (arg == "-w") {
+			wait_on_finish = true;
 		}
 		else if (arg == "-o") {
 			overwrite = true;
@@ -1935,7 +1931,7 @@ static void show_help()
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-ver]   verify files after processing\n" );
 	fprintf( msgout, " [-v?]    set level of verbosity (max: 2) (def: 0)\n" );
-	fprintf( msgout, " [-np]    no pause after processing files\n" );
+	fprintf( msgout, " [-w		wait after processing files\n" );
 	fprintf( msgout, " [-o]     overwrite existing files\n" );
 	fprintf( msgout, " [-p]     proceed on warnings\n" );
 	#if defined(DEV_BUILD)
