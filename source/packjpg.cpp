@@ -679,6 +679,16 @@ private:
 	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
 
+// Information about the current SOS scan.
+struct ScanInfo {
+	int cmpc = 0; // component count in current scan
+	std::array<int, 4> cmp = { 0 }; // component numbers  in current scan
+	int from = 0; // begin - band of current scan ( inclusive )
+	int to = 0; // end - band of current scan ( inclusive )
+	int sah = 0; // successive approximation bit pos high
+	int sal = 0; // successive approximation bit pos low
+};
+
 /* -----------------------------------------------
 	function declarations: main interface
 	----------------------------------------------- */
@@ -722,7 +732,7 @@ bool setup_imginfo();
 bool rebuild_header();
 
 // Calculates next position for MCU.
-CodingStatus next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+CodingStatus next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
 // Calculates next position (non interleaved).
 CodingStatus next_mcuposn(const Component& cmpt, int* dpos, int* rstw);
 
@@ -737,7 +747,7 @@ bool parse_dht(unsigned int len, const unsigned char* segment);
 // Helper function that parses DQT segments, returning true if the parse succeeds.
 bool parse_dqt(unsigned len, const unsigned char* segment);
 // Helper function that parses SOS segments, returning true if the parse succeeds.
-bool parse_sos(const unsigned char* segment);
+ScanInfo parse_sos(const unsigned char* segment);
 // Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
 bool parse_sof(unsigned char type, const unsigned char* segment);
 // Helper function that parses DRI segments.
@@ -936,22 +946,7 @@ int mcuv = 0; // mcus per line
 int mcuh = 0; // mcus per collumn
 int mcuc = 0; // count of mcus
 }
-
-
-/* -----------------------------------------------
-	global variables: info about current scan
-	----------------------------------------------- */
-
-namespace curr_scan {
-int cmpc = 0; // component count in current scan
-std::array<int, 4> cmp = {0}; // component numbers  in current scan
-int from = 0; // begin - band of current scan ( inclusive )
-int to = 0; // end - band of current scan ( inclusive )
-int sah = 0; // successive approximation bit pos high
-int sal = 0; // successive approximation bit pos low
-}
 	
-
 /* -----------------------------------------------
 	global variables: info about files
 	----------------------------------------------- */
@@ -2548,12 +2543,19 @@ bool JpgDecoder::decode()
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		std::uint8_t type; // type of current marker segment
+		ScanInfo scan_info;
 		for ( type = 0x00; type != 0xDA; ) {
 			if (hpos >= hdrdata.size()) break;
 			type = hdrdata[ hpos + 1 ];
 			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
+			if ( ( type == 0xC4 ) || ( type == 0xDD ) ) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
+					return false;
+				}
+			} else if (type == 0xDA) {
+				try {
+					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
+				} catch (std::runtime_error&) {
 					return false;
 				}
 			}
@@ -2564,10 +2566,10 @@ bool JpgDecoder::decode()
 		if ( type != 0xDA ) break;
 		
 		// check if huffman tables are available
-		for (int csc = 0; csc < curr_scan::cmpc; csc++) {
-			int cmp = curr_scan::cmp[ csc ];
-			if ( ( curr_scan::sal == 0 && jpg::htrees[0][cmpnfo[cmp].huffdc] == nullptr ) ||
-				 (curr_scan::sah >  0 && jpg::htrees[1][cmpnfo[cmp].huffac] == nullptr ) ) {
+		for (int csc = 0; csc < scan_info.cmpc; csc++) {
+			int cmp = scan_info.cmp[ csc ];
+			if ( ( scan_info.sal == 0 && jpg::htrees[0][cmpnfo[cmp].huffdc] == nullptr ) ||
+				 (scan_info.sah >  0 && jpg::htrees[1][cmpnfo[cmp].huffac] == nullptr ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
 				errorlevel = 2;
 				return false;
@@ -2576,7 +2578,7 @@ bool JpgDecoder::decode()
 		
 		
 		// intial variables set for decoding
-		int cmp  = curr_scan::cmp[ 0 ];
+		int cmp  = scan_info.cmp[ 0 ];
 		int csc  = 0;
 		int mcu  = 0;
 		int sub  = 0;
@@ -2600,7 +2602,7 @@ bool JpgDecoder::decode()
 			int rstw = jpg::rsti; // restart wait counter
 			
 			// decoding for interleaved data
-			if ( curr_scan::cmpc > 1 )
+			if ( scan_info.cmpc > 1 )
 			{				
 				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved decoding <---
@@ -2626,10 +2628,10 @@ bool JpgDecoder::decode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						else status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-				else if ( curr_scan::sah == 0 ) {
+				else if ( scan_info.sah == 0 ) {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
@@ -2641,11 +2643,11 @@ bool JpgDecoder::decode()
 						lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
 						
 						// bitshift for succesive approximation
-						cmpnfo[cmp].colldata[0][dpos] <<= curr_scan::sal;
+						cmpnfo[cmp].colldata[0][dpos] <<= scan_info.sal;
 						
 						// next mcupos if no error happened
 						if ( status != CodingStatus::ERROR )
-							status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+							status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -2656,9 +2658,9 @@ bool JpgDecoder::decode()
 						this->dc_prg_sa(block);
 						
 						// shift in next bit
-						cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
+						cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 						
-						status = jpg::next_mcupos(&mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -2691,8 +2693,8 @@ bool JpgDecoder::decode()
 						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
 					}
 				}
-				else if ( curr_scan::to == 0 ) {					
-					if ( curr_scan::sah == 0 ) {
+				else if ( scan_info.to == 0 ) {					
+					if ( scan_info.sah == 0 ) {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
@@ -2704,7 +2706,7 @@ bool JpgDecoder::decode()
 							lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
 							
 							// bitshift for succesive approximation
-							cmpnfo[cmp].colldata[0][dpos] <<= curr_scan::sal;
+							cmpnfo[cmp].colldata[0][dpos] <<= scan_info.sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( status != CodingStatus::ERROR )
@@ -2719,7 +2721,7 @@ bool JpgDecoder::decode()
 							this->dc_prg_sa(block);
 							
 							// shift in next bit
-							cmpnfo[cmp].colldata[0][dpos] += block[0] << curr_scan::sal;
+							cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 							
 							// increment dpos
 							status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);
@@ -2727,18 +2729,18 @@ bool JpgDecoder::decode()
 					}
 				}
 				else {
-					if ( curr_scan::sah == 0 ) {
+					if ( scan_info.sah == 0 ) {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
 								eob = this->ac_prg_fs(*jpg::htrees[1][cmpnfo[cmp].huffac],
-								                      block, &eobrun, curr_scan::from, curr_scan::to);
+								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == curr_scan::from )  && ( peobrun > 0 ) &&
+									if ( ( eob == scan_info.from )  && ( peobrun > 0 ) &&
 										( peobrun <	jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
@@ -2749,8 +2751,8 @@ bool JpgDecoder::decode()
 								} else peobrun = 0;
 							
 								// copy to colldata
-								for (int bpos = curr_scan::from; bpos < eob; bpos++)
-									cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ] << curr_scan::sal;
+								for (int bpos = scan_info.from; bpos < eob; bpos++)
+									cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ] << scan_info.sal;
 							} else eobrun--;
 							
 							// check for errors
@@ -2767,17 +2769,17 @@ bool JpgDecoder::decode()
 						// ---> succesive approximation later stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// copy from colldata
-							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
 								eob = this->ac_prg_sa(*jpg::htrees[1][cmpnfo[cmp].huffac],
-								                      block, &eobrun, curr_scan::from, curr_scan::to);
+								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
-									if ( ( eob == curr_scan::from ) && ( peobrun > 0 ) &&
+									if ( ( eob == scan_info.from ) && ( peobrun > 0 ) &&
 										( peobrun < jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
@@ -2791,14 +2793,14 @@ bool JpgDecoder::decode()
 							}
 							else {
 								// decode block (short routine)
-								this->eobrun_sa(block, curr_scan::from, curr_scan::to);
+								this->eobrun_sa(block, scan_info.from, scan_info.to);
 								eob = 0;
 								eobrun--;
 							}
 								
 							// copy back to colldata
-							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
-								cmpnfo[cmp].colldata[ bpos ][ dpos ] += block[ bpos ] << curr_scan::sal;
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
+								cmpnfo[cmp].colldata[ bpos ][ dpos ] += block[ bpos ] << scan_info.sal;
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
@@ -2823,7 +2825,7 @@ bool JpgDecoder::decode()
 			// evaluate status
 			if ( status == CodingStatus::ERROR ) {
 				sprintf( errormessage, "decode error in scan%i / mcu%i",
-					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
+					jpg::scan_count, ( scan_info.cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
@@ -2874,22 +2876,25 @@ bool JpgEncoder::recode()
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		std::uint8_t type; // type of current marker segment
+		ScanInfo scan_info;
 		for ( type = 0x00; type != 0xDA; ) {
 			if (hpos >= int(hdrdata.size())) {
 				break;
 			}
 			type = hdrdata[ hpos + 1 ];
 			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
+			if ( ( type == 0xC4 ) || ( type == 0xDD ) ) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
-				hpos += len;
-			}
-			else {
-				hpos += len;
-				continue;
-			}			
+			} else if (type == 0xDA) { // SOS segment.
+				try {
+					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
+				} catch (std::runtime_error&) {
+					return false;
+				}
+			} 
+			hpos += len;
 		}
 		
 		// get out if last marker segment type was not SOS
@@ -2901,13 +2906,13 @@ bool JpgEncoder::recode()
 		
 		// (re)alloc restart marker positons array if needed
 		if ( jpg::rsti > 0 ) {
-			int tmp = rstc + ( ( curr_scan::cmpc > 1 ) ?
-				( image::mcuc / jpg::rsti ) : ( cmpnfo[ curr_scan::cmp[ 0 ] ].bc / jpg::rsti ) );
+			int tmp = rstc + ( ( scan_info.cmpc > 1 ) ?
+				( image::mcuc / jpg::rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / jpg::rsti ) );
 			rstp.resize(tmp + 1);
 		}		
 		
 		// intial variables set for encoding
-		int cmp  = curr_scan::cmp[ 0 ];
+		int cmp  = scan_info.cmp[ 0 ];
 		int csc  = 0;
 		int mcu  = 0;
 		int sub  = 0;
@@ -2932,7 +2937,7 @@ bool JpgEncoder::recode()
 			int rstw = jpg::rsti; // restart wait counter
 			
 			// encoding for interleaved data
-			if ( curr_scan::cmpc > 1 )
+			if ( scan_info.cmpc > 1 )
 			{				
 				if ( jpegtype == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
@@ -2953,15 +2958,15 @@ bool JpgEncoder::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						else status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-				else if ( curr_scan::sah == 0 ) {
+				else if ( scan_info.sah == 0 ) {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> curr_scan::sal;
+						int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
@@ -2971,7 +2976,7 @@ bool JpgEncoder::recode()
 						                       block);
 						
 						// next mcupos
-						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -2979,12 +2984,12 @@ bool JpgEncoder::recode()
 					// ---> succesive approximation later stage <---
 					while ( status == CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], curr_scan::sal );
+						block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
 						
 						// encode dc correction bit
 						this->dc_prg_sa(huffw, block);
 						
-						status = jpg::next_mcupos( &mcu, &cmp, &csc, &sub, &dpos, &rstw );
+						status = jpg::next_mcupos(scan_info, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -3012,13 +3017,13 @@ bool JpgEncoder::recode()
 						else status = jpg::next_mcuposn(cmpnfo[cmp], &dpos, &rstw);	
 					}
 				}
-				else if ( curr_scan::to == 0 ) {
-					if ( curr_scan::sah == 0 ) {
+				else if ( scan_info.to == 0 ) {
+					if ( scan_info.sah == 0 ) {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> curr_scan::sal;
+							int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
@@ -3036,7 +3041,7 @@ bool JpgEncoder::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], curr_scan::sal );
+							block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
 							
 							// encode dc correction bit
 							this->dc_prg_sa(huffw, block);
@@ -3047,19 +3052,19 @@ bool JpgEncoder::recode()
 					}
 				}
 				else {
-					if ( curr_scan::sah == 0 ) {
+					if ( scan_info.sah == 0 ) {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// copy from colldata
-							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[ bpos ] =
-									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
 							
 							// encode block
 							int eob = this->ac_prg_fs( huffw,
 							                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
-							                              block, &eobrun, curr_scan::from, curr_scan::to );
+							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
@@ -3074,14 +3079,14 @@ bool JpgEncoder::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// copy from colldata
-							for (int bpos = curr_scan::from; bpos <= curr_scan::to; bpos++)
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[ bpos ] =
-									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], curr_scan::sal );
+									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
 							
 							// encode block
 							int eob = this->ac_prg_sa( huffw, storw,
 							                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
-							                              block, &eobrun, curr_scan::from, curr_scan::to );
+							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
@@ -3103,7 +3108,7 @@ bool JpgEncoder::recode()
 			// evaluate status
 			if ( status == CodingStatus::ERROR ) {
 				sprintf( errormessage, "encode error in scan%i / mcu%i",
-					jpg::scan_count, ( curr_scan::cmpc > 1 ) ? mcu : dpos );
+					jpg::scan_count, ( scan_info.cmpc > 1 ) ? mcu : dpos );
 				errorlevel = 2;
 				return false;
 			}
@@ -3744,52 +3749,53 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 	return true;
 }
 
-bool jpg::jfif::parse_sos(const unsigned char* segment) {
+ScanInfo jpg::jfif::parse_sos(const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
-	curr_scan::cmpc = segment[hpos];
-	if (curr_scan::cmpc > cmpnfo.size()) {
+	ScanInfo scan_info;
+	scan_info.cmpc = segment[hpos];
+	if (scan_info.cmpc > cmpnfo.size()) {
 		sprintf(errormessage, "%i components in scan, only %u are allowed",
-			curr_scan::cmpc, cmpnfo.size());
+			scan_info.cmpc, cmpnfo.size());
 		errorlevel = 2;
-		return false;
+		throw std::range_error(errormessage);
 	}
 	hpos++;
-	for (int i = 0; i < curr_scan::cmpc; i++) {
+	for (int i = 0; i < scan_info.cmpc; i++) {
 		int cmp;
 		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < cmpnfo.size()); cmp++);
 		if (cmp == cmpnfo.size()) {
 			sprintf(errormessage, "component id mismatch in start-of-scan");
 			errorlevel = 2;
-			return false;
+			throw std::range_error(errormessage);
 		}
 		auto& cmpt = cmpnfo[cmp];
-		curr_scan::cmp[i] = cmp;
+		scan_info.cmp[i] = cmp;
 		cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
 		cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
 		if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
 			(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
 			sprintf(errormessage, "huffman table number mismatch");
 			errorlevel = 2;
-			return false;
+			throw std::range_error(errormessage);
 		}
 		hpos += 2;
 	}
-	curr_scan::from = segment[hpos + 0];
-	curr_scan::to = segment[hpos + 1];
-	curr_scan::sah = bitops::LBITS(segment[hpos + 2], 4);
-	curr_scan::sal = bitops::RBITS(segment[hpos + 2], 4);
+	scan_info.from = segment[hpos + 0];
+	scan_info.to = segment[hpos + 1];
+	scan_info.sah = bitops::LBITS(segment[hpos + 2], 4);
+	scan_info.sal = bitops::RBITS(segment[hpos + 2], 4);
 	// check for errors
-	if ((curr_scan::from > curr_scan::to) || (curr_scan::from > 63) || (curr_scan::to > 63)) {
+	if ((scan_info.from > scan_info.to) || (scan_info.from > 63) || (scan_info.to > 63)) {
 		sprintf(errormessage, "spectral selection parameter out of range");
 		errorlevel = 2;
-		return false;
+		throw std::range_error(errormessage);
 	}
-	if ((curr_scan::sah >= 12) || (curr_scan::sal >= 12)) {
+	if ((scan_info.sah >= 12) || (scan_info.sal >= 12)) {
 		sprintf(errormessage, "successive approximation parameter out of range");
 		errorlevel = 2;
-		return false;
+		throw std::range_error(errormessage);
 	}
-	return true;
+	return scan_info;
 }
 
 bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment)
@@ -3809,7 +3815,7 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
-			return jpg::jfif::parse_sos(segment);
+			return false;
 		
 		case 0xC0: // SOF0 segment
 			// coding process: baseline DCT
@@ -4378,7 +4384,7 @@ void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::uni
 	storw->reset();
 }
 
-CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
+CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
 	CodingStatus sta = CodingStatus::OKAY;
 	
@@ -4387,16 +4393,16 @@ CodingStatus jpg::next_mcupos(int* mcu, int* cmp, int* csc, int* sub, int* dpos,
 	if ( ( ++(*sub) ) >= cmpnfo[(*cmp)].mbs ) {
 		(*sub) = 0;
 		
-		if ( ( ++(*csc) ) >= curr_scan::cmpc ) {
+		if ( ( ++(*csc) ) >= scan_info.cmpc ) {
 			(*csc) = 0;
-			(*cmp) = curr_scan::cmp[ 0 ];
+			(*cmp) = scan_info.cmp[ 0 ];
 			(*mcu)++;
 			if ( (*mcu) >= image::mcuc ) sta = CodingStatus::DONE;
 			else if ( jpg::rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = CodingStatus::RESTART;
 		}
 		else {
-			(*cmp) = curr_scan::cmp[(*csc)];
+			(*cmp) = scan_info.cmp[(*csc)];
 		}
 	}
 	
