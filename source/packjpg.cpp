@@ -267,6 +267,7 @@ packJPG by Matthias Stirner, 01/2016
 #include <chrono>
 #include <memory>
 #include <numeric>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
