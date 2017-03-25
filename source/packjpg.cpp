@@ -1390,8 +1390,8 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	}
 	
 	// close iostreams
-	if ( str_in  != nullptr ) delete( str_in  ); str_in  = nullptr;
-	if ( str_out != nullptr ) delete( str_out ); str_out = nullptr;
+	str_in.reset(nullptr);
+	str_out.reset(nullptr);
 	
 	auto end = std::chrono::steady_clock::now();
 	
@@ -1474,7 +1474,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType in_ty = StreamType(in_type);
 	if (in_ty == StreamType::kFile) {
 		std::string file_path((char*)in_src);
-		str_out = new FileStream(file_path, StreamMode::kRead);
+		str_out = std::make_unique<FileStream>(file_path, StreamMode::kRead);
 	} else if (in_ty == StreamType::kMemory) {
 		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
 		str_in = std::make_unique<MemStream>(data, StreamMode::kRead);
@@ -1491,7 +1491,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType out_ty = StreamType(out_type);
 	if (out_ty == StreamType::kFile) {
 		std::string file_path((char*)out_dest);
-		str_out = new FileStream(file_path, StreamMode::kWrite);
+		str_out = std::make_unique<FileStream>(file_path, StreamMode::kWrite);
 	} else if (out_ty == StreamType::kMemory) {
 		str_out = std::make_unique<MemStream>(std::vector<std::uint8_t>() , StreamMode::kWrite);
 	} else { // Stream
