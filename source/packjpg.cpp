@@ -675,6 +675,51 @@ private:
 	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
 
+class PjgEncoder {
+public:
+	bool encode();
+private:
+	// Optimizes DHT segments for compression.
+	void optimize_dht(int hpos, const int len);
+	// Optimizes DQT segments for compression.
+	void optimize_dqt(int hpos, const int len);
+	// Optimizes JFIF header for compression.
+	void optimize_header();
+
+	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
+	void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+	void zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+	void dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
+	void ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
+	void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
+	void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data);
+	void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
+	
+	// Get zero-sorted frequency scan vector.
+	std::array<uint8_t, 64> get_zerosort_scan(const Component& cmpt);
+};
+
+class PjgDecoder {
+public:
+	bool decode();
+private:
+	// Undoes DHT segment optimizations.
+	void deoptimize_dht(int hpos, int segment_length);
+	// Undoes DQT segment optimizations.
+	void deoptimize_dqt(int hpos, int segment_length);
+	// Undoes DHT and DQT (header) optimizations.
+	void deoptimize_header();
+
+	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
+	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
+	std::vector<std::uint8_t> generic(const std::unique_ptr<ArithmeticDecoder>& dec);
+	std::uint8_t bit(const std::unique_ptr<ArithmeticDecoder>& dec);
+};
+
 // Information about the current SOS scan.
 struct ScanInfo {
 	int cmpc = 0; // component count in current scan
@@ -781,48 +826,17 @@ namespace decode {
 
 namespace pjg {
 	namespace encode {
-		bool encode();
-
-		// Optimizes DHT segments for compression.
-		void optimize_dht(int hpos, const int len);
-		// Optimizes DQT segments for compression.
-		void optimize_dqt(int hpos, const int len);
-		// Optimizes JFIF header for compression.
-		void optimize_header();
-
-		std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
-		void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
-		void zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
-		void dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
-		void ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
-		void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
-		void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data);
-		void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
-
-
-		// Get zero-sorted frequency scan vector.
-		std::array<uint8_t, 64> get_zerosort_scan(const Component& cmpt);
-
+		PjgEncoder pjg_encoder;
+		bool encode() {
+			return pjg_encoder.encode();
+		}
 	}
 
 	namespace decode {
-		bool decode();
-
-		// Undoes DHT segment optimizations.
-		void deoptimize_dht(int hpos, int segment_length);
-		// Undoes DQT segment optimizations.
-		void deoptimize_dqt(int hpos, int segment_length);
-		// Undoes DHT and DQT (header) optimizations.
-		void deoptimize_header();
-
-	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
-	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	std::vector<std::uint8_t> generic(const std::unique_ptr<ArithmeticDecoder>& dec);
-	std::uint8_t bit(const std::unique_ptr<ArithmeticDecoder>& dec);
+		PjgDecoder pjg_decoder;
+		bool decode() {
+			return pjg_decoder.decode();
+		}
 	}
 
 	constexpr std::array<int, 6> get_weights();
@@ -3291,7 +3305,7 @@ static bool calc_zdst_lists() {
 	packs all parts to compressed pjg
 	----------------------------------------------- */
 	
-bool pjg::encode::encode()
+bool PjgEncoder::encode()
 {
 	unsigned char hcode;
 	int cmp;
@@ -3326,26 +3340,26 @@ bool pjg::encode::encode()
 	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
 	
 	// optimize header for compression
-	pjg::encode::optimize_header();
+	this->optimize_header();
 	// set padbit to 1 if previously unset
 	if (jpg::padbit == -1 )	jpg::padbit = 1;
 	
 	// encode JPG header
 	#if !defined(DEV_INFOS)	
-	pjg::encode::generic(encoder, hdrdata);
+	this->generic(encoder, hdrdata);
 	#else
 	dev_size = str_out->getpos();
 	pjg::encode::generic(encoder, hdrdata);
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
 	// store padbit (padbit can't be retrieved from the header)
-	pjg::encode::bit(encoder, jpg::padbit);
+	this->bit(encoder, jpg::padbit);
 	// also encode one bit to signal false/correct use of RST markers
-	pjg::encode::bit(encoder, jpg::rst_err.empty() ? 0 : 1);
+	this->bit(encoder, jpg::rst_err.empty() ? 0 : 1);
 	// encode # of false set RST markers per scan
 	if (!jpg::rst_err.empty()) {
 		jpg::rst_err.resize(jpg::scan_count); // TODO: is this necessary?
-		pjg::encode::generic(encoder, jpg::rst_err);
+		this->generic(encoder, jpg::rst_err);
 	}
 	
 	// encode actual components data
@@ -3353,41 +3367,41 @@ bool pjg::encode::encode()
 		auto& cmpt = cmpnfo[cmp];
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = pjg::encode::zstscan(encoder, cmpt); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(encoder, cmpt); // set zero sort scan as freqscan
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmpt);
+		this->zdst_high(encoder, cmpt);
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmpt);
+		this->ac_high(encoder, cmpt);
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmpt);
+		this->zdst_low(encoder, cmpt);
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmpt);
+		this->ac_low(encoder, cmpt);
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmpt);
+		this->dc(encoder, cmpt);
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = pjg::encode::zstscan(encoder, cmpt); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(encoder, cmpt); // set zero sort scan as freqscan
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmpt);
+		this->zdst_high(encoder, cmpt);
 		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmpt);
+		this->ac_high(encoder, cmpt);
 		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmpt);
+		this->zdst_low(encoder, cmpt);
 		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmpt);
+		this->ac_low(encoder, cmpt);
 		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmpt);
+		this->dc(encoder, cmpt);
 		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
 		dev_size_cmp[ cmp ] = 
 			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
@@ -3396,10 +3410,10 @@ bool pjg::encode::encode()
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	pjg::encode::bit(encoder, !grbgdata.empty() ? 1 : 0);
+	this->bit(encoder, !grbgdata.empty() ? 1 : 0);
 	// encode garbage data only if needed
 	if (!grbgdata.empty()) {
-		pjg::encode::generic(encoder, grbgdata);
+		this->generic(encoder, grbgdata);
 	}
 	
 	// finalize arithmetic compression
@@ -3425,7 +3439,7 @@ bool pjg::encode::encode()
 	unpacks compressed pjg to dct::colldata
 	----------------------------------------------- */
 	
-bool pjg::decode::decode()
+bool PjgDecoder::decode()
 {
 	unsigned char hcode;
 	int cmp;
@@ -3466,43 +3480,43 @@ bool pjg::decode::decode()
 	auto decoder = std::make_unique<ArithmeticDecoder>(str_in.get());
 	
 	// decode JPG header
-	hdrdata = pjg::decode::generic(decoder);
+	hdrdata = this->generic(decoder);
 	// retrieve padbit from stream
-	jpg::padbit = pjg::decode::bit(decoder);
+	jpg::padbit = this->bit(decoder);
 	// decode one bit that signals false /correct use of RST markers
-	auto cb = pjg::decode::bit(decoder);
+	auto cb = this->bit(decoder);
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 ) {
-		jpg::rst_err = pjg::decode::generic(decoder);
+		jpg::rst_err = this->generic(decoder);
 	}
 	
 	// undo header optimizations
-	pjg::decode::deoptimize_header();
+	this->deoptimize_header();
 	// parse header for image-info
 	if ( !jpg::setup_imginfo() ) return false;
 	
 	// decode actual components data
 	for (auto& cmpt : cmpnfo) {
 		// decode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = pjg::decode::zstscan(decoder); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(decoder); // set zero sort scan as freqscan
 		// decode zero-distribution-lists for higher (7x7) ACs
-		pjg::decode::zdst_high(decoder, cmpt);
+		this->zdst_high(decoder, cmpt);
 		// decode coefficients for higher (7x7) ACs
-		pjg::decode::ac_high(decoder, cmpt);
+		this->ac_high(decoder, cmpt);
 		// decode zero-distribution-lists for lower ACs
-		pjg::decode::zdst_low(decoder, cmpt);
+		this->zdst_low(decoder, cmpt);
 		// decode coefficients for first row / collumn ACs
-		pjg::decode::ac_low(decoder, cmpt);
+		this->ac_low(decoder, cmpt);
 		// decode coefficients for DC
-		pjg::decode::dc(decoder, cmpt);
+		this->dc(decoder, cmpt);
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	auto garbage_exists = pjg::decode::bit(decoder);
+	auto garbage_exists = this->bit(decoder);
 	
 	// decode garbage data only if available
 	if (garbage_exists != 0) {
-		grbgdata = pjg::decode::generic(decoder);
+		grbgdata = this->generic(decoder);
 	}
 	
 	// finalize arithmetic compression
@@ -4463,10 +4477,10 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos,
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-std::array<uint8_t, 64> pjg::encode::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
+std::array<uint8_t, 64> PjgEncoder::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// calculate zero sort scan
-	const auto zsrtscan = pjg::encode::get_zerosort_scan(cmpt);
+	const auto zsrtscan = this->get_zerosort_scan(cmpt);
 	
 	// preset freqlist
 	std::array<std::uint8_t, 64> freqlist;
@@ -4517,7 +4531,7 @@ std::array<uint8_t, 64> pjg::encode::zstscan(const std::unique_ptr<ArithmeticEnc
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (high)
 	----------------------------------------------- */
-void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
+void PjgEncoder::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
@@ -4527,7 +4541,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const
 	// arithmetic encode zero-distribution-list
 	for (int dpos = 0; dpos < zdstls.size(); dpos++) {
 		// context modelling - use average of above and left as context
-		auto coords = get_context_nnb(dpos, w);
+		auto coords = pjg::get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
@@ -4541,7 +4555,7 @@ void pjg::encode::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (low)
 	----------------------------------------------- */
-void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
+void PjgEncoder::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
@@ -4570,7 +4584,7 @@ void pjg::encode::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const 
 /* -----------------------------------------------
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
+void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
@@ -4651,7 +4665,7 @@ void pjg::encode::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compon
 /* -----------------------------------------------
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
+void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
@@ -4776,7 +4790,7 @@ void pjg::encode::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Compone
 /* -----------------------------------------------
 	encodes first row/col AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
+void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	
 	short* coeffs_x[ 8 ]; // prediction coeffs - current block
@@ -4906,7 +4920,7 @@ void pjg::encode::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 /* -----------------------------------------------
 	encodes a stream of generic (8bit) data to pjg
 	----------------------------------------------- */
-void pjg::encode::generic( const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data)
+void PjgEncoder::generic( const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data)
 {
 	// arithmetic encode data
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
@@ -4923,7 +4937,7 @@ void pjg::encode::generic( const std::unique_ptr<ArithmeticEncoder>& enc, const 
 /* -----------------------------------------------
 	encodes one bit to pjg
 	----------------------------------------------- */
-void pjg::encode::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit)
+void PjgEncoder::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit)
 {
 	// encode one bit
 	auto model = std::make_unique<BinaryModel>(1, -1);
@@ -4934,7 +4948,7 @@ void pjg::encode::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned ch
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-std::array<uint8_t, 64> pjg::decode::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec)
+std::array<uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec)
 {		
 	int tpos; // true position
 	
@@ -4988,7 +5002,7 @@ std::array<uint8_t, 64> pjg::decode::zstscan(const std::unique_ptr<ArithmeticDec
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (high)
 	----------------------------------------------- */
-void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
+void PjgDecoder::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {		
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
@@ -4999,7 +5013,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compo
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++)	{
 		// context modelling - use average of above and left as context		
-		auto coords = get_context_nnb(dpos, w);
+		auto coords = pjg::get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
@@ -5013,7 +5027,7 @@ void pjg::decode::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compo
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (low)
 	----------------------------------------------- */
-void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
+void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
@@ -5044,7 +5058,7 @@ void pjg::decode::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compon
 /* -----------------------------------------------
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
-void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
+void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
@@ -5124,7 +5138,7 @@ void pjg::decode::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& c
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
+void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
 	const auto c_weight = pjg::get_weights(); // weighting for contexts
@@ -5249,7 +5263,7 @@ void pjg::decode::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
+void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
 	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
@@ -5370,7 +5384,7 @@ void pjg::decode::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	}
 }
 
-std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<ArithmeticDecoder>& dec) {
+std::vector<std::uint8_t> PjgDecoder::generic(const std::unique_ptr<ArithmeticDecoder>& dec) {
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 	while (true) {
@@ -5389,14 +5403,14 @@ std::vector<std::uint8_t> pjg::decode::generic(const std::unique_ptr<ArithmeticD
 /* -----------------------------------------------
 	decodes one bit from pjg
 	----------------------------------------------- */
-std::uint8_t pjg::decode::bit(const std::unique_ptr<ArithmeticDecoder>& dec)
+std::uint8_t PjgDecoder::bit(const std::unique_ptr<ArithmeticDecoder>& dec)
 {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	std::uint8_t bit = dec->decode(model.get()); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
 
-std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(const Component& cmpt)  {
+std::array<uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt)  {
 	// Preset the unsorted scan index:
 	std::array<uint8_t, 64> index;
 	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
@@ -5420,7 +5434,7 @@ std::array<uint8_t, 64> pjg::encode::get_zerosort_scan(const Component& cmpt)  {
 	return index;
 }
 
-void pjg::encode::optimize_dqt(int hpos, int segment_length) {
+void PjgEncoder::optimize_dqt(int hpos, int segment_length) {
 	const int fpos = hpos + segment_length; // End of marker position.
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
@@ -5440,7 +5454,7 @@ void pjg::encode::optimize_dqt(int hpos, int segment_length) {
 	}
 }
 
-void pjg::encode::optimize_dht(int hpos, int segment_length) {
+void PjgEncoder::optimize_dht(int hpos, int segment_length) {
 	const int fpos = hpos + segment_length; // End of marker position.
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
@@ -5477,7 +5491,7 @@ void pjg::encode::optimize_dht(int hpos, int segment_length) {
 	}
 }
 
-void pjg::encode::optimize_header() {
+void PjgEncoder::optimize_header() {
 	int hpos = 0; // Current position in the header.
 
 	// Header parser loop:
@@ -5485,9 +5499,9 @@ void pjg::encode::optimize_header() {
 		const std::uint8_t type = hdrdata[hpos + 1]; // Type of the current marker segment.
 		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of the current marker segment.
 		if (type == 0xC4) { // DHT segment:
-			optimize_dht(hpos, len);
+			this->optimize_dht(hpos, len);
 		} else if (type == 0xDB) { // DQT segment:
-			optimize_dqt(hpos, len);
+			this->optimize_dqt(hpos, len);
 		} else {
 			// Skip other segments.
 		}
@@ -5496,7 +5510,7 @@ void pjg::encode::optimize_header() {
 }
 
 
-void pjg::decode::deoptimize_dqt(int hpos, int segment_length) {
+void PjgDecoder::deoptimize_dqt(int hpos, int segment_length) {
 	int fpos = hpos + segment_length;
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
@@ -5516,7 +5530,7 @@ void pjg::decode::deoptimize_dqt(int hpos, int segment_length) {
 	}
 }
 
-void pjg::decode::deoptimize_dht(int hpos, int segment_length) {
+void PjgDecoder::deoptimize_dht(int hpos, int segment_length) {
 	const int fpos = hpos + segment_length; // End of segment in hdrdata.
 	hpos += 4; // Skip marker and segment length data.
 	while (hpos < fpos) {
@@ -5538,7 +5552,7 @@ void pjg::decode::deoptimize_dht(int hpos, int segment_length) {
 	}
 }
 
-void pjg::decode::deoptimize_header() {
+void PjgDecoder::deoptimize_header() {
 	int hpos = 0; // Current position in the header.
 
 	// Header parser loop:
@@ -5547,9 +5561,9 @@ void pjg::decode::deoptimize_header() {
 		const int len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // Length of current marker segment.
 
 		if (type == 0xC4) { // DHT segment.
-			deoptimize_dht(hpos, len);
+			this->deoptimize_dht(hpos, len);
 		} else if (type == 0xDB) { // DQT segment.
-			deoptimize_dqt(hpos, len);
+			this->deoptimize_dqt(hpos, len);
 		} else {
 			// Skip other segments.
 		}
