@@ -283,8 +283,8 @@ void abytewriter::write_n(const unsigned char* bytes, int n) {
 }
 
 std::vector<std::uint8_t> abytewriter::get_data() {
-	data.resize(cbyte);
-	return data;
+	std::vector<uint8_t> copy(data.begin(), data.begin() + cbyte);
+	return copy;
 }
 
 int abytewriter::getpos() const {
