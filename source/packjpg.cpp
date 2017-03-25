@@ -1163,8 +1163,6 @@ static bool developer  = false;	// allow developers functions yes/no
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 
-static unsigned char orig_set[8]{}; // store array for settings
-
 #endif
 
 namespace program_info {
