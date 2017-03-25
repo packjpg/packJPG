@@ -842,7 +842,7 @@ namespace pjg {
 	constexpr std::array<int, 6> get_weights();
 	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt);
 	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
-	int lakh_context(signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos);
+	int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);
 
 	constexpr int bitlen1024p(int v) {
 		return pbitlen_0_1024[v];
@@ -4793,9 +4793,9 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	
-	short* coeffs_x[ 8 ]; // prediction coeffs - current block
-	short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
-	int pred_cf[ 8 ]; // prediction multipliers
+	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
+	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
+	std::array<int, 8> pred_cf{}; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
@@ -5265,9 +5265,9 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	----------------------------------------------- */
 void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
-	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
-	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
-	int pred_cf[ 8 ]; // prediction multipliers
+	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
+	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
+	std::array<int, 8> pred_cf{}; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
@@ -5660,23 +5660,22 @@ int pjg::aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::ar
 /* -----------------------------------------------
 	lakhani ac context used in coeff encoding
 	----------------------------------------------- */
-int pjg::lakh_context( signed short** coeffs_x, signed short** coeffs_a, int* pred_cf, int pos )
-{
+int pjg::lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {
 	int pred = 0;
-	
+
 	// calculate partial prediction
-	pred -= ( coeffs_x[ 1 ][ pos ] + coeffs_a[ 1 ][ pos ] ) * pred_cf[ 1 ];
-	pred -= ( coeffs_x[ 2 ][ pos ] - coeffs_a[ 2 ][ pos ] ) * pred_cf[ 2 ];
-	pred -= ( coeffs_x[ 3 ][ pos ] + coeffs_a[ 3 ][ pos ] ) * pred_cf[ 3 ];
-	pred -= ( coeffs_x[ 4 ][ pos ] - coeffs_a[ 4 ][ pos ] ) * pred_cf[ 4 ];
-	pred -= ( coeffs_x[ 5 ][ pos ] + coeffs_a[ 5 ][ pos ] ) * pred_cf[ 5 ];
-	pred -= ( coeffs_x[ 6 ][ pos ] - coeffs_a[ 6 ][ pos ] ) * pred_cf[ 6 ];
-	pred -= ( coeffs_x[ 7 ][ pos ] + coeffs_a[ 7 ][ pos ] ) * pred_cf[ 7 ];
+	pred -= (coeffs_x[1][pos] + coeffs_a[1][pos]) * pred_cf[1];
+	pred -= (coeffs_x[2][pos] - coeffs_a[2][pos]) * pred_cf[2];
+	pred -= (coeffs_x[3][pos] + coeffs_a[3][pos]) * pred_cf[3];
+	pred -= (coeffs_x[4][pos] - coeffs_a[4][pos]) * pred_cf[4];
+	pred -= (coeffs_x[5][pos] + coeffs_a[5][pos]) * pred_cf[5];
+	pred -= (coeffs_x[6][pos] - coeffs_a[6][pos]) * pred_cf[6];
+	pred -= (coeffs_x[7][pos] + coeffs_a[7][pos]) * pred_cf[7];
 	// normalize / quantize partial prediction
-	pred = ( ( pred > 0 ) ? ( pred + (pred_cf[0]/2) ) : ( pred - (pred_cf[0]/2) ) ) / pred_cf[ 0 ];
+	pred = ((pred > 0) ? (pred + (pred_cf[0] / 2)) : (pred - (pred_cf[0] / 2))) / pred_cf[0];
 	// complete prediction
-	pred += coeffs_a[ 0 ][ pos ];
-	
+	pred += coeffs_a[0][pos];
+
 	return pred;
 }
 
