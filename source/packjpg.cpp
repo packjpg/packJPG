@@ -2189,7 +2189,7 @@ static void execute( bool (*function)() )
 #if !defined(BUILD_LIB)
 static bool check_file()
 {	
-	unsigned char fileid[ 2 ] = { 0, 0 };
+	unsigned char fileid[ 2 ]{};
 	const std::string& filename = filelist[ file_no ];
 	
 	
@@ -2568,7 +2568,7 @@ bool JpgEncoder::merge() {
 	int scan = 1; // number of current scan	
 
 	// write SOI
-	constexpr std::array<std::uint8_t, 2> SOI = {0xFF, 0xD8};
+	constexpr std::array<std::uint8_t, 2> SOI{0xFF, 0xD8};
 	str_out->write(SOI.data(), 2);
 
 	// JPEG writing loop
@@ -2622,7 +2622,7 @@ bool JpgEncoder::merge() {
 	}
 
 	// write EOI
-	constexpr std::array<std::uint8_t, 2> EOI = {0xFF, 0xD9}; // EOI segment
+	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9}; // EOI segment
 	str_out->write(EOI.data(), 2);
 
 	// write garbage if needed
@@ -5863,7 +5863,7 @@ static bool dump_huf() {
 	----------------------------------------------- */
 static bool dump_coll()
 {
-	const std::array<std::string, 4> ext = { "coll0", "coll1", "coll2", "coll3" };
+	const std::array<std::string, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
 	const auto& base = filelist[file_no];
 
 	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
@@ -5960,7 +5960,7 @@ static bool dump_coll()
 	Writes zero distribution data to file;
 	----------------------------------------------- */
 static bool dump_zdst() {
-	const std::array<std::string, 4> ext = { "zdst0", "zdst1", "zdst2", "zdst3" };
+	const std::array<std::string, 4> ext{ "zdst0", "zdst1", "zdst2", "zdst3" };
 	const auto basename = filelist[file_no];
 
 	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
@@ -6150,7 +6150,7 @@ static bool dump_dist() {
 	Do inverse DCT and write pgms
 	----------------------------------------------- */
 static bool dump_pgm() {
-	const std::array<std::string, 4> ext = { "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
+	const std::array<std::string, 4> ext{ "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
 	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		// create filename
