@@ -69,19 +69,12 @@ Command line switches
  -np   no pause after processing files
  -o    overwrite existing files
  -p    proceed on warnings
- -d    discard meta-info
 
 By default, compression is cancelled on warnings. If warnings are 
 skipped by using "-p", most files with warnings can also be compressed, 
 but JPEG files reconstructed from PJG files might not be bitwise 
 identical with the original JPEG files. There won't be any loss to 
 image data or quality however.
-
-Unnecessary meta information can be discarded using "-d". This reduces 
-compressed files' sizes. Be warned though, reconstructed files won't be 
-bitwise identical with the original files and meta information will be 
-lost forever. As with "-p" there won't be any loss to image data or 
-quality. 
 
 There is no known case in which a file compressed by packJPG (without 
 the "-p" option, see above) couldn't be reconstructed to exactly the 
@@ -92,8 +85,8 @@ file. If this test doesn't pass there will be an error message and the
 compressed file won't be written to the drive. 
 
 Please note that the "-ver" option should never be used in conjunction 
-with the "-d" and/or "-p" options. As stated above, the "-p" and "-d" 
-options will most likely lead to reconstructed JPG files not being 
+with the "-p" option. As stated above, the "-p" 
+will most likely lead to reconstructed JPG files not being 
 bitwise identical to the original JPG files. In turn, the verification 
 process may fail on various files although nothing actually went wrong. 
 
@@ -726,8 +719,6 @@ std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
 // Parses header for imageinfo.
 bool setup_imginfo();
-// JFIF header rebuilding routine.
-bool rebuild_header();
 
 // Calculates next position for MCU.
 CodingStatus next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
@@ -1004,7 +995,6 @@ static bool overwrite  = false;	// overwrite files yes / no
 static bool wait_exit  = true;	// pause after finished yes / no
 static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
 static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-static bool disc_meta  = false;	// discard meta-info yes / no
 
 static bool developer  = false;	// allow developers functions yes/no
 static bool auto_set   = true;	// automatic find best settings yes/no
@@ -1014,7 +1004,6 @@ static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 #else
 static int  err_tol    = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-static bool disc_meta  = false;	// discard meta-info yes / no
 static bool auto_set   = true;	// automatic find best settings yes/no
 static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 #endif
@@ -1440,11 +1429,7 @@ static void initialize_options( int argc, char** argv )
 		// switches begin with '-'
 		if (arg == "-p") {
 			err_tol = 2;
-		}
-		else if (arg == "-d") {
-			disc_meta = true;
-		}		
-		else if (arg == "-ver") {
+		} else if (arg == "-ver") {
 			verify_lv = ( verify_lv < 1 ) ? 1 : verify_lv;
 		}
 		else if ( sscanf(arg.c_str(), "-v%i", &tmp_val ) == 1 ){
@@ -1794,7 +1779,6 @@ static void show_help()
 	fprintf( msgout, " [-np]    no pause after processing files\n" );
 	fprintf( msgout, " [-o]     overwrite existing files\n" );
 	fprintf( msgout, " [-p]     proceed on warnings\n" );
-	fprintf( msgout, " [-d]     discard meta-info\n" );
 	#if defined(DEV_BUILD)
 	if ( developer ) {
 	fprintf( msgout, "\n" );
@@ -3340,9 +3324,6 @@ bool pjg::encode::encode()
 	// init arithmetic compression
 	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
 	
-	// discard meta information from header if option set
-	if ( disc_meta )
-		if ( !jpg::rebuild_header() ) return false;	
 	// optimize header for compression
 	pjg::encode::optimize_header();
 	// set padbit to 1 if previously unset
@@ -3496,9 +3477,6 @@ bool pjg::decode::decode()
 	
 	// undo header optimizations
 	pjg::decode::deoptimize_header();
-	// discard meta information from header if option set
-	if ( disc_meta )
-		if ( !jpg::rebuild_header() ) return false;
 	// parse header for image-info
 	if ( !jpg::setup_imginfo() ) return false;
 	
@@ -3952,35 +3930,6 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 			errorlevel = 1;
 			return true;
 	}
-}
-
-bool jpg::rebuild_header()
-{		
-	unsigned char  type; // type of current marker segment
-	unsigned int   len; // length of current marker segment
-	unsigned int   hpos = 0; // position in header	
-	
-	
-	// start headerwriter
-	auto hdrw = std::make_unique<abytewriter>( 4096 ); // new header writer
-	
-	// header parser loop
-	while (hpos < int(hdrdata.size())) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
-		// discard any unneeded meta info
-		if ( ( type == 0xDA ) || ( type == 0xC4 ) || ( type == 0xDB ) ||
-			 ( type == 0xC0 ) || ( type == 0xC1 ) || ( type == 0xC2 ) ||
-			 ( type == 0xDD ) ) {
-			hdrw->write_n( &(hdrdata[ hpos ]), len );
-		}
-		hpos += len;
-	}
-	
-	// replace current header with the new one
-	hdrdata = hdrw->get_data();
-	
-	return true;
 }
 
 int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short* block)
