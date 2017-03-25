@@ -965,11 +965,11 @@ static int    jpgfilesize;			// size of JPEG file
 static int    pjgfilesize;			// size of PJG file
 static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
 static FileType filetype;				// type of current file
-static iostream* str_in  = nullptr;	// input stream
-static iostream* str_out = nullptr;	// output stream
+static std::unique_ptr<iostream> str_in;	// input stream
+static std::unique_ptr<iostream> str_out;	// output stream
 
 #if !defined(BUILD_LIB)
-static iostream* str_str = nullptr;	// storage stream
+static std::unique_ptr<iostream> str_str;	// storage stream
 
 static std::vector<std::string> filelist; // list of files to process 
 static int    file_no  = 0;			// number of current file
@@ -1340,9 +1340,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		str_out = new FileStream(file_path, StreamMode::kRead);
 	} else if (in_ty == StreamType::kMemory) {
 		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
-		str_in = new MemStream(data, StreamMode::kRead);
+		str_in = std::make_unique<MemStream>(data, StreamMode::kRead);
 	} else { // Stream
-		str_in = new MemStream(StreamMode::kRead);
+		str_in = std::make_unique<MemStream>(StreamMode::kRead);
 	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, "error opening input stream" );
@@ -1356,9 +1356,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		std::string file_path((char*)out_dest);
 		str_out = new FileStream(file_path, StreamMode::kWrite);
 	} else if (out_ty == StreamType::kMemory) {
-		str_out = new MemStream(std::vector<std::uint8_t>() , StreamMode::kWrite);
+		str_out = std::make_unique<MemStream>(std::vector<std::uint8_t>() , StreamMode::kWrite);
 	} else { // Stream
-		str_out = new MemStream(StreamMode::kWrite);
+		str_out = std::make_unique<MemStream>(StreamMode::kWrite);
 	}
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening output stream" );
@@ -1642,9 +1642,9 @@ static void process_ui()
 	process_file();
 	
 	// close iostreams
-	if ( str_in  != nullptr ) delete( str_in  ); str_in  = nullptr;
-	if ( str_out != nullptr ) delete( str_out ); str_out = nullptr;
-	if ( str_str != nullptr ) delete( str_str ); str_str = nullptr;
+	str_in.reset(nullptr);
+	str_out.reset(nullptr);
+	str_str.reset(nullptr);
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
 		if ( filetype == FileType::F_JPG ) {
@@ -2068,9 +2068,9 @@ static bool check_file()
 	
 	// open input stream, check for errors
 	if (pipe_on) {
-		str_in = new MemStream(StreamMode::kRead);
+		str_in = std::make_unique<MemStream>(StreamMode::kRead);
 	} else {
-		str_in = new FileStream(filename, StreamMode::kRead);
+		str_in = std::make_unique<FileStream>(filename, StreamMode::kRead);
 	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
@@ -2107,10 +2107,10 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = new MemStream(StreamMode::kWrite);
+			str_out = std::make_unique<MemStream>(StreamMode::kWrite);
 		}
 		else {
-			str_out = new FileStream(pjgfilename, StreamMode::kWrite);
+			str_out = std::make_unique<FileStream>(pjgfilename, StreamMode::kWrite);
 		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
@@ -2148,9 +2148,9 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = new MemStream(StreamMode::kWrite);
+			str_out = std::make_unique<MemStream>(StreamMode::kWrite);
 		} else {
-			str_out = new FileStream(jpgfilename, StreamMode::kWrite);
+			str_out = std::make_unique<FileStream>(jpgfilename, StreamMode::kWrite);
 		}
 		if ( str_out->chkerr() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
@@ -2181,16 +2181,16 @@ static bool swap_streams()
 	unsigned char dmp[ 2 ];
 	
 	// store input stream
-	str_str = str_in;
+	str_str = std::move(str_in);
 	str_str->rewind();
 	
 	// replace input stream by output stream / switch mode for reading / read first bytes
-	str_in = str_out;
+	str_in = std::move(str_out);
 	str_in->switch_mode();
 	str_in->read( dmp, 2 );
 	
 	// open new stream for output / check for errors
-	str_out = new MemStream(std::vector<std::uint8_t>(), StreamMode::kWrite);
+	str_out = std::make_unique<MemStream>(std::vector<std::uint8_t>(), StreamMode::kWrite);
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening comparison stream" );
 		errorlevel = 2;
@@ -3331,7 +3331,7 @@ bool pjg::encode::encode()
 	
 	
 	// init arithmetic compression
-	auto encoder = std::make_unique<ArithmeticEncoder>(str_out);
+	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
 	
 	// discard meta information from header if option set
 	if ( disc_meta )
@@ -3475,7 +3475,7 @@ bool pjg::decode::decode()
 	
 	
 	// init arithmetic compression
-	auto decoder = std::make_unique<ArithmeticDecoder>(str_in);
+	auto decoder = std::make_unique<ArithmeticDecoder>(str_in.get());
 	
 	// decode JPG header
 	hdrdata = pjg::decode::generic(decoder);
