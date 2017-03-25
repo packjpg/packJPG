@@ -1931,7 +1931,7 @@ static void show_help()
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-ver]   verify files after processing\n" );
 	fprintf( msgout, " [-v?]    set level of verbosity (max: 2) (def: 0)\n" );
-	fprintf( msgout, " [-w		wait after processing files\n" );
+	fprintf( msgout, " [-w]		wait after processing files\n" );
 	fprintf( msgout, " [-o]     overwrite existing files\n" );
 	fprintf( msgout, " [-p]     proceed on warnings\n" );
 	#if defined(DEV_BUILD)
@@ -3674,7 +3674,7 @@ bool jpg::setup_imginfo()
 	while (hpos < int(hdrdata.size())) {
 		type = hdrdata[ hpos + 1 ];
 		len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
-		// do not parse DHT & DRI
+		// do not parse DHT, DRI, or SOS
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
 			if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
 				return false;
