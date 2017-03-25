@@ -363,7 +363,7 @@ struct Component {
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
-	std::array<uint16_t, 64> qtable = std::array<uint16_t, 64>{ 0 }; // quantization table
+	std::array<uint16_t, 64> qtable{}; // quantization table
 	int huffdc = -1; // no of huffman table (DC)
 	int huffac = -1; // no of huffman table (AC)
 	int sfv = -1; // sample factor vertical
@@ -663,7 +663,7 @@ private:
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun);
 
-	void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes,
+	void build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes,
 	                             std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees);
 
 	static constexpr int devli(int s, int n) {
@@ -883,7 +883,7 @@ private:
 // Information about the current SOS scan.
 struct ScanInfo {
 	int cmpc = 0; // component count in current scan
-	std::array<int, 4> cmp = { 0 }; // component numbers  in current scan
+	std::array<int, 4> cmp{}; // component numbers  in current scan
 	int from = 0; // begin - band of current scan ( inclusive )
 	int to = 0; // end - band of current scan ( inclusive )
 	int sah = 0; // successive approximation bit pos high
@@ -1120,13 +1120,13 @@ static int    file_no  = 0;			// number of current file
 
 #if defined(DEV_INFOS)
 static int    dev_size_hdr      = 0;
-static int    dev_size_cmp[ 4 ] = { 0 };
-static int    dev_size_zsr[ 4 ] = { 0 };
-static int    dev_size_dc[ 4 ]  = { 0 };
-static int    dev_size_ach[ 4 ] = { 0 };
-static int    dev_size_acl[ 4 ] = { 0 };
-static int    dev_size_zdh[ 4 ] = { 0 };
-static int    dev_size_zdl[ 4 ] = { 0 };
+static int    dev_size_cmp[ 4 ]{};
+static int    dev_size_zsr[ 4 ]{};
+static int    dev_size_dc[ 4 ] {};
+static int    dev_size_ach[ 4 ]{};
+static int    dev_size_acl[ 4 ]{};
+static int    dev_size_zdh[ 4 ]{};
+static int    dev_size_zdl[ 4 ]{};
 #endif
 
 
@@ -1163,7 +1163,7 @@ static bool developer  = false;	// allow developers functions yes/no
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 
-static unsigned char orig_set[8] = { 0 }; // store array for settings
+static unsigned char orig_set[8]{}; // store array for settings
 
 #endif
 
@@ -2715,7 +2715,7 @@ bool JpgDecoder::decode()
 		while ( true )
 		{			
 			// (re)set last DCs for diff coding
-			std::array<int, 4> lastdc = { 0 }; // last dc for each component
+			std::array<int, 4> lastdc{}; // last dc for each component
 			
 			// (re)set status
 			int eob = 0;
@@ -3046,7 +3046,7 @@ bool JpgEncoder::recode()
 		while ( true )
 		{
 			// (re)set last DCs for diff coding
-			std::array<int, 4> lastdc = { 0 }; // last dc for each component
+			std::array<int, 4> lastdc{}; // last dc for each component
 			
 			// (re)set status
 			CodingStatus status = CodingStatus::OKAY;
@@ -4676,7 +4676,7 @@ void PjgEncoder::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const C
 	----------------------------------------------- */
 void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 
 
@@ -4757,7 +4757,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	----------------------------------------------- */
 void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
@@ -5167,7 +5167,7 @@ void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 	----------------------------------------------- */
 void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
@@ -5247,7 +5247,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	----------------------------------------------- */
 void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
+	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
@@ -6130,7 +6130,7 @@ static bool dump_dist() {
 	// calculate & write distributions for each frequency
 	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
 		for (int bpos = 0; bpos < 64; bpos++) {
-			std::array<int, 1024 + 1> dist = { 0 };
+			std::array<int, 1024 + 1> dist{};
 			// get distribution
 			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
 				dist[std::abs(cmpnfo[cmp].colldata[bpos][dpos])]++;
