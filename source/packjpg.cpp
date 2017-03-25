@@ -668,6 +668,8 @@ private:
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int* dpos, int* rstw, int* eobrun);
 
+	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
+
 	static constexpr int devli(int s, int n) {
 		return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
 	}
@@ -717,9 +719,6 @@ static bool calc_zdst_lists();
 
 namespace jpg {
 
-std::unique_ptr<HuffCodes> hcodes[2][4]; // huffman codes
-std::unique_ptr<HuffTree> htrees[2][4]; // huffman decoding trees
-
 char padbit = -1; // padbit (for huffman coding)
 int scan_count = 0; // count of scans
 int rsti = 0; // restart interval
@@ -742,7 +741,7 @@ namespace jfif {
 bool parse_jfif(unsigned char type, unsigned int len, const unsigned char* segment);
 
 // Helper function that parses DHT segments, returning true if the parse succeeds.
-bool parse_dht(unsigned int len, const unsigned char* segment);
+std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> parse_dht(unsigned int len, const unsigned char* segment);
 
 // Helper function that parses DQT segments, returning true if the parse succeeds.
 bool parse_dqt(unsigned len, const unsigned char* segment);
@@ -2248,10 +2247,8 @@ static bool reset_buffers()
 	image::mcuv      = 0;
 	jpg::rsti      = 0;
 	
-	// reset quantization / huffman tables
+	// reset quantization
 	for (int i = 0; i < 4; i++ ) {
-		jpg::htrees[0][i].reset(nullptr);
-		jpg::htrees[1][i].reset(nullptr);
 		qtables[i].fill(0);
 	}
 	
@@ -2526,6 +2523,18 @@ bool JpgEncoder::merge() {
 	return true;
 }
 
+std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
+	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees;
+	for (size_t i = 0; i < hcodes.size(); i++) {
+		for (size_t j = 0; j < hcodes[i].size(); j++) {
+			if (hcodes[i][j] != nullptr) {
+				htrees[i][j] = std::make_unique<HuffTree>(*hcodes[i][j]);
+			}
+		}
+	}
+	return htrees;
+}
+
 bool JpgDecoder::decode()
 {	
 	unsigned int hpos = 0; // current position in header
@@ -2539,6 +2548,8 @@ bool JpgDecoder::decode()
 	jpg::scan_count = 0;
 	
 	// JPEG decompression loop
+	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
+	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
@@ -2548,11 +2559,15 @@ bool JpgDecoder::decode()
 			if (hpos >= hdrdata.size()) break;
 			type = hdrdata[ hpos + 1 ];
 			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if ( ( type == 0xC4 ) || ( type == 0xDD ) ) {
+			if (type == 0xC4) { // DHT segment.
+				hcodes = jpg::jfif::parse_dht(len, hdrdata.data() + hpos);
+				htrees = build_trees(hcodes);
+				//htrees = this->build_trees(hcodes);
+			} else if ( type == 0xDD ) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
-			} else if (type == 0xDA) {
+			} else if (type == 0xDA) { // SOS segment.
 				try {
 					scan_info = jpg::jfif::parse_sos(hdrdata.data() + hpos);
 				} catch (std::runtime_error&) {
@@ -2568,8 +2583,8 @@ bool JpgDecoder::decode()
 		// check if huffman tables are available
 		for (int csc = 0; csc < scan_info.cmpc; csc++) {
 			int cmp = scan_info.cmp[ csc ];
-			if ( ( scan_info.sal == 0 && jpg::htrees[0][cmpnfo[cmp].huffdc] == nullptr ) ||
-				 (scan_info.sah >  0 && jpg::htrees[1][cmpnfo[cmp].huffac] == nullptr ) ) {
+			if ( ( scan_info.sal == 0 && htrees[0][cmpnfo[cmp].huffdc] == nullptr ) ||
+				 (scan_info.sah >  0 && htrees[1][cmpnfo[cmp].huffac] == nullptr ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
 				errorlevel = 2;
 				return false;
@@ -2608,8 +2623,8 @@ bool JpgDecoder::decode()
 					// ---> sequential interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq(*jpg::htrees[0][cmpnfo[cmp].huffdc],
-						                      *jpg::htrees[1][cmpnfo[cmp].huffdc],
+						eob = this->block_seq(*htrees[0][cmpnfo[cmp].huffdc],
+						                      *htrees[1][cmpnfo[cmp].huffdc],
 						                      block);
 						
 						// check for non optimal coding
@@ -2635,7 +2650,7 @@ bool JpgDecoder::decode()
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
-						status = this->dc_prg_fs(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+						status = this->dc_prg_fs(*htrees[0][cmpnfo[cmp].huffdc],
 						                         block);
 						
 						// fix dc for diff coding
@@ -2670,8 +2685,8 @@ bool JpgDecoder::decode()
 					// ---> sequential non interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq(*jpg::htrees[0][cmpnfo[cmp].huffdc],
-						                      *jpg::htrees[1][cmpnfo[cmp].huffdc],
+						eob = this->block_seq(*htrees[0][cmpnfo[cmp].huffdc],
+						                      *htrees[1][cmpnfo[cmp].huffdc],
 						                      block);
 						
 						// check for non optimal coding
@@ -2698,7 +2713,7 @@ bool JpgDecoder::decode()
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
-							status = this->dc_prg_fs(*jpg::htrees[0][cmpnfo[cmp].huffdc],
+							status = this->dc_prg_fs(*htrees[0][cmpnfo[cmp].huffdc],
 							                         block);
 								
 							// fix dc for diff coding
@@ -2735,13 +2750,13 @@ bool JpgDecoder::decode()
 						while ( status == CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
-								eob = this->ac_prg_fs(*jpg::htrees[1][cmpnfo[cmp].huffac],
+								eob = this->ac_prg_fs(*htrees[1][cmpnfo[cmp].huffac],
 								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
 									if ( ( eob == scan_info.from )  && ( peobrun > 0 ) &&
-										( peobrun <	jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
+										( peobrun <	hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2774,13 +2789,13 @@ bool JpgDecoder::decode()
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
-								eob = this->ac_prg_sa(*jpg::htrees[1][cmpnfo[cmp].huffac],
+								eob = this->ac_prg_sa(*htrees[1][cmpnfo[cmp].huffac],
 								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
 									if ( ( eob == scan_info.from ) && ( peobrun > 0 ) &&
-										( peobrun < jpg::hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
+										( peobrun < hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2872,6 +2887,7 @@ bool JpgEncoder::recode()
 	int rstc = 0; // count of restart markers
 	
 	// JPEG decompression loop
+	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	while ( true )
 	{
 		// seek till start-of-scan, parse only DHT, DRI and SOS
@@ -2883,7 +2899,9 @@ bool JpgEncoder::recode()
 			}
 			type = hdrdata[ hpos + 1 ];
 			std::uint32_t len = 2 + pack( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] ); // length of current marker segment
-			if ( ( type == 0xC4 ) || ( type == 0xDD ) ) {
+			if (type == 0xC4) { // DHT segment.
+				hcodes = jpg::jfif::parse_dht(len, hdrdata.data() + hpos);
+			} else if (type == 0xDD) {
 				if ( !jpg::jfif::parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
 				}
@@ -2952,8 +2970,8 @@ bool JpgEncoder::recode()
 						
 						// encode block
 						int eob = this->block_seq( huffw,
-						                              *jpg::hcodes[0][cmpnfo[cmp].huffac],
-						                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
+						                              *hcodes[0][cmpnfo[cmp].huffac],
+						                              *hcodes[1][cmpnfo[cmp].huffac],
 						                              block );
 						
 						// check for errors, proceed if no error encountered
@@ -2972,7 +2990,7 @@ bool JpgEncoder::recode()
 						
 						// encode dc
 						this->dc_prg_fs(huffw,
-						                       *jpg::hcodes[0][cmpnfo[cmp].huffdc],
+						                       *hcodes[0][cmpnfo[cmp].huffdc],
 						                       block);
 						
 						// next mcupos
@@ -3008,8 +3026,8 @@ bool JpgEncoder::recode()
 						
 						// encode block
 						int eob = this->block_seq( huffw,
-						                              *jpg::hcodes[0][cmpnfo[cmp].huffac],
-						                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
+						                              *hcodes[0][cmpnfo[cmp].huffac],
+						                              *hcodes[1][cmpnfo[cmp].huffac],
 						                              block );
 						
 						// check for errors, proceed if no error encountered
@@ -3029,7 +3047,7 @@ bool JpgEncoder::recode()
 							
 							// encode dc
 							this->dc_prg_fs(huffw,
-							                       *jpg::hcodes[0][cmpnfo[cmp].huffdc],
+							                       *hcodes[0][cmpnfo[cmp].huffdc],
 							                       block);							
 							
 							// check for errors, increment dpos otherwise
@@ -3063,7 +3081,7 @@ bool JpgEncoder::recode()
 							
 							// encode block
 							int eob = this->ac_prg_fs( huffw,
-							                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
+							                              *hcodes[1][cmpnfo[cmp].huffac],
 							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
@@ -3072,7 +3090,7 @@ bool JpgEncoder::recode()
 						}						
 						
 						// encode remaining eobrun
-						this->eobrun(huffw, *jpg::hcodes[1][cmpnfo[cmp].huffac], &eobrun);
+						this->eobrun(huffw, *hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 					}
 					else {
 						// ---> progressive non interleaved AC encoding <---
@@ -3085,7 +3103,7 @@ bool JpgEncoder::recode()
 							
 							// encode block
 							int eob = this->ac_prg_sa( huffw, storw,
-							                              *jpg::hcodes[1][cmpnfo[cmp].huffac],
+							                              *hcodes[1][cmpnfo[cmp].huffac],
 							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
@@ -3094,7 +3112,7 @@ bool JpgEncoder::recode()
 						}						
 						
 						// encode remaining eobrun
-						this->eobrun(huffw, *jpg::hcodes[1][cmpnfo[cmp].huffac], &eobrun);
+						this->eobrun(huffw, *hcodes[1][cmpnfo[cmp].huffac], &eobrun);
 							
 						// encode remaining correction bits
 						this->crbits( huffw, storw );
@@ -3624,7 +3642,9 @@ bool jpg::setup_imginfo()
 }
 
 // Builds Huffman trees and codes.
-bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
+std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
+	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
+
 	int hpos = 4; // current position in segment, start after segment header
 	// build huffman trees & codes
 	while (hpos < len) {
@@ -3636,8 +3656,7 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 
 		hpos++;
 		// build huffman codes & trees
-		jpg::hcodes[lval][rval] = std::make_unique<HuffCodes>(&(segment[hpos + 0]), &(segment[hpos + 16]));
-		jpg::htrees[lval][rval] = std::make_unique<HuffTree>(*jpg::hcodes[lval][rval]);
+		hcodes[lval][rval] = std::make_unique<HuffCodes>(&(segment[hpos + 0]), &(segment[hpos + 16]));
 
 		int skip = 16;
 		for (int i = 0; i < 16; i++) {
@@ -3650,9 +3669,9 @@ bool jpg::jfif::parse_dht(unsigned int len, const unsigned char* segment) {
 		// if we get here, something went wrong
 		sprintf(errormessage, "size mismatch in dht marker");
 		errorlevel = 2;
-		return false;
+		throw std::range_error(errormessage);
 	}
-	return true;
+	return hcodes;
 }
 
 // Copy quantization tables to internal memory
@@ -3804,7 +3823,7 @@ bool jpg::jfif::parse_jfif(unsigned char type, unsigned int len, const unsigned 
 	switch ( type )
 	{
 		case 0xC4: // DHT segment
-			return jpg::jfif::parse_dht(len, segment);
+			return false;
 		
 		case 0xDB: // DQT segment
 			return jpg::jfif::parse_dqt(len, segment);
