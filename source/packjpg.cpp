@@ -1686,22 +1686,6 @@ static void initialize_options( int argc, char** argv )
 			filelist.push_back(arg);
 		}		
 	}
-	
-	// backup settings - needed to restore original setting later
-	if ( !auto_set ) {
-		orig_set[ 0 ] = cmpnfo[0].nois_trs;
-		orig_set[ 1 ] = cmpnfo[1].nois_trs;
-		orig_set[ 2 ] = cmpnfo[3].nois_trs;
-		orig_set[ 3 ] = cmpnfo[3].nois_trs;
-		orig_set[ 4 ] = cmpnfo[0].segm_cnt;
-		orig_set[ 5 ] = cmpnfo[1].segm_cnt;
-		orig_set[ 6 ] = cmpnfo[2].segm_cnt;
-		orig_set[ 7 ] = cmpnfo[3].segm_cnt;
-	}
-	else {
-		for ( i = 0; i < 8; i++ )
-			orig_set[ i ] = 0;
-	}	
 }
 
 /* -----------------------------------------------
@@ -2243,20 +2227,6 @@ static bool check_file()
 			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
 			errorlevel = 2;
 			return false;
-		}
-		// JPEG specific settings - restore original settings
-		if ( orig_set[ 0 ] == 0 )
-			auto_set = true;
-		else {	
-			cmpnfo[0].nois_trs = orig_set[ 0 ];
-			cmpnfo[1].nois_trs = orig_set[ 1 ];
-			cmpnfo[3].nois_trs = orig_set[ 2 ];
-			cmpnfo[3].nois_trs = orig_set[ 3 ];
-			cmpnfo[0].segm_cnt = orig_set[ 4 ];
-			cmpnfo[1].segm_cnt = orig_set[ 5 ];
-			cmpnfo[2].segm_cnt = orig_set[ 6 ];
-			cmpnfo[3].segm_cnt = orig_set[ 7 ];
-			auto_set = false;
 		}
 	}
 	else if ( ( fileid[0] == program_info::pjg_magic[0] ) && ( fileid[1] == program_info::pjg_magic[1] ) ) {
