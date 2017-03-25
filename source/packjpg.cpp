@@ -675,7 +675,158 @@ private:
 	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
 
+struct PjgContext {
+	// Copy context weighting factors.
+	static constexpr std::array<int, 6> get_weights() {
+		return std::array<int, 6> {
+			pjg::abs_ctx_weights_lum[0][0][2], // top-top
+				pjg::abs_ctx_weights_lum[0][1][1], // top-left
+				pjg::abs_ctx_weights_lum[0][1][2], // top
+				pjg::abs_ctx_weights_lum[0][1][3], // top-right
+				pjg::abs_ctx_weights_lum[0][2][0], // left-left
+				pjg::abs_ctx_weights_lum[0][2][1]  // left
+		};
+	}
 
+	// Preparations for special average context.
+	static void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt) {
+		int w = cmpt.bch;
+
+		// set up quick access arrays for all prediction positions
+		abs_coeffs[0] = abs_store + (0 + ((-2) * w)); // top-top
+		abs_coeffs[1] = abs_store + (-1 + ((-1) * w)); // top-left
+		abs_coeffs[2] = abs_store + (0 + ((-1) * w)); // top
+		abs_coeffs[3] = abs_store + (1 + ((-1) * w)); // top-right
+		abs_coeffs[4] = abs_store + (-2 + ((0) * w)); // left-left
+		abs_coeffs[5] = abs_store + (-1 + ((0) * w)); // left
+	}
+
+	// Special average context used in coeff encoding.
+	static int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x) {
+		int ctx_avr = 0; // AVERAGE context
+		int w_ctx = 0; // accumulated weight of context
+		int w_curr; // current weight of context
+
+		// different cases due to edge treatment
+		if (p_y >= 2) {
+			w_curr = weights[0];
+			ctx_avr += abs_coeffs[0][pos] * w_curr;
+			w_ctx += w_curr;
+			w_curr = weights[2];
+			ctx_avr += abs_coeffs[2][pos] * w_curr;
+			w_ctx += w_curr;
+			if (p_x >= 2) {
+				w_curr = weights[1];
+				ctx_avr += abs_coeffs[1][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[4];
+				ctx_avr += abs_coeffs[4][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			} else if (p_x == 1) {
+				w_curr = weights[1];
+				ctx_avr += abs_coeffs[1][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			}
+			if (r_x >= 1) {
+				w_curr = weights[3];
+				ctx_avr += abs_coeffs[3][pos] * w_curr;
+				w_ctx += w_curr;
+			}
+		} else if (p_y == 1) {
+			w_curr = weights[2];
+			ctx_avr += abs_coeffs[2][pos] * w_curr;
+			w_ctx += w_curr;
+			if (p_x >= 2) {
+				w_curr = weights[1];
+				ctx_avr += abs_coeffs[1][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[4];
+				ctx_avr += abs_coeffs[4][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			} else if (p_x == 1) {
+				w_curr = weights[1];
+				ctx_avr += abs_coeffs[1][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			}
+			if (r_x >= 1) {
+				w_curr = weights[3];
+				ctx_avr += abs_coeffs[3][pos] * w_curr;
+				w_ctx += w_curr;
+			}
+		} else {
+			if (p_x >= 2) {
+				w_curr = weights[4];
+				ctx_avr += abs_coeffs[4][pos] * w_curr;
+				w_ctx += w_curr;
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			} else if (p_x == 1) {
+				w_curr = weights[5];
+				ctx_avr += abs_coeffs[5][pos] * w_curr;
+				w_ctx += w_curr;
+			}
+		}
+
+		// return average context
+		return (w_ctx != 0) ? (ctx_avr + (w_ctx / 2)) / w_ctx : 0;
+	}
+	
+	// Lakhani ac context used in coeff encoding.
+	static int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {
+		int pred = 0;
+
+		// calculate partial prediction
+		pred -= (coeffs_x[1][pos] + coeffs_a[1][pos]) * pred_cf[1];
+		pred -= (coeffs_x[2][pos] - coeffs_a[2][pos]) * pred_cf[2];
+		pred -= (coeffs_x[3][pos] + coeffs_a[3][pos]) * pred_cf[3];
+		pred -= (coeffs_x[4][pos] - coeffs_a[4][pos]) * pred_cf[4];
+		pred -= (coeffs_x[5][pos] + coeffs_a[5][pos]) * pred_cf[5];
+		pred -= (coeffs_x[6][pos] - coeffs_a[6][pos]) * pred_cf[6];
+		pred -= (coeffs_x[7][pos] + coeffs_a[7][pos]) * pred_cf[7];
+		// normalize / quantize partial prediction
+		pred = ((pred > 0) ? (pred + (pred_cf[0] / 2)) : (pred - (pred_cf[0] / 2))) / pred_cf[0];
+		// complete prediction
+		pred += coeffs_a[0][pos];
+
+		return pred;
+	}
+
+	// Calculates coordinates for nearest neighbor (2D) context.
+	static std::pair<int, int> get_context_nnb(int pos, int w) {
+		std::pair<int, int> coords;
+		if (pos == 0) {
+			coords = std::make_pair<int, int>(-1, -1);
+		} else if ((pos % w) == 0) {
+			if (pos >= (w << 1)) {
+				coords = std::make_pair<int, int>(pos - (w << 1), pos - w);
+			} else {
+				coords = std::make_pair<int, int>(pos - w, pos - w);
+			}
+		} else if (pos < w) {
+			if (pos >= 2) {
+				coords = std::make_pair<int, int>(pos - 1, pos - 2);
+			} else {
+				coords = std::make_pair<int, int>(pos - 1, pos - 1);
+			}
+		} else {
+			coords = std::make_pair<int, int>(pos - 1, pos - w);
+		}
+		return coords;
+	}
+};
 
 class PjgEncoder {
 public:
@@ -699,6 +850,8 @@ private:
 	
 	// Get zero-sorted frequency scan vector.
 	std::array<uint8_t, 64> get_zerosort_scan(const Component& cmpt);
+
+	PjgContext context;
 };
 
 class PjgDecoder {
@@ -720,6 +873,8 @@ private:
 	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
 	std::vector<std::uint8_t> generic(const std::unique_ptr<ArithmeticDecoder>& dec);
 	std::uint8_t bit(const std::unique_ptr<ArithmeticDecoder>& dec);
+
+	PjgContext context;
 };
 
 // Information about the current SOS scan.
@@ -840,12 +995,6 @@ namespace pjg {
 			return pjg_decoder.decode();
 		}
 	}
-
-	constexpr std::array<int, 6> get_weights();
-	void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt);
-	int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x);
-	int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);
-std::pair<int, int> get_context_nnb(int pos, int w);
 }
 
 /*
@@ -4535,7 +4684,7 @@ void PjgEncoder::zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const 
 	// arithmetic encode zero-distribution-list
 	for (int dpos = 0; dpos < zdstls.size(); dpos++) {
 		// context modelling - use average of above and left as context
-		auto coords = pjg::get_context_nnb(dpos, w);
+		auto coords = context.get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
@@ -4581,7 +4730,7 @@ void PjgEncoder::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const C
 void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
-	const auto c_weight = pjg::get_weights(); // weighting for contexts
+	const auto c_weight = context.get_weights(); // weighting for contexts
 
 
 	// decide segmentation setting
@@ -4604,7 +4753,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
+	context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 	
 	// locally store pointer to coefficients and zero distribution list
 	const auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
@@ -4622,7 +4771,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 		// get segment-number from zero distribution list and segmentation set
 		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
+		const int ctx_avr = context.aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
 		const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
@@ -4662,7 +4811,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
-	const auto c_weight = pjg::get_weights(); // weighting for contexts
+	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
@@ -4709,7 +4858,7 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
+		context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
 		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -4733,7 +4882,7 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
+			const int ctx_avr = context.aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
 			const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
@@ -4853,7 +5002,7 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 			// edge treatment / calculate LAKHANI context
 			int ctx_lak; // lakhani context
 			if ((*edge_c) > 0) {
-				ctx_lak = pjg::lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
+				ctx_lak = context.lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
 			} else {
 				ctx_lak = 0;
 			}
@@ -5007,7 +5156,7 @@ void PjgDecoder::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compon
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++)	{
 		// context modelling - use average of above and left as context		
-		auto coords = pjg::get_context_nnb(dpos, w);
+		auto coords = context.get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
@@ -5055,7 +5204,7 @@ void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
-	const auto c_weight = pjg::get_weights(); // weighting for contexts
+	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
@@ -5077,7 +5226,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
+	context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 	
 	// locally store pointer to coefficients and zero distribution list
 	auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
@@ -5095,7 +5244,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 		// get segment-number from zero distribution list and segmentation set
 		const int snum = segm_tab[ zdstls[dpos] ];
 		// calculate contexts (for bit length)
-		const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
+		const int ctx_avr = context.aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context
 		const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
@@ -5135,7 +5284,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
 	std::array<uint16_t*, 6> c_absc = std::array<uint16_t*, 6> { nullptr}; // quick access array for contexts
-	const auto c_weight = pjg::get_weights(); // weighting for contexts
+	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
 	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
@@ -5182,7 +5331,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
 		
 		// set up average context quick access arrays
-		pjg::aavrg_prepare( c_absc, absv_store.data(), cmpt );
+		context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
 		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5206,7 +5355,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[ zdstls[dpos] ];
 			// calculate contexts (for bit length)
-			const int ctx_avr = pjg::aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
+			const int ctx_avr = context.aavrg_context( c_absc, c_weight, dpos, p_y, p_x, r_x ); // Average context.
 			const int ctx_len = pjg::bitlen1024p( ctx_avr ); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
@@ -5324,7 +5473,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 			// edge treatment / calculate LAKHANI context
 			int ctx_lak; // Lakhani context.
 			if ( (*edge_c) > 0 )
-				ctx_lak = pjg::lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
+				ctx_lak = context.lakh_context( coeffs_x, coeffs_a, pred_cf, dpos );
 			else ctx_lak = 0;
 			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
 			const int ctx_len = pjg::bitlen2048n( ctx_lak ); // Bitlength context.				
@@ -5563,143 +5712,6 @@ void PjgDecoder::deoptimize_header() {
 		}
 		hpos += len;
 	}
-}
-
-// copy context weighting factors
-constexpr std::array<int, 6> pjg::get_weights() {
-	return std::array<int, 6> {
-		pjg::abs_ctx_weights_lum[0][0][2], // top-top
-		pjg::abs_ctx_weights_lum[0][1][1], // top-left
-		pjg::abs_ctx_weights_lum[0][1][2], // top
-		pjg::abs_ctx_weights_lum[0][1][3], // top-right
-		pjg::abs_ctx_weights_lum[0][2][0], // left-left
-		pjg::abs_ctx_weights_lum[0][2][1]  // left
-	};
-}
-
-/* -----------------------------------------------
-	preparations for special average context
-	----------------------------------------------- */
-void pjg::aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt)
-{
-	int w = cmpt.bch;
-	
-	// set up quick access arrays for all prediction positions
-	abs_coeffs[ 0 ] = abs_store + (  0 + ((-2)*w) ); // top-top
-	abs_coeffs[ 1 ] = abs_store + ( -1 + ((-1)*w) ); // top-left
-	abs_coeffs[ 2 ] = abs_store + (  0 + ((-1)*w) ); // top
-	abs_coeffs[ 3 ] = abs_store + (  1 + ((-1)*w) ); // top-right
-	abs_coeffs[ 4 ] = abs_store + ( -2 + (( 0)*w) ); // left-left
-	abs_coeffs[ 5 ] = abs_store + ( -1 + (( 0)*w) ); // left
-}
-
-
-/* -----------------------------------------------
-	special average context used in coeff encoding
-	----------------------------------------------- */
-int pjg::aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x )
-{
-	int ctx_avr = 0; // AVERAGE context
-	int w_ctx = 0; // accumulated weight of context
-	int w_curr; // current weight of context
-	
-	
-	// different cases due to edge treatment
-	if ( p_y >= 2 ) {
-		w_curr = weights[ 0 ]; ctx_avr += abs_coeffs[ 0 ][ pos ] * w_curr; w_ctx += w_curr;
-		w_curr = weights[ 2 ]; ctx_avr += abs_coeffs[ 2 ][ pos ] * w_curr; w_ctx += w_curr;
-		if ( p_x >= 2 ) {
-			w_curr = weights[ 1 ]; ctx_avr += abs_coeffs[ 1 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 4 ]; ctx_avr += abs_coeffs[ 4 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-		else if ( p_x == 1 ) {
-			w_curr = weights[ 1 ]; ctx_avr += abs_coeffs[ 1 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-		if ( r_x >= 1 ) {
-			w_curr = weights[ 3 ]; ctx_avr += abs_coeffs[ 3 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-	}
-	else if ( p_y == 1 ) {
-		w_curr = weights[ 2 ]; ctx_avr += abs_coeffs[ 2 ][ pos ] * w_curr; w_ctx += w_curr;
-		if ( p_x >= 2 ) {
-			w_curr = weights[ 1 ]; ctx_avr += abs_coeffs[ 1 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 4 ]; ctx_avr += abs_coeffs[ 4 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-		else if ( p_x == 1 ) {
-			w_curr = weights[ 1 ]; ctx_avr += abs_coeffs[ 1 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-		if ( r_x >= 1 ) {
-			w_curr = weights[ 3 ]; ctx_avr += abs_coeffs[ 3 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-	}
-	else {
-		if ( p_x >= 2 ) {
-			w_curr = weights[ 4 ]; ctx_avr += abs_coeffs[ 4 ][ pos ] * w_curr; w_ctx += w_curr;
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-		else if ( p_x == 1 ) {
-			w_curr = weights[ 5 ]; ctx_avr += abs_coeffs[ 5 ][ pos ] * w_curr; w_ctx += w_curr;
-		}
-	}
-	
-	// return average context
-	return ( w_ctx != 0 ) ? ( ctx_avr + ( w_ctx / 2 ) ) / w_ctx : 0;
-}
-
-
-/* -----------------------------------------------
-	lakhani ac context used in coeff encoding
-	----------------------------------------------- */
-int pjg::lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {
-	int pred = 0;
-
-	// calculate partial prediction
-	pred -= (coeffs_x[1][pos] + coeffs_a[1][pos]) * pred_cf[1];
-	pred -= (coeffs_x[2][pos] - coeffs_a[2][pos]) * pred_cf[2];
-	pred -= (coeffs_x[3][pos] + coeffs_a[3][pos]) * pred_cf[3];
-	pred -= (coeffs_x[4][pos] - coeffs_a[4][pos]) * pred_cf[4];
-	pred -= (coeffs_x[5][pos] + coeffs_a[5][pos]) * pred_cf[5];
-	pred -= (coeffs_x[6][pos] - coeffs_a[6][pos]) * pred_cf[6];
-	pred -= (coeffs_x[7][pos] + coeffs_a[7][pos]) * pred_cf[7];
-	// normalize / quantize partial prediction
-	pred = ((pred > 0) ? (pred + (pred_cf[0] / 2)) : (pred - (pred_cf[0] / 2))) / pred_cf[0];
-	// complete prediction
-	pred += coeffs_a[0][pos];
-
-	return pred;
-}
-
-
-/* -----------------------------------------------
-	Calculates coordinates for nearest neighbor context
-	----------------------------------------------- */
-std::pair<int, int> pjg::get_context_nnb(int pos, int w)
-{
-	// this function calculates and returns coordinates for
-	// a simple 2D context
-	std::pair<int, int> coords;
-	if (pos == 0) {
-		coords = std::make_pair<int, int>(-1, -1);
-	} else if ((pos % w) == 0) {
-		if (pos >= (w << 1)) {
-			coords = std::make_pair<int, int>(pos - (w << 1), pos - w);
-		} else {
-			coords = std::make_pair<int, int>(pos - w, pos - w);
-		}
-	} else if (pos < w) {
-		if (pos >= 2) {
-			coords = std::make_pair<int, int>(pos - 1, pos - 2);
-		} else {
-			coords = std::make_pair<int, int>(pos - 1, pos - 1);
-		}
-	} else {
-		coords = std::make_pair<int, int>(pos - 1, pos - w);
-	}
-	return coords;
 }
 
 /* ----------------------- End of PJG specific functions -------------------------- */
