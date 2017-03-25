@@ -926,10 +926,9 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 	----------------------------------------------- */
 
 // separate info for each color component
-static std::array<Component, 4> cmpnfo;
+static std::vector<Component> cmpnfo;
 
 namespace image {
-int cmpc = 0; // component count
 int imgwidth = 0; // width of image
 int imgheight = 0; // height of image
 
@@ -2244,14 +2243,11 @@ static bool reset_buffers()
 
 	jpg::encode::jpeg_encoder = JpgEncoder();
 	
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
-		cmpnfo[cmp] = Component();
-	}
+	cmpnfo.clear();
 	
 	// preset imgwidth / imgheight / component count 
 	image::imgwidth  = 0;
 	image::imgheight = 0;
-	image::cmpc      = 0;
 	
 	// preset mcu info variables / restart interval
 	image::sfhm      = 0;
@@ -3149,8 +3145,7 @@ bool dct::adapt_icos()
 	std::array<std::uint16_t, 64> quant; // local copy of quantization	
 	
 	
-	for (int cmp = 0; cmp < image::cmpc; cmp++ ) {
-		Component& cmpt = cmpnfo[cmp];
+	for (auto& cmpt : cmpnfo) {
 		// make a local copy of the quantization values, check
 		for (int ipos = 0; ipos < 64; ipos++) {
 			quant[ipos] = cmpt.quant(zigzag[ipos]);
@@ -3182,8 +3177,7 @@ bool dct::adapt_icos()
 
 static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
-		Component& cmpt = cmpnfo[cmp];
+	for (auto& cmpt : cmpnfo) {
 		const int absmaxp = cmpt.max_v(0);
 		const int corr_f = (2 * absmaxp) + 1;
 
@@ -3212,8 +3206,7 @@ static bool predict_dc() {
 
 static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
-		Component& cmpt = cmpnfo[cmp];
+	for (auto& cmpt : cmpnfo) {
 		const int absmaxp = cmpt.max_v(0);
 		const int corr_f = (2 * absmaxp) + 1;
 
@@ -3360,44 +3353,45 @@ bool pjg::encode::encode()
 	}
 	
 	// encode actual components data
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
+	for ( cmp = 0; cmp < cmpnfo.size(); cmp++ ) {
+		auto& cmpt = cmpnfo[cmp];
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		cmpnfo[cmp].freqscan = pjg::encode::zstscan(encoder, cmpnfo[cmp]); // set zero sort scan as freqscan
+		cmpt.freqscan = pjg::encode::zstscan(encoder, cmpt); // set zero sort scan as freqscan
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmpnfo[cmp]);
+		pjg::encode::zdst_high(encoder, cmpt);
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmpnfo[cmp]);
+		pjg::encode::ac_high(encoder, cmpt);
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmpnfo[cmp]);
+		pjg::encode::zdst_low(encoder, cmpt);
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmpnfo[cmp]);
+		pjg::encode::ac_low(encoder, cmpt);
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmpnfo[cmp]);
+		pjg::encode::dc(encoder, cmpt);
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		cmpnfo[cmp].freqscan = pjg::encode::zstscan(encoder, cmpnfo[cmp]); // set zero sort scan as freqscan
+		cmpt.freqscan = pjg::encode::zstscan(encoder, cmpt); // set zero sort scan as freqscan
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
-		pjg::encode::zdst_high(encoder, cmpnfo[cmp]);
+		pjg::encode::zdst_high(encoder, cmpt);
 		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for higher (7x7) ACs
-		pjg::encode::ac_high(encoder, cmpnfo[cmp]);
+		pjg::encode::ac_high(encoder, cmpt);
 		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for lower ACs
-		pjg::encode::zdst_low(encoder, cmpnfo[cmp]);
+		pjg::encode::zdst_low(encoder, cmpt);
 		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for first row / collumn ACs
-		pjg::encode::ac_low(encoder, cmpnfo[cmp]);
+		pjg::encode::ac_low(encoder, cmpt);
 		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for DC
-		pjg::encode::dc(encoder, cmpnfo[cmp]);
+		pjg::encode::dc(encoder, cmpt);
 		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
 		dev_size_cmp[ cmp ] = 
 			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
@@ -3446,14 +3440,12 @@ bool pjg::decode::decode()
 		str_in->read_byte(&hcode);
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
-			str_in->read_byte(&cmpnfo[0].nois_trs);
-			str_in->read_byte(&cmpnfo[1].nois_trs);
-			str_in->read_byte(&cmpnfo[2].nois_trs);
-			str_in->read_byte(&cmpnfo[3].nois_trs);
-			str_in->read_byte(&cmpnfo[0].segm_cnt);
-			str_in->read_byte(&cmpnfo[1].segm_cnt);
-			str_in->read_byte(&cmpnfo[2].segm_cnt);
-			str_in->read_byte(&cmpnfo[3].segm_cnt);
+			for (auto& cmpt : cmpnfo) {
+				str_in->read_byte(&cmpt.nois_trs);
+			}
+			for (auto& cmpt : cmpnfo) {
+				str_in->read_byte(&cmpt.segm_cnt);
+			}
 			auto_set = false;
 		}
 		else if ( hcode >= 0x14 ) {
@@ -3497,19 +3489,19 @@ bool pjg::decode::decode()
 	if ( !jpg::setup_imginfo() ) return false;
 	
 	// decode actual components data
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
+	for (auto& cmpt : cmpnfo) {
 		// decode frequency scan ('zero-sort-scan')
-		cmpnfo[cmp].freqscan = pjg::decode::zstscan(decoder); // set zero sort scan as freqscan
+		cmpt.freqscan = pjg::decode::zstscan(decoder); // set zero sort scan as freqscan
 		// decode zero-distribution-lists for higher (7x7) ACs
-		pjg::decode::zdst_high(decoder, cmpnfo[cmp]);
+		pjg::decode::zdst_high(decoder, cmpt);
 		// decode coefficients for higher (7x7) ACs
-		pjg::decode::ac_high(decoder, cmpnfo[cmp]);
+		pjg::decode::ac_high(decoder, cmpt);
 		// decode zero-distribution-lists for lower ACs
-		pjg::decode::zdst_low(decoder, cmpnfo[cmp]);
+		pjg::decode::zdst_low(decoder, cmpt);
 		// decode coefficients for first row / collumn ACs
-		pjg::decode::ac_low(decoder, cmpnfo[cmp]);
+		pjg::decode::ac_low(decoder, cmpt);
 		// decode coefficients for DC
-		pjg::decode::dc(decoder, cmpnfo[cmp]);
+		pjg::decode::dc(decoder, cmpt);
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
@@ -3540,10 +3532,7 @@ bool jpg::setup_imginfo()
 	unsigned char  type; // type of current marker segment
 	unsigned int   len; // length of current marker segment
 	unsigned int   hpos = 0; // position in header
-	
-	int cmp, bpos;
-	int i;
-	
+		
 	// header parser loop
 	while (hpos < int(hdrdata.size())) {
 		type = hdrdata[ hpos + 1 ];
@@ -3555,80 +3544,78 @@ bool jpg::setup_imginfo()
 		}
 		hpos += len;
 	}
-	
+
 	// check if information is complete
-	if (image::cmpc == 0 ) {
-		sprintf( errormessage, "header contains incomplete information" );
+	if (cmpnfo.empty()) {
+		sprintf(errormessage, "header contains incomplete information");
 		errorlevel = 2;
 		return false;
 	}
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		if ( ( cmpnfo[cmp].sfv == 0 ) ||
-			 ( cmpnfo[cmp].sfh == 0 ) ||
-			 //( cmpnfo[cmp].qtable == nullptr ) ||
-			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
-			 ( jpegtype == JpegType::UNKNOWN ) ) {
-			sprintf( errormessage, "header information is incomplete" );
+	for (const auto& cmpt : cmpnfo) {
+		if (cmpt.sfv == 0
+			|| cmpt.sfh == 0
+			|| cmpt.qtable[0] == 0
+			|| jpegtype == JpegType::UNKNOWN) {
+			sprintf(errormessage, "header information is incomplete");
 			errorlevel = 2;
 			return false;
 		}
 	}
-	
+
 	// do all remaining component info calculations
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		if ( cmpnfo[ cmp ].sfh > image::sfhm ) image::sfhm = cmpnfo[ cmp ].sfh;
-		if ( cmpnfo[ cmp ].sfv > image::sfvm ) image::sfvm = cmpnfo[ cmp ].sfv;
+	for (const auto& cmpt : cmpnfo) {
+		image::sfhm = std::max(cmpt.sfh, image::sfhm);
+		image::sfvm = std::max(cmpt.sfv, image::sfvm);
 	}
-	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * image::sfhm) ) );
-	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth)  / static_cast<float>( 8 * image::sfvm ) ));
-	image::mcuc  = image::mcuv * image::mcuh;
-	for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-		cmpnfo[ cmp ].mbs = cmpnfo[ cmp ].sfv * cmpnfo[ cmp ].sfh;		
-		cmpnfo[ cmp ].bcv = image::mcuv * cmpnfo[ cmp ].sfh;
-		cmpnfo[ cmp ].bch = image::mcuh * cmpnfo[ cmp ].sfv;
-		cmpnfo[ cmp ].bc  = cmpnfo[ cmp ].bcv * cmpnfo[ cmp ].bch;
-		cmpnfo[ cmp ].ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
-							(static_cast<float>(cmpnfo[ cmp ].sfh) / ( 8.0 * image::sfhm ) ) ));
-		cmpnfo[ cmp ].nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
-							(static_cast<float>(cmpnfo[ cmp ].sfv) / ( 8.0 * image::sfvm ) ) ));
-		cmpnfo[ cmp ].nc  = cmpnfo[ cmp ].ncv * cmpnfo[ cmp ].nch;
+	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * image::sfhm)));
+	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * image::sfvm)));
+	image::mcuc = image::mcuv * image::mcuh;
+	for (auto& cmpt : cmpnfo) {
+		cmpt.mbs = cmpt.sfv * cmpt.sfh;
+		cmpt.bcv = image::mcuv * cmpt.sfh;
+		cmpt.bch = image::mcuh * cmpt.sfv;
+		cmpt.bc = cmpt.bcv * cmpt.bch;
+		cmpt.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
+			(static_cast<float>(cmpt.sfh) / (8.0 * image::sfhm))));
+		cmpt.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
+			(static_cast<float>(cmpt.sfv) / (8.0 * image::sfvm))));
+		cmpt.nc = cmpt.ncv * cmpt.nch;
 	}
-	
+
 	// decide components' statistical ids
-	if (image::cmpc <= 3 ) {
-		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = cmp;
-	}
-	else {
-		for ( cmp = 0; cmp < image::cmpc; cmp++ ) cmpnfo[ cmp ].sid = 0;
-	}
-	
-	// alloc memory for further operations
-	for ( cmp = 0; cmp < image::cmpc; cmp++ )
-	{
-		// alloc memory for colls
-		for ( bpos = 0; bpos < 64; bpos++ ) {
-			cmpnfo[cmp].colldata[bpos].resize(cmpnfo[cmp].bc);
+	if (cmpnfo.size() <= 3) {
+		for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+			cmpnfo[cmp].sid = cmp;
 		}
-		
-		// alloc memory for zdstlist / eob x / eob y
-		cmpnfo[cmp].zdstdata = std::vector<uint8_t>(cmpnfo[cmp].bc);
-		cmpnfo[cmp].eobxhigh = std::vector<uint8_t>(cmpnfo[cmp].bc);
-		cmpnfo[cmp].eobyhigh = std::vector<uint8_t>(cmpnfo[cmp].bc);
-		cmpnfo[cmp].zdstxlow = std::vector<uint8_t>(cmpnfo[cmp].bc);
-		cmpnfo[cmp].zdstylow = std::vector<uint8_t>(cmpnfo[cmp].bc);
+	} else {
+		for (auto& cmpt : cmpnfo) {
+			cmpt.sid = 0;
+		}
 	}
-	
+
+	for (auto& cmpt : cmpnfo) {
+		for (auto& coeffs : cmpt.colldata) {
+			coeffs.resize(cmpt.bc);
+		}
+
+		cmpt.zdstdata = std::vector<uint8_t>(cmpt.bc);
+		cmpt.eobxhigh = std::vector<uint8_t>(cmpt.bc);
+		cmpt.eobyhigh = std::vector<uint8_t>(cmpt.bc);
+		cmpt.zdstxlow = std::vector<uint8_t>(cmpt.bc);
+		cmpt.zdstylow = std::vector<uint8_t>(cmpt.bc);
+	}
+
 	// also decide automatic settings here
-	if ( auto_set ) {
-		for ( cmp = 0; cmp < image::cmpc; cmp++ ) {
-			for ( i = 0;
-				conf_sets[ i ][ cmpnfo[cmp].sid ] > static_cast<uint32_t>(cmpnfo[ cmp ].bc);
-				i++ );
-			cmpnfo[cmp].segm_cnt = conf_segm;
-			cmpnfo[cmp].nois_trs = conf_ntrs[ i ][ cmpnfo[cmp].sid ];
+	if (auto_set) {
+		for (auto& cmpt : cmpnfo) {
+			int i;
+			for (i = 0;
+			     conf_sets[i][cmpt.sid] > static_cast<uint32_t>(cmpt.bc);
+			     i++);
+			cmpt.segm_cnt = conf_segm;
+			cmpt.nois_trs = conf_ntrs[i][cmpt.sid];
 		}
 	}
-	
 	
 	return true;
 }
@@ -3734,25 +3721,25 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 	// image size, height & component count
 	image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
 	image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
-	image::cmpc = segment[hpos + 5];
+	cmpnfo.resize(segment[hpos + 5]);
 	if ((image::imgwidth == 0) || (image::imgheight == 0)) {
 		sprintf(errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight);
 		errorlevel = 2;
 		return false;
 	}
-	if (image::cmpc > 4) {
-		sprintf(errormessage, "image has %i components, max 4 are supported", image::cmpc);
+	if (cmpnfo.size() > 4) {
+		sprintf(errormessage, "image has %u components, max 4 are supported", cmpnfo.size());
 		errorlevel = 2;
 		return false;
 	}
 
 	hpos += 6;
 	// components contained in image
-	for (int cmp = 0; cmp < image::cmpc; cmp++) {
-		cmpnfo[cmp].jid = segment[hpos];
-		cmpnfo[cmp].sfv = bitops::LBITS(segment[hpos + 1], 4);
-		cmpnfo[cmp].sfh = bitops::RBITS(segment[hpos + 1], 4);
-		cmpnfo[cmp].qtable = qtables[segment[hpos + 2]];
+	for (auto& cmpt : cmpnfo) {
+		cmpt.jid = segment[hpos];
+		cmpt.sfv = bitops::LBITS(segment[hpos + 1], 4);
+		cmpt.sfh = bitops::RBITS(segment[hpos + 1], 4);
+		cmpt.qtable = qtables[segment[hpos + 2]];
 		hpos += 3;
 	}
 
@@ -3762,26 +3749,27 @@ bool jpg::jfif::parse_sof(unsigned char type, const unsigned char* segment) {
 bool jpg::jfif::parse_sos(const unsigned char* segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	curr_scan::cmpc = segment[hpos];
-	if (curr_scan::cmpc > image::cmpc) {
-		sprintf(errormessage, "%i components in scan, only %i are allowed",
-			curr_scan::cmpc, image::cmpc);
+	if (curr_scan::cmpc > cmpnfo.size()) {
+		sprintf(errormessage, "%i components in scan, only %u are allowed",
+			curr_scan::cmpc, cmpnfo.size());
 		errorlevel = 2;
 		return false;
 	}
 	hpos++;
 	for (int i = 0; i < curr_scan::cmpc; i++) {
 		int cmp;
-		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < image::cmpc); cmp++);
-		if (cmp == image::cmpc) {
+		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < cmpnfo.size()); cmp++);
+		if (cmp == cmpnfo.size()) {
 			sprintf(errormessage, "component id mismatch in start-of-scan");
 			errorlevel = 2;
 			return false;
 		}
+		auto& cmpt = cmpnfo[cmp];
 		curr_scan::cmp[i] = cmp;
-		cmpnfo[cmp].huffdc = bitops::LBITS(segment[hpos + 1], 4);
-		cmpnfo[cmp].huffac = bitops::RBITS(segment[hpos + 1], 4);
-		if ((cmpnfo[cmp].huffdc < 0) || (cmpnfo[cmp].huffdc >= 4) ||
-			(cmpnfo[cmp].huffac < 0) || (cmpnfo[cmp].huffac >= 4)) {
+		cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
+		cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
+		if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
+			(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
 			sprintf(errormessage, "huffman table number mismatch");
 			errorlevel = 2;
 			return false;
