@@ -640,9 +640,9 @@ public:
 	// Read in header and image data.
 	bool read();
 	// JPEG decoding routine.
-	bool decode();
+	bool decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
-	bool check_value_range();
+	bool check_value_range(const std::vector<Component>& cmpts);
 
 private:
 	// Sequential block decoding routine.
@@ -890,6 +890,38 @@ struct ScanInfo {
 	int sal = 0; // successive approximation bit pos low
 };
 
+
+/* -----------------------------------------------
+global variables: data storage
+----------------------------------------------- */
+
+static std::array<std::array<uint16_t, 64>, 4> qtables; // quantization tables
+
+static std::vector<std::uint8_t> grbgdata; // garbage data
+static std::vector<Segment> segments; // Header segments.
+static std::vector<std::uint8_t> huffdata; // huffman coded data
+
+/* -----------------------------------------------
+global variables: info about image
+----------------------------------------------- */
+
+// separate info for each color component
+static std::vector<Component> cmpnfo;
+
+/* -----------------------------------------------
+global variables: info about files
+----------------------------------------------- */
+
+static std::string jpgfilename;	// name of JPEG file
+static std::string pjgfilename;	// name of PJG file
+static int    jpgfilesize;			// size of JPEG file
+static int    pjgfilesize;			// size of PJG file
+static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
+static FileType filetype;				// type of current file
+static std::unique_ptr<iostream> str_in;	// input stream
+static std::unique_ptr<iostream> str_out;	// output stream
+
+
 /* -----------------------------------------------
 	function declarations: main interface
 	----------------------------------------------- */
@@ -970,11 +1002,11 @@ namespace decode {
 	}
 	// JPEG decoding routine.
 	bool decode() {
-		return jpeg_decoder->decode();
+		return jpeg_decoder->decode(jpegtype, segments, cmpnfo, huffdata);
 	}
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
-		return jpeg_decoder->check_value_range();
+		return jpeg_decoder->check_value_range(cmpnfo);
 	}
 
 }
@@ -1070,24 +1102,6 @@ static int lib_in_type  = -1;
 static int lib_out_type = -1;
 #endif
 
-
-/* -----------------------------------------------
-	global variables: data storage
-	----------------------------------------------- */
-
-static std::array<std::array<uint16_t, 64>, 4> qtables; // quantization tables
-
-static std::vector<std::uint8_t> grbgdata; // garbage data
-static std::vector<Segment> segments; // Header segments.
-static std::vector<std::uint8_t> huffdata; // huffman coded data
-
-/* -----------------------------------------------
-	global variables: info about image
-	----------------------------------------------- */
-
-// separate info for each color component
-static std::vector<Component> cmpnfo;
-
 namespace image {
 int imgwidth = 0; // width of image
 int imgheight = 0; // height of image
@@ -1097,19 +1111,6 @@ int mcuh = 0; // mcus per collumn
 int mcuc = 0; // count of mcus
 }
 	
-/* -----------------------------------------------
-	global variables: info about files
-	----------------------------------------------- */
-	
-static std::string jpgfilename;	// name of JPEG file
-static std::string pjgfilename;	// name of PJG file
-static int    jpgfilesize;			// size of JPEG file
-static int    pjgfilesize;			// size of PJG file
-static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
-static FileType filetype;				// type of current file
-static std::unique_ptr<iostream> str_in;	// input stream
-static std::unique_ptr<iostream> str_out;	// output stream
-
 #if !defined(BUILD_LIB)
 static std::unique_ptr<iostream> str_str;	// storage stream
 
@@ -2621,7 +2622,7 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 	}
 }
 
-bool JpgDecoder::decode()
+bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<uint8_t>& huffdata)
 {		
 	short block[64]; // store block for coeffs
 	
@@ -2662,7 +2663,7 @@ bool JpgDecoder::decode()
 		
 		// check if huffman tables are available
 		for (int csc = 0; csc < scan_info.cmpc; csc++) {
-			auto& cmpt = cmpnfo[scan_info.cmp[csc]];
+			auto& cmpt = cmpts[scan_info.cmp[csc]];
 			if ( ( scan_info.sal == 0 && !htrees[0][cmpt.huffdc] ) ||
 				 (scan_info.sah >  0 && !htrees[1][cmpt.huffac] ) ) {
 				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
@@ -2703,8 +2704,8 @@ bool JpgDecoder::decode()
 					// ---> sequential interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq(*htrees[0][cmpnfo[cmp].huffdc],
-						                      *htrees[1][cmpnfo[cmp].huffdc],
+						eob = this->block_seq(*htrees[0][cmpts[cmp].huffdc],
+						                      *htrees[1][cmpts[cmp].huffdc],
 						                      block);
 						
 						// check for non optimal coding
@@ -2719,7 +2720,7 @@ bool JpgDecoder::decode()
 						
 						// copy to dct::colldata
 						for (int bpos = 0; bpos < eob; bpos++ )
-							cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
+							cmpts[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
@@ -2730,15 +2731,15 @@ bool JpgDecoder::decode()
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
-						status = this->dc_prg_fs(*htrees[0][cmpnfo[cmp].huffdc],
+						status = this->dc_prg_fs(*htrees[0][cmpts[cmp].huffdc],
 						                         block);
 						
 						// fix dc for diff coding
-						cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
-						lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
+						cmpts[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
+						lastdc[ cmp ] = cmpts[cmp].colldata[0][dpos];
 						
 						// bitshift for succesive approximation
-						cmpnfo[cmp].colldata[0][dpos] <<= scan_info.sal;
+						cmpts[cmp].colldata[0][dpos] <<= scan_info.sal;
 						
 						// next mcupos if no error happened
 						if ( status != CodingStatus::ERROR )
@@ -2753,7 +2754,7 @@ bool JpgDecoder::decode()
 						this->dc_prg_sa(block);
 						
 						// shift in next bit
-						cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
+						cmpts[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 						
 						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
@@ -2765,8 +2766,8 @@ bool JpgDecoder::decode()
 					// ---> sequential non interleaved decoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// decode block
-						eob = this->block_seq(*htrees[0][cmpnfo[cmp].huffdc],
-						                      *htrees[1][cmpnfo[cmp].huffdc],
+						eob = this->block_seq(*htrees[0][cmpts[cmp].huffdc],
+						                      *htrees[1][cmpts[cmp].huffdc],
 						                      block);
 						
 						// check for non optimal coding
@@ -2781,11 +2782,11 @@ bool JpgDecoder::decode()
 						
 						// copy to dct::colldata
 						for (int bpos = 0; bpos < eob; bpos++ )
-							cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
+							cmpts[cmp].colldata[ bpos ][ dpos ] = block[ bpos ];
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+						else status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.to == 0 ) {					
@@ -2793,19 +2794,19 @@ bool JpgDecoder::decode()
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
-							status = this->dc_prg_fs(*htrees[0][cmpnfo[cmp].huffdc],
+							status = this->dc_prg_fs(*htrees[0][cmpts[cmp].huffdc],
 							                         block);
 								
 							// fix dc for diff coding
-							cmpnfo[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
-							lastdc[ cmp ] = cmpnfo[cmp].colldata[0][dpos];
+							cmpts[cmp].colldata[0][dpos] = block[0] + lastdc[ cmp ];
+							lastdc[ cmp ] = cmpts[cmp].colldata[0][dpos];
 							
 							// bitshift for succesive approximation
-							cmpnfo[cmp].colldata[0][dpos] <<= scan_info.sal;
+							cmpts[cmp].colldata[0][dpos] <<= scan_info.sal;
 							
 							// check for errors, increment dpos otherwise
 							if ( status != CodingStatus::ERROR )
-								status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2816,10 +2817,10 @@ bool JpgDecoder::decode()
 							this->dc_prg_sa(block);
 							
 							// shift in next bit
-							cmpnfo[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
+							cmpts[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 							
 							// increment dpos
-							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -2830,13 +2831,13 @@ bool JpgDecoder::decode()
 						while ( status == CodingStatus::OKAY ) {
 							if ( eobrun == 0 ) {
 								// decode block
-								eob = this->ac_prg_fs(*htrees[1][cmpnfo[cmp].huffac],
+								eob = this->ac_prg_fs(*htrees[1][cmpts[cmp].huffac],
 								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
 									if ( ( eob == scan_info.from )  && ( peobrun > 0 ) &&
-										( peobrun <	hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
+										( peobrun <	hcodes[ 1 ][cmpts[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2847,16 +2848,16 @@ bool JpgDecoder::decode()
 							
 								// copy to colldata
 								for (int bpos = scan_info.from; bpos < eob; bpos++)
-									cmpnfo[cmp].colldata[ bpos ][ dpos ] = block[ bpos ] << scan_info.sal;
+									cmpts[cmp].colldata[ bpos ][ dpos ] = block[ bpos ] << scan_info.sal;
 							} else eobrun--;
 							
 							// check for errors
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = this->skip_eobrun(cmpnfo[cmp], rsti, &dpos, &rstw, &eobrun);
+							else status = this->skip_eobrun(cmpts[cmp], rsti, &dpos, &rstw, &eobrun);
 							
 							// proceed only if no error encountered
 							if ( status == CodingStatus::OKAY )
-								status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+								status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2865,17 +2866,17 @@ bool JpgDecoder::decode()
 						while ( status == CodingStatus::OKAY ) {
 							// copy from colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
-								block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
+								block[ bpos ] = cmpts[cmp].colldata[ bpos ][ dpos ];
 							
 							if ( eobrun == 0 ) {
 								// decode block (long routine)
-								eob = this->ac_prg_sa(*htrees[1][cmpnfo[cmp].huffac],
+								eob = this->ac_prg_sa(*htrees[1][cmpts[cmp].huffac],
 								                      block, &eobrun, scan_info.from, scan_info.to);
 								
 								if ( eobrun > 0 ) {
 									// check for non optimal coding
 									if ( ( eob == scan_info.from ) && ( peobrun > 0 ) &&
-										( peobrun < hcodes[ 1 ][ cmpnfo[cmp].huffac ]->max_eobrun - 1 ) ) {
+										( peobrun < hcodes[ 1 ][cmpts[cmp].huffac ]->max_eobrun - 1 ) ) {
 										sprintf( errormessage,
 											"reconstruction of inefficient coding not supported" );
 										errorlevel = 1;
@@ -2895,11 +2896,11 @@ bool JpgDecoder::decode()
 								
 							// copy back to colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
-								cmpnfo[cmp].colldata[ bpos ][ dpos ] += block[ bpos ] << scan_info.sal;
+								cmpts[cmp].colldata[ bpos ][ dpos ] += block[ bpos ] << scan_info.sal;
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							else status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -3318,16 +3319,16 @@ static bool unpredict_dc() {
 	return true;
 }
 
-bool JpgDecoder::check_value_range() {
+bool JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
 	// out of range should never happen with unmodified JPEGs
-	for (size_t i = 0; i < cmpnfo.size(); i++) {
-		const auto& cmpt = cmpnfo[i];
-		for (int bpos = 0; bpos < 64; bpos++) {
+	for (size_t i = 0; i < cmpts.size(); i++) {
+		const auto& cmpt = cmpts[i];
+		for (size_t bpos = 0; bpos < cmpt.colldata.size(); bpos++) {
 			const auto& coeffs = cmpt.colldata[bpos];
 			const int absmax = cmpt.max_v(bpos);
 			for (int dpos = 0; dpos < cmpt.bc; dpos++)
 				if (std::abs(coeffs[dpos]) > absmax) {
-					sprintf(errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
+					sprintf(errormessage, "value out of range error: cmp%u, frq%u, val %i, max %i",
 					        i, bpos, coeffs[dpos], absmax);
 					errorlevel = 2;
 					return false;
