@@ -192,6 +192,17 @@ abytereader::abytereader(const std::vector<std::uint8_t>& bytes) :
 
 abytereader::~abytereader() {}
 
+uint8_t abytereader::read_byte() {
+	if (cbyte == std::end(data)) {
+		throw std::runtime_error("No bytes left to read");
+	} else {
+		uint8_t the_byte = *cbyte;
+		++cbyte;
+		_eof = cbyte == std::end(data);
+		return the_byte;
+	}
+}
+
 bool abytereader::read(unsigned char* byte) {
 	if (cbyte == std::end(data)) {
 		_eof = true;
@@ -457,6 +468,10 @@ std::size_t MemStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_
 	return mrdr->read(into, num_to_read, offset);
 }
 
+uint8_t MemStream::read_byte() {
+	return mrdr->read_byte();
+}
+
 bool MemStream::read_byte(unsigned char* to) {
 	return mrdr->read(to);
 }
@@ -498,6 +513,15 @@ int FileStream::read(unsigned char* to, int dtsize) {
 
 std::size_t FileStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
 	return read(into.data() + offset, num_to_read);
+}
+
+uint8_t FileStream::read_byte() {
+	const int val = fgetc(fptr);
+	if (val != EOF) {
+		return static_cast<uint8_t>(val);
+	} else {
+		throw std::runtime_error("No bytes left in " + file_path + " to read!");
+	}
 }
 
 bool FileStream::read_byte(unsigned char* to) {

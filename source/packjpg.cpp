@@ -635,10 +635,15 @@ private:
 	std::vector<std::uint32_t> scnp; // scan start positions in huffdata
 };
 
-class JpgDecoder {
+class JpgReader {
 public:
+	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment);
 	// Read in header and image data.
 	bool read();
+};
+
+class JpgDecoder {
+public:
 	// JPEG decoding routine.
 	bool decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
@@ -998,7 +1003,8 @@ namespace decode {
 
 	// Read in header and image data.
 	bool read() {
-		return jpeg_decoder->read();
+		auto reader = std::make_unique<JpgReader>();
+		return reader->read();
 	}
 	// JPEG decoding routine.
 	bool decode() {
@@ -2365,170 +2371,180 @@ static bool reset_buffers()
 	
 	return true;
 }
-	
-bool JpgDecoder::read()
-{
-	unsigned char  type = 0x00; // type of current marker segment
-	unsigned int   len; // length of current marker segment
-	unsigned int   crst; // current rst marker counter
-	unsigned int   cpos; // rst marker counter
-	unsigned char  tmp;	
-	
-	// preset count of scans
-	jpg::scan_count = 0;
-	
-	// start headerwriter
-	auto hdrw = std::make_unique<abytewriter>(4096);
-	
-	// start huffman writer
-	auto huffw = std::make_unique<abytewriter>(0);
-	
-	// alloc memory for segment data first
-	std::vector<std::uint8_t> segment(1024);
-	
-	// JPEG reader loop
-	while ( true ) {
-		if ( type == 0xDA ) { // if last marker was sos
-			// switch to huffman data reading mode
-			cpos = 0;
+
+void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment) {
+	// switch to huffman data reading mode
+	uint32_t cpos = 0; // rst marker counter
+	uint32_t crst = 0; // current rst marker counter
+	while (true) {
+		// read byte from imagedata
+		uint8_t tmp = str_in->read_byte();
+
+		// non-0xFF loop
+		if (tmp != 0xFF) {
 			crst = 0;
-			while ( true ) {
-				// read byte from imagedata
-				if ( str_in->read_byte(&tmp) == 0 )
-					break;
-					
-				// non-0xFF loop
-				if ( tmp != 0xFF ) {
-					crst = 0;
-					while ( tmp != 0xFF ) {
-						huffw->write( tmp );
-						if ( str_in->read_byte(&tmp) == 0 )
-							break;
-					}
-				}
-				
-				// treatment of 0xFF
-				if ( tmp == 0xFF ) {
-					if ( str_in->read_byte(&tmp) == 0 )
-						break; // read next byte & check
-					if ( tmp == 0x00 ) {
-						crst = 0;
-						// no zeroes needed -> ignore 0x00. write 0xFF
-						huffw->write( 0xFF );
-					}
-					else if ( tmp == 0xD0 + ( cpos % 8 ) ) { // restart marker
-						// increment rst counters
-						cpos++;
-						crst++;
-					}
-					else { // in all other cases leave it to the header parser routines
-						// store number of wrongly set rst markers
-						if ( crst > 0 ) {
-							if (jpg::rst_err.empty()) {
-								jpg::rst_err.resize(jpg::scan_count + 1);
-							}
-						}
-						if (!jpg::rst_err.empty()) {
-							// realloc and set only if needed
-							jpg::rst_err.resize(jpg::scan_count + 1);
-							if ( crst > 255 ) {
-								sprintf( errormessage, "Severe false use of RST markers (%u)", crst );
-								errorlevel = 1;
-								crst = 255;
-							}
-							jpg::rst_err[ jpg::scan_count ] = crst;							
-						}
-						// end of current scan
-						jpg::scan_count++;
-						// on with the header parser routines
-						segment[ 0 ] = 0xFF;
-						segment[ 1 ] = tmp;
-						break;
-					}
-				}
-				else {
-					// otherwise this means end-of-file, so break out
-					break;
-				}
+			while (tmp != 0xFF) {
+				huffw->write(tmp);
+				tmp = str_in->read_byte();
 			}
 		}
-		else {
-			// read in next marker
-			if ( str_in->read(segment, 2) != 2 ) break;
-			if ( segment[ 0 ] != 0xFF ) {
-				// ugly fix for incorrect marker segment sizes
-				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
-				errorlevel = 2;
-				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read(segment, 2) != 2 ) break;
-					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
+
+		// treatment of 0xFF
+		if (tmp == 0xFF) {
+			tmp = str_in->read_byte();
+			if (tmp == 0x00) {
+				crst = 0;
+				// no zeroes needed -> ignore 0x00. write 0xFF
+				huffw->write(0xFF);
+			} else if (tmp == 0xD0 + (cpos % 8)) { // restart marker
+				// increment rst counters
+				cpos++;
+				crst++;
+			} else { // in all other cases leave it to the header parser routines
+				// store number of wrongly set rst markers
+				if (crst > 0) {
+					if (jpg::rst_err.empty()) {
+						jpg::rst_err.resize(jpg::scan_count + 1);
+					}
 				}
-				if ( errorlevel == 2 ) {
+				if (!jpg::rst_err.empty()) {
+					// realloc and set only if needed
+					jpg::rst_err.resize(jpg::scan_count + 1);
+					if (crst > 255) {
+						sprintf(errormessage, "Severe false use of RST markers (%u)", crst);
+						errorlevel = 1;
+						crst = 255;
+					}
+					jpg::rst_err[jpg::scan_count] = crst;
+				}
+				// end of current scan
+				jpg::scan_count++;
+				// on with the header parser routines
+				segment[0] = 0xFF;
+				segment[1] = tmp;
+				break;
+			}
+		} else {
+			// otherwise this means end-of-file, so break out
+			break;
+		}
+	}
+}
+
+bool JpgReader::read() {
+	// preset count of scans
+	jpg::scan_count = 0;
+
+	// start headerwriter
+	auto hdrw = std::make_unique<abytewriter>(4096);
+
+	// start huffman writer
+	auto huffw = std::make_unique<abytewriter>(0);
+
+	// alloc memory for segment data first
+	std::vector<uint8_t> segment(1024);
+
+	// JPEG reader loop
+	Marker type = Marker::kINVALID;
+	while (true) {
+		if (type == Marker::kSOS) { // if last marker was sos
+			try {
+				read_sos(huffw, segment);
+			} catch (std::runtime_error& e) {
+				sprintf(errormessage, e.what());
+				errorlevel = 2;
+				return false;
+			}
+		} else {
+			// read in next marker
+			if (str_in->read(segment, 2) != 2) {
+				break;
+			}
+			if (segment[0] != 0xFF) {
+				// ugly fix for incorrect marker segment sizes
+				sprintf(errormessage, "size mismatch in marker segment FF %2X", type);
+				errorlevel = 2;
+				if (type == Marker::kCOM) { //  if last marker was COM try again
+					if (str_in->read(segment, 2) != 2) {
+						break;
+					}
+					if (segment[0] == 0xFF) {
+						errorlevel = 1;
+					}
+				}
+				if (errorlevel == 2) {
 					return false;
 				}
 			}
 		}
-		
+
 		// read segment type
-		type = segment[ 1 ];
-		
+		type = static_cast<Marker>(segment[1]); // TODO: add enum correctness checks?
+
 		// if EOI is encountered make a quick exit
-		if ( type == 0xD9 ) {
+		if (type == Marker::kEOI) {
 			// get pointer for header data & size
 			segments = Segment::parse_segments(hdrw->get_data());
 			// get pointer for huffman data & size
 			huffdata = huffw->get_data();
 			// everything is done here now
-			break;			
+			break;
 		}
-		
+
 		// read in next segments' length and check it
-		if ( str_in->read(segment, 2, 2) != 2 ) break;
-		len = 2 + pack( segment[ 2 ], segment[ 3 ] );
-		if ( len < 4 ) break;
-		
+		if (str_in->read(segment, 2, 2) != 2) {
+			break;
+		}
+		uint32_t len = 2 + pack(segment[2], segment[3]); // Length of current marker segment.
+		if (len < 4) {
+			break;
+		}
+
 		// realloc segment data if needed
-		if ( segment.size() < len ) {
+		if (segment.size() < len) {
 			segment.resize(len);
 		}
-		
+
 		// read rest of segment, store back in header writer
-		if ( str_in->read(segment, len - 4 , 4) !=
-			static_cast<size_t>( len - 4 ) ) break;
-		hdrw->write_n( segment.data(), len );
+		if (str_in->read(segment, len - 4, 4) != static_cast<size_t>(len - 4)) {
+			break;
+		}
+		hdrw->write_n(segment.data(), len);
 	}
 	// JPEG reader loop end
-	
+
 	// check if everything went OK
 	if (segments.empty() || huffdata.empty()) {
-		sprintf( errormessage, "unexpected end of data encountered" );
+		sprintf(errormessage, "unexpected end of data encountered");
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// store garbage after EOI if needed
+	uint8_t tmp;
 	bool garbage_avail = str_in->read_byte(&tmp);
 	if (garbage_avail) {
 
-		auto grbgw = std::make_unique<abytewriter>( 1024 );
-		grbgw->write( tmp );
-		while( true ) {
-			len = str_in->read(segment, segment.capacity());
-			if ( len == 0 ) break;
-			grbgw->write_n( segment.data(), len );
+		auto grbgw = std::make_unique<abytewriter>(1024);
+		grbgw->write(tmp);
+		while (true) {
+			size_t len = str_in->read(segment, segment.capacity());
+			if (len == 0) {
+				break;
+			}
+			grbgw->write_n(segment.data(), len);
 		}
 		grbgdata = grbgw->get_data();
 	}
-	
+
 	// get filesize
-	jpgfilesize = str_in->getsize();	
-	
+	jpgfilesize = str_in->getsize();
+
 	// parse header for image info
-	if ( !jpg::setup_imginfo() ) {
+	if (!jpg::setup_imginfo()) {
 		return false;
 	}
-	
-	
+
 	return true;
 }
 

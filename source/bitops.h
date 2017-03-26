@@ -100,6 +100,8 @@ class abytereader {
 public:
 	abytereader(const std::vector<std::uint8_t>& bytes);
 	~abytereader();
+
+	uint8_t read_byte();
 	/*
 	 * Reads one byte to the pointer, returning whether there was a byte available to writer.
 	 */
@@ -180,6 +182,7 @@ public:
 	virtual void switch_mode() = 0;
 	virtual int read(unsigned char* to, int dtsize) = 0;
 	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
+	virtual uint8_t read_byte() = 0;
 	virtual bool read_byte(unsigned char* to) = 0;
 	virtual int write(const unsigned char* from, int dtsize) = 0;
 	virtual int write_byte(unsigned char byte) = 0;
@@ -199,6 +202,7 @@ public:
 	void switch_mode() override;
 	int read(unsigned char* to, int dtsize) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	uint8_t read_byte() override;
 	bool read_byte(unsigned char* to) override;
 	int write(const unsigned char* from, int dtsize) override;
 	int write_byte(unsigned char byte) override;
@@ -223,6 +227,7 @@ public:
 	void switch_mode() override;
 	int read(unsigned char* to, int dtsize) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	uint8_t read_byte() override;
 	bool read_byte(unsigned char* to) override;
 	int write(const unsigned char* from, int dtsize) override;
 	int write_byte(unsigned char byte) override;
