@@ -636,9 +636,10 @@ private:
 };
 
 class JpgReader {
-public:
+private:
 	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment);
 	// Read in header and image data.
+public:
 	bool read();
 };
 
@@ -895,7 +896,6 @@ struct ScanInfo {
 	int sal = 0; // successive approximation bit pos low
 };
 
-
 /* -----------------------------------------------
 global variables: data storage
 ----------------------------------------------- */
@@ -910,8 +910,7 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 global variables: info about image
 ----------------------------------------------- */
 
-// separate info for each color component
-static std::vector<Component> cmpnfo;
+static std::vector<Component> cmpnfo; // separate info for each color component
 
 /* -----------------------------------------------
 global variables: info about files
@@ -3672,6 +3671,17 @@ bool jpg::setup_imginfo()
 		cmpt.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
 			(static_cast<float>(cmpt.sfv) / (8.0 * sfvm))));
 		cmpt.nc = cmpt.ncv * cmpt.nch;
+
+		for (auto& coeffs : cmpt.colldata) {
+			coeffs.resize(cmpt.bc);
+		}
+
+		cmpt.zdstdata = std::vector<uint8_t>(cmpt.bc);
+		cmpt.eobxhigh = std::vector<uint8_t>(cmpt.bc);
+		cmpt.eobyhigh = std::vector<uint8_t>(cmpt.bc);
+		cmpt.zdstxlow = std::vector<uint8_t>(cmpt.bc);
+		cmpt.zdstylow = std::vector<uint8_t>(cmpt.bc);
+
 	}
 
 	// decide components' statistical ids
@@ -3683,18 +3693,6 @@ bool jpg::setup_imginfo()
 		for (auto& cmpt : cmpnfo) {
 			cmpt.sid = 0;
 		}
-	}
-
-	for (auto& cmpt : cmpnfo) {
-		for (auto& coeffs : cmpt.colldata) {
-			coeffs.resize(cmpt.bc);
-		}
-
-		cmpt.zdstdata = std::vector<uint8_t>(cmpt.bc);
-		cmpt.eobxhigh = std::vector<uint8_t>(cmpt.bc);
-		cmpt.eobyhigh = std::vector<uint8_t>(cmpt.bc);
-		cmpt.zdstxlow = std::vector<uint8_t>(cmpt.bc);
-		cmpt.zdstylow = std::vector<uint8_t>(cmpt.bc);
 	}
 
 	// also decide automatic settings here
