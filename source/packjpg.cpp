@@ -461,44 +461,6 @@ struct Component {
 	}
 #endif
 
-	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_8x1(int dpos, int ix) const {
-		// calculate start index
-		const int ixy = ix << 3;
-
-		// begin transform
-		int idct = 0;
-		idct += colldata[0][dpos] * adpt_idct_8x1[ixy + 0];
-		idct += colldata[1][dpos] * adpt_idct_8x1[ixy + 1];
-		idct += colldata[5][dpos] * adpt_idct_8x1[ixy + 2];
-		idct += colldata[6][dpos] * adpt_idct_8x1[ixy + 3];
-		idct += colldata[14][dpos] * adpt_idct_8x1[ixy + 4];
-		idct += colldata[15][dpos] * adpt_idct_8x1[ixy + 5];
-		idct += colldata[27][dpos] * adpt_idct_8x1[ixy + 6];
-		idct += colldata[28][dpos] * adpt_idct_8x1[ixy + 7];
-
-		return idct;
-	}
-
-	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_1x8(int dpos, int iy) const {
-		// calculate start index
-		const int ixy = iy << 3;
-
-		// begin transform
-		int idct = 0;
-		idct += colldata[0][dpos] * adpt_idct_1x8[ixy + 0];
-		idct += colldata[2][dpos] * adpt_idct_1x8[ixy + 1];
-		idct += colldata[3][dpos] * adpt_idct_1x8[ixy + 2];
-		idct += colldata[9][dpos] * adpt_idct_1x8[ixy + 3];
-		idct += colldata[10][dpos] * adpt_idct_1x8[ixy + 4];
-		idct += colldata[20][dpos] * adpt_idct_1x8[ixy + 5];
-		idct += colldata[21][dpos] * adpt_idct_1x8[ixy + 6];
-		idct += colldata[35][dpos] * adpt_idct_1x8[ixy + 7];
-
-		return idct;
-	}
-
 	// Filter DC coefficients.
 	void predict_dc() {
 		// apply prediction, store prediction error instead of DC
@@ -594,6 +556,44 @@ private:
 	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8; // precalculated/adapted values for idct (8x8)
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
+
+	// Inverse DCT transform using precalc tables (fast).
+	int idct_2d_fst_8x1(int dpos, int ix) const {
+		// calculate start index
+		const int ixy = ix << 3;
+
+		// begin transform
+		int idct = 0;
+		idct += colldata[0][dpos] * adpt_idct_8x1[ixy + 0];
+		idct += colldata[1][dpos] * adpt_idct_8x1[ixy + 1];
+		idct += colldata[5][dpos] * adpt_idct_8x1[ixy + 2];
+		idct += colldata[6][dpos] * adpt_idct_8x1[ixy + 3];
+		idct += colldata[14][dpos] * adpt_idct_8x1[ixy + 4];
+		idct += colldata[15][dpos] * adpt_idct_8x1[ixy + 5];
+		idct += colldata[27][dpos] * adpt_idct_8x1[ixy + 6];
+		idct += colldata[28][dpos] * adpt_idct_8x1[ixy + 7];
+
+		return idct;
+	}
+
+	// Inverse DCT transform using precalc tables (fast).
+	int idct_2d_fst_1x8(int dpos, int iy) const {
+		// calculate start index
+		const int ixy = iy << 3;
+
+		// begin transform
+		int idct = 0;
+		idct += colldata[0][dpos] * adpt_idct_1x8[ixy + 0];
+		idct += colldata[2][dpos] * adpt_idct_1x8[ixy + 1];
+		idct += colldata[3][dpos] * adpt_idct_1x8[ixy + 2];
+		idct += colldata[9][dpos] * adpt_idct_1x8[ixy + 3];
+		idct += colldata[10][dpos] * adpt_idct_1x8[ixy + 4];
+		idct += colldata[20][dpos] * adpt_idct_1x8[ixy + 5];
+		idct += colldata[21][dpos] * adpt_idct_1x8[ixy + 6];
+		idct += colldata[35][dpos] * adpt_idct_1x8[ixy + 7];
+
+		return idct;
+	}
 
 	// 1D DCT predictor for DC coefficients.
 	int dc_1ddct_predictor(int dpos) {
