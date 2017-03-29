@@ -372,8 +372,8 @@ struct Component {
 	int sid = -1; // statistical identity
 	int jid = -1; // jpeg internal id
 
-	uint8_t segm_cnt = 10; // number of segments
-	uint8_t nois_trs = 6; // bit pattern noise threshold
+	int segm_cnt = 10; // number of segments
+	int nois_trs = 6; // bit pattern noise threshold
 
 
 	int quant(int bp) const {
@@ -3581,10 +3581,22 @@ bool PjgDecoder::decode()
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
 			for (auto& cmpt : cmpnfo) {
-				str_in->read_byte(&cmpt.nois_trs);
+				try {
+					cmpt.nois_trs = str_in->read_byte();
+				} catch (std::runtime_error& e) {
+					sprintf(errormessage, e.what());
+					errorlevel = 2;
+					return false;
+				}
 			}
 			for (auto& cmpt : cmpnfo) {
-				str_in->read_byte(&cmpt.segm_cnt);
+				try {
+					cmpt.segm_cnt = str_in->read_byte();
+				} catch (std::runtime_error& e) {
+					sprintf(errormessage, e.what());
+					errorlevel = 2;
+					return false;
+				}
 			}
 			auto_set = false;
 		}
@@ -4711,8 +4723,8 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns	
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpt.segm_cnt), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(cmpt.segm_cnt, max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
@@ -4787,8 +4799,8 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpt.segm_cnt)), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, cmpt.segm_cnt), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
@@ -4907,9 +4919,9 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpt.nois_trs)), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, cmpt.nois_trs), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
@@ -4951,7 +4963,7 @@ void PjgEncoder::ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component
 		const int max_valp = cmpt.max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength
-		const int thrs_bp = ( max_len > cmpt.nois_trs ) ? max_len - cmpt.nois_trs : 0; // residual threshold bitplane	
+		const int thrs_bp = std::max(0, max_len - cmpt.nois_trs); // residual threshold bitplane	
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
@@ -5197,8 +5209,8 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	const int max_len = pjg::bitlen1024p( max_val ); // Max bitlength.
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(int(cmpt.segm_cnt), max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(cmpt.segm_cnt, max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 	
 	// set width/height of each band
@@ -5273,8 +5285,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(int(cmpt.segm_cnt), 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 	
 	// set width/height of each band
@@ -5392,9 +5404,9 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 	
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, int(cmpt.nois_trs)), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, cmpt.nois_trs), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 	
 	// set width/height of each band
@@ -5436,7 +5448,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 		const int max_valp = cmpt.max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p( max_valp ); // Max bitlength.
-		const int thrs_bp = ( max_len > cmpt.nois_trs ) ? max_len - cmpt.nois_trs : 0; // Residual threshold bitplane.
+		const int thrs_bp = std::max(0, max_len - cmpt.nois_trs); // Residual threshold bitplane.
 		
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++ )
