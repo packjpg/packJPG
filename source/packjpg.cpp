@@ -287,7 +287,6 @@ packJPG by Matthias Stirner, 01/2016
 	#include "packjpglib.h"
 #endif
 
-// #define USE_PLOCOI // uncomment to use loco-i predictor instead of 1DDCT predictor
 // #define DEV_BUILD // uncomment to include developer functions
 // #define DEV_INFOS // uncomment to include developer information
 
@@ -374,7 +373,6 @@ struct Component {
 	int bc = -1;  // block count (all) (interleaved)
 	int ncv = -1; // block count vertical (non interleaved)
 	int nch = -1; // block count horizontal (non interleaved)
-	int nc = -1;  // block count (all) (non interleaved)
 	int sid = -1; // statistical identity
 	int jid = -1; // jpeg internal id
 
@@ -503,6 +501,141 @@ struct Component {
 		idct += colldata[35][dpos] * adpt_idct_1x8[ixy + 7];
 
 		return idct;
+	}
+
+	// Filter DC coefficients.
+	void predict_dc() {
+		// apply prediction, store prediction error instead of DC
+		const int absmaxp = max_v(0);
+		const int corr_f = (2 * absmaxp) + 1;
+
+		for (int dpos = colldata[0].size() - 1; dpos > 0; dpos--) {
+			auto& coef = colldata[0][dpos];
+			coef -= dc_1ddct_predictor(dpos); // 1d dct
+			// fix range
+			if (coef > absmaxp) {
+				coef -= corr_f;
+			} else if (coef < -absmaxp) {
+				coef += corr_f;
+			}
+		}
+	}
+
+	// Unpredict DC coefficients.
+	void unpredict_dc() {
+		// remove prediction, store DC instead of prediction error
+		const int absmaxp = max_v(0);
+		const int corr_f = (2 * absmaxp) + 1;
+
+		for (int dpos = 1; dpos < bc; dpos++) {
+			auto& coef = colldata[0][dpos];
+			coef += dc_1ddct_predictor(dpos); // 1d dct predictor
+			// fix range
+			if (coef > absmaxp) {
+				coef -= corr_f;
+			} else if (coef < -absmaxp) {
+				coef += corr_f;
+			}
+		}
+	}
+
+	// Adapt ICOS tables for quantizer tables
+	void adapt_icos() {
+		std::array<std::uint16_t, 64> quant; // local copy of quantization	
+		
+		// make a local copy of the quantization values, check
+		for (int ipos = 0; ipos < quant.size(); ipos++) {
+			quant[ipos] = this->quant(pjg::zigzag[ipos]);
+			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
+				quant[ipos] = 0;
+			}
+		}
+		// adapt idct 8x8 table
+		for (int ipos = 0; ipos < adpt_idct_8x8.size(); ipos++) {
+			adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
+		}
+		// adapt idct 1x8 table
+		for (int ipos = 0; ipos < adpt_idct_1x8.size(); ipos++) {
+			adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
+		}
+		// adapt idct 8x1 table
+		for (int ipos = 0; ipos < adpt_idct_8x1.size(); ipos++) {
+			adpt_idct_8x1[ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
+		}
+	}
+
+	// Calculate zero distribution lists.
+	// This functions counts, for each DCT block, the number of non-zero coefficients
+	void calc_zdst_lists() {
+		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
+		for (int bpos = 1; bpos < colldata.size(); bpos++) {
+			const int b_x = pjg::unzigzag[bpos] % 8;
+			const int b_y = pjg::unzigzag[bpos] / 8;
+			if (b_x == 0) {
+				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+					if (colldata[bpos][dpos] != 0) {
+						zdstylow[dpos]++;
+					}
+				}
+			} else if (b_y == 0) {
+				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+					if (colldata[bpos][dpos] != 0) {
+						zdstxlow[dpos]++;
+					}
+				}
+			} else {
+				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+					if (colldata[bpos][dpos] != 0) {
+						zdstdata[dpos]++;
+					}
+				}
+			}
+		}
+	}
+
+private:
+
+	// 1D DCT predictor for DC coefficients.
+	int dc_1ddct_predictor(int dpos) {
+		const int w = bch;
+		const int px = dpos % w;
+		const int py = dpos / w;
+
+		// Store current block DC coefficient:
+		const auto swap = colldata[0][dpos];
+		colldata[0][dpos] = short(0);
+
+		// Calculate prediction:
+		int pred = 0;
+		if (px > 0 && py > 0) {
+			const int pa = idct_2d_fst_8x1(dpos - 1, 7);
+			const int xa = idct_2d_fst_8x1(dpos, 0);
+
+			const int pb = idct_2d_fst_1x8(dpos - w, 7);
+			const int xb = idct_2d_fst_1x8(dpos, 0);
+
+			pred = ((pa - xa) + (pb - xb)) * 4;
+		} else if (px > 0) {
+			const int pa = idct_2d_fst_8x1(dpos - 1, 7);
+			const int xa = idct_2d_fst_8x1(dpos, 0);
+
+			pred = (pa - xa) * 8;
+		} else if (py > 0) {
+			const int pb = idct_2d_fst_1x8(dpos - w, 7);
+			const int xb = idct_2d_fst_1x8(dpos, 0);
+
+			pred = (pb - xb) * 8;
+		}
+
+		// Write back current DCT coefficient:
+		colldata[0][dpos] = swap;
+
+		// Clamp and quantize predictor:
+		pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
+		pred = pred / quant(0);
+		pred = dct::DCT_RESCALE(pred);
+
+		return pred;
 	}
 };
 
@@ -636,11 +769,12 @@ private:
 };
 
 class JpgReader {
+public:
+	// Read in header and image data.
+	bool read();
+
 private:
 	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment);
-	// Read in header and image data.
-public:
-	bool read();
 };
 
 class JpgDecoder {
@@ -1043,18 +1177,6 @@ namespace pjg {
 */
 namespace dct {
 	bool adapt_icos();
-}
-
-namespace predictor {
-#if defined( USE_PLOCOI )
-	// Returns predictor for collection data.
-	int dc_coll_predictor(const Component& cmp, int dpos);
-	// loco-i predictor.
-	int plocoi(int a, int b, int c);
-#else
-	// 1D DCT predictor for DC coefficients.
-	int dc_1ddct_predictor(Component& cmpt, int dpos);
-#endif
 }
 
 
@@ -3284,23 +3406,7 @@ bool dct::adapt_icos()
 static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
 	for (auto& cmpt : cmpnfo) {
-		const int absmaxp = cmpt.max_v(0);
-		const int corr_f = (2 * absmaxp) + 1;
-
-		for (int dpos = cmpt.bc - 1; dpos > 0; dpos--) {
-			auto& coef = cmpt.colldata[0][dpos];
-#if defined(USE_PLOCOI)
-			coef -= predictor::dc_coll_predictor(cmpt, dpos); // loco-i predictor
-#else
-			coef -= predictor::dc_1ddct_predictor(cmpt, dpos); // 1d dct
-#endif
-			// fix range
-			if (coef > absmaxp) {
-				coef -= corr_f;
-			} else if (coef < -absmaxp) {
-				coef += corr_f;
-			}
-		}
+		cmpt.predict_dc();
 	}
 	return true;
 }
@@ -3313,23 +3419,7 @@ static bool predict_dc() {
 static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
 	for (auto& cmpt : cmpnfo) {
-		const int absmaxp = cmpt.max_v(0);
-		const int corr_f = (2 * absmaxp) + 1;
-
-		for (int dpos = 1; dpos < cmpt.bc; dpos++) {
-			auto& coef = cmpt.colldata[0][dpos];
-#if defined(USE_PLOCOI)
-			coef += predictor::dc_coll_predictor(cmpt, dpos); // loco-i predictor
-#else
-			coef += predictor::dc_1ddct_predictor(cmpt, dpos); // 1d dct predictor
-#endif
-			// fix range
-			if (coef > absmaxp) {
-				coef -= corr_f;
-			} else if (coef < -absmaxp) {
-				coef += corr_f;
-			}
-		}
+		cmpt.unpredict_dc();
 	}
 	return true;
 }
@@ -3361,10 +3451,7 @@ bool JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
 static bool calc_zdst_lists() {
 	// this functions counts, for each DCT block, the number of non-zero coefficients
 	for (auto& cmpt : cmpnfo) {
-		// preset zdstlist
-		std::fill(std::begin(cmpt.zdstdata), std::end(cmpt.zdstdata), static_cast<uint8_t>(0));
-
-		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/collumn)
+		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
 		for (int bpos = 1; bpos < 64; bpos++) {
 			const int b_x = pjg::unzigzag[bpos] % 8;
 			const int b_y = pjg::unzigzag[bpos] / 8;
@@ -3670,7 +3757,6 @@ bool jpg::setup_imginfo()
 			(static_cast<float>(cmpt.sfh) / (8.0 * sfhm))));
 		cmpt.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
 			(static_cast<float>(cmpt.sfv) / (8.0 * sfvm))));
-		cmpt.nc = cmpt.ncv * cmpt.nch;
 
 		for (auto& coeffs : cmpt.colldata) {
 			coeffs.resize(cmpt.bc);
@@ -4768,10 +4854,6 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
 	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
 	
-	// preset x/y eobs
-	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
-	std::fill(std::begin(eob_y), std::end(eob_y), static_cast<uint8_t>(0));
-	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
 	{		
@@ -5246,8 +5328,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
-	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
-	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
+	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
+	std::vector<uint8_t> sgn_store(bc); // sign storage for context	
 	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
@@ -5257,10 +5339,6 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
 	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
-	
-	// preset x/y eobs
-	std::fill(std::begin(eob_x), std::end(eob_x), static_cast<uint8_t>(0));
-	std::fill(std::begin(eob_y), std::end(eob_y), static_cast<uint8_t>(0));
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
@@ -5274,8 +5352,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 				continue; // process remaining coefficients elsewhere
 		
 		// preset absolute values/sign storage
-		std::fill(std::begin(absv_store), std::end(absv_store), unsigned short(0));
-		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
+		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<uint16_t>(0));
+		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<uint8_t>(0));
 		
 		// set up average context quick access arrays
 		context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
@@ -5651,91 +5729,6 @@ void PjgDecoder::deoptimize_header() {
 }
 
 /* ----------------------- End of PJG specific functions -------------------------- */
-
-/* ----------------------- Begin of prediction functions -------------------------- */
-
-#if defined(USE_PLOCOI)
-int predictor::dc_coll_predictor(const Component& cmpt, int dpos)
-{
-	const short* coeffs = cmpt.colldata[0];
-	const int w = cmpt.bch;
-	int a = 0;
-	int b = 0;
-	int c = 0;
-	
-	if (dpos < w) {
-		a = coeffs[dpos - 1];
-	} else if ((dpos%w) == 0) {
-		b = coeffs[dpos - w];
-	} else {
-		a = coeffs[dpos - 1];
-		b = coeffs[dpos - w];
-		c = coeffs[dpos - 1 - w];
-	}
-	
-	return predictor::plocoi(a, b, c);
-}
-
-int predictor::plocoi(int a, int b, int c)
-{
-	// a -> left; b -> above; c -> above-left
-
-	const int min = std::min(a, b);
-	const int max = std::max(a, b);
-
-	if (c >= max) return min;
-	if (c <= min) return max;
-
-	return a + b - c;
-}
-
-#endif
-
-#if !defined(USE_PLOCOI)
-int predictor::dc_1ddct_predictor(Component& cmpt, int dpos) {
-	const int w = cmpt.bch;
-	const int px = dpos % w;
-	const int py = dpos / w;
-
-	// Store current block DC coefficient:
-	const auto swap = cmpt.colldata[0][dpos];
-	cmpt.colldata[0][dpos] = short(0);
-
-	// Calculate prediction:
-	int pred = 0;
-	if (px > 0 && py > 0) {
-		const int pa = cmpt.idct_2d_fst_8x1(dpos - 1, 7);
-		const int xa = cmpt.idct_2d_fst_8x1(dpos, 0);
-
-		const int pb = cmpt.idct_2d_fst_1x8(dpos - w, 7);
-		const int xb = cmpt.idct_2d_fst_1x8(dpos, 0);
-
-		pred = ((pa - xa) + (pb - xb)) * 4;
-	} else if (px > 0) {
-		const int pa = cmpt.idct_2d_fst_8x1(dpos - 1, 7);
-		const int xa = cmpt.idct_2d_fst_8x1(dpos, 0);
-
-		pred = (pa - xa) * 8;
-	} else if (py > 0) {
-		const int pb = cmpt.idct_2d_fst_1x8(dpos - w, 7);
-		const int xb = cmpt.idct_2d_fst_1x8(dpos, 0);
-
-		pred = (pb - xb) * 8;
-	}
-
-	// Write back current DCT coefficient:
-	cmpt.colldata[0][dpos] = swap;
-
-	// Clamp and quantize predictor:
-	pred = clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
-	pred = pred / cmpt.quant(0);
-	pred = dct::DCT_RESCALE(pred);
-
-	return pred;
-}
-#endif
-
-/* ----------------------- End of prediction functions -------------------------- */
 
 /* ----------------------- Begin of miscellaneous helper functions -------------------------- */
 
