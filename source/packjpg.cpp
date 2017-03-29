@@ -831,7 +831,7 @@ struct PjgContext {
 	}
 
 	// Preparations for special average context.
-	static void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, unsigned short* abs_store, const Component& cmpt) {
+	static void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, uint16_t* abs_store, const Component& cmpt) {
 		int w = cmpt.bch;
 
 		// set up quick access arrays for all prediction positions
@@ -4704,7 +4704,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 
 
 	// decide segmentation setting
-	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -4720,7 +4720,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
-	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
+	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
 	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
@@ -4784,7 +4784,7 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, int(cmpt.segm_cnt)), 2);
@@ -4796,13 +4796,13 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
-	std::vector<unsigned short> absv_store(bc);	// absolute coefficients values storage
-	std::vector<unsigned char> sgn_store(bc); // sign storage for context	
+	std::vector<uint16_t> absv_store(bc);	// absolute coefficients values storage
+	std::vector<uint8_t> sgn_store(bc); // sign storage for context	
 	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
@@ -4823,8 +4823,8 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 			continue; // process remaining coefficients elsewhere
 	
 		// preset absolute values/sign storage
-		std::fill(std::begin(absv_store), std::end(absv_store), unsigned short(0));
-		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
+		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<uint16_t>(0));
+		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<uint8_t>(0));
 		
 		// locally store pointer to coefficients
 		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5190,7 +5190,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -5206,7 +5206,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
-	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
+	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
 	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
@@ -5270,7 +5270,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const unsigned char* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
+	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(int(cmpt.segm_cnt), 11), 2);
@@ -5287,8 +5287,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	unsigned char* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	unsigned char* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
