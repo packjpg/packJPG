@@ -358,10 +358,6 @@ struct Component {
 
 	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
 
-	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8; // precalculated/adapted values for idct (8x8)
-	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
-	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
-
 	std::array<uint16_t, 64> qtable{}; // quantization table
 	int huffdc = -1; // no of huffman table (DC)
 	int huffac = -1; // no of huffman table (AC)
@@ -594,6 +590,10 @@ struct Component {
 	}
 
 private:
+
+	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8; // precalculated/adapted values for idct (8x8)
+	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
+	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
 	// 1D DCT predictor for DC coefficients.
 	int dc_1ddct_predictor(int dpos) {
@@ -3368,33 +3368,10 @@ bool JpgEncoder::recode()
 	adapt ICOS tables for quantizer tables
 	----------------------------------------------- */
 	
-bool dct::adapt_icos()
-{
-	std::array<std::uint16_t, 64> quant; // local copy of quantization	
-	
-	
+bool dct::adapt_icos() {	
 	for (auto& cmpt : cmpnfo) {
-		// make a local copy of the quantization values, check
-		for (int ipos = 0; ipos < 64; ipos++) {
-			quant[ipos] = cmpt.quant(pjg::zigzag[ipos]);
-			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
-				quant[ipos] = 0;
-			}
-		}
-		// adapt idct 8x8 table
-		for (int ipos = 0; ipos < 64 * 64; ipos++) {
-			cmpt.adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
-		}
-		// adapt idct 1x8 table
-		for (int ipos = 0; ipos < 8 * 8; ipos++) {
-			cmpt.adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
-		}
-		// adapt idct 8x1 table
-		for (int ipos = 0; ipos < 8 * 8; ipos++) {
-			cmpt.adpt_idct_8x1[ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
-		}
-	}
-	
+		cmpt.adapt_icos();
+	}	
 	return true;
 }
 
@@ -3451,30 +3428,7 @@ bool JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
 static bool calc_zdst_lists() {
 	// this functions counts, for each DCT block, the number of non-zero coefficients
 	for (auto& cmpt : cmpnfo) {
-		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
-		for (int bpos = 1; bpos < 64; bpos++) {
-			const int b_x = pjg::unzigzag[bpos] % 8;
-			const int b_y = pjg::unzigzag[bpos] / 8;
-			if (b_x == 0) {
-				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
-					if (cmpt.colldata[bpos][dpos] != 0) {
-						cmpt.zdstylow[dpos]++;
-					}
-				}
-			} else if (b_y == 0) {
-				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
-					if (cmpt.colldata[bpos][dpos] != 0) {
-						cmpt.zdstxlow[dpos]++;
-					}
-				}
-			} else {
-				for (int dpos = 0; dpos < cmpt.bc; dpos++) {
-					if (cmpt.colldata[bpos][dpos] != 0) {
-						cmpt.zdstdata[dpos]++;
-					}
-				}
-			}
-		}
+		cmpt.calc_zdst_lists();
 	}
 
 	return true;
