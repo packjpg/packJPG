@@ -4723,7 +4723,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
+	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 	
 	// locally store pointer to coefficients and zero distribution list
 	const auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
@@ -4807,6 +4807,9 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
 	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
+
+	// set up average context quick access arrays
+	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
@@ -4822,9 +4825,6 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 		// preset absolute values/sign storage
 		std::fill(std::begin(absv_store), std::end(absv_store), unsigned short(0));
 		std::fill(std::begin(sgn_store), std::end(sgn_store), unsigned char(0));
-		
-		// set up average context quick access arrays
-		context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
 		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5209,7 +5209,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	std::vector<unsigned short> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
-	context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
+	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 	
 	// locally store pointer to coefficients and zero distribution list
 	auto& coeffs = cmpt.colldata[ 0 ]; // Pointer to current coefficent data.
@@ -5293,6 +5293,9 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
 	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
+
+	// set up average context quick access arrays
+	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 	
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++ )
@@ -5308,9 +5311,6 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 		// preset absolute values/sign storage
 		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<uint16_t>(0));
 		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<uint8_t>(0));
-		
-		// set up average context quick access arrays
-		context.aavrg_prepare( c_absc, absv_store.data(), cmpt );
 		
 		// locally store pointer to coefficients
 		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
