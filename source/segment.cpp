@@ -1,6 +1,6 @@
 #include "segment.h"
 
-Segment::Segment(const std::vector<uint8_t>& headerData, size_t offset) {
+Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset) {
 	if (offset >= headerData.size() - 1) {
 		return; // If there aren't at least two bytes to read the segment type, nothing to read.
 	}
@@ -178,7 +178,7 @@ Segment::Segment(const std::vector<uint8_t>& headerData, size_t offset) {
 	}
 	const auto start = std::next(std::begin(headerData), header_pos_);
 	const auto end = std::next(start, size);
-	data_ = std::vector<uint8_t>(start, end);
+	data_ = std::vector<std::uint8_t>(start, end);
 
 }
 
@@ -186,19 +186,19 @@ Marker Segment::get_type() const {
 	return type_;
 }
 
-size_t Segment::get_size() const {
+std::size_t Segment::get_size() const {
 	return data_.size();
 }
 
-size_t Segment::get_header_offset() const {
+std::size_t Segment::get_header_offset() const {
 	return header_pos_;
 }
 
-std::vector<uint8_t> Segment::get_data() const {
+std::vector<std::uint8_t> Segment::get_data() const {
 	return data_;
 }
 
-void Segment::set_data(std::vector<uint8_t>& data) {
+void Segment::set_data(std::vector<std::uint8_t>& data) {
 	if (data.size() == data_.size()
 		&& data[0] == data_[0]
 		&& data[1] == data_[1]) {

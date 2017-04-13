@@ -348,17 +348,17 @@ enum class CodingStatus {
 	----------------------------------------------- */
 
 struct Component {
-	std::vector<uint8_t> zdstdata; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
-	std::vector<uint8_t> eobxhigh; // eob in x direction (for higher 7x7 block)
-	std::vector<uint8_t> eobyhigh; // eob in y direction (for higher 7x7 block)
-	std::vector<uint8_t> zdstxlow; // # of non zeroes for first row
-	std::vector<uint8_t> zdstylow; // # of non zeroes for first column
+	std::vector<std::uint8_t> zdstdata; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
+	std::vector<std::uint8_t> eobxhigh; // eob in x direction (for higher 7x7 block)
+	std::vector<std::uint8_t> eobyhigh; // eob in y direction (for higher 7x7 block)
+	std::vector<std::uint8_t> zdstxlow; // # of non zeroes for first row
+	std::vector<std::uint8_t> zdstylow; // # of non zeroes for first column
 
-	std::array<uint8_t, 64> freqscan; // optimized order for frequency scans (only pointers to scans)
+	std::array<std::uint8_t, 64> freqscan; // optimized order for frequency scans (only pointers to scans)
 
 	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
 
-	std::array<uint16_t, 64> qtable{}; // quantization table
+	std::array<std::uint16_t, 64> qtable{}; // quantization table
 	int huffdc = -1; // no of huffman table (DC)
 	int huffac = -1; // no of huffman table (AC)
 	int sfv = -1; // sample factor vertical
@@ -645,7 +645,7 @@ struct HuffCodes {
 	std::uint16_t max_eobrun = 0;
 
 	// Constructs Huffman codes from DHT data.
-	HuffCodes(const unsigned char* dht_clen, const unsigned char* dht_cval) {
+	HuffCodes(const std::uint8_t* dht_clen, const std::uint8_t* dht_cval) {
 		int k = 0;
 		int code = 0;
 
@@ -774,13 +774,13 @@ public:
 	bool read();
 
 private:
-	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment);
+	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment);
 };
 
 class JpgDecoder {
 public:
 	// JPEG decoding routine.
-	bool decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<uint8_t>& huffdata);
+	bool decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
 	bool check_value_range(const std::vector<Component>& cmpts);
 
@@ -831,7 +831,7 @@ struct PjgContext {
 	}
 
 	// Preparations for special average context.
-	static void aavrg_prepare(std::array<uint16_t*, 6>& abs_coeffs, uint16_t* abs_store, const Component& cmpt) {
+	static void aavrg_prepare(std::array<std::uint16_t*, 6>& abs_coeffs, std::uint16_t* abs_store, const Component& cmpt) {
 		int w = cmpt.bch;
 
 		// set up quick access arrays for all prediction positions
@@ -844,7 +844,7 @@ struct PjgContext {
 	}
 
 	// Special average context used in coeff encoding.
-	static int aavrg_context(const std::array<uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x) {
+	static int aavrg_context(const std::array<std::uint16_t*, 6>& abs_coeffs, const std::array<int, 6>& weights, int pos, int p_y, int p_x, int r_x) {
 		int ctx_avr = 0; // AVERAGE context
 		int w_ctx = 0; // accumulated weight of context
 		int w_curr; // current weight of context
@@ -981,7 +981,7 @@ private:
 	// Optimizes JFIF header for compression.
 	void optimize_header();
 
-	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
+	std::array<std::uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
 	void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
 	void zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
 	void dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
@@ -989,10 +989,10 @@ private:
 	void ac_low(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt);
 	void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<Segment>& segments);
 	void generic(const std::unique_ptr<ArithmeticEncoder>& enc, const std::vector<std::uint8_t>& data);
-	void bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit);
+	void bit(const std::unique_ptr<ArithmeticEncoder>& enc, std::uint8_t bit);
 	
 	// Get zero-sorted frequency scan vector.
-	std::array<uint8_t, 64> get_zerosort_scan(const Component& cmpt);
+	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& cmpt);
 
 	PjgContext context;
 };
@@ -1008,7 +1008,7 @@ private:
 	// Undoes DHT and DQT (header) optimizations.
 	void deoptimize_header();
 
-	std::array<uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
+	std::array<std::uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
 	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
 	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
 	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
@@ -1034,7 +1034,7 @@ struct ScanInfo {
 global variables: data storage
 ----------------------------------------------- */
 
-static std::array<std::array<uint16_t, 64>, 4> qtables; // quantization tables
+static std::array<std::array<std::uint16_t, 64>, 4> qtables; // quantization tables
 
 static std::vector<std::uint8_t> grbgdata; // garbage data
 static std::vector<Segment> segments; // Header segments.
@@ -1107,16 +1107,16 @@ namespace jfif {
 bool parse_jfif(const Segment& segment);
 
 // Helper function that parses DHT segments, returning true if the parse succeeds.
-void parse_dht(const std::vector<uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
+void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
 
 // Helper function that parses DQT segments, returning true if the parse succeeds.
-bool parse_dqt(const std::vector<uint8_t>& segment);
+bool parse_dqt(const std::vector<std::uint8_t>& segment);
 // Helper function that parses SOS segments, returning true if the parse succeeds.
-ScanInfo parse_sos(const std::vector<uint8_t>& segment);
+ScanInfo parse_sos(const std::vector<std::uint8_t>& segment);
 // Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
-bool parse_sof(Marker type, const std::vector<uint8_t>& segment);
+bool parse_sof(Marker type, const std::vector<std::uint8_t>& segment);
 // Helper function that parses DRI segments.
-int parse_dri(const std::vector<uint8_t>& segment);
+int parse_dri(const std::vector<std::uint8_t>& segment);
 }
 
 namespace encode {
@@ -1294,7 +1294,7 @@ static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 #endif
 
 namespace program_info {
-	const unsigned char appversion = 25;
+	const std::uint8_t appversion = 25;
 	const std::string subversion = "k";
 	const std::string apptitle = "packJPG";
 	const std::string appname = "packjpg";
@@ -1587,7 +1587,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	
 	vice versa for output streams! */
 	
-	unsigned char buffer[ 2 ];
+	std::uint8_t buffer[ 2 ];
 	
 	// (re)set errorlevel
 	errorfunction = nullptr;
@@ -2299,7 +2299,7 @@ static void execute( bool (*function)() )
 #if !defined(BUILD_LIB)
 static bool check_file()
 {	
-	unsigned char fileid[ 2 ]{};
+	std::uint8_t fileid[ 2 ]{};
 	const std::string& filename = filelist[ file_no ];
 	
 	
@@ -2401,7 +2401,7 @@ static bool check_file()
 	
 static bool swap_streams()	
 {
-	unsigned char dmp[ 2 ];
+	std::uint8_t dmp[ 2 ];
 	
 	// store input stream
 	str_str = std::move(str_in);
@@ -2493,13 +2493,13 @@ static bool reset_buffers()
 	return true;
 }
 
-void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<uint8_t>& segment) {
+void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
 	uint32_t cpos = 0; // rst marker counter
 	uint32_t crst = 0; // current rst marker counter
 	while (true) {
 		// read byte from imagedata
-		uint8_t tmp = str_in->read_byte();
+		std::uint8_t tmp = str_in->read_byte();
 
 		// non-0xFF loop
 		if (tmp != 0xFF) {
@@ -2563,7 +2563,7 @@ bool JpgReader::read() {
 	auto huffw = std::make_unique<abytewriter>(0);
 
 	// alloc memory for segment data first
-	std::vector<uint8_t> segment(1024);
+	std::vector<std::uint8_t> segment(1024);
 
 	// JPEG reader loop
 	Marker type = Marker::kINVALID;
@@ -2627,7 +2627,7 @@ bool JpgReader::read() {
 		}
 
 		// read rest of segment, store back in header writer
-		if (str_in->read(segment, len - 4, 4) != static_cast<size_t>(len - 4)) {
+		if (str_in->read(segment, len - 4, 4) != static_cast<std::size_t>(len - 4)) {
 			break;
 		}
 		hdrw->write_n(segment.data(), len);
@@ -2642,14 +2642,14 @@ bool JpgReader::read() {
 	}
 
 	// store garbage after EOI if needed
-	uint8_t tmp;
+	std::uint8_t tmp;
 	bool garbage_avail = str_in->read_byte(&tmp);
 	if (garbage_avail) {
 
 		auto grbgw = std::make_unique<abytewriter>(1024);
 		grbgw->write(tmp);
 		while (true) {
-			size_t len = str_in->read(segment, segment.capacity());
+			std::size_t len = str_in->read(segment, segment.capacity());
 			if (len == 0) {
 				break;
 			}
@@ -2750,8 +2750,8 @@ bool JpgEncoder::merge() {
 }
 
 void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees) {
-	for (size_t i = 0; i < hcodes.size(); i++) {
-		for (size_t j = 0; j < hcodes[i].size(); j++) {
+	for (std::size_t i = 0; i < hcodes.size(); i++) {
+		for (std::size_t j = 0; j < hcodes[i].size(); j++) {
 			if (hcodes[i][j]) {
 				htrees[i][j] = std::make_unique<HuffTree>(*hcodes[i][j]);
 			}
@@ -2759,7 +2759,7 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 	}
 }
 
-bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<uint8_t>& huffdata)
+bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
 {		
 	short block[64]; // store block for coeffs
 	
@@ -3403,9 +3403,9 @@ static bool unpredict_dc() {
 
 bool JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
 	// out of range should never happen with unmodified JPEGs
-	for (size_t i = 0; i < cmpts.size(); i++) {
+	for (std::size_t i = 0; i < cmpts.size(); i++) {
 		const auto& cmpt = cmpts[i];
-		for (size_t bpos = 0; bpos < cmpt.colldata.size(); bpos++) {
+		for (std::size_t bpos = 0; bpos < cmpt.colldata.size(); bpos++) {
 			const auto& coeffs = cmpt.colldata[bpos];
 			const int absmax = cmpt.max_v(bpos);
 			for (int dpos = 0; dpos < cmpt.bc; dpos++)
@@ -3441,7 +3441,7 @@ static bool calc_zdst_lists() {
 	
 bool PjgEncoder::encode()
 {
-	unsigned char hcode;
+	std::uint8_t hcode;
 	int cmp;
 	#if defined(DEV_INFOS)
 	int dev_size = 0;
@@ -3455,11 +3455,11 @@ bool PjgEncoder::encode()
 	if ( !auto_set ) {
 		hcode = 0x00;
 		str_out->write_byte(hcode);
-		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
 			str_out->write_byte(cmpnfo[cmpt].nois_trs);
 		}
 
-		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
 			str_out->write_byte(cmpnfo[cmpt].segm_cnt);
 		}
 	}
@@ -3573,7 +3573,7 @@ bool PjgEncoder::encode()
 	
 bool PjgDecoder::decode()
 {
-	unsigned char hcode;	
+	std::uint8_t hcode;
 	
 	// check header codes ( maybe position in other function ? )
 	while( true ) {
@@ -3728,17 +3728,17 @@ bool jpg::setup_imginfo()
 			coeffs.resize(cmpt.bc);
 		}
 
-		cmpt.zdstdata = std::vector<uint8_t>(cmpt.bc);
-		cmpt.eobxhigh = std::vector<uint8_t>(cmpt.bc);
-		cmpt.eobyhigh = std::vector<uint8_t>(cmpt.bc);
-		cmpt.zdstxlow = std::vector<uint8_t>(cmpt.bc);
-		cmpt.zdstylow = std::vector<uint8_t>(cmpt.bc);
+		cmpt.zdstdata = std::vector<std::uint8_t>(cmpt.bc);
+		cmpt.eobxhigh = std::vector<std::uint8_t>(cmpt.bc);
+		cmpt.eobyhigh = std::vector<std::uint8_t>(cmpt.bc);
+		cmpt.zdstxlow = std::vector<std::uint8_t>(cmpt.bc);
+		cmpt.zdstylow = std::vector<std::uint8_t>(cmpt.bc);
 
 	}
 
 	// decide components' statistical ids
 	if (cmpnfo.size() <= 3) {
-		for (size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
+		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
 			cmpnfo[cmpt].sid = cmpt;
 		}
 	} else {
@@ -3763,7 +3763,7 @@ bool jpg::setup_imginfo()
 }
 
 // Builds Huffman trees and codes.
-void jpg::jfif::parse_dht(const std::vector<uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
+void jpg::jfif::parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 	int hpos = 4; // current position in segment, start after segment header
 	// build huffman trees & codes
 	while (hpos < segment.size()) {
@@ -3793,7 +3793,7 @@ void jpg::jfif::parse_dht(const std::vector<uint8_t>& segment, std::array<std::a
 }
 
 // Copy quantization tables to internal memory
-bool jpg::jfif::parse_dqt(const std::vector<uint8_t>& segment) {
+bool jpg::jfif::parse_dqt(const std::vector<std::uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	while (hpos < segment.size()) {
 		int lval = bitops::LBITS( segment[ hpos ], 4 );
@@ -3807,7 +3807,7 @@ bool jpg::jfif::parse_dqt(const std::vector<uint8_t>& segment) {
 		hpos++;
 		if (lval == 0) { // 8 bit precision
 			for (int i = 0; i < 64; i++) {
-				qtables[rval][i] = static_cast<uint16_t>(segment[hpos + i]);
+				qtables[rval][i] = static_cast<std::uint16_t>(segment[hpos + i]);
 				if (qtables[rval][i] == 0) {
 					break;
 				}
@@ -3835,12 +3835,12 @@ bool jpg::jfif::parse_dqt(const std::vector<uint8_t>& segment) {
 }
 
 // define restart interval
-int jpg::jfif::parse_dri(const std::vector<uint8_t>& segment) {
+int jpg::jfif::parse_dri(const std::vector<std::uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	return pack( segment[ hpos ], segment[ hpos + 1 ] );
 }
 
-bool jpg::jfif::parse_sof(Marker type, const std::vector<uint8_t>& segment) {
+bool jpg::jfif::parse_sof(Marker type, const std::vector<std::uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 
 	// set JPEG coding type
@@ -3886,7 +3886,7 @@ bool jpg::jfif::parse_sof(Marker type, const std::vector<uint8_t>& segment) {
 	return true;
 }
 
-ScanInfo jpg::jfif::parse_sos(const std::vector<uint8_t>& segment) {
+ScanInfo jpg::jfif::parse_sos(const std::vector<std::uint8_t>& segment) {
 	int hpos = 4; // current position in segment, start after segment header
 	ScanInfo scan_info;
 	scan_info.cmpc = segment[hpos];
@@ -4074,9 +4074,6 @@ bool jpg::jfif::parse_jfif(const Segment& segment)
 
 int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short* block)
 {
-	unsigned short n;
-	unsigned char  s;
-	unsigned char  z;
 	int eob = 64;
 	int bpos;
 	int hc;
@@ -4094,9 +4091,9 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short*
 		hc = actree.next_huffcode(huffr);
 		// analyse code
 		if ( hc > 0 ) {
-			z = bitops::LBITS( hc, 4 );
-			s = bitops::RBITS( hc, 4 );
-			n = huffr->read( s );
+			std::uint8_t z = bitops::LBITS( hc, 4 );
+			std::uint8_t s = bitops::RBITS( hc, 4 );
+			std::uint16_t n = huffr->read( s );
 			if ( ( z + bpos ) >= 64 )
 				return -1; // run is to long
 			while ( z > 0 ) { // write zeroes
@@ -4183,9 +4180,6 @@ void JpgEncoder::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 
 int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
-	unsigned short n;
-	unsigned char  s;
-	unsigned char  z;
 	int eob = to + 1;
 	int bpos;
 	int hc;
@@ -4203,9 +4197,9 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int
 		r = bitops::RBITS( hc, 4 );
 		// analyse code
 		if ( ( l == 15 ) || ( r > 0 ) ) { // decode run/level combination
-			z = l;
-			s = r;
-			n = huffr->read( s );
+			std::uint8_t z = l;
+			std::uint8_t s = r;
+			std::uint16_t n = huffr->read( s );
 			if ( ( z + bpos ) > to )
 				return -1; // run is to long			
 			while ( z > 0 ) { // write zeroes
@@ -4216,8 +4210,8 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int
 		}
 		else { // decode eobrun
 			eob = bpos;
-			s = l;
-			n = huffr->read( s );
+			std::uint8_t s = l;
+			std::uint16_t n = huffr->read( s );
 			(*eobrun) = e_devli( s, n );			
 			// while( bpos <= to ) // fill remaining block with zeroes
 			//	block[ bpos++ ] = 0;
@@ -4232,14 +4226,11 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int
 
 int JpgEncoder::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
-	unsigned short n;
-	unsigned char  s;
-	unsigned char  z;
 	int bpos;
 	int hc;
 	
 	// encode AC
-	z = 0;
+	std::uint8_t z = 0;
 	for ( bpos = from; bpos <= to; bpos++ )
 	{
 		// if nonzero is encountered
@@ -4252,8 +4243,8 @@ int JpgEncoder::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCo
 				z -= 16;
 			}			
 			// vli encode
-			s = pjg::bitlen2048n( block[ bpos ] );
-			n = envli( s, block[ bpos ] );
+			std::uint8_t s = pjg::bitlen2048n( block[ bpos ] );
+			std::uint16_t n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
 			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
@@ -4293,8 +4284,6 @@ void JpgEncoder::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::
 
 int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int from, int to)
 {
-	unsigned short n;
-	unsigned char  s;
 	signed char    z;
 	signed char    v;
 	int bpos = from;
@@ -4315,10 +4304,10 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 		// analyse code
 		if ( ( l == 15 ) || ( r > 0 ) ) { // decode run/level combination
 			z = l;
-			s = r;
+			std::uint8_t s = r;
 			if ( s == 0 ) v = 0;
 			else if ( s == 1 ) {
-				n = huffr->read_bit();
+				std::uint8_t n = huffr->read_bit();
 				v = ( n == 0 ) ? -1 : 1; // fast decode vli
 			}
 			else return -1; // decoding error
@@ -4332,7 +4321,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 					}
 				}
 				else { // read correction bit
-					n = huffr->read_bit();
+					std::int16_t n = huffr->read_bit();
 					block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 				}
 				if ( bpos++ >= to ) return -1; // error check					
@@ -4340,8 +4329,8 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 		}
 		else { // decode eobrun
 			eob = bpos;
-			s = l;
-			n = huffr->read( s );
+			std::uint8_t s = l;
+			std::uint16_t n = huffr->read( s );
 			(*eobrun) = e_devli( s, n );
 			break;
 		}
@@ -4351,7 +4340,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 	if ( (*eobrun) > 0 ) {
 		for ( ; bpos <= to; bpos++ ) {
 			if ( block[ bpos ] != 0 ) {
-				n = huffr->read_bit();
+				std::int16_t n = huffr->read_bit();
 				block[ bpos ] = ( block[ bpos ] > 0 ) ? n : -n;
 			}
 		}
@@ -4363,9 +4352,6 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 
 int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to)
 {
-	unsigned short n;
-	unsigned char  s;
-	unsigned char  z;
 	int eob = from;
 	int bpos;
 	int hc;
@@ -4385,7 +4371,7 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 	}
 	
 	// encode AC
-	z = 0;
+	std::uint8_t z = 0;
 	for ( bpos = from; bpos < eob; bpos++ )
 	{
 		// if zero is encountered
@@ -4400,8 +4386,8 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 		// if nonzero is encountered
 		else if ( ( block[ bpos ] == 1 ) || ( block[ bpos ] == -1 ) ) {
 			// vli encode			
-			s = pjg::bitlen2048n( block[ bpos ] );
-			n = envli( s, block[ bpos ] );
+			std::uint8_t s = pjg::bitlen2048n( block[ bpos ] );
+			std::uint16_t n = envli( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
 			huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
@@ -4412,7 +4398,7 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 			z = 0;
 		}
 		else { // store correction bits
-			n = block[ bpos ] & 0x1;
+			std::uint16_t n = block[ bpos ] & 0x1;
 			storw->write( n );
 		}
 	}
@@ -4421,7 +4407,7 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 	for ( ;bpos <= to; bpos++ )
 	{
 		if ( block[ bpos ] != 0 ) { // store correction bits
-			n = block[ bpos ] & 0x1;
+			std::uint16_t n = block[ bpos ] & 0x1;
 			storw->write( n );
 		}
 	}
@@ -4444,7 +4430,7 @@ void JpgDecoder::eobrun_sa(short* block, int from, int to) {
 	// fast eobrun decoding routine for succesive approximation
 	for (int bpos = from; bpos <= to; bpos++) {
 		if (block[bpos] != 0) {
-			uint16_t n = huffr->read_bit();
+			std::int16_t n = huffr->read_bit();
 			block[bpos] = (block[bpos] > 0) ? n : -n;
 		}
 	}
@@ -4452,10 +4438,7 @@ void JpgDecoder::eobrun_sa(short* block, int from, int to) {
 
 void JpgEncoder::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun)
 {
-	unsigned short n;
-	unsigned char  s;
 	int hc;
-	
 	
 	if ( (*eobrun) > 0 ) {
 		while ( (*eobrun) > actbl.max_eobrun ) {
@@ -4463,9 +4446,9 @@ void JpgEncoder::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCode
 			huffw->write(e_envli( 14, 32767 ), 14 );
 			(*eobrun) -= actbl.max_eobrun;
 		}
-		s = bitlen((*eobrun));
+		std::uint8_t s = bitlen((*eobrun));
 		s--;
-		n = e_envli( s, (*eobrun) );
+		std::uint16_t n = e_envli( s, (*eobrun) );
 		hc = ( s << 4 );
 		huffw->write( actbl.cval[ hc ], actbl.clen[ hc ] );
 		huffw->write( n, s );
@@ -4602,7 +4585,7 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos,
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-std::array<uint8_t, 64> PjgEncoder::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
+std::array<std::uint8_t, 64> PjgEncoder::zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {
 	// calculate zero sort scan
 	const auto zsrtscan = this->get_zerosort_scan(cmpt);
@@ -4711,12 +4694,12 @@ void PjgEncoder::zdst_low(const std::unique_ptr<ArithmeticEncoder>& enc, const C
 	----------------------------------------------- */
 void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
+	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 
 
 	// decide segmentation setting
-	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -4732,7 +4715,7 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
-	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
+	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
 	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
@@ -4792,11 +4775,11 @@ void PjgEncoder::dc(const std::unique_ptr<ArithmeticEncoder>& enc, const Compone
 	----------------------------------------------- */
 void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
+	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, cmpt.segm_cnt), 2);
@@ -4808,13 +4791,13 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
-	std::vector<uint16_t> absv_store(bc);	// absolute coefficients values storage
-	std::vector<uint8_t> sgn_store(bc); // sign storage for context	
+	std::vector<std::uint16_t> absv_store(bc);	// absolute coefficients values storage
+	std::vector<std::uint8_t> sgn_store(bc); // sign storage for context	
 	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
@@ -4835,8 +4818,8 @@ void PjgEncoder::ac_high(const std::unique_ptr<ArithmeticEncoder>& enc, Componen
 			continue; // process remaining coefficients elsewhere
 	
 		// preset absolute values/sign storage
-		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<uint16_t>(0));
-		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<uint8_t>(0));
+		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<std::uint16_t>(0));
+		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<std::uint8_t>(0));
 		
 		// locally store pointer to coefficients
 		const auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5046,7 +5029,7 @@ void PjgEncoder::generic(const std::unique_ptr<ArithmeticEncoder>& enc, const st
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 
 	for (const auto& segment : segments) {
-		for (uint8_t byte : segment.get_data()) {
+		for (std::uint8_t byte : segment.get_data()) {
 			enc->encode(model.get(), byte);
 			model->shift_context(byte);
 		}
@@ -5075,7 +5058,7 @@ void PjgEncoder::generic( const std::unique_ptr<ArithmeticEncoder>& enc, const s
 /* -----------------------------------------------
 	encodes one bit to pjg
 	----------------------------------------------- */
-void PjgEncoder::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned char bit)
+void PjgEncoder::bit(const std::unique_ptr<ArithmeticEncoder>& enc, std::uint8_t bit)
 {
 	// encode one bit
 	auto model = std::make_unique<BinaryModel>(1, -1);
@@ -5086,11 +5069,11 @@ void PjgEncoder::bit(const std::unique_ptr<ArithmeticEncoder>& enc, unsigned cha
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-std::array<uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec)
+std::array<std::uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec)
 {		
 	int tpos; // true position
 	
-	std::array<uint8_t, 64> zsrtscan;
+	std::array<std::uint8_t, 64> zsrtscan;
 	// set first position in zero sort scan
 	zsrtscan[0] = 0;
 	
@@ -5198,11 +5181,11 @@ void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 	----------------------------------------------- */
 void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
+	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
+	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1 ];
 	
 	// get max absolute value/bit length
 	const int max_val = cmpt.max_v(0); // Max value.
@@ -5218,7 +5201,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values storage
-	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
+	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
 	
 	// set up context quick access array
 	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
@@ -5278,11 +5261,11 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	----------------------------------------------- */
 void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt)
 {	
-	std::array<uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
+	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context.get_weights(); // weighting for contexts
 	
 	// decide segmentation setting
-	const uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
+	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
 	
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
@@ -5294,13 +5277,13 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	const int w = cmpt.bch;
 	
 	// allocate memory for absolute values & signs storage
-	std::vector<uint16_t> absv_store(bc); // absolute coefficients values storage
-	std::vector<uint8_t> sgn_store(bc); // sign storage for context	
+	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
+	std::vector<std::uint8_t> sgn_store(bc); // sign storage for context	
 	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
 	
 	// set up quick access arrays for signs context
-	uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 	
 	// locally store pointer to eob x / eob y
 	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
@@ -5321,8 +5304,8 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 				continue; // process remaining coefficients elsewhere
 		
 		// preset absolute values/sign storage
-		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<uint16_t>(0));
-		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<uint8_t>(0));
+		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<std::uint16_t>(0));
+		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<std::uint8_t>(0));
 		
 		// locally store pointer to coefficients
 		auto& coeffs = cmpt.colldata[ bpos ]; // Pointer to current coefficent data.
@@ -5526,7 +5509,7 @@ std::vector<std::uint8_t> PjgDecoder::generic(const std::unique_ptr<ArithmeticDe
 		if (c == 256) {
 			break;
 		}
-		bwrt->write(static_cast<uint8_t>(c));
+		bwrt->write(static_cast<std::uint8_t>(c));
 		model->shift_context(c);
 	}
 
@@ -5544,10 +5527,10 @@ std::uint8_t PjgDecoder::bit(const std::unique_ptr<ArithmeticDecoder>& dec)
 	return bit;
 }
 
-std::array<uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt)  {
+std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt)  {
 	// Preset the unsorted scan index:
-	std::array<uint8_t, 64> index;
-	std::iota(std::begin(index), std::end(index), uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
+	std::array<std::uint8_t, 64> index;
+	std::iota(std::begin(index), std::end(index), std::uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
 
 	// Count the number of zeroes for each frequency:
 	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.

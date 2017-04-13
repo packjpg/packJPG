@@ -53,8 +53,8 @@ unsigned int abitreader::read(int nbits) {
 	return retval;
 }
 
-unsigned char abitreader::read_bit() {
-	unsigned char bit;
+std::uint8_t abitreader::read_bit() {
+	std::uint8_t bit;
 
 	// safety check for eof
 	if (eof()) {
@@ -79,7 +79,7 @@ unsigned char abitreader::read_bit() {
 	to skip padding from current byte
 	----------------------------------------------- */
 
-unsigned char abitreader::unpad(unsigned char fillbit) {
+std::uint8_t abitreader::unpad(std::uint8_t fillbit) {
 	if ((cbit == 8) || eof()) {
 		return fillbit;
 	} else {
@@ -134,7 +134,7 @@ void abitwriter::write(unsigned int val, int nbits) {
 	writes one bit to abitwriter
 	----------------------------------------------- */
 
-void abitwriter::write_bit(unsigned char bit) {
+void abitwriter::write_bit(std::uint8_t bit) {
 
 	// write data
 	if (bit) {
@@ -155,7 +155,7 @@ void abitwriter::write_bit(unsigned char bit) {
 /* -----------------------------------------------
 	Sets the fillbit for padding data.
    ----------------------------------------------- */
-void abitwriter::set_fillbit(unsigned char fillbit) {
+void abitwriter::set_fillbit(std::uint8_t fillbit) {
 	fillbit_ = fillbit;
 }
 
@@ -192,18 +192,18 @@ abytereader::abytereader(const std::vector<std::uint8_t>& bytes) :
 
 abytereader::~abytereader() {}
 
-uint8_t abytereader::read_byte() {
+std::uint8_t abytereader::read_byte() {
 	if (cbyte == std::end(data)) {
 		throw std::runtime_error("No bytes left to read");
 	} else {
-		uint8_t the_byte = *cbyte;
+		std::uint8_t the_byte = *cbyte;
 		++cbyte;
 		_eof = cbyte == std::end(data);
 		return the_byte;
 	}
 }
 
-bool abytereader::read(unsigned char* byte) {
+bool abytereader::read(std::uint8_t* byte) {
 	if (cbyte == std::end(data)) {
 		_eof = true;
 		return false;
@@ -215,7 +215,7 @@ bool abytereader::read(unsigned char* byte) {
 	}
 }
 
-int abytereader::read_n( unsigned char* byte, int n )
+int abytereader::read_n(std::uint8_t* byte, int n)
 {
 	if (n <= 0 || byte == nullptr) {
 		return 0;
@@ -230,8 +230,8 @@ int abytereader::read_n( unsigned char* byte, int n )
 }
 
 std::size_t abytereader::read(std::vector<std::uint8_t>& into, std::size_t n, std::size_t offset) {
-	const size_t num_available = num_bytes() - num_bytes_read(); // The number of bytes in the reader not yet read.
-	const size_t num_to_read = std::min(n, num_available); // How many bytes will be read.
+	const std::size_t num_available = num_bytes() - num_bytes_read(); // The number of bytes in the reader not yet read.
+	const std::size_t num_to_read = std::min(n, num_available); // How many bytes will be read.
 	if (into.size() < num_to_read + offset) {
 		into.resize(num_to_read + offset);
 	}
@@ -268,7 +268,7 @@ abytewriter::abytewriter(int size) : data(std::max(size, 65536)) {}
 
 abytewriter::~abytewriter() {}
 
-void abytewriter::write(unsigned char byte) {
+void abytewriter::write(std::uint8_t byte) {
 	if (cbyte == data.size()) {
 		data.resize(data.size() * 2);
 	}
@@ -278,7 +278,7 @@ void abytewriter::write(unsigned char byte) {
 	cbyte++;
 }
 
-void abytewriter::write_n(const unsigned char* bytes, int n) {
+void abytewriter::write_n(const std::uint8_t* bytes, int n) {
 	// Bounds check
 	if (n <= 0) {
 		return;
@@ -294,7 +294,7 @@ void abytewriter::write_n(const unsigned char* bytes, int n) {
 }
 
 std::vector<std::uint8_t> abytewriter::get_data() {
-	std::vector<uint8_t> copy(data.begin(), data.begin() + cbyte);
+	std::vector<std::uint8_t> copy(data.begin(), data.begin() + cbyte);
 	return copy;
 }
 
@@ -326,7 +326,7 @@ MemStream::MemStream(StreamMode mode) {
 		// read whole stream into memory buffer
 		auto strwrt = std::make_unique<abytewriter>(0);
 		constexpr int buffer_capacity = 1024 * 1024;
-		std::vector<unsigned char> buffer(buffer_capacity);
+		std::vector<std::uint8_t> buffer(buffer_capacity);
 
 		int bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
 		while (bytesRead > 0) {
@@ -444,14 +444,14 @@ bool MemStream::chkeof()
 /* -----------------------------------------------
 	write function for memory
 	----------------------------------------------- */
-int MemStream::write(const unsigned char* from, int dtsize )
+int MemStream::write(const std::uint8_t* from, int dtsize )
 {	
 	mwrt->write_n(from, dtsize);
 	
 	return dtsize;
 }
 
-int MemStream::write_byte(unsigned char byte) {
+int MemStream::write_byte(std::uint8_t byte) {
 	mwrt->write(byte);
 	return 1;
 }
@@ -459,7 +459,7 @@ int MemStream::write_byte(unsigned char byte) {
 /* -----------------------------------------------
 	read function for memory
 	----------------------------------------------- */
-int MemStream::read(unsigned char* to, int dtsize)
+int MemStream::read(std::uint8_t* to, int dtsize)
 {	
 	return mrdr->read_n(to, dtsize);
 }
@@ -468,11 +468,11 @@ std::size_t MemStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_
 	return mrdr->read(into, num_to_read, offset);
 }
 
-uint8_t MemStream::read_byte() {
+std::uint8_t MemStream::read_byte() {
 	return mrdr->read_byte();
 }
 
-bool MemStream::read_byte(unsigned char* to) {
+bool MemStream::read_byte(std::uint8_t* to) {
 	return mrdr->read(to);
 }
 
@@ -507,34 +507,34 @@ void FileStream::switch_mode() {
 	}
 }
 
-int FileStream::read(unsigned char* to, int dtsize) {
-	return fread(to, sizeof(unsigned char), dtsize, fptr);
+int FileStream::read(std::uint8_t* to, int dtsize) {
+	return fread(to, sizeof(to[0]), dtsize, fptr);
 }
 
 std::size_t FileStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
 	return read(into.data() + offset, num_to_read);
 }
 
-uint8_t FileStream::read_byte() {
+std::uint8_t FileStream::read_byte() {
 	const int val = fgetc(fptr);
 	if (val != EOF) {
-		return static_cast<uint8_t>(val);
+		return static_cast<std::uint8_t>(val);
 	} else {
 		throw std::runtime_error("No bytes left in " + file_path + " to read!");
 	}
 }
 
-bool FileStream::read_byte(unsigned char* to) {
+bool FileStream::read_byte(std::uint8_t* to) {
 	const int val = fgetc(fptr);
 	*to = val;
 	return val != EOF;
 }
 
-int FileStream::write(const unsigned char* from, int dtsize) {
-	return fwrite(from, sizeof(unsigned char), dtsize, fptr);
+int FileStream::write(const std::uint8_t* from, int dtsize) {
+	return fwrite(from, sizeof(from[0]), dtsize, fptr);
 }
 
-int FileStream::write_byte(unsigned char byte) {
+int FileStream::write_byte(std::uint8_t byte) {
 	return fputc(byte, fptr) == byte;
 }
 
@@ -568,7 +568,7 @@ bool FileStream::chkeof() {
 }
 
 std::vector<std::uint8_t> FileStream::get_data() {
-	std::vector<uint8_t> buffer(getsize());
+	std::vector<std::uint8_t> buffer(getsize());
 	read(buffer.data(), buffer.size());
 	return buffer;
 }

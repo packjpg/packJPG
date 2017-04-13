@@ -43,8 +43,8 @@ public:
 	abitreader(const std::vector<std::uint8_t>& bits);
 	~abitreader();
 	unsigned int read(int nbits);
-	unsigned char read_bit();
-	unsigned char unpad(unsigned char fillbit);
+	std::uint8_t read_bit();
+	std::uint8_t unpad(std::uint8_t fillbit);
 	bool eof() const;
 	bool overread() const;
 
@@ -70,8 +70,8 @@ public:
 	abitwriter(int size);
 	~abitwriter();
 	void write(unsigned int val, int nbits);
-	void write_bit(unsigned char bit);
-	void set_fillbit(unsigned char fillbit);
+	void write_bit(std::uint8_t bit);
+	void set_fillbit(std::uint8_t fillbit);
 	void pad();
 	std::vector<std::uint8_t> get_data();
 	int getpos() const;
@@ -85,7 +85,7 @@ private:
 		return RBITS32(val, l) >> r;
 	}
 
-	unsigned char fillbit_ = 1;
+	std::uint8_t fillbit_ = 1;
 	std::vector<std::uint8_t> data;
 	int cbyte = 0; // The position in the data of the byte being written.
 	int cbit = 8; // The position of the next bit in the current byte.
@@ -101,15 +101,15 @@ public:
 	abytereader(const std::vector<std::uint8_t>& bytes);
 	~abytereader();
 
-	uint8_t read_byte();
+	std::uint8_t read_byte();
 	/*
 	 * Reads one byte to the pointer, returning whether there was a byte available to writer.
 	 */
-	bool read(unsigned char* byte);
+	bool read(std::uint8_t* byte);
 	/*
 	 * Reads the minimum of n and the numbers of unread bytes to the pointer, returning the number of bytes read.
 	 */
-	int read_n(unsigned char* byte, int n);
+	int read_n(std::uint8_t* byte, int n);
 	/*
 	 * Reads the minimum of n and the number of unread bytes to the vector, starting at the given offset in the
 	 * vector. If the destination vector is too small, it is resized. Returns the number of bytes read.
@@ -155,11 +155,11 @@ public:
 	/*
 	 * Writes the byte.
 	 */
-	void write( unsigned char byte );
+	void write(std::uint8_t byte);
 	/*
 	 * Writes n bytes from the pointer.
 	 */
-	void write_n(const unsigned char* bytes, int n );
+	void write_n(const std::uint8_t* bytes, int n );
 	std::vector<std::uint8_t> get_data();
 	int getpos() const;
 	void reset();
@@ -180,12 +180,12 @@ public:
 	iostream() {}
 	virtual ~iostream() {}
 	virtual void switch_mode() = 0;
-	virtual int read(unsigned char* to, int dtsize) = 0;
+	virtual int read(std::uint8_t* to, int dtsize) = 0;
 	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
-	virtual uint8_t read_byte() = 0;
-	virtual bool read_byte(unsigned char* to) = 0;
-	virtual int write(const unsigned char* from, int dtsize) = 0;
-	virtual int write_byte(unsigned char byte) = 0;
+	virtual std::uint8_t read_byte() = 0;
+	virtual bool read_byte(std::uint8_t* to) = 0;
+	virtual int write(const std::uint8_t* from, int dtsize) = 0;
+	virtual int write_byte(std::uint8_t byte) = 0;
 	virtual int rewind() = 0;
 	virtual int getpos() = 0;
 	virtual int getsize() = 0;
@@ -200,12 +200,12 @@ public:
 	MemStream(const std::vector<std::uint8_t>& bytes, StreamMode mode);
 	~MemStream();
 	void switch_mode() override;
-	int read(unsigned char* to, int dtsize) override;
+	int read(std::uint8_t* to, int dtsize) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
-	uint8_t read_byte() override;
-	bool read_byte(unsigned char* to) override;
-	int write(const unsigned char* from, int dtsize) override;
-	int write_byte(unsigned char byte) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+	int write(const std::uint8_t* from, int dtsize) override;
+	int write_byte(std::uint8_t byte) override;
 	int rewind() override;
 	int getpos() override;
 	int getsize() override;
@@ -225,12 +225,12 @@ public:
 	FileStream(const std::string& file_path, StreamMode iomode);
 	~FileStream();
 	void switch_mode() override;
-	int read(unsigned char* to, int dtsize) override;
+	int read(std::uint8_t* to, int dtsize) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
-	uint8_t read_byte() override;
-	bool read_byte(unsigned char* to) override;
-	int write(const unsigned char* from, int dtsize) override;
-	int write_byte(unsigned char byte) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+	int write(const std::uint8_t* from, int dtsize) override;
+	int write_byte(std::uint8_t byte) override;
 	int rewind() override;
 	int getpos() override;
 	int getsize() override;

@@ -24,7 +24,7 @@ struct Symbol {
 // The table type associated with BinaryModel, contains the information needed for one context.
 struct BinaryTable {
 	// counts for each symbol contained in the table
-	std::vector<uint16_t> counts;
+	std::vector<std::uint16_t> counts;
 	// links to higher order contexts
 	std::vector<BinaryTable*> links;
 	// accumulated counts
@@ -44,7 +44,7 @@ struct BinaryTable {
 		// check if counts are available
 		if (counts.empty()) {
 			// setup counts for current table
-			counts.resize(2, uint16_t(1));
+			counts.resize(2, std::uint16_t(1));
 			// set scale
 			scale = uint32_t(2);
 		}
@@ -55,8 +55,8 @@ struct BinaryTable {
 		// Do nothing if counts is not set:
 		if (!counts.empty()) {
 			// Scale the table by bitshifting each count, be careful not to set any count zero:
-			counts[0] = std::max(uint16_t(1), uint16_t(counts[0] >> 1));
-			counts[1] = std::max(uint16_t(1), uint16_t(counts[1] >> 1));
+			counts[0] = std::max(std::uint16_t(1), std::uint16_t(counts[0] >> 1));
+			counts[1] = std::max(std::uint16_t(1), std::uint16_t(counts[1] >> 1));
 			scale = counts[0] + counts[1];
 		}
 	}
@@ -77,12 +77,12 @@ struct BinaryTable {
 // and contains the information needed for one context.
 struct UniversalTable {
 	// counts for each symbol contained in the table
-	std::vector<uint16_t> counts;
+	std::vector<std::uint16_t> counts;
 	// links to higher order contexts
 	std::vector<UniversalTable*> links;
 	// speedup info
-	uint16_t max_count = uint16_t(0);
-	uint16_t max_symbol = uint16_t(0);
+	std::uint16_t max_count = std::uint16_t(0);
+	std::uint16_t max_symbol = std::uint16_t(0);
 
 	// Deletes this and all tables linked by this table.
 	~UniversalTable() {
@@ -332,7 +332,7 @@ private:
 	// Encodes the sybol.
 	void encode(const Symbol* s);
 
-	template<uint8_t bit>
+	template<std::uint8_t bit>
 	void write_bit() {
 		// add bit at last position
 		bbyte = (bbyte << 1) | bit;
@@ -351,8 +351,8 @@ private:
 
 	// io variables:
 	iostream* sptr; // Pointer to iostream for writing.
-	unsigned char bbyte = 0;
-	unsigned char cbit = 0;
+	std::uint8_t bbyte = 0;
+	std::uint8_t cbit = 0;
 
 	// Arithmetic coding variables:
 	unsigned int clow = 0;
@@ -401,12 +401,12 @@ private:
 	void decode(const Symbol* s);
 	unsigned int decode_count(const Symbol* s);
 
-	unsigned char read_bit();
+	std::uint8_t read_bit();
 
 	// io variables:
 	iostream* sptr; // Pointer to iostream for reading.
-	unsigned char bbyte = 0;
-	unsigned char cbit = 0;
+	std::uint8_t bbyte = 0;
+	std::uint8_t cbit = 0;
 
 	// Arithmetic coding variables:
 	unsigned int ccode = 0;

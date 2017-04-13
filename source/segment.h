@@ -83,37 +83,37 @@ public:
 	/* Reads the information for the segment in the provided header data that starts at
 	the given index.
 	*/
-	Segment(const std::vector<uint8_t>& header, size_t offset);
+	Segment(const std::vector<std::uint8_t>& header, std::size_t offset);
 	/* Returns the jpeg marker of the segment. Returns an INVALID  type if the segment is invalid.
 	*/
 	Marker get_type() const;
 	/* Returns the number of bytes in the segment, defined as 2 plus the payload size.
 	Returns -1 if the segment is invalid.
 	*/
-	size_t get_size() const;
+	std::size_t get_size() const;
 	/* Returns the index of the start of the segment data in the header data.
 	The start of the segment is the index of the 0xFF that precedes the segment marker type.
 	Returns -1 if the segment is invalid.
 	*/
-	size_t get_header_offset() const;
+	std::size_t get_header_offset() const;
 
 	/*
 	Returns a copy of the segment's data, including the marker (and length field, where applicable).
 	*/
-	std::vector<uint8_t> get_data() const;
+	std::vector<std::uint8_t> get_data() const;
 
 	/*
 	Attempts to set the segment's data as the given input. This will fail if the size
 	of the input vector is different than the current size of the segment or if the marker
 	(i.e. the first two bytes) is different.
 	*/
-	void set_data(std::vector<uint8_t>& data);
+	void set_data(std::vector<std::uint8_t>& data);
 
 	/*
 	Returns an in-order vector of the segments contained in the header data,
 	starting at the given offset in the data.
 	*/
-	static std::vector<Segment> parse_segments(const std::vector<uint8_t>& header_data, size_t offset = 0) {
+	static std::vector<Segment> parse_segments(const std::vector<std::uint8_t>& header_data, std::size_t offset = 0) {
 		if (offset > header_data.size()) {
 			return std::vector<Segment>(); // Don't try to read in invalid memory.
 		}
@@ -141,8 +141,8 @@ private:
 	bool has_length(Marker type) const;
 
 	Marker type_ = Marker::kINVALID; // The type of the segment.
-	size_t header_pos_ = 0; // The index of the header data where the segment starts.
-	std::vector<uint8_t> data_; // The bytes in the segment, including the segment type and length fields where applicable.
+	std::size_t header_pos_ = 0; // The index of the header data where the segment starts.
+	std::vector<std::uint8_t> data_; // The bytes in the segment, including the segment type and length fields where applicable.
 };
 
 #endif

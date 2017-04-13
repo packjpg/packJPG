@@ -84,7 +84,7 @@ void ArithmeticEncoder::writeNrbitsAsZero() {
 		cbit = 0;
 	}
 
-	constexpr uint8_t zero = 0;
+	constexpr std::uint8_t zero = 0;
 	while (nrbits >= 8) {
 		sptr->write_byte(zero);
 		nrbits -= 8;
@@ -99,16 +99,16 @@ void ArithmeticEncoder::writeNrbitsAsZero() {
 }
 
 void ArithmeticEncoder::writeNrbitsAsOne() {
+	constexpr std::uint8_t all_ones = std::numeric_limits<std::uint8_t>::max();
 	if (nrbits + cbit >= 8) {
 		int remainingBits = 8 - cbit;
 		nrbits -= remainingBits;
 		bbyte <<= remainingBits;
-		bbyte |= std::numeric_limits<uint8_t>::max() >> (8 - remainingBits);
+		bbyte |= all_ones >> (8 - remainingBits);
 		sptr->write_byte(bbyte);
 		cbit = 0;
 	}
 
-	constexpr uint8_t all_ones = std::numeric_limits<uint8_t>::max();
 	while (nrbits >= 8) {
 		sptr->write_byte(all_ones);
 		nrbits -= 8;
@@ -118,7 +118,7 @@ void ArithmeticEncoder::writeNrbitsAsOne() {
 	No need to check if cbits is 8, since nrbits is strictly less than 8
 	and cbit is initially 0 here:
 	*/
-	bbyte = (bbyte << nrbits) | (std::numeric_limits<uint8_t>::max() >> (8 - nrbits));
+	bbyte = (bbyte << nrbits) | (all_ones >> (8 - nrbits));
 	cbit += nrbits;
 	nrbits = 0;
 }
@@ -187,7 +187,7 @@ void ArithmeticDecoder::decode(const Symbol* s)
 	ccode = ccode_local;
 }
 
-unsigned char ArithmeticDecoder::read_bit()
+std::uint8_t ArithmeticDecoder::read_bit()
 {
 	// read in new byte if needed
 	if (cbit == 0) {
@@ -218,9 +218,9 @@ UniversalModel::UniversalModel(int max_s, int max_c, int max_o, int c_lim) :
 
 	// set up null table
 	UniversalTable* null_table = new UniversalTable;
-	null_table->counts = std::vector<uint16_t>(max_symbol, uint16_t(1));  // Set all probabilities to 1.
+	null_table->counts = std::vector<std::uint16_t>(max_symbol, std::uint16_t(1));  // Set all probabilities to 1.
 
-																		  // set up internal counts
+	// set up internal counts
 	null_table->max_count = 1;
 	null_table->max_symbol = max_symbol;
 
@@ -267,7 +267,7 @@ void UniversalModel::update_model(int symbol)
 			count++;
 			// store side information for totalize_table
 			context->max_count = std::max(count, context->max_count);
-			context->max_symbol = std::max(uint16_t(symbol + 1), context->max_symbol);
+			context->max_symbol = std::max(std::uint16_t(symbol + 1), context->max_symbol);
 			// if count for that symbol have gone above the maximum count
 			// the table has to be resized (scale factor 2)
 			if (count == max_count) {
@@ -398,7 +398,7 @@ void UniversalModel::totalize_table(UniversalTable* context)
 		for (; i >= 0; i--) {
 			// only count probability if the current symbol is not 'scoreboard - excluded'
 			if (!scoreboard[i]) {
-				uint16_t curr_count = counts[i];
+				std::uint16_t curr_count = counts[i];
 				if (curr_count > 0) {
 					// add counts for the current symbol
 					curr_total += curr_count;
@@ -442,7 +442,7 @@ BinaryModel::BinaryModel(int max_c, int max_o, int c_lim) :
 {
 	// set up null table
 	BinaryTable* null_table = new BinaryTable;
-	null_table->counts = std::vector<uint16_t>(2, uint16_t(1));
+	null_table->counts = std::vector<std::uint16_t>(2, std::uint16_t(1));
 	null_table->scale = uint32_t(2);
 
 	// set up start table
