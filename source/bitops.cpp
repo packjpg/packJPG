@@ -249,7 +249,7 @@ void abytereader::reset() {
 }
 	
 int abytereader::num_bytes() const {
-	return std::size(data);
+	return data.size();
 }
 
 int abytereader::num_bytes_read() const {

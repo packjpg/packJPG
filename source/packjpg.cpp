@@ -2252,7 +2252,7 @@ static void execute( bool (*function)() )
 		// write statusmessage
 		if ( verbosity == 2 ) {
 			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
-			for ( int i = strlen( get_status( function ).c_str()); i <= 30; i++ )
+			for ( int i = get_status(function).length(); i <= 30; i++ )
 				fprintf( msgout,  " " );			
 		}
 		
@@ -2431,8 +2431,8 @@ static bool swap_streams()
 static bool compare_output() {
 	const auto& input_data = str_str->get_data();
 	const auto& verif_data = str_out->get_data();
-	if (std::size(input_data) != std::size(verif_data)) {
-		sprintf(errormessage, "expected size: %u, verif size: %u", std::size(input_data), std::size(verif_data));
+	if (input_data.size() != verif_data.size()) {
+		sprintf(errormessage, "expected size: %u, verif size: %u", input_data.size(), verif_data.size());
 		errorlevel = 2;
 		return false;
 	}
