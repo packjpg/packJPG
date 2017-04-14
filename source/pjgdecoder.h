@@ -13,7 +13,7 @@
 
 class PjgDecoder {
 public:
-	bool decode();
+	void decode();
 private:
 	// Undoes DHT segment optimizations.
 	void deoptimize_dht(Segment& segment);

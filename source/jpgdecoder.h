@@ -14,9 +14,9 @@
 class JpgDecoder {
 public:
 	// JPEG decoding routine.
-	bool decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
+	void decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
-	bool check_value_range(const std::vector<Component>& cmpts);
+	void check_value_range(const std::vector<Component>& cmpts);
 
 private:
 	// Sequential block decoding routine.

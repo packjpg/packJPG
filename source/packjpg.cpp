@@ -306,6 +306,19 @@ const std::string FRD_ERRMSG("could not read file / file not found: %s");
 const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
 
 /* -----------------------------------------------
+global variables: messages
+----------------------------------------------- */
+
+static char errormessage[128];
+static bool(*errorfunction)();
+static int  errorlevel;
+// meaning of errorlevel:
+// -1 -> wrong input
+// 0 -> no error
+// 1 -> warning
+// 2 -> fatal error
+
+/* -----------------------------------------------
 global variables: data storage
 ----------------------------------------------- */
 
@@ -596,7 +609,7 @@ int scan_count = 0; // count of scans
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
 // Parses header for imageinfo.
-bool setup_imginfo();
+void setup_imginfo();
 
 // Calculates next position for MCU.
 CodingStatus next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
@@ -607,11 +620,26 @@ namespace encode {
 	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>();
 	// JPEG encoding routine.
 	bool recode() {
-		return jpeg_encoder->recode();
+		try {
+			jpeg_encoder->recode();
+		}
+		catch (const std::exception& e) {
+			std::strcpy(errormessage, e.what());
+			errorlevel = 2;
+			return false;
+		}
+		return true;
 	}
 	// Merges header & image data to jpeg.
 	bool merge() {
-		return jpeg_encoder->merge();
+		try {
+			jpeg_encoder->merge();
+		} catch (const std::exception& e) {
+			std::strcpy(errormessage, e.what());
+			errorlevel = 2;
+			return false;
+		}
+		return true;
 	}
 }
 
@@ -621,15 +649,36 @@ namespace decode {
 	// Read in header and image data.
 	bool read() {
 		auto reader = std::make_unique<JpgReader>();
-		return reader->read();
+		try {
+			reader->read();
+		} catch (const std::exception& e) {
+			std::strcpy(errormessage, e.what());
+			errorlevel = 2;
+			return false;
+		}
+		return true;
 	}
 	// JPEG decoding routine.
 	bool decode() {
-		return jpeg_decoder->decode(jpegtype, segments, cmpnfo, huffdata);
+		try {
+			jpeg_decoder->decode(jpegtype, segments, cmpnfo, huffdata);
+		} catch (const std::exception& e) {
+			std::strcpy(errormessage, e.what());
+			errorlevel = 2;
+			return false;
+		}
+		return true;
 	}
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
-		return jpeg_decoder->check_value_range(cmpnfo);
+		try {
+			jpeg_decoder->check_value_range(cmpnfo);
+		} catch (const std::exception& e) {
+			std::strcpy(errormessage, e.what());
+			errorlevel = 2;
+			return false;
+		}
+		return true;
 	}
 
 }
@@ -643,14 +692,28 @@ namespace pjg {
 	namespace encode {
 		PjgEncoder pjg_encoder;
 		bool encode() {
-			return pjg_encoder.encode();
+			try {
+				pjg_encoder.encode();
+			} catch (const std::exception& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
+				return false;
+			}
+			return true;
 		}
 	}
 
 	namespace decode {
 		PjgDecoder pjg_decoder;
 		bool decode() {
-			return pjg_decoder.decode();
+			try {
+				pjg_decoder.decode();
+			} catch (const std::exception& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
+				return false;
+			}
+			return true;
 		}
 	}
 }
@@ -739,20 +802,6 @@ static int    dev_size_acl[ 4 ]{};
 static int    dev_size_zdh[ 4 ]{};
 static int    dev_size_zdl[ 4 ]{};
 #endif
-
-
-/* -----------------------------------------------
-	global variables: messages
-	----------------------------------------------- */
-
-static char errormessage [ 128 ];
-static bool (*errorfunction)();
-static int  errorlevel;
-// meaning of errorlevel:
-// -1 -> wrong input
-// 0 -> no error
-// 1 -> warning
-// 2 -> fatal error
 
 
 /* -----------------------------------------------
@@ -1972,8 +2021,8 @@ static bool reset_buffers()
 
 void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
-	uint32_t cpos = 0; // rst marker counter
-	uint32_t crst = 0; // current rst marker counter
+	std::uint32_t cpos = 0; // rst marker counter
+	std::uint32_t crst = 0; // current rst marker counter
 	while (true) {
 		// read byte from imagedata
 		std::uint8_t tmp = str_in->read_byte();
@@ -2009,9 +2058,8 @@ void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<
 					// realloc and set only if needed
 					jpg::rst_err.resize(jpg::scan_count + 1);
 					if (crst > 255) {
-						sprintf(errormessage, "Severe false use of RST markers (%u)", crst);
-						errorlevel = 1;
-						crst = 255;
+						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
+						// crst = 255;
 					}
 					jpg::rst_err[jpg::scan_count] = crst;
 				}
@@ -2029,7 +2077,7 @@ void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<
 	}
 }
 
-bool JpgReader::read() {
+void JpgReader::read() {
 	// preset count of scans
 	jpg::scan_count = 0;
 
@@ -2048,10 +2096,8 @@ bool JpgReader::read() {
 		if (type == Marker::kSOS) { // if last marker was sos
 			try {
 				read_sos(huffw, segment);
-			} catch (std::runtime_error& e) {
-				sprintf(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (const std::runtime_error&) {
+				throw;
 			}
 		} else {
 			// read in next marker
@@ -2060,8 +2106,8 @@ bool JpgReader::read() {
 			}
 			if (segment[0] != 0xFF) {
 				// ugly fix for incorrect marker segment sizes
-				sprintf(errormessage, "size mismatch in marker segment FF %2X", type);
-				errorlevel = 2;
+				throw std::runtime_error("size mismatch in marker segment FF");
+				/*errorlevel = 2;
 				if (type == Marker::kCOM) { //  if last marker was COM try again
 					if (str_in->read(segment, 2) != 2) {
 						break;
@@ -2072,7 +2118,7 @@ bool JpgReader::read() {
 				}
 				if (errorlevel == 2) {
 					return false;
-				}
+				}*/
 			}
 		}
 
@@ -2113,9 +2159,7 @@ bool JpgReader::read() {
 
 	// check if everything went OK
 	if (segments.empty() || huffdata.empty()) {
-		sprintf(errormessage, "unexpected end of data encountered");
-		errorlevel = 2;
-		return false;
+		throw std::runtime_error("unexpected end of data encountered");
 	}
 
 	// store garbage after EOI if needed
@@ -2139,14 +2183,14 @@ bool JpgReader::read() {
 	jpgfilesize = str_in->getsize();
 
 	// parse header for image info
-	if (!jpg::setup_imginfo()) {
-		return false;
+	try {
+		jpg::setup_imginfo();
+	} catch (const std::exception&) {
+		throw;
 	}
-
-	return true;
 }
 
-bool JpgEncoder::merge() {
+void JpgEncoder::merge() {
 	int rpos = 0; // current restart marker position
 	int scan = 1; // number of current scan	
 
@@ -2215,37 +2259,14 @@ bool JpgEncoder::merge() {
 
 	// errormessage if write error
 	if (str_out->chkerr()) {
-		sprintf(errormessage, "write error, possibly drive is full");
-		errorlevel = 2;
-		return false;
+		throw std::runtime_error("write error, possibly drive is full");
 	}
 
 	// get filesize
 	jpgfilesize = str_out->getsize();
-
-	return true;
 }
 
-bool JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
-	// out of range should never happen with unmodified JPEGs
-	for (std::size_t i = 0; i < cmpts.size(); i++) {
-		const auto& cmpt = cmpts[i];
-		for (std::size_t bpos = 0; bpos < cmpt.colldata.size(); bpos++) {
-			const auto& coeffs = cmpt.colldata[bpos];
-			const int absmax = cmpt.max_v(bpos);
-			for (int dpos = 0; dpos < cmpt.bc; dpos++)
-				if (std::abs(coeffs[dpos]) > absmax) {
-					sprintf(errormessage, "value out of range error: cmp%u, frq%u, val %i, max %i",
-						i, bpos, coeffs[dpos], absmax);
-					errorlevel = 2;
-					return false;
-				}
-		}
-	}
-	return true;
-}
-
-bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
+void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
 {		
 	short block[64]; // store block for coeffs
 	
@@ -2266,10 +2287,8 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 		if (type == Marker::kDHT) {
 			try {
 				jfif::parse_dht(segment.get_data(), hcodes);
-			} catch (const std::range_error& e) {
-				std::strcpy(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (const std::range_error&) {
+				throw;
 			}
 			build_trees(hcodes, htrees);
 		} else if (type == Marker::kDRI) {
@@ -2277,11 +2296,8 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 		} else if (type == Marker::kSOS) {
 			try {
 				scan_info = jfif::parse_sos(segment.get_data());
-			}
-			catch (std::runtime_error& e) {
-				std::strcpy(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (std::runtime_error&) {
+				throw;
 			}
 		} else {
 			continue;
@@ -2297,9 +2313,7 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			auto& cmpt = cmpts[scan_info.cmp[csc]];
 			if ( ( scan_info.sal == 0 && !htrees[0][cmpt.huffdc] ) ||
 				 (scan_info.sah >  0 && !htrees[1][cmpt.huffac] ) ) {
-				sprintf( errormessage, "huffman table missing in scan%i", jpg::scan_count );
-				errorlevel = 2;
-				return false;
+				throw std::runtime_error("huffman table missing in scan%i" + std::to_string(jpg::scan_count));
 			}
 		}
 		
@@ -2341,8 +2355,7 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
-							sprintf( errormessage, "reconstruction of inefficient coding not supported" );
-							errorlevel = 1;
+							throw std::runtime_error("reconstruction of inefficient coding not supported");
 						}
 						
 						// fix dc
@@ -2403,8 +2416,7 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
-							sprintf( errormessage, "reconstruction of inefficient coding not supported" );
-							errorlevel = 1;
+							throw std::runtime_error("reconstruction of inefficient coding not supported");
 						}
 						
 						// fix dc
@@ -2469,9 +2481,7 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 									// check for non optimal coding
 									if ( ( eob == scan_info.from )  && ( peobrun > 0 ) &&
 										( peobrun <	hcodes[ 1 ][cmpts[cmp].huffac ]->max_eobrun - 1 ) ) {
-										sprintf( errormessage,
-											"reconstruction of inefficient coding not supported" );
-										errorlevel = 1;
+										throw std::runtime_error("reconstruction of inefficient coding not supported");
 									}
 									peobrun = eobrun;
 									eobrun--;
@@ -2508,9 +2518,7 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 									// check for non optimal coding
 									if ( ( eob == scan_info.from ) && ( peobrun > 0 ) &&
 										( peobrun < hcodes[ 1 ][cmpts[cmp].huffac ]->max_eobrun - 1 ) ) {
-										sprintf( errormessage,
-											"reconstruction of inefficient coding not supported" );
-										errorlevel = 1;
+										throw std::runtime_error("reconstruction of inefficient coding not supported");
 									}
 									
 									// store eobrun
@@ -2540,9 +2548,8 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			// unpad huffman reader / check padbit
 			if ( jpg::padbit != -1 ) {
 				if ( jpg::padbit != huffr->unpad( jpg::padbit ) ) {
-					sprintf( errormessage, "inconsistent use of padbits" );
-					jpg::padbit = 1;
-					errorlevel = 1;
+					throw std::runtime_error("inconsistent use of padbits" );
+					//jpg::padbit = 1;
 				}
 			}
 			else {
@@ -2551,10 +2558,8 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			
 			// evaluate status
 			if ( status == CodingStatus::ERROR ) {
-				sprintf( errormessage, "decode error in scan%i / mcu%i",
-					jpg::scan_count, ( scan_info.cmpc > 1 ) ? mcu : dpos );
-				errorlevel = 2;
-				return false;
+				throw std::runtime_error("decode error in scan" + std::to_string(jpg::scan_count)
+					+ " / mcu" + std::to_string(( scan_info.cmpc > 1 ) ? mcu : dpos));
 			}
 			else if ( status == CodingStatus::DONE ) {
 				jpg::scan_count++; // increment scan counter
@@ -2565,23 +2570,18 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 	
 	// check for missing data
 	if (huffr->overread()) {
-		sprintf( errormessage, "coded image data truncated / too short" );
-		errorlevel = 1;
+		throw std::runtime_error("coded image data truncated / too short" );
 	}
 	
 	// check for surplus data
 	if ( !huffr->eof()) {
-		sprintf( errormessage, "surplus data found after coded image data" );
-		errorlevel = 1;
+		throw std::runtime_error("surplus data found after coded image data" );
 	}
 
 	huffr = nullptr;
-	
-	
-	return true;
 }
 
-bool JpgEncoder::recode()
+void JpgEncoder::recode()
 {		
 	std::array<std::int16_t, 64> block; // store block for coeffs
 	
@@ -2606,20 +2606,16 @@ bool JpgEncoder::recode()
 		if (type == Marker::kDHT) {
 			try {
 				jfif::parse_dht(segment.get_data(), hcodes);
-			} catch (const std::range_error& e) {
-				std::strcpy(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (const std::range_error&) {
+				throw;
 			}
 		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
 			try {
 				scan_info = jfif::parse_sos(segment.get_data());
-			} catch (std::runtime_error& e) {
-				std::strcpy(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (std::runtime_error&) {
+				throw;
 			}
 		} else {
 			continue;
@@ -2836,10 +2832,8 @@ bool JpgEncoder::recode()
 			
 			// evaluate status
 			if ( status == CodingStatus::ERROR ) {
-				sprintf( errormessage, "encode error in scan%i / mcu%i",
-					scan_count, ( scan_info.cmpc > 1 ) ? mcu : dpos );
-				errorlevel = 2;
-				return false;
+				throw std::runtime_error("encode error in scan" + std::to_string(scan_count) 
+					+ " / mcu" + std::to_string(( scan_info.cmpc > 1 ) ? mcu : dpos));
 			}
 			else if ( status == CodingStatus::DONE ) {
 				scan_count++; // increment scan counter
@@ -2860,15 +2854,12 @@ bool JpgEncoder::recode()
 	if (!rstp.empty()) {
 		rstp[rstc] = huffdata.size();
 	}
-	
-	
-	return true;
 }
 
 /* -----------------------------------------------
 	packs all parts to compressed pjg
 	----------------------------------------------- */
-bool PjgEncoder::encode()
+void PjgEncoder::encode()
 {
 	std::uint8_t hcode;
 	int cmp;
@@ -2978,27 +2969,19 @@ bool PjgEncoder::encode()
 		this->generic(encoder, grbgdata);
 	}
 	
-	// finalize arithmetic compression
-	//delete( encoder );
-	
-	
 	// errormessage if write error
 	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "write error, possibly drive is full" );
-		errorlevel = 2;		
-		return false;
+		throw std::runtime_error("write error, possibly drive is full");
 	}
 	
 	// get filesize
 	pjgfilesize = str_out->getsize();
-	
-	return true;
 }
 
 /* -----------------------------------------------
 	unpacks compressed pjg to colldata
 	----------------------------------------------- */
-bool PjgDecoder::decode()
+void PjgDecoder::decode()
 {
 	std::uint8_t hcode;
 	
@@ -3010,19 +2993,15 @@ bool PjgDecoder::decode()
 			for (auto& cmpt : cmpnfo) {
 				try {
 					cmpt.nois_trs = str_in->read_byte();
-				} catch (std::runtime_error& e) {
-					sprintf(errormessage, e.what());
-					errorlevel = 2;
-					return false;
+				} catch (std::runtime_error&) {
+					throw;
 				}
 			}
 			for (auto& cmpt : cmpnfo) {
 				try {
 					cmpt.segm_cnt = str_in->read_byte();
-				} catch (std::runtime_error& e) {
-					sprintf(errormessage, e.what());
-					errorlevel = 2;
-					return false;
+				} catch (std::runtime_error&) {
+					throw;
 				}
 			}
 			auto_set = false;
@@ -3030,17 +3009,14 @@ bool PjgDecoder::decode()
 		else if ( hcode >= 0x14 ) {
 			// compare version number
 			if ( hcode != program_info::appversion ) {
-				sprintf( errormessage, "incompatible file, use %s v%i.%i",
-					program_info::appname.c_str(), hcode / 10, hcode % 10 );
-				errorlevel = 2;
-				return false;
+				throw std::runtime_error("incompatible file, use " + program_info::appname
+					+ " v" + std::to_string(hcode / 10 ) + "." + std::to_string(hcode % 10));
+			} else {
+				break;
 			}
-			else break;
 		}
 		else {
-			sprintf( errormessage, "unknown header code, use newer version of %s", program_info::appname.c_str());
-			errorlevel = 2;
-			return false;
+			throw std::runtime_error("unknown header code, use newer version of " + program_info::appname);
 		}
 	}
 	
@@ -3062,7 +3038,11 @@ bool PjgDecoder::decode()
 	// undo header optimizations
 	this->deoptimize_header();
 	// parse header for image-info
-	if ( !jpg::setup_imginfo() ) return false;
+	try {
+		jpg::setup_imginfo();
+	} catch (const std::exception&) {
+		throw;
+	}
 	
 	// decode actual components data
 	for (auto& cmpt : cmpnfo) {
@@ -3090,16 +3070,13 @@ bool PjgDecoder::decode()
 	
 	// get filesize
 	pjgfilesize = str_in->getsize();
-	
-	
-	return true;
 }
 
 /* ----------------------- End of main functions -------------------------- */
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
 
-bool jpg::setup_imginfo()
+void jpg::setup_imginfo()
 {
 		
 	// header parser loop
@@ -3110,28 +3087,22 @@ bool jpg::setup_imginfo()
 			&& type != Marker::kSOS) {
 			try {
 				jfif::parse_jfif(segment);
-			} catch (const std::runtime_error& e) {
-				std::strcpy(errormessage, e.what());
-				errorlevel = 2;
-				return false;
+			} catch (const std::runtime_error&) {
+				throw;
 			}
 		}
 	}
 
 	// check if information is complete
 	if (cmpnfo.empty()) {
-		sprintf(errormessage, "header contains incomplete information");
-		errorlevel = 2;
-		return false;
+		throw std::runtime_error("header contains incomplete information");
 	}
 	for (const auto& cmpt : cmpnfo) {
 		if (cmpt.sfv == 0
 			|| cmpt.sfh == 0
 			|| cmpt.qtable[0] == 0
 			|| jpegtype == JpegType::UNKNOWN) {
-			sprintf(errormessage, "header information is incomplete");
-			errorlevel = 2;
-			return false;
+			throw std::runtime_error("header information is incomplete");
 		}
 	}
 
@@ -3189,8 +3160,6 @@ bool jpg::setup_imginfo()
 			cmpt.nois_trs = pjg::conf_ntrs[i][cmpt.sid];
 		}
 	}
-	
-	return true;
 }
 
 CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)

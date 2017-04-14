@@ -1,5 +1,24 @@
 #include "jpgdecoder.h"
 
+#include <string>
+
+void JpgDecoder::check_value_range(const std::vector<Component>& cmpts) {
+	// out of range should never happen with unmodified JPEGs
+	for (std::size_t i = 0; i < cmpts.size(); i++) {
+		const auto& cmpt = cmpts[i];
+		for (std::size_t bpos = 0; bpos < cmpt.colldata.size(); bpos++) {
+			const auto& coeffs = cmpt.colldata[bpos];
+			const int absmax = cmpt.max_v(bpos);
+			for (int dpos = 0; dpos < cmpt.bc; dpos++)
+				if (std::abs(coeffs[dpos]) > absmax) {
+					throw std::range_error("value out of range error: cmp " + std::to_string(i)
+						+ ", frq " + std::to_string(bpos)
+						+ ", val " + std::to_string(coeffs[dpos])
+						+ ", max " + std::to_string(absmax));
+				}
+		}
+	}
+}
 
 void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees) {
 	for (std::size_t i = 0; i < hcodes.size(); i++) {

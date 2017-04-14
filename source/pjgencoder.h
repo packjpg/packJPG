@@ -11,7 +11,7 @@
 
 class PjgEncoder {
 public:
-	bool encode();
+	void encode();
 private:
 	// Optimizes DHT segments for compression.
 	void optimize_dht(Segment& segment);

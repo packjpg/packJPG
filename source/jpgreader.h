@@ -10,7 +10,7 @@
 class JpgReader {
 public:
 	// Read in header and image data.
-	bool read();
+	void read();
 
 private:
 	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment);

@@ -11,9 +11,9 @@
 class JpgEncoder {
 public:
 	// JPEG encoding routine.
-	bool recode();
+	void recode();
 	// Merges header & image data to jpeg.
-	bool merge();
+	void merge();
 
 private:
 	// Sequential block encoding routine.
