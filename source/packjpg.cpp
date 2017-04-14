@@ -2893,7 +2893,7 @@ void PjgEncoder::encode()
 	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
 	
 	// optimize header for compression
-	this->optimize_header();
+	this->optimize_header(segments);
 	// set padbit to 1 if previously unset
 	if (jpg::padbit == -1 )	jpg::padbit = 1;
 	
@@ -2911,7 +2911,6 @@ void PjgEncoder::encode()
 	this->bit(encoder, jpg::rst_err.empty() ? 0 : 1);
 	// encode # of false set RST markers per scan
 	if (!jpg::rst_err.empty()) {
-		jpg::rst_err.resize(jpg::scan_count); // TODO: is this necessary?
 		this->generic(encoder, jpg::rst_err);
 	}
 	
@@ -3036,7 +3035,7 @@ void PjgDecoder::decode()
 	}
 	
 	// undo header optimizations
-	this->deoptimize_header();
+	this->deoptimize_header(segments);
 	// parse header for image-info
 	try {
 		jpg::setup_imginfo();
@@ -3230,33 +3229,6 @@ CodingStatus jpg::next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* 
 }
 
 /* ----------------------- End of JPEG specific functions -------------------------- */
-
-/* ----------------------- End of PJG specific functions -------------------------- */
-
-void PjgEncoder::optimize_header() {
-	for (auto& segment : segments) {
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
-			this->optimize_dht(segment);
-		}
-		else if (type == Marker::kDQT) {
-			this->optimize_dqt(segment);
-		}
-	}
-}
-
-void PjgDecoder::deoptimize_header() {
-	for (auto& segment : segments) {
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
-			this->deoptimize_dht(segment);
-		} else if (type == Marker::kDQT) {
-			this->deoptimize_dqt(segment);
-		}
-	}
-}
-
-/* ----------------------- End of PJG specific functions -------------------------- */
 
 /* ----------------------- Begin of miscellaneous helper functions -------------------------- */
 

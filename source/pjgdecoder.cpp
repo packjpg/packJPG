@@ -499,3 +499,15 @@ void PjgDecoder::deoptimize_dht(Segment& segment) {
 	}
 	segment.set_data(data);
 }
+
+void PjgDecoder::deoptimize_header(std::vector<Segment>& segments) {
+	for (auto& segment : segments) {
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			this->deoptimize_dht(segment);
+		}
+		else if (type == Marker::kDQT) {
+			this->deoptimize_dqt(segment);
+		}
+	}
+}

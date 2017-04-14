@@ -20,7 +20,7 @@ private:
 	// Undoes DQT segment optimizations.
 	void deoptimize_dqt(Segment& segment);
 	// Undoes DHT and DQT (header) optimizations.
-	void deoptimize_header();
+	void deoptimize_header(std::vector<Segment>& segments);
 
 	std::array<std::uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
 	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);

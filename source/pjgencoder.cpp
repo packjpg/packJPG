@@ -554,3 +554,15 @@ void PjgEncoder::optimize_dht(Segment& segment) {
 	}
 	segment.set_data(data);
 }
+
+void PjgEncoder::optimize_header(std::vector<Segment>& segments) {
+	for (auto& segment : segments) {
+		const Marker type = segment.get_type();
+		if (type == Marker::kDHT) {
+			this->optimize_dht(segment);
+		}
+		else if (type == Marker::kDQT) {
+			this->optimize_dqt(segment);
+		}
+	}
+}

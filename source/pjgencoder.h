@@ -18,7 +18,7 @@ private:
 	// Optimizes DQT segments for compression.
 	void optimize_dqt(Segment& segment);
 	// Optimizes JFIF header for compression.
-	void optimize_header();
+	void optimize_header(std::vector<Segment>& segments);
 
 	std::array<std::uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmp);
 	void zdst_high(const std::unique_ptr<ArithmeticEncoder>& enc, const Component& cmpt);
