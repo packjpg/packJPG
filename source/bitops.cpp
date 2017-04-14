@@ -15,9 +15,10 @@ reading and writing of arrays
 #include <io.h>
 #endif
 
-abitreader::abitreader(const std::vector<std::uint8_t>& bits) : data(bits), cbyte(std::begin(data)) {
-	eof_ = data.empty();
-}
+abitreader::abitreader(const std::vector<std::uint8_t>& bits) :
+	data(bits),
+	cbyte(std::begin(data)),
+	eof_(bits.empty()) {}
 
 abitreader::~abitreader() {}
 
@@ -36,7 +37,7 @@ unsigned int abitreader::read(int nbits) {
 
 	while (nbits >= cbit) {
 		nbits -= cbit;
-		retval |= (bitops::RBITS( *cbyte, cbit ) << nbits);
+		retval |= (bitops::RBITS(*cbyte, cbit) << nbits);
 		cbit = 8;
 		++cbyte;
 		if (cbyte == std::end(data)) {
@@ -46,7 +47,7 @@ unsigned int abitreader::read(int nbits) {
 	}
 
 	if (nbits > 0) {
-		retval |= (MBITS( *cbyte, cbit, (cbit-nbits) ));
+		retval |= (MBITS(*cbyte, cbit, (cbit - nbits)));
 		cbit -= nbits;
 	}
 
@@ -54,8 +55,6 @@ unsigned int abitreader::read(int nbits) {
 }
 
 std::uint8_t abitreader::read_bit() {
-	std::uint8_t bit;
-
 	// safety check for eof
 	if (eof()) {
 		overread_ = true;
@@ -63,7 +62,7 @@ std::uint8_t abitreader::read_bit() {
 	}
 
 	// read one bit
-	bit = bitops::BITN( *cbyte, --cbit );
+	std::uint8_t bit = bitops::BITN(*cbyte, --cbit);
 	if (cbit == 0) {
 		++cbyte;
 		if (cbyte == std::end(data)) {
@@ -118,7 +117,7 @@ void abitwriter::write(unsigned int val, int nbits) {
 
 	// write data
 	while (nbits >= cbit) {
-		data[cbyte] |= (MBITS32(val, nbits, (nbits-cbit)));
+		data[cbyte] |= (MBITS32(val, nbits, (nbits - cbit)));
 		nbits -= cbit;
 		cbyte++;
 		cbit = 8;
@@ -215,8 +214,7 @@ bool abytereader::read(std::uint8_t* byte) {
 	}
 }
 
-int abytereader::read_n(std::uint8_t* byte, int n)
-{
+int abytereader::read_n(std::uint8_t* byte, int n) {
 	if (n <= 0 || byte == nullptr) {
 		return 0;
 	}
@@ -247,7 +245,7 @@ void abytereader::reset() {
 	cbyte = std::begin(data);
 	_eof = cbyte == std::end(data);
 }
-	
+
 int abytereader::num_bytes() const {
 	return data.size();
 }
@@ -301,7 +299,7 @@ std::vector<std::uint8_t> abytewriter::get_data() {
 int abytewriter::getpos() const {
 	return cbyte;
 }
-	
+
 void abytewriter::reset() {
 	cbyte = 0;
 }
@@ -309,10 +307,11 @@ void abytewriter::reset() {
 MemStream::MemStream(const std::vector<std::uint8_t>& bytes, StreamMode mode) {
 	is_stream = false;
 	io_mode = mode;
-	if (mode == StreamMode::kRead)
+	if (mode == StreamMode::kRead) {
 		mrdr = std::make_unique<abytereader>(bytes);
-	else
+	} else {
 		mwrt = std::make_unique<abytewriter>(bytes.size());
+	}
 }
 
 MemStream::MemStream(StreamMode mode) {
@@ -328,10 +327,10 @@ MemStream::MemStream(StreamMode mode) {
 		constexpr int buffer_capacity = 1024 * 1024;
 		std::vector<std::uint8_t> buffer(buffer_capacity);
 
-		int bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
+		int bytesRead = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 		while (bytesRead > 0) {
 			strwrt->write_n(buffer.data(), bytesRead);
-			bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
+			bytesRead = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 		}
 		bytes = strwrt->get_data();
 	}
@@ -349,7 +348,7 @@ MemStream::~MemStream() {
 	if (is_stream) {
 		if (io_mode == StreamMode::kWrite) {
 			const auto& data = mwrt->get_data();
-			fwrite(data.data(), sizeof(std::uint8_t), data.size(), stdout);
+			fwrite(data.data(), sizeof data[0], data.size(), stdout);
 		}
 	}
 }
@@ -357,22 +356,16 @@ MemStream::~MemStream() {
 /* -----------------------------------------------
 	switches mode from reading to writing and vice versa
 	----------------------------------------------- */
-	
-void MemStream::switch_mode()
-{	
-	// return immediately if there's an error
-	if ( chkerr() ) return;
-	
-	
-	if ( io_mode == StreamMode::kRead) {
+
+void MemStream::switch_mode() {
+	if (io_mode == StreamMode::kRead) {
 		// WARNING: when switching from reading to writing, information might be lost forever
 		mwrt = std::make_unique<abytewriter>(mrdr->num_bytes());
-		mrdr.reset();
+		mrdr.reset(nullptr);
 		io_mode = StreamMode::kWrite;
-	}
-	else {
+	} else {
 		mrdr = std::make_unique<abytereader>(mwrt->get_data());
-		mwrt.reset();
+		mwrt.reset(nullptr);
 		io_mode = StreamMode::kRead;
 	}
 }
@@ -382,10 +375,11 @@ void MemStream::switch_mode()
 	rewind to beginning of stream
 	----------------------------------------------- */
 int MemStream::rewind() {
-	if (io_mode == StreamMode::kRead)
+	if (io_mode == StreamMode::kRead) {
 		mrdr->reset();
-	else
+	} else {
 		mwrt->reset();
+	}
 
 	return getpos();
 }
@@ -393,14 +387,14 @@ int MemStream::rewind() {
 /* -----------------------------------------------
 	get current position in stream
 	----------------------------------------------- */
-int MemStream::getpos()
-{
+int MemStream::getpos() {
 	int pos;
-	
-	if ( io_mode == StreamMode::kRead )
+
+	if (io_mode == StreamMode::kRead) {
 		pos = mrdr->num_bytes_read();
-	else
+	} else {
 		pos = mwrt->getpos();
+	}
 
 	return pos;
 }
@@ -408,8 +402,7 @@ int MemStream::getpos()
 /* -----------------------------------------------
 	get size of file
 	----------------------------------------------- */
-int MemStream::getsize()
-{
+int MemStream::getsize() {
 	int siz;
 
 	if (io_mode == StreamMode::kRead) {
@@ -421,33 +414,29 @@ int MemStream::getsize()
 	return siz;
 }
 
-std::vector<std::uint8_t> MemStream::get_data()
-{
+std::vector<std::uint8_t> MemStream::get_data() {
 	return (io_mode == StreamMode::kRead) ? mrdr->get_data() : mwrt->get_data();
 }
 
 /* -----------------------------------------------
 	check for errors
-	----------------------------------------------- */	
+	----------------------------------------------- */
 bool MemStream::chkerr() {
 	return false;
 }
 
 /* -----------------------------------------------
 	check for eof (read only)
-	----------------------------------------------- */	
-bool MemStream::chkeof()
-{
+	----------------------------------------------- */
+bool MemStream::chkeof() {
 	return false;
 }
 
 /* -----------------------------------------------
 	write function for memory
 	----------------------------------------------- */
-int MemStream::write(const std::uint8_t* from, int dtsize )
-{	
+int MemStream::write(const std::uint8_t* from, int dtsize) {
 	mwrt->write_n(from, dtsize);
-	
 	return dtsize;
 }
 
@@ -459,8 +448,7 @@ int MemStream::write_byte(std::uint8_t byte) {
 /* -----------------------------------------------
 	read function for memory
 	----------------------------------------------- */
-int MemStream::read(std::uint8_t* to, int dtsize)
-{	
+int MemStream::read(std::uint8_t* to, int dtsize) {
 	return mrdr->read_n(to, dtsize);
 }
 
@@ -508,7 +496,7 @@ void FileStream::switch_mode() {
 }
 
 int FileStream::read(std::uint8_t* to, int dtsize) {
-	return fread(to, sizeof(to[0]), dtsize, fptr);
+	return fread(to, sizeof to[0], dtsize, fptr);
 }
 
 std::size_t FileStream::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
@@ -531,7 +519,7 @@ bool FileStream::read_byte(std::uint8_t* to) {
 }
 
 int FileStream::write(const std::uint8_t* from, int dtsize) {
-	return fwrite(from, sizeof(from[0]), dtsize, fptr);
+	return fwrite(from, sizeof from[0], dtsize, fptr);
 }
 
 int FileStream::write_byte(std::uint8_t byte) {
@@ -564,7 +552,7 @@ bool FileStream::chkerr() {
 }
 
 bool FileStream::chkeof() {
-	return  feof(fptr) != 0;
+	return feof(fptr) != 0;
 }
 
 std::vector<std::uint8_t> FileStream::get_data() {

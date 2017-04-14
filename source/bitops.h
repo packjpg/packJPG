@@ -6,20 +6,20 @@
 #include <vector>
 
 namespace bitops {
-	template <class T>
-	constexpr T RBITS(T val, int n) {
-		return val & (0xFF >> (8 - n));
-	}
+template <class T>
+constexpr T RBITS(T val, int n) {
+	return val & (0xFF >> (8 - n));
+}
 
-	template <class T>
-	constexpr T LBITS(T val, int n) {
-		return val >> (8 - n);
-	}
+template <class T>
+constexpr T LBITS(T val, int n) {
+	return val >> (8 - n);
+}
 
-	template <class T>
-	constexpr int BITN(T val, int n) {
-		return (val >> n) & 0x1;
-	}
+template <class T>
+constexpr int BITN(T val, int n) {
+	return (val >> n) & 0x1;
+}
 }
 
 enum class StreamType {
@@ -33,7 +33,7 @@ enum class StreamMode {
 	kWrite = 1
 };
 
-	
+
 /* -----------------------------------------------
 	class to read arrays bitwise
 	----------------------------------------------- */
@@ -147,11 +147,10 @@ private:
 	class to write arrays bytewise
 	----------------------------------------------- */
 
-class abytewriter
-{
+class abytewriter {
 public:
-	abytewriter( int size );
-	~abytewriter();	
+	abytewriter(int size);
+	~abytewriter();
 	/*
 	 * Writes the byte.
 	 */
@@ -159,11 +158,11 @@ public:
 	/*
 	 * Writes n bytes from the pointer.
 	 */
-	void write_n(const std::uint8_t* bytes, int n );
+	void write_n(const std::uint8_t* bytes, int n);
 	std::vector<std::uint8_t> get_data();
 	int getpos() const;
 	void reset();
-	
+
 private:
 	std::vector<std::uint8_t> data;
 	int cbyte = 0;
@@ -174,11 +173,12 @@ private:
 	class for input and output from file or memory
 	----------------------------------------------- */
 
-class iostream
-{
+class iostream {
 public:
 	iostream() {}
+
 	virtual ~iostream() {}
+
 	virtual void switch_mode() = 0;
 	virtual int read(std::uint8_t* to, int dtsize) = 0;
 	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
