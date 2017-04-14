@@ -273,12 +273,15 @@ packJPG by Matthias Stirner, 01/2016
 #include <vector>
 #include <cstdio>
 
+#include "action.h"
 #include "aricoder.h"
 #include "bitops.h"
 #include "component.h"
 #include "dct8x8.h"
+#include "filetype.h"
 #include "huffcodes.h"
 #include "hufftree.h"
+#include "jfifparse.h"
 #include "jpgdecoder.h"
 #include "jpgencoder.h"
 #include "jpgreader.h"
@@ -299,33 +302,8 @@ packJPG by Matthias Stirner, 01/2016
 // #define DEV_BUILD // uncomment to include developer functions
 // #define DEV_INFOS // uncomment to include developer information
 
-constexpr int pack(std::uint8_t left, std::uint8_t right) {
-	return (int(left) << 8) + int(right);
-}
-
 const std::string FRD_ERRMSG("could not read file / file not found: %s");
 const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
-
-/* -----------------------------------------------
-Enums for use in packJPG processing
------------------------------------------------ */
-
-enum class Action {
-	A_COMPRESS = 1,
-	A_SPLIT_DUMP = 2,
-	A_COLL_DUMP = 3,
-	A_FCOLL_DUMP = 4,
-	A_ZDST_DUMP = 5,
-	A_TXT_INFO = 6,
-	A_DIST_INFO = 7,
-	A_PGM_DUMP = 8
-};
-
-enum class FileType {
-	F_JPG = 1,
-	F_PJG = 2,
-	F_UNK = 3
-};
 
 /* -----------------------------------------------
 global variables: data storage
@@ -379,26 +357,235 @@ static bool swap_streams();
 static bool compare_output();
 #endif
 static bool reset_buffers();
-static bool predict_dc();
-static bool unpredict_dc();
-static bool calc_zdst_lists();
+
+/* -----------------------------------------------
+filter DC coefficients
+----------------------------------------------- */
+
+static bool predict_dc() {
+	// apply prediction, store prediction error instead of DC
+	for (auto& cmpt : cmpnfo) {
+		cmpt.predict_dc();
+	}
+	return true;
+}
+
+
+/* -----------------------------------------------
+unpredict DC coefficients
+----------------------------------------------- */
+
+static bool unpredict_dc() {
+	// remove prediction, store DC instead of prediction error
+	for (auto& cmpt : cmpnfo) {
+		cmpt.unpredict_dc();
+	}
+	return true;
+}
+
+/* -----------------------------------------------
+calculate zero distribution lists
+----------------------------------------------- */
+
+static bool calc_zdst_lists() {
+	// this functions counts, for each DCT block, the number of non-zero coefficients
+	for (auto& cmpt : cmpnfo) {
+		cmpt.calc_zdst_lists();
+	}
+
+	return true;
+}
+
+namespace image {
+	int imgwidth = 0; // width of image
+	int imgheight = 0; // height of image
+
+	int mcuv = 0; // mcus per line
+	int mcuh = 0; // mcus per collumn
+	int mcuc = 0; // count of mcus
+}
+
 
 namespace jfif {
+	// Helper function that parses SOF0/SOF1/SOF2 segments.
+	inline void parse_sof(Marker type, const std::vector<std::uint8_t>& segment) {
+		int hpos = 4; // current position in segment, start after segment header
 
-	// Parses JFIF segment, returning true if the segment is valid in packjpg and the parse was successful, false otherwise.
-	bool parse_jfif(const Segment& segment);
+					  // set JPEG coding type
+		if (type == Marker::kSOF2) {
+			jpegtype = JpegType::PROGRESSIVE;
+		}
+		else {
+			jpegtype = JpegType::SEQUENTIAL;
+		}
 
-	// Helper function that parses DHT segments, returning true if the parse succeeds.
-	void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes);
+		// check data precision, only 8 bit is allowed
+		int lval = segment[hpos];
+		if (lval != 8) {
+			throw std::runtime_error(std::to_string(lval) + " bit data precision is not supported");
+		}
 
-	// Helper function that parses DQT segments, returning true if the parse succeeds.
-	bool parse_dqt(const std::vector<std::uint8_t>& segment);
-	// Helper function that parses SOS segments, returning true if the parse succeeds.
-	ScanInfo parse_sos(const std::vector<std::uint8_t>& segment);
-	// Helper function that parses SOF0/SOF1/SOF2 segments, returning true if the parse succeeds.
-	bool parse_sof(Marker type, const std::vector<std::uint8_t>& segment);
-	// Helper function that parses DRI segments.
-	int parse_dri(const std::vector<std::uint8_t>& segment);
+		// image size, height & component count
+		image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
+		image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
+		cmpnfo.resize(segment[hpos + 5]);
+		if ((image::imgwidth == 0) || (image::imgheight == 0)) {
+			throw std::runtime_error("resolution is " + std::to_string(image::imgwidth) + "x" + std::to_string(image::imgheight) + ", possible malformed JPEG");
+		}
+		if (cmpnfo.size() > 4) {
+			throw std::runtime_error("image has " + std::to_string(cmpnfo.size()) + " components, max 4 are supported");
+		}
+
+		hpos += 6;
+		// components contained in image
+		for (auto& cmpt : cmpnfo) {
+			cmpt.jid = segment[hpos];
+			cmpt.sfv = bitops::LBITS(segment[hpos + 1], 4);
+			cmpt.sfh = bitops::RBITS(segment[hpos + 1], 4);
+			cmpt.qtable = qtables[segment[hpos + 2]];
+			hpos += 3;
+		}
+	}
+
+	// Helper function that parses SOS segments.
+	inline ScanInfo parse_sos(const std::vector<std::uint8_t>& segment) {
+		int hpos = 4; // current position in segment, start after segment header
+		ScanInfo scan_info;
+		scan_info.cmpc = segment[hpos];
+		if (scan_info.cmpc > cmpnfo.size()) {
+			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(cmpnfo.size()) + " are allowed");
+		}
+		hpos++;
+		for (int i = 0; i < scan_info.cmpc; i++) {
+			int cmp;
+			for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < cmpnfo.size()); cmp++);
+			if (cmp == cmpnfo.size()) {
+				throw std::range_error("component id mismatch in start-of-scan");
+			}
+			auto& cmpt = cmpnfo[cmp];
+			scan_info.cmp[i] = cmp;
+			cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
+			cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
+			if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
+				(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
+				throw std::range_error("huffman table number mismatch");
+			}
+			hpos += 2;
+		}
+		scan_info.from = segment[hpos + 0];
+		scan_info.to = segment[hpos + 1];
+		scan_info.sah = bitops::LBITS(segment[hpos + 2], 4);
+		scan_info.sal = bitops::RBITS(segment[hpos + 2], 4);
+		// check for errors
+		if ((scan_info.from > scan_info.to) || (scan_info.from > 63) || (scan_info.to > 63)) {
+			throw std::range_error("spectral selection parameter out of range");
+		}
+		if ((scan_info.sah >= 12) || (scan_info.sal >= 12)) {
+			throw std::range_error("successive approximation parameter out of range");
+		}
+		return scan_info;
+	}
+
+	// Throws an error if the jfif segment is not valid in packjpg.
+	inline void parse_jfif(const Segment& segment)
+	{
+		switch (segment.get_type()) {
+		case Marker::kDHT:
+			break;
+		case Marker::kDQT:
+			try {
+				jfif::parse_dqt(qtables, segment.get_data());
+			}
+			catch (const std::runtime_error&) {
+				throw;
+			}
+			break;
+		case Marker::kDRI:
+			break;
+		case Marker::kSOS:
+			break;
+		case Marker::kSOF0:
+			// coding process: baseline DCT
+		case Marker::kSOF1:
+			// coding process: extended sequential DCT
+		case Marker::kSOF2:
+			// coding process: progressive DCT
+			try {
+				jfif::parse_sof(segment.get_type(), segment.get_data());
+			}
+			catch (const std::runtime_error&) {
+				throw;
+			}
+			break;
+		case Marker::kSOF3:
+			// coding process: lossless sequential
+			throw std::runtime_error("sof3 marker found, image is coded lossless");
+		case Marker::kSOF5:
+			// coding process: differential sequential DCT
+			throw std::runtime_error("sof5 marker found, image is coded diff. sequential");
+		case Marker::kSOF6:
+			// coding process: differential progressive DCT
+			throw std::runtime_error("sof6 marker found, image is coded diff. progressive");
+		case Marker::kSOF7:
+			// coding process: differential lossless
+			throw std::runtime_error("sof7 marker found, image is coded diff. lossless");
+		case Marker::kSOF9:
+			// coding process: arithmetic extended sequential DCT
+			throw std::runtime_error("sof9 marker found, image is coded arithm. sequential");
+		case Marker::kSOF10:
+			// coding process: arithmetic extended sequential DCT
+			throw std::runtime_error("sof10 marker found, image is coded arithm. progressive");
+		case Marker::kSOF11:
+			// coding process: arithmetic extended sequential DCT
+			throw std::runtime_error("sof11 marker found, image is coded arithm. lossless");
+		case Marker::kSOF13:
+			// coding process: arithmetic differntial sequential DCT
+			throw std::runtime_error("sof13 marker found, image is coded arithm. diff. sequential");
+		case Marker::kSOF14:
+			// coding process: arithmetic differential progressive DCT
+			throw std::runtime_error("sof14 marker found, image is coded arithm. diff. progressive");
+		case Marker::kSOF15:
+			// coding process: arithmetic differntial lossless
+			throw std::runtime_error("sof15 marker found, image is coded arithm. diff. lossless");
+		case Marker::kAPP0:
+		case Marker::kAPP1:
+		case Marker::kAPP2:
+		case Marker::kAPP3:
+		case Marker::kAPP4:
+		case Marker::kAPP5:
+		case Marker::kAPP6:
+		case Marker::kAPP7:
+		case Marker::kAPP8:
+		case Marker::kAPP9:
+		case Marker::kAPP10:
+		case Marker::kAPP11:
+		case Marker::kAPP12:
+		case Marker::kAPP13:
+		case Marker::kAPP14:
+		case Marker::kAPP15:
+		case Marker::kCOM:
+			break;
+		case Marker::kRST0:
+		case Marker::kRST1:
+		case Marker::kRST2:
+		case Marker::kRST3:
+		case Marker::kRST4:
+		case Marker::kRST5:
+		case Marker::kRST6:
+		case Marker::kRST7:
+			// return errormessage - RST is out of place here
+			throw std::runtime_error("rst marker found out of place");
+		case Marker::kSOI:
+			// return errormessage - start-of-image is out of place here
+			throw std::runtime_error("soi marker found out of place");
+		case Marker::kEOI:
+			// return errormessage - end-of-image is out of place here
+			throw std::runtime_error("eoi marker found out of place");
+		default: // unknown marker segment
+				 // return warning
+			throw std::runtime_error("unknown marker found");
+		}
+	}
 }
 
 namespace jpg {
@@ -473,7 +660,15 @@ namespace pjg {
 *
 */
 namespace dct {
-	bool adapt_icos();
+	/* -----------------------------------------------
+	adapt ICOS tables for quantizer tables
+	----------------------------------------------- */
+	bool adapt_icos() {
+		for (auto& cmpt : cmpnfo) {
+			cmpt.adapt_icos();
+		}
+		return true;
+	}
 }
 
 
@@ -526,15 +721,6 @@ static int lib_in_type  = -1;
 static int lib_out_type = -1;
 #endif
 
-namespace image {
-int imgwidth = 0; // width of image
-int imgheight = 0; // height of image
-
-int mcuv = 0; // mcus per line
-int mcuh = 0; // mcus per collumn
-int mcuc = 0; // count of mcus
-}
-	
 #if !defined(BUILD_LIB)
 static std::unique_ptr<iostream> str_str;	// storage stream
 
@@ -995,7 +1181,6 @@ EXPORT const char* pjglib_short_name()
 /* -----------------------------------------------
 	reads in commandline arguments
 	----------------------------------------------- */
-	
 #if !defined(BUILD_LIB)	
 static void initialize_options( int argc, char** argv )
 {	
@@ -1368,7 +1553,6 @@ static void show_help()
 /* -----------------------------------------------
 	processes one file
 	----------------------------------------------- */
-
 static void process_file()
 {	
 	if ( filetype == FileType::F_JPG ) {
@@ -1540,7 +1724,6 @@ static void process_file()
 /* -----------------------------------------------
 	main-function execution routine
 	----------------------------------------------- */
-
 static void execute( bool (*function)() )
 {
 	if ( errorlevel < err_tol ) {
@@ -1592,7 +1775,6 @@ static void execute( bool (*function)() )
 /* -----------------------------------------------
 	check file and determine filetype
 	----------------------------------------------- */
-
 #if !defined(BUILD_LIB)
 static bool check_file()
 {	
@@ -1695,7 +1877,6 @@ static bool check_file()
 /* -----------------------------------------------
 	swap streams / init verification
 	----------------------------------------------- */
-	
 static bool swap_streams()	
 {
 	std::uint8_t dmp[ 2 ];
@@ -1724,7 +1905,6 @@ static bool swap_streams()
 /* -----------------------------------------------
 	comparison between input & output
 	----------------------------------------------- */
-
 static bool compare_output() {
 	const auto& input_data = str_str->get_data();
 	const auto& verif_data = str_out->get_data();
@@ -1913,7 +2093,7 @@ bool JpgReader::read() {
 		if (str_in->read(segment, 2, 2) != 2) {
 			break;
 		}
-		uint32_t len = 2 + pack(segment[2], segment[3]); // Length of current marker segment.
+		uint32_t len = 2 + jfif::pack(segment[2], segment[3]); // Length of current marker segment.
 		if (len < 4) {
 			break;
 		}
@@ -2084,7 +2264,13 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 		ScanInfo scan_info;
 		const Marker type = segment.get_type();
 		if (type == Marker::kDHT) {
-			jfif::parse_dht(segment.get_data(), hcodes);
+			try {
+				jfif::parse_dht(segment.get_data(), hcodes);
+			} catch (const std::range_error& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
+				return false;
+			}
 			build_trees(hcodes, htrees);
 		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
@@ -2092,7 +2278,9 @@ bool JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			try {
 				scan_info = jfif::parse_sos(segment.get_data());
 			}
-			catch (std::runtime_error&) {
+			catch (std::runtime_error& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
 				return false;
 			}
 		} else {
@@ -2416,13 +2604,21 @@ bool JpgEncoder::recode()
 		ScanInfo scan_info;
 		const Marker type = segment.get_type();
 		if (type == Marker::kDHT) {
-			jfif::parse_dht(segment.get_data(), hcodes);
+			try {
+				jfif::parse_dht(segment.get_data(), hcodes);
+			} catch (const std::range_error& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
+				return false;
+			}
 		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
 			try {
 				scan_info = jfif::parse_sos(segment.get_data());
-			} catch (std::runtime_error&) {
+			} catch (std::runtime_error& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
 				return false;
 			}
 		} else {
@@ -2669,62 +2865,9 @@ bool JpgEncoder::recode()
 	return true;
 }
 
-
-/* -----------------------------------------------
-	adapt ICOS tables for quantizer tables
-	----------------------------------------------- */
-	
-bool dct::adapt_icos() {	
-	for (auto& cmpt : cmpnfo) {
-		cmpt.adapt_icos();
-	}	
-	return true;
-}
-
-
-/* -----------------------------------------------
-	filter DC coefficients
-	----------------------------------------------- */
-
-static bool predict_dc() {
-	// apply prediction, store prediction error instead of DC
-	for (auto& cmpt : cmpnfo) {
-		cmpt.predict_dc();
-	}
-	return true;
-}
-
-
-/* -----------------------------------------------
-	unpredict DC coefficients
-	----------------------------------------------- */
-
-static bool unpredict_dc() {
-	// remove prediction, store DC instead of prediction error
-	for (auto& cmpt : cmpnfo) {
-		cmpt.unpredict_dc();
-	}
-	return true;
-}
-
-/* -----------------------------------------------
-	calculate zero distribution lists
-	----------------------------------------------- */
-	
-static bool calc_zdst_lists() {
-	// this functions counts, for each DCT block, the number of non-zero coefficients
-	for (auto& cmpt : cmpnfo) {
-		cmpt.calc_zdst_lists();
-	}
-
-	return true;
-}
-
-
 /* -----------------------------------------------
 	packs all parts to compressed pjg
 	----------------------------------------------- */
-	
 bool PjgEncoder::encode()
 {
 	std::uint8_t hcode;
@@ -2852,11 +2995,9 @@ bool PjgEncoder::encode()
 	return true;
 }
 
-
 /* -----------------------------------------------
 	unpacks compressed pjg to colldata
 	----------------------------------------------- */
-	
 bool PjgDecoder::decode()
 {
 	std::uint8_t hcode;
@@ -2967,7 +3108,11 @@ bool jpg::setup_imginfo()
 		if (type != Marker::kDHT
 			&& type != Marker::kDRI
 			&& type != Marker::kSOS) {
-			if (!jfif::parse_jfif(segment)) {
+			try {
+				jfif::parse_jfif(segment);
+			} catch (const std::runtime_error& e) {
+				std::strcpy(errormessage, e.what());
+				errorlevel = 2;
 				return false;
 			}
 		}
@@ -3038,7 +3183,7 @@ bool jpg::setup_imginfo()
 		for (auto& cmpt : cmpnfo) {
 			int i;
 			for (i = 0;
-			     pjg::conf_sets[i][cmpt.sid] > static_cast<uint32_t>(cmpt.bc);
+			     pjg::conf_sets[i][cmpt.sid] > static_cast<std::uint32_t>(cmpt.bc);
 			     i++);
 			cmpt.segm_cnt = pjg::conf_segm;
 			cmpt.nois_trs = pjg::conf_ntrs[i][cmpt.sid];
@@ -3046,316 +3191,6 @@ bool jpg::setup_imginfo()
 	}
 	
 	return true;
-}
-
-// Builds Huffman trees and codes.
-void jfif::parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
-	int hpos = 4; // current position in segment, start after segment header
-	// build huffman trees & codes
-	while (hpos < segment.size()) {
-		int lval = bitops::LBITS(segment[hpos], 4);
-		int rval = bitops::RBITS(segment[hpos], 4);
-		if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
-			break;
-		}
-
-		hpos++;
-		// build huffman codes & trees
-		hcodes[lval][rval] = std::make_unique<HuffCodes>(&(segment[hpos + 0]), &(segment[hpos + 16]));
-
-		int skip = 16;
-		for (int i = 0; i < 16; i++) {
-			skip += static_cast<int>(segment[hpos + i]);
-		}
-		hpos += skip;
-	}
-
-	if (hpos != segment.size()) {
-		// if we get here, something went wrong
-		sprintf(errormessage, "size mismatch in dht marker");
-		errorlevel = 2;
-		throw std::range_error(errormessage);
-	}
-}
-
-// Copy quantization tables to internal memory
-bool jfif::parse_dqt(const std::vector<std::uint8_t>& segment) {
-	int hpos = 4; // current position in segment, start after segment header
-	while (hpos < segment.size()) {
-		int lval = bitops::LBITS( segment[ hpos ], 4 );
-		int rval = bitops::RBITS( segment[ hpos ], 4 );
-		if (lval < 0 || lval >= 2) {
-			break;
-		}
-		if (rval < 0 || rval >= 4) {
-			break;
-		}
-		hpos++;
-		if (lval == 0) { // 8 bit precision
-			for (int i = 0; i < 64; i++) {
-				qtables[rval][i] = static_cast<std::uint16_t>(segment[hpos + i]);
-				if (qtables[rval][i] == 0) {
-					break;
-				}
-			}
-			hpos += 64;
-		} else { // 16 bit precision
-			for (int i = 0; i < 64; i++) {
-				qtables[rval][i] =
-					pack( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
-				if (qtables[rval][i] == 0) {
-					break;
-				}
-			}
-			hpos += 128;
-		}
-	}
-
-	if (hpos != segment.size()) {
-		// if we get here, something went wrong
-		sprintf(errormessage, "size mismatch in dqt marker");
-		errorlevel = 2;
-		return false;
-	}
-	return true;
-}
-
-// define restart interval
-int jfif::parse_dri(const std::vector<std::uint8_t>& segment) {
-	int hpos = 4; // current position in segment, start after segment header
-	return pack( segment[ hpos ], segment[ hpos + 1 ] );
-}
-
-bool jfif::parse_sof(Marker type, const std::vector<std::uint8_t>& segment) {
-	int hpos = 4; // current position in segment, start after segment header
-
-	// set JPEG coding type
-	if (type == Marker::kSOF2) {
-		jpegtype = JpegType::PROGRESSIVE;
-	} else {
-		jpegtype = JpegType::SEQUENTIAL;
-	}
-
-	// check data precision, only 8 bit is allowed
-	int lval = segment[hpos];
-	if (lval != 8) {
-		sprintf(errormessage, "%i bit data precision is not supported", lval);
-		errorlevel = 2;
-		return false;
-	}
-
-	// image size, height & component count
-	image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
-	image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
-	cmpnfo.resize(segment[hpos + 5]);
-	if ((image::imgwidth == 0) || (image::imgheight == 0)) {
-		sprintf(errormessage, "resolution is %ix%i, possible malformed JPEG", image::imgwidth, image::imgheight);
-		errorlevel = 2;
-		return false;
-	}
-	if (cmpnfo.size() > 4) {
-		sprintf(errormessage, "image has %u components, max 4 are supported", cmpnfo.size());
-		errorlevel = 2;
-		return false;
-	}
-
-	hpos += 6;
-	// components contained in image
-	for (auto& cmpt : cmpnfo) {
-		cmpt.jid = segment[hpos];
-		cmpt.sfv = bitops::LBITS(segment[hpos + 1], 4);
-		cmpt.sfh = bitops::RBITS(segment[hpos + 1], 4);
-		cmpt.qtable = qtables[segment[hpos + 2]];
-		hpos += 3;
-	}
-
-	return true;
-}
-
-ScanInfo jfif::parse_sos(const std::vector<std::uint8_t>& segment) {
-	int hpos = 4; // current position in segment, start after segment header
-	ScanInfo scan_info;
-	scan_info.cmpc = segment[hpos];
-	if (scan_info.cmpc > cmpnfo.size()) {
-		sprintf(errormessage, "%i components in scan, only %u are allowed",
-			scan_info.cmpc, cmpnfo.size());
-		errorlevel = 2;
-		throw std::range_error(errormessage);
-	}
-	hpos++;
-	for (int i = 0; i < scan_info.cmpc; i++) {
-		int cmp;
-		for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < cmpnfo.size()); cmp++);
-		if (cmp == cmpnfo.size()) {
-			sprintf(errormessage, "component id mismatch in start-of-scan");
-			errorlevel = 2;
-			throw std::range_error(errormessage);
-		}
-		auto& cmpt = cmpnfo[cmp];
-		scan_info.cmp[i] = cmp;
-		cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
-		cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
-		if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
-			(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
-			sprintf(errormessage, "huffman table number mismatch");
-			errorlevel = 2;
-			throw std::range_error(errormessage);
-		}
-		hpos += 2;
-	}
-	scan_info.from = segment[hpos + 0];
-	scan_info.to = segment[hpos + 1];
-	scan_info.sah = bitops::LBITS(segment[hpos + 2], 4);
-	scan_info.sal = bitops::RBITS(segment[hpos + 2], 4);
-	// check for errors
-	if ((scan_info.from > scan_info.to) || (scan_info.from > 63) || (scan_info.to > 63)) {
-		sprintf(errormessage, "spectral selection parameter out of range");
-		errorlevel = 2;
-		throw std::range_error(errormessage);
-	}
-	if ((scan_info.sah >= 12) || (scan_info.sal >= 12)) {
-		sprintf(errormessage, "successive approximation parameter out of range");
-		errorlevel = 2;
-		throw std::range_error(errormessage);
-	}
-	return scan_info;
-}
-
-bool jfif::parse_jfif(const Segment& segment)
-{
-	switch (segment.get_type()) {
-	case Marker::kDHT:
-		return true;
-	case Marker::kDQT:
-		return jfif::parse_dqt(segment.get_data());
-	case Marker::kDRI:
-		return true;
-	case Marker::kSOS:
-		// prepare next scan
-		return true;
-
-	case Marker::kSOF0:
-		// coding process: baseline DCT
-
-	case Marker::kSOF1:
-		// coding process: extended sequential DCT
-
-	case Marker::kSOF2:
-		// coding process: progressive DCT
-
-		return jfif::parse_sof(segment.get_type(), segment.get_data());
-
-	case Marker::kSOF3:
-		// coding process: lossless sequential
-		sprintf(errormessage, "sof3 marker found, image is coded lossless");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF5:
-		// coding process: differential sequential DCT
-		sprintf(errormessage, "sof5 marker found, image is coded diff. sequential");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF6:
-		// coding process: differential progressive DCT
-		sprintf(errormessage, "sof6 marker found, image is coded diff. progressive");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF7:
-		// coding process: differential lossless
-		sprintf(errormessage, "sof7 marker found, image is coded diff. lossless");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF9:
-		// coding process: arithmetic extended sequential DCT
-		sprintf(errormessage, "sof9 marker found, image is coded arithm. sequential");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF10:
-		// coding process: arithmetic extended sequential DCT
-		sprintf(errormessage, "sof10 marker found, image is coded arithm. progressive");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF11:
-		// coding process: arithmetic extended sequential DCT
-		sprintf(errormessage, "sof11 marker found, image is coded arithm. lossless");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF13:
-		// coding process: arithmetic differntial sequential DCT
-		sprintf(errormessage, "sof13 marker found, image is coded arithm. diff. sequential");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF14:
-		// coding process: arithmetic differential progressive DCT
-		sprintf(errormessage, "sof14 marker found, image is coded arithm. diff. progressive");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOF15:
-		// coding process: arithmetic differntial lossless
-		sprintf(errormessage, "sof15 marker found, image is coded arithm. diff. lossless");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kAPP0:
-	case Marker::kAPP1:
-	case Marker::kAPP2:
-	case Marker::kAPP3:
-	case Marker::kAPP4:
-	case Marker::kAPP5:
-	case Marker::kAPP6:
-	case Marker::kAPP7:
-	case Marker::kAPP8:
-	case Marker::kAPP9:
-	case Marker::kAPP10:
-	case Marker::kAPP11:
-	case Marker::kAPP12:
-	case Marker::kAPP13:
-	case Marker::kAPP14:
-	case Marker::kAPP15:
-	case Marker::kCOM:
-		// do nothing - return true
-		return true;
-
-	case Marker::kRST0:
-	case Marker::kRST1:
-	case Marker::kRST2:
-	case Marker::kRST3:
-	case Marker::kRST4:
-	case Marker::kRST5:
-	case Marker::kRST6:
-	case Marker::kRST7:
-		// return errormessage - RST is out of place here
-		sprintf(errormessage, "rst marker found out of place");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kSOI:
-		// return errormessage - start-of-image is out of place here
-		sprintf(errormessage, "soi marker found out of place");
-		errorlevel = 2;
-		return false;
-
-	case Marker::kEOI:
-		// return errormessage - end-of-image is out of place here
-		sprintf(errormessage, "eoi marker found out of place");
-		errorlevel = 2;
-		return false;
-
-	default: // unknown marker segment
-			 // return warning
-		sprintf(errormessage, "unknown marker found: FF %2X", std::uint8_t(segment.get_type()));
-		errorlevel = 1;
-		return true;
-	}
 }
 
 CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
@@ -3763,7 +3598,7 @@ static bool dump_info() {
 	int len = 0; // Length of current marker segment.
 	for (hpos = 0; hpos < hdrdata.size(); hpos += len) {
 		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
-		len = 2 + pack(hdrdata[hpos + 2], hdrdata[hpos + 3]);
+		len = 2 + jfif::pack(hdrdata[hpos + 2], hdrdata[hpos + 3]);
 		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);
 	}
 	fprintf(fp, " _END       0 %6i\n", hpos);

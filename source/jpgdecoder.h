@@ -5,22 +5,11 @@
 #include <vector>
 
 #include "component.h"
+#include "codingstatus.h"
 #include "huffcodes.h"
 #include "hufftree.h"
+#include "jpegtype.h"
 #include "segment.h"
-
-enum class JpegType {
-	UNKNOWN = 0,
-	SEQUENTIAL = 1,
-	PROGRESSIVE = 2
-};
-
-enum class CodingStatus {
-	OKAY = 0,
-	RESTART = 1,
-	ERROR = -1,
-	DONE = 2
-};
 
 class JpgDecoder {
 public:
@@ -61,6 +50,5 @@ private:
 
 	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
 };
-
 
 #endif
