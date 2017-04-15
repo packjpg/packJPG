@@ -1,10 +1,6 @@
 #include "pjgdecoder.h"
 #include <algorithm>
 
-
-/* -----------------------------------------------
-encodes frequency scanorder to pjg
------------------------------------------------ */
 std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	int tpos; // true position
 
@@ -55,10 +51,6 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	return zsrtscan;
 }
 
-
-/* -----------------------------------------------
-decodes # of non zeroes from pjg (high)
------------------------------------------------ */
 void PjgDecoder::zdst_high(Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
@@ -79,10 +71,6 @@ void PjgDecoder::zdst_high(Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-decodes # of non zeroes from pjg (low)
------------------------------------------------ */
 void PjgDecoder::zdst_low(Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
@@ -109,10 +97,6 @@ void PjgDecoder::zdst_low(Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-decodes DC coefficients from pjg
------------------------------------------------ */
 void PjgDecoder::dc(Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
@@ -187,10 +171,6 @@ void PjgDecoder::dc(Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-decodes high (7x7) AC coefficients to pjg
------------------------------------------------ */
 void PjgDecoder::ac_high(Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
@@ -308,10 +288,6 @@ void PjgDecoder::ac_high(Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-decodes high (7x7) AC coefficients to pjg
------------------------------------------------ */
 void PjgDecoder::ac_low(Component& cmpt) {
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
@@ -446,16 +422,11 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 	return bwrt->get_data();
 }
 
-
-/* -----------------------------------------------
-decodes one bit from pjg
------------------------------------------------ */
 std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	std::uint8_t bit = decoder_->decode(model.get()); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
-
 
 void PjgDecoder::deoptimize_dqt(Segment& segment) {
 	auto data = segment.get_data();

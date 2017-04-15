@@ -2872,9 +2872,6 @@ PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
 	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
 }
 
-/* -----------------------------------------------
-	packs all parts to compressed pjg
-	----------------------------------------------- */
 void PjgEncoder::encode() {	
 	// optimize header for compression
 	this->optimize_header(segments);
@@ -3002,9 +2999,6 @@ PjgDecoder::PjgDecoder(const std::unique_ptr<iostream>& decoding_stream) {
 	pjgfilesize = decoding_stream->getsize();
 }
 
-/* -----------------------------------------------
-	unpacks compressed pjg to colldata
-	----------------------------------------------- */
 void PjgDecoder::decode() {
 	// decode JPG header
 	segments = Segment::parse_segments(this->generic());

@@ -1,10 +1,8 @@
 #include "pjgencoder.h"
+
 #include <numeric>
 #include <algorithm>
 
-/* -----------------------------------------------
-encodes frequency scanorder to pjg
------------------------------------------------ */
 std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& cmpt) {
 	// calculate zero sort scan
 	const auto zsrtscan = this->get_zerosort_scan(cmpt);
@@ -55,10 +53,6 @@ std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& cmpt) {
 	return zsrtscan;
 }
 
-
-/* -----------------------------------------------
-encodes # of non zeroes to pjg (high)
------------------------------------------------ */
 void PjgEncoder::zdst_high(const Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
@@ -78,10 +72,6 @@ void PjgEncoder::zdst_high(const Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-encodes # of non zeroes to pjg (low)
------------------------------------------------ */
 void PjgEncoder::zdst_low(const Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
@@ -106,10 +96,6 @@ void PjgEncoder::zdst_low(const Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-encodes DC coefficients to pjg
------------------------------------------------ */
 void PjgEncoder::dc(const Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
@@ -184,10 +170,6 @@ void PjgEncoder::dc(const Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-encodes high (7x7) AC coefficients to pjg
------------------------------------------------ */
 void PjgEncoder::ac_high(Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
@@ -304,10 +286,6 @@ void PjgEncoder::ac_high(Component& cmpt) {
 	}
 }
 
-
-/* -----------------------------------------------
-encodes first row/col AC coefficients to pjg
------------------------------------------------ */
 void PjgEncoder::ac_low(Component& cmpt) {
 
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
@@ -431,9 +409,6 @@ void PjgEncoder::ac_low(Component& cmpt) {
 	}
 }
 
-/* -----------------------------------------------
-encodes a stream of generic (8bit) data to pjg
------------------------------------------------ */
 void PjgEncoder::generic(const std::vector<Segment>& segments) {
 	// arithmetic encode data
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
@@ -448,9 +423,6 @@ void PjgEncoder::generic(const std::vector<Segment>& segments) {
 	encoder_->encode(model.get(), 256);
 }
 
-/* -----------------------------------------------
-encodes a stream of generic (8bit) data to pjg
------------------------------------------------ */
 void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
 	// arithmetic encode data
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
@@ -463,10 +435,6 @@ void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
 	encoder_->encode(model.get(), 256);
 }
 
-
-/* -----------------------------------------------
-encodes one bit to pjg
------------------------------------------------ */
 void PjgEncoder::bit(std::uint8_t bit) {
 	// encode one bit
 	auto model = std::make_unique<BinaryModel>(1, -1);
