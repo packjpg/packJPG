@@ -13,6 +13,7 @@
 
 class PjgDecoder {
 public:
+	PjgDecoder(const std::unique_ptr<iostream>& decoding_stream);
 	void decode();
 private:
 	// Undoes DHT segment optimizations.
@@ -22,16 +23,17 @@ private:
 	// Undoes DHT and DQT (header) optimizations.
 	void deoptimize_header(std::vector<Segment>& segments);
 
-	std::array<std::uint8_t, 64> zstscan(const std::unique_ptr<ArithmeticDecoder>& dec);
-	void zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	void ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt);
-	std::vector<std::uint8_t> generic(const std::unique_ptr<ArithmeticDecoder>& dec);
-	std::uint8_t bit(const std::unique_ptr<ArithmeticDecoder>& dec);
+	std::array<std::uint8_t, 64> zstscan();
+	void zdst_high(Component& cmpt);
+	void zdst_low(Component& cmpt);
+	void dc(Component& cmpt);
+	void ac_high(Component& cmpt);
+	void ac_low(Component& cmpt);
+	std::vector<std::uint8_t> generic();
+	std::uint8_t bit();
 
-	PjgContext context;
+	std::unique_ptr<ArithmeticDecoder> decoder_;
+	PjgContext context_;
 };
 
 #endif

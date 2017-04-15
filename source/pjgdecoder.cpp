@@ -1,10 +1,11 @@
 #include "pjgdecoder.h"
+#include <algorithm>
 
 
 /* -----------------------------------------------
 encodes frequency scanorder to pjg
 ----------------------------------------------- */
-std::array<std::uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<ArithmeticDecoder>& dec) {
+std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	int tpos; // true position
 
 	std::array<std::uint8_t, 64> zsrtscan;
@@ -24,7 +25,7 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<Arithmeti
 		model->exclude_symbols(64 - i);
 
 		// decode symbol
-		int cpos = dec->decode(model.get()); // coded position	
+		int cpos = decoder_->decode(model.get()); // coded position	
 		model->shift_context(cpos);
 
 		if (cpos == 0) {
@@ -58,7 +59,7 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan(const std::unique_ptr<Arithmeti
 /* -----------------------------------------------
 decodes # of non zeroes from pjg (high)
 ----------------------------------------------- */
-void PjgDecoder::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt) {
+void PjgDecoder::zdst_high(Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
 	auto& zdstls = cmpt.zdstdata;
@@ -68,13 +69,13 @@ void PjgDecoder::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compon
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++) {
 		// context modelling - use average of above and left as context		
-		auto coords = context.get_context_nnb(dpos, w);
+		auto coords = context_.get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
 		model->shift_context((coords.first + coords.second + 2) / 4);
 		// decode symbol
-		zdstls[dpos] = dec->decode(model.get());
+		zdstls[dpos] = decoder_->decode(model.get());
 	}
 }
 
@@ -82,7 +83,7 @@ void PjgDecoder::zdst_high(const std::unique_ptr<ArithmeticDecoder>& dec, Compon
 /* -----------------------------------------------
 decodes # of non zeroes from pjg (low)
 ----------------------------------------------- */
-void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt) {
+void PjgDecoder::zdst_low(Component& cmpt) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
@@ -98,13 +99,13 @@ void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eobx[dpos]); // shift context
-		zdstls_x[dpos] = dec->decode(model.get()); // decode symbol
+		zdstls_x[dpos] = decoder_->decode(model.get()); // decode symbol
 	}
 	// arithmetic encode zero-distribution-list (first collumn)
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eoby[dpos]); // shift context
-		zdstls_y[dpos] = dec->decode(model.get()); // decode symbol
+		zdstls_y[dpos] = decoder_->decode(model.get()); // decode symbol
 	}
 }
 
@@ -112,9 +113,9 @@ void PjgDecoder::zdst_low(const std::unique_ptr<ArithmeticDecoder>& dec, Compone
 /* -----------------------------------------------
 decodes DC coefficients from pjg
 ----------------------------------------------- */
-void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt) {
+void PjgDecoder::dc(Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context.get_weights(); // weighting for contexts
+	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
 	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
@@ -136,7 +137,7 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
 
 	// set up context quick access array
-	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
+	context_.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 
 	// locally store pointer to coefficients and zero distribution list
 	auto& coeffs = cmpt.colldata[0]; // Pointer to current coefficent data.
@@ -153,12 +154,12 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 		// get segment-number from zero distribution list and segmentation set
 		const int snum = segm_tab[zdstls[dpos]];
 		// calculate contexts (for bit length)
-		const int ctx_avr = context.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context
+		const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context
 		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
 		// decode bit length of current coefficient
-		const int clen = dec->decode(mod_len.get());
+		const int clen = decoder_->decode(mod_len.get());
 
 		// simple treatment if coefficient is zero
 		if (clen == 0) {
@@ -170,14 +171,14 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 			for (int bp = clen - 2; bp >= 0; bp--) {
 				mod_res->shift_model(snum, bp); // shift in 2 contexts
 				// decode bit
-				const int bt = dec->decode(mod_res.get());
+				const int bt = decoder_->decode(mod_res.get());
 				// update absv
 				absv = absv << 1;
 				if (bt)
 					absv |= 1;
 			}
 			// decode sign
-			const int sgn = dec->decode(mod_sgn.get());
+			const int sgn = decoder_->decode(mod_sgn.get());
 			// copy to colldata
 			coeffs[dpos] = (sgn == 0) ? absv : -absv;
 			// store absolute value/sign
@@ -190,9 +191,9 @@ void PjgDecoder::dc(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cm
 /* -----------------------------------------------
 decodes high (7x7) AC coefficients to pjg
 ----------------------------------------------- */
-void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt) {
+void PjgDecoder::ac_high(Component& cmpt) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context.get_weights(); // weighting for contexts
+	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
 	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
@@ -220,7 +221,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
 
 	// set up average context quick access arrays
-	context.aavrg_prepare(c_absc, absv_store.data(), cmpt);
+	context_.aavrg_prepare(c_absc, absv_store.data(), cmpt);
 
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++) {
@@ -257,14 +258,14 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[zdstls[dpos]];
 			// calculate contexts (for bit length)
-			const int ctx_avr = context.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context.
+			const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context.
 			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
 			mod_len->exclude_symbols(max_len);
 
 			// decode bit length of current coefficient
-			const int clen = dec->decode(mod_len.get());
+			const int clen = decoder_->decode(mod_len.get());
 			// simple treatment if coefficient is zero
 			if (clen == 0) {
 				// coeffs[ dpos ] = 0;
@@ -275,7 +276,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 				for (int bp = clen - 2; bp >= 0; bp--) {
 					mod_res->shift_model(snum, bp); // shift in 2 contexts
 					// decode bit
-					const int bt = dec->decode(mod_res.get());
+					const int bt = decoder_->decode(mod_res.get());
 					// update absv
 					absv = absv << 1;
 					if (bt)
@@ -286,7 +287,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 				if (p_y > 0)
 					ctx_sgn += 3 * sgn_nbv[dpos]; // IMPROVE! !!!!!!!!!!!
 				mod_sgn->shift_context(ctx_sgn);
-				const int sgn = dec->decode(mod_sgn.get());
+				const int sgn = decoder_->decode(mod_sgn.get());
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
@@ -311,7 +312,7 @@ void PjgDecoder::ac_high(const std::unique_ptr<ArithmeticDecoder>& dec, Componen
 /* -----------------------------------------------
 decodes high (7x7) AC coefficients to pjg
 ----------------------------------------------- */
-void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component& cmpt) {
+void PjgDecoder::ac_low(Component& cmpt) {
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
@@ -374,7 +375,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 			// edge treatment / calculate LAKHANI context
 			int ctx_lak; // Lakhani context.
 			if ((*edge_c) > 0)
-				ctx_lak = context.lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
+				ctx_lak = context_.lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
 			else
 				ctx_lak = 0;
 			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
@@ -384,7 +385,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 			mod_len->exclude_symbols(max_len);
 
 			// decode bit length of current coefficient
-			const int clen = dec->decode(mod_len.get());
+			const int clen = decoder_->decode(mod_len.get());
 			// simple treatment if coefficients == 0
 			if (clen == 0) {
 				// coeffs[ dpos ] = 0;
@@ -397,7 +398,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 				for (; bp >= thrs_bp; bp--) {
 					mod_top->shift_model(ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp); // shift in 3 contexts
 					// decode bit
-					const int bt = dec->decode(mod_top.get());
+					const int bt = decoder_->decode(mod_top.get());
 					// update context
 					ctx_res = ctx_res << 1;
 					if (bt)
@@ -407,7 +408,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 				for (; bp >= 0; bp--) {
 					mod_res->shift_model(zdstls[dpos], bp); // shift in 2 contexts
 					// decode bit
-					const int bt = dec->decode(mod_res.get());
+					const int bt = decoder_->decode(mod_res.get());
 					// update absv
 					absv = absv << 1;
 					if (bt)
@@ -415,7 +416,7 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 				}
 				// decode sign
 				mod_sgn->shift_model(zdstls[dpos], ctx_sgn);
-				const int sgn = dec->decode(mod_sgn.get());
+				const int sgn = decoder_->decode(mod_sgn.get());
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// decrement # of non zeroes
@@ -430,11 +431,11 @@ void PjgDecoder::ac_low(const std::unique_ptr<ArithmeticDecoder>& dec, Component
 	}
 }
 
-std::vector<std::uint8_t> PjgDecoder::generic(const std::unique_ptr<ArithmeticDecoder>& dec) {
+std::vector<std::uint8_t> PjgDecoder::generic() {
 	auto bwrt = std::make_unique<abytewriter>(1024);
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 	while (true) {
-		int c = dec->decode(model.get());
+		int c = decoder_->decode(model.get());
 		if (c == 256) {
 			break;
 		}
@@ -449,9 +450,9 @@ std::vector<std::uint8_t> PjgDecoder::generic(const std::unique_ptr<ArithmeticDe
 /* -----------------------------------------------
 decodes one bit from pjg
 ----------------------------------------------- */
-std::uint8_t PjgDecoder::bit(const std::unique_ptr<ArithmeticDecoder>& dec) {
+std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
-	std::uint8_t bit = dec->decode(model.get()); // This conversion is okay since there are only 2 symbols in the model.
+	std::uint8_t bit = decoder_->decode(model.get()); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
 

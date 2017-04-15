@@ -685,10 +685,10 @@ namespace decode {
 
 namespace pjg {
 	namespace encode {
-		PjgEncoder pjg_encoder;
 		bool encode() {
 			try {
-				pjg_encoder.encode();
+				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
+				pjg_encoder->encode();
 			} catch (const std::exception& e) {
 				std::strcpy(errormessage, e.what());
 				errorlevel = 2;
@@ -699,10 +699,10 @@ namespace pjg {
 	}
 
 	namespace decode {
-		PjgDecoder pjg_decoder;
 		bool decode() {
 			try {
-				pjg_decoder.decode();
+				auto pjg_decoder = std::make_unique<PjgDecoder>(str_in);
+				pjg_decoder->decode();
 			} catch (const std::exception& e) {
 				std::strcpy(errormessage, e.what());
 				errorlevel = 2;
@@ -813,7 +813,7 @@ static bool overwrite  = false;	// overwrite files yes / no
 static bool wait_on_finish  = false;	// pause after finished yes / no
 static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
 
-static bool developer  = false;	// allow developers functions yes/no
+static bool developer  = false;	// allow developers functions yes/sno
 
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
@@ -826,16 +826,15 @@ namespace program_info {
 	const std::string apptitle = "packJPG";
 	const std::string appname = "packjpg";
 	const std::string versiondate = "01/22/2016";
-	const std::string author = "Matthias Stirner / Se";
 	const std::array<std::uint8_t, 2> pjg_magic{ 'J', 'S' };
-#if !defined(BUILD_LIB)
+
+	const std::string author = "Matthias Stirner / Se";
 	const std::string website = "http://packjpg.encode.ru/";
 	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
 	const std::string email = "packjpg (at) matthiasstirner.com";
 
 	const std::string pjg_ext = "pjg";
 	const std::string jpg_ext = "jpg";
-#endif
 }
 
 
@@ -2844,58 +2843,53 @@ void JpgEncoder::recode()
 	}
 }
 
-/* -----------------------------------------------
-	packs all parts to compressed pjg
-	----------------------------------------------- */
-void PjgEncoder::encode()
-{
-	#if defined(DEV_INFOS)
+PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
+#if defined(DEV_INFOS)
 	int dev_size = 0;
-	#endif
-	
+#endif
+
 	// PJG-Header
-	str_out->write(program_info::pjg_magic.data(), 2 );
-	
+	encoding_output->write(program_info::pjg_magic.data(), 2);
+
 	// store settings if not auto
-	if ( !auto_set ) {
+	if (!auto_set) {
 		std::uint8_t hcode = 0x00;
-		str_out->write_byte(hcode);
+		encoding_output->write_byte(hcode);
 		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
-			str_out->write_byte(cmpnfo[cmpt].nois_trs);
+			encoding_output->write_byte(cmpnfo[cmpt].nois_trs);
 		}
 
 		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
-			str_out->write_byte(cmpnfo[cmpt].segm_cnt);
+			encoding_output->write_byte(cmpnfo[cmpt].segm_cnt);
 		}
 	}
-	
+
 	// store version number
 	const auto hcode = program_info::appversion;
-	str_out->write_byte(hcode);
-	
+	encoding_output->write_byte(hcode);
+
 	// init arithmetic compression
-	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
-	
+	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
+}
+
+/* -----------------------------------------------
+	packs all parts to compressed pjg
+	----------------------------------------------- */
+void PjgEncoder::encode() {	
 	// optimize header for compression
 	this->optimize_header(segments);
 	// set padbit to 1 if previously unset
 	if (jpg::padbit == -1 )	jpg::padbit = 1;
 	
 	// encode JPG header
-	#if !defined(DEV_INFOS)	
-	this->generic(encoder, segments);
-	#else
-	dev_size = str_out->getpos();
-	pjg::encode::generic(encoder, hdrdata);
-	dev_size_hdr += str_out->getpos() - dev_size;
-	#endif
+	this->generic(segments);
 	// store padbit (padbit can't be retrieved from the header)
-	this->bit(encoder, jpg::padbit);
+	this->bit(jpg::padbit);
 	// also encode one bit to signal false/correct use of RST markers
-	this->bit(encoder, jpg::rst_err.empty() ? 0 : 1);
+	this->bit(jpg::rst_err.empty() ? 0 : 1);
 	// encode # of false set RST markers per scan
 	if (!jpg::rst_err.empty()) {
-		this->generic(encoder, jpg::rst_err);
+		this->generic(jpg::rst_err);
 	}
 	
 	// encode actual components data
@@ -2903,41 +2897,41 @@ void PjgEncoder::encode()
 		auto& cmpt = cmpnfo[cmp];
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(encoder, cmpt); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(cmpt); // set zero sort scan as freqscan
 		// encode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(encoder, cmpt);
+		this->zdst_high(cmpt);
 		// encode coefficients for higher (7x7) ACs
-		this->ac_high(encoder, cmpt);
+		this->ac_high(cmpt);
 		// encode zero-distribution-lists for lower ACs
-		this->zdst_low(encoder, cmpt);
+		this->zdst_low(cmpt);
 		// encode coefficients for first row / collumn ACs
-		this->ac_low(encoder, cmpt);
+		this->ac_low(cmpt);
 		// encode coefficients for DC
-		this->dc(encoder, cmpt);
+		this->dc(cmpt);
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(encoder, cmpt); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(cmpt); // set zero sort scan as freqscan
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(encoder, cmpt);
+		this->zdst_high(cmpt);
 		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for higher (7x7) ACs
-		this->ac_high(encoder, cmpt);
+		this->ac_high(cmpt);
 		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for lower ACs
-		this->zdst_low(encoder, cmpt);
+		this->zdst_low(cmpt);
 		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for first row / collumn ACs
-		this->ac_low(encoder, cmpt);
+		this->ac_low(cmpt);
 		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode coefficients for DC
-		this->dc(encoder, cmpt);
+		this->dc(cmpt);
 		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
 		dev_size_cmp[ cmp ] = 
 			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
@@ -2946,10 +2940,10 @@ void PjgEncoder::encode()
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	this->bit(encoder, !grbgdata.empty() ? 1 : 0);
+	this->bit(!grbgdata.empty() ? 1 : 0);
 	// encode garbage data only if needed
 	if (!grbgdata.empty()) {
-		this->generic(encoder, grbgdata);
+		this->generic(grbgdata);
 	}
 	
 	// errormessage if write error
@@ -2961,61 +2955,66 @@ void PjgEncoder::encode()
 	pjgfilesize = str_out->getsize();
 }
 
-/* -----------------------------------------------
-	unpacks compressed pjg to colldata
-	----------------------------------------------- */
-void PjgDecoder::decode()
-{
-	std::uint8_t hcode;
-	
+PjgDecoder::PjgDecoder(const std::unique_ptr<iostream>& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
-	while( true ) {
-		str_in->read_byte(&hcode);
-		if ( hcode == 0x00 ) {
+	while (true) {
+		std::uint8_t hcode;
+		try {
+			hcode = decoding_stream->read_byte();
+		} catch (const std::runtime_error&) {
+			throw;
+		}
+		if (hcode == 0x00) {
 			// retrieve compression settings from file
 			for (auto& cmpt : cmpnfo) {
 				try {
-					cmpt.nois_trs = str_in->read_byte();
+					cmpt.nois_trs = decoding_stream->read_byte();
 				} catch (std::runtime_error&) {
 					throw;
 				}
 			}
 			for (auto& cmpt : cmpnfo) {
 				try {
-					cmpt.segm_cnt = str_in->read_byte();
+					cmpt.segm_cnt = decoding_stream->read_byte();
 				} catch (std::runtime_error&) {
 					throw;
 				}
 			}
 			auto_set = false;
-		}
-		else if ( hcode >= 0x14 ) {
+		} else if (hcode >= 0x14) {
 			// compare version number
-			if ( hcode != program_info::appversion ) {
+			if (hcode != program_info::appversion) {
 				throw std::runtime_error("incompatible file, use " + program_info::appname
-					+ " v" + std::to_string(hcode / 10 ) + "." + std::to_string(hcode % 10));
+					+ " v" + std::to_string(hcode / 10) + "." + std::to_string(hcode % 10));
 			} else {
 				break;
 			}
-		}
-		else {
+		} else {
 			throw std::runtime_error("unknown header code, use newer version of " + program_info::appname);
 		}
 	}
-	
-	
+
+
 	// init arithmetic compression
-	auto decoder = std::make_unique<ArithmeticDecoder>(str_in.get());
-	
+	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
+
+	// get filesize
+	pjgfilesize = decoding_stream->getsize();
+}
+
+/* -----------------------------------------------
+	unpacks compressed pjg to colldata
+	----------------------------------------------- */
+void PjgDecoder::decode() {
 	// decode JPG header
-	segments = Segment::parse_segments(this->generic(decoder));
+	segments = Segment::parse_segments(this->generic());
 	// retrieve padbit from stream
-	jpg::padbit = this->bit(decoder);
+	jpg::padbit = this->bit();
 	// decode one bit that signals false /correct use of RST markers
-	auto cb = this->bit(decoder);
+	auto cb = this->bit();
 	// decode # of false set RST markers per scan only if available
 	if ( cb == 1 ) {
-		jpg::rst_err = this->generic(decoder);
+		jpg::rst_err = this->generic();
 	}
 	
 	// undo header optimizations
@@ -3030,29 +3029,26 @@ void PjgDecoder::decode()
 	// decode actual components data
 	for (auto& cmpt : cmpnfo) {
 		// decode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(decoder); // set zero sort scan as freqscan
+		cmpt.freqscan = this->zstscan(); // set zero sort scan as freqscan
 		// decode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(decoder, cmpt);
+		this->zdst_high(cmpt);
 		// decode coefficients for higher (7x7) ACs
-		this->ac_high(decoder, cmpt);
+		this->ac_high(cmpt);
 		// decode zero-distribution-lists for lower ACs
-		this->zdst_low(decoder, cmpt);
+		this->zdst_low(cmpt);
 		// decode coefficients for first row / collumn ACs
-		this->ac_low(decoder, cmpt);
+		this->ac_low(cmpt);
 		// decode coefficients for DC
-		this->dc(decoder, cmpt);
+		this->dc(cmpt);
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	auto garbage_exists = this->bit(decoder);
+	auto garbage_exists = this->bit() == 0;
 	
 	// decode garbage data only if available
-	if (garbage_exists != 0) {
-		grbgdata = this->generic(decoder);
+	if (garbage_exists) {
+		grbgdata = this->generic();
 	}
-	
-	// get filesize
-	pjgfilesize = str_in->getsize();
 }
 
 /* ----------------------- End of main functions -------------------------- */
