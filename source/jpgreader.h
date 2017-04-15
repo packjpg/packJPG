@@ -14,6 +14,8 @@ public:
 
 private:
 	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment);
+
+	int scan_count = 0; // Count of scans.
 };
 
 #endif

@@ -413,7 +413,6 @@ namespace image {
 	int imgwidth = 0; // width of image
 	int imgheight = 0; // height of image
 
-	int mcuv = 0; // mcus per line
 	int mcuh = 0; // mcus per collumn
 	int mcuc = 0; // count of mcus
 }
@@ -508,8 +507,7 @@ namespace jfif {
 		case Marker::kDQT:
 			try {
 				jfif::parse_dqt(qtables, segment.get_data());
-			}
-			catch (const std::runtime_error&) {
+			} catch (const std::runtime_error&) {
 				throw;
 			}
 			break;
@@ -525,8 +523,7 @@ namespace jfif {
 			// coding process: progressive DCT
 			try {
 				jfif::parse_sof(segment.get_type(), segment.get_data());
-			}
-			catch (const std::runtime_error&) {
+			} catch (const std::runtime_error&) {
 				throw;
 			}
 			break;
@@ -595,7 +592,6 @@ namespace jfif {
 			// return errormessage - end-of-image is out of place here
 			throw std::runtime_error("eoi marker found out of place");
 		default: // unknown marker segment
-				 // return warning
 			throw std::runtime_error("unknown marker found");
 		}
 	}
@@ -604,7 +600,6 @@ namespace jfif {
 namespace jpg {
 
 char padbit = -1; // padbit (for huffman coding)
-int scan_count = 0; // count of scans
 
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
@@ -1984,8 +1979,7 @@ static bool compare_output() {
 	set each variable to its initial value
 	----------------------------------------------- */
 
-static bool reset_buffers()
-{		
+static bool reset_buffers() {
 	// free buffers & set pointers nullptr
 	segments.clear();
 	huffdata.clear();
@@ -1993,29 +1987,28 @@ static bool reset_buffers()
 	jpg::rst_err.clear();
 
 	jpg::encode::jpeg_encoder = std::make_unique<JpgEncoder>();
-	
+
 	cmpnfo.clear();
-	
+
 	// preset imgwidth / imgheight / component count 
-	image::imgwidth  = 0;
+	image::imgwidth = 0;
 	image::imgheight = 0;
-	
+
 	// preset mcu info variables / restart interval
-	image::mcuc      = 0;
-	image::mcuh      = 0;
-	image::mcuv      = 0;
-	
+	image::mcuc = 0;
+	image::mcuh = 0;
+
 	// reset quantization
-	for (int i = 0; i < 4; i++ ) {
-		qtables[i].fill(0);
+	for (auto& qtable : qtables) {
+		qtable.fill(0);
 	}
-	
+
 	// preset jpegtype
-	jpegtype  = JpegType::UNKNOWN;
-	
+	jpegtype = JpegType::UNKNOWN;
+
 	// reset padbit
 	jpg::padbit = -1;
-	
+
 	return true;
 }
 
@@ -2051,20 +2044,20 @@ void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<
 				// store number of wrongly set rst markers
 				if (crst > 0) {
 					if (jpg::rst_err.empty()) {
-						jpg::rst_err.resize(jpg::scan_count + 1);
+						jpg::rst_err.resize(scan_count + 1);
 					}
 				}
 				if (!jpg::rst_err.empty()) {
 					// realloc and set only if needed
-					jpg::rst_err.resize(jpg::scan_count + 1);
+					jpg::rst_err.resize(scan_count + 1);
 					if (crst > 255) {
 						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
 						// crst = 255;
 					}
-					jpg::rst_err[jpg::scan_count] = crst;
+					jpg::rst_err[scan_count] = crst;
 				}
 				// end of current scan
-				jpg::scan_count++;
+				scan_count++;
 				// on with the header parser routines
 				segment[0] = 0xFF;
 				segment[1] = tmp;
@@ -2078,9 +2071,7 @@ void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<
 }
 
 void JpgReader::read() {
-	// preset count of scans
-	jpg::scan_count = 0;
-
+	scan_count = 0;
 	// start headerwriter
 	auto hdrw = std::make_unique<abytewriter>(4096);
 
@@ -2269,12 +2260,9 @@ void JpgEncoder::merge() {
 void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
 {		
 	short block[64]; // store block for coeffs
-	
+	int scan_count = 0; // Count of scans.
 	// open huffman coded image data for input in abitreader
 	huffr = std::make_unique<abitreader>(huffdata); // bitwise reader for image data
-	
-	// preset count of scans
-	jpg::scan_count = 0;
 	
 	// JPEG decompression loop
 	int rsti = 0; // restart interval
@@ -2313,7 +2301,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			auto& cmpt = cmpts[scan_info.cmp[csc]];
 			if ( ( scan_info.sal == 0 && !htrees[0][cmpt.huffdc] ) ||
 				 (scan_info.sah >  0 && !htrees[1][cmpt.huffac] ) ) {
-				throw std::runtime_error("huffman table missing in scan%i" + std::to_string(jpg::scan_count));
+				throw std::runtime_error("huffman table missing in scan%i" + std::to_string(scan_count));
 			}
 		}
 		
@@ -2558,11 +2546,11 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			
 			// evaluate status
 			if ( status == CodingStatus::ERROR ) {
-				throw std::runtime_error("decode error in scan" + std::to_string(jpg::scan_count)
+				throw std::runtime_error("decode error in scan" + std::to_string(scan_count)
 					+ " / mcu" + std::to_string(( scan_info.cmpc > 1 ) ? mcu : dpos));
 			}
 			else if ( status == CodingStatus::DONE ) {
-				jpg::scan_count++; // increment scan counter
+				scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
 		}
@@ -2861,19 +2849,16 @@ void JpgEncoder::recode()
 	----------------------------------------------- */
 void PjgEncoder::encode()
 {
-	std::uint8_t hcode;
-	int cmp;
 	#if defined(DEV_INFOS)
 	int dev_size = 0;
 	#endif
-	
 	
 	// PJG-Header
 	str_out->write(program_info::pjg_magic.data(), 2 );
 	
 	// store settings if not auto
 	if ( !auto_set ) {
-		hcode = 0x00;
+		std::uint8_t hcode = 0x00;
 		str_out->write_byte(hcode);
 		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
 			str_out->write_byte(cmpnfo[cmpt].nois_trs);
@@ -2885,9 +2870,8 @@ void PjgEncoder::encode()
 	}
 	
 	// store version number
-	hcode = program_info::appversion;
+	const auto hcode = program_info::appversion;
 	str_out->write_byte(hcode);
-	
 	
 	// init arithmetic compression
 	auto encoder = std::make_unique<ArithmeticEncoder>(str_out.get());
@@ -2915,7 +2899,7 @@ void PjgEncoder::encode()
 	}
 	
 	// encode actual components data
-	for ( cmp = 0; cmp < cmpnfo.size(); cmp++ ) {
+	for (int cmp = 0; cmp < cmpnfo.size(); cmp++ ) {
 		auto& cmpt = cmpnfo[cmp];
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
@@ -3112,12 +3096,12 @@ void jpg::setup_imginfo()
 		sfhm = std::max(cmpt.sfh, sfhm);
 		sfvm = std::max(cmpt.sfv, sfvm);
 	}
-	image::mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm)));
+	const int mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm))); // MCUs per line.
 	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * sfvm)));
-	image::mcuc = image::mcuv * image::mcuh;
+	image::mcuc = mcuv * image::mcuh;
 	for (auto& cmpt : cmpnfo) {
 		cmpt.mbs = cmpt.sfv * cmpt.sfh;
-		cmpt.bcv = image::mcuv * cmpt.sfh;
+		cmpt.bcv = mcuv * cmpt.sfh;
 		cmpt.bch = image::mcuh * cmpt.sfv;
 		cmpt.bc = cmpt.bcv * cmpt.bch;
 		cmpt.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
