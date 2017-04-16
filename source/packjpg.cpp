@@ -3037,7 +3037,7 @@ void PjgDecoder::decode() {
 	}
 	
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	auto garbage_exists = this->bit() == 0;
+	auto garbage_exists = this->bit() == 1;
 	
 	// decode garbage data only if available
 	if (garbage_exists) {
