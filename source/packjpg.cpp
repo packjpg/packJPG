@@ -300,7 +300,6 @@ packJPG by Matthias Stirner, 01/2016
 #endif
 
 // #define DEV_BUILD // uncomment to include developer functions
-// #define DEV_INFOS // uncomment to include developer information
 
 const std::string FRD_ERRMSG("could not read file / file not found: %s");
 const std::string FWR_ERRMSG("could not write file / file write-protected: %s");
@@ -687,8 +686,8 @@ namespace pjg {
 	namespace encode {
 		bool encode() {
 			try {
-				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
-				pjg_encoder->encode();
+				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out, cmpnfo);
+				pjg_encoder->encode(jpg::padbit, cmpnfo, segments, jpg::rst_err, grbgdata);
 			} catch (const std::exception& e) {
 				std::strcpy(errormessage, e.what());
 				errorlevel = 2;
@@ -786,18 +785,6 @@ static std::vector<std::string> filelist; // list of files to process
 static int    file_no  = 0;			// number of current file
 
 #endif
-
-#if defined(DEV_INFOS)
-static int    dev_size_hdr      = 0;
-static int    dev_size_cmp[ 4 ]{};
-static int    dev_size_zsr[ 4 ]{};
-static int    dev_size_dc[ 4 ] {};
-static int    dev_size_ach[ 4 ]{};
-static int    dev_size_acl[ 4 ]{};
-static int    dev_size_zdh[ 4 ]{};
-static int    dev_size_zdl[ 4 ]{};
-#endif
-
 
 /* -----------------------------------------------
 	global variables: settings
@@ -954,26 +941,6 @@ int main( int argc, char** argv )
 		double cr = (acc_jpgsize > 0) ? (100.0 * acc_pjgsize / acc_jpgsize) : 0;
 		fprintf( msgout,  " avg. comp. ratio  : %8.2f %%\n", cr );		
 		fprintf( msgout,  " --------------------------------- \n" );
-		#if defined(DEV_INFOS)
-		if ( acc_jpgsize > 0 ) { 
-			fprintf( msgout,  " header %%          : %8.2f %%\n", 100.0 * dev_size_hdr / acc_jpgsize );
-			if ( dev_size_cmp[0] > 0 ) fprintf( msgout,  " component [0] %%   : %8.2f %%\n", 100.0 * dev_size_cmp[0] / acc_jpgsize );
-			if ( dev_size_cmp[1] > 0 ) fprintf( msgout,  " component [1] %%   : %8.2f %%\n", 100.0 * dev_size_cmp[1] / acc_jpgsize );
-			if ( dev_size_cmp[2] > 0 ) fprintf( msgout,  " component [2] %%   : %8.2f %%\n", 100.0 * dev_size_cmp[2] / acc_jpgsize );
-			if ( dev_size_cmp[3] > 0 ) fprintf( msgout,  " component [3] %%   : %8.2f %%\n", 100.0 * dev_size_cmp[3] / acc_jpgsize );
-			fprintf( msgout,  " --------------------------------- \n" );
-			for ( int i = 0; i < 4; i++ ) {
-				if ( dev_size_cmp[i] == 0 ) break;
-				fprintf( msgout,  " ac coeffs h [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_ach[i] / acc_jpgsize );
-				fprintf( msgout,  " ac coeffs l [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_acl[i] / acc_jpgsize );
-				fprintf( msgout,  " dc coeffs   [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_dc[i] / acc_jpgsize );
-				fprintf( msgout,  " zero dist h [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_zdh[i] / acc_jpgsize );
-				fprintf( msgout,  " zero dist l [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_zdl[i] / acc_jpgsize );
-				fprintf( msgout,  " zero sort   [%i] %% : %8.2f %%\n", i, 100.0 * dev_size_zsr[i] / acc_jpgsize );
-				fprintf( msgout,  " --------------------------------- \n" );
-			}
-		}
-		#endif
 	}
 	
 	// pause before exit
@@ -2843,11 +2810,7 @@ void JpgEncoder::recode()
 	}
 }
 
-PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
-#if defined(DEV_INFOS)
-	int dev_size = 0;
-#endif
-
+PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output, const std::vector<Component>& components) {
 	// PJG-Header
 	encoding_output->write(program_info::pjg_magic.data(), 2);
 
@@ -2855,12 +2818,12 @@ PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
 	if (!auto_set) {
 		std::uint8_t hcode = 0x00;
 		encoding_output->write_byte(hcode);
-		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
-			encoding_output->write_byte(cmpnfo[cmpt].nois_trs);
+		for (auto& component : components) {
+			encoding_output->write_byte(component.nois_trs);
 		}
 
-		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
-			encoding_output->write_byte(cmpnfo[cmpt].segm_cnt);
+		for (auto& component : components) {
+			encoding_output->write_byte(component.segm_cnt);
 		}
 	}
 
@@ -2872,27 +2835,28 @@ PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
 	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
 }
 
-void PjgEncoder::encode() {	
+void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata) {
 	// optimize header for compression
 	this->optimize_header(segments);
-	// set padbit to 1 if previously unset
-	if (jpg::padbit == -1 )	jpg::padbit = 1;
+	// set padbit to 1 if previously unset:
+	if (padbit == -1) {
+		padbit = 1;
+	}
 	
 	// encode JPG header
 	this->generic(segments);
 	// store padbit (padbit can't be retrieved from the header)
-	this->bit(jpg::padbit);
+	this->bit(padbit);
 	// also encode one bit to signal false/correct use of RST markers
-	this->bit(jpg::rst_err.empty() ? 0 : 1);
+	this->bit(rst_err.empty() ? 0 : 1);
 	// encode # of false set RST markers per scan
-	if (!jpg::rst_err.empty()) {
-		this->generic(jpg::rst_err);
+	if (!rst_err.empty()) {
+		this->generic(rst_err);
 	}
 	
 	// encode actual components data
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++ ) {
-		auto& cmpt = cmpnfo[cmp];
-		#if !defined(DEV_INFOS)
+	for (int cmp = 0; cmp < cmpts.size(); cmp++ ) {
+		auto& cmpt = cmpts[cmp];
 		// encode frequency scan ('zero-sort-scan')
 		cmpt.freqscan = this->zstscan(cmpt); // set zero sort scan as freqscan
 		// encode zero-distribution-lists for higher (7x7) ACs
@@ -2905,35 +2869,6 @@ void PjgEncoder::encode() {
 		this->ac_low(cmpt);
 		// encode coefficients for DC
 		this->dc(cmpt);
-		#else
-		dev_size = str_out->getpos();
-		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(cmpt); // set zero sort scan as freqscan
-		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
-		dev_size = str_out->getpos();
-		// encode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(cmpt);
-		dev_size_zdh[ cmp ] += str_out->getpos() - dev_size;
-		dev_size = str_out->getpos();
-		// encode coefficients for higher (7x7) ACs
-		this->ac_high(cmpt);
-		dev_size_ach[ cmp ] += str_out->getpos() - dev_size;
-		dev_size = str_out->getpos();
-		// encode zero-distribution-lists for lower ACs
-		this->zdst_low(cmpt);
-		dev_size_zdl[ cmp ] += str_out->getpos() - dev_size;
-		dev_size = str_out->getpos();
-		// encode coefficients for first row / collumn ACs
-		this->ac_low(cmpt);
-		dev_size_acl[ cmp ] += str_out->getpos() - dev_size;
-		dev_size = str_out->getpos();
-		// encode coefficients for DC
-		this->dc(cmpt);
-		dev_size_dc[ cmp ] += str_out->getpos() - dev_size;
-		dev_size_cmp[ cmp ] = 
-			dev_size_zsr[ cmp ] + dev_size_zdh[ cmp ] +	dev_size_zdl[ cmp ] +
-			dev_size_ach[ cmp ] + dev_size_acl[ cmp ] +	dev_size_dc[ cmp ];
-		#endif
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
