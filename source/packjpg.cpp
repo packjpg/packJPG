@@ -422,39 +422,118 @@ namespace jfif {
 	inline void parse_sof(Marker type, const std::vector<std::uint8_t>& segment) {
 		int hpos = 4; // current position in segment, start after segment header
 
-					  // set JPEG coding type
+		// set JPEG coding type
 		if (type == Marker::kSOF2) {
 			jpegtype = JpegType::PROGRESSIVE;
-		}
-		else {
+		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
 			jpegtype = JpegType::SEQUENTIAL;
+		} else {
+			throw std::runtime_error("Unsupported JPG coding type."); // TODO: switch case for each SOF type.
 		}
 
 		// check data precision, only 8 bit is allowed
-		int lval = segment[hpos];
-		if (lval != 8) {
-			throw std::runtime_error(std::to_string(lval) + " bit data precision is not supported");
+		int precision = segment[hpos];
+		if (precision != 8) {
+			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
 		}
 
 		// image size, height & component count
 		image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
+		if (image::imgheight == 0) {
+			throw std::runtime_error("Image height is zero in the frame header.");
+		}
+
 		image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
-		cmpnfo.resize(segment[hpos + 5]);
-		if ((image::imgwidth == 0) || (image::imgheight == 0)) {
-			throw std::runtime_error("resolution is " + std::to_string(image::imgwidth) + "x" + std::to_string(image::imgheight) + ", possible malformed JPEG");
+		if (image::imgwidth == 0) {
+			throw std::runtime_error("Image width is zero in the frame header.");
 		}
-		if (cmpnfo.size() > 4) {
-			throw std::runtime_error("image has " + std::to_string(cmpnfo.size()) + " components, max 4 are supported");
+
+		int component_count = segment[hpos + 5];
+		if (component_count == 0) {
+			throw std::runtime_error("Zero component count in the frame header.");
+		} else if (component_count > 4) {
+			throw std::runtime_error("image has " + std::to_string(component_count) + " components, max 4 are supported");
 		}
+
+		cmpnfo.resize(component_count);
 
 		hpos += 6;
 		// components contained in image
-		for (auto& cmpt : cmpnfo) {
-			cmpt.jid = segment[hpos];
-			cmpt.sfv = bitops::LBITS(segment[hpos + 1], 4);
-			cmpt.sfh = bitops::RBITS(segment[hpos + 1], 4);
-			cmpt.qtable = qtables[segment[hpos + 2]];
+		for (auto& component : cmpnfo) {
+			component.jid = segment[hpos];
+
+			std::uint8_t byte = segment[hpos + 1]; // TODO: sfh and sfv are incorrectly swapped below (per jfif standard).
+			component.sfv = bitops::LBITS(byte, 4);
+			if (component.sfv == 0 || component.sfv > 4) {
+				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
+			}
+
+			component.sfh = bitops::RBITS(byte, 4);
+			if (component.sfh == 0 || component.sfh > 4) {
+				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
+			}
+
+			const int quantization_table_index = segment[hpos + 2];
+			if (quantization_table_index < 0 || quantization_table_index > 3) {
+				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+			}
+
+			component.qtable = qtables[quantization_table_index];
 			hpos += 3;
+
+			component.mbs = component.sfv * component.sfh;
+
+		}
+
+		int sfhm = -1; // max horizontal sample factor
+		int sfvm = -1; // max verical sample factor
+		for (const auto& component : cmpnfo) {
+			sfhm = std::max(component.sfh, sfhm);
+			sfvm = std::max(component.sfv, sfvm);
+		}
+		const int mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm))); // MCUs per line.
+		image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * sfvm)));
+		image::mcuc = mcuv * image::mcuh;
+		for (auto& component : cmpnfo) {
+			component.bcv = mcuv * component.sfh;
+			component.bch = image::mcuh * component.sfv;
+			component.bc = component.bcv * component.bch;
+			component.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
+				(static_cast<float>(component.sfh) / (8.0 * sfhm))));
+			component.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
+				(static_cast<float>(component.sfv) / (8.0 * sfvm))));
+
+			for (auto& coeffs : component.colldata) {
+				coeffs.resize(component.bc);
+			}
+
+			component.zdstdata.resize(component.bc);
+			component.eobxhigh.resize(component.bc);
+			component.eobyhigh.resize(component.bc);
+			component.zdstxlow.resize(component.bc);
+			component.zdstylow.resize(component.bc);
+
+		}
+
+		// decide components' statistical ids
+		if (cmpnfo.size() <= 3) {
+			for (std::size_t component = 0; component < cmpnfo.size(); component++) {
+				cmpnfo[component].sid = component;
+			}
+		} else {
+			for (auto& component : cmpnfo) {
+				component.sid = 0;
+			}
+		}
+
+		// also decide automatic settings here
+		for (auto& component : cmpnfo) {
+			int i;
+			for (i = 0;
+			     pjg::conf_sets[i][component.sid] > static_cast<std::uint32_t>(component.bc);
+			     i++);
+			component.segm_cnt = pjg::conf_segm;
+			component.nois_trs = pjg::conf_ntrs[i][component.sid];
 		}
 	}
 
@@ -791,7 +870,6 @@ static int    file_no  = 0;			// number of current file
 	----------------------------------------------- */
 
 static int  err_tol = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
-static bool auto_set = true;	// automatic find best settings yes/no
 static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
 #if !defined(BUILD_LIB)
@@ -853,20 +931,9 @@ int main( int argc, char** argv )
 	
 	// check if user input is wrong, show help screen if it is
 	if (filelist.empty() ||
-		( ( !developer ) && ( (action != Action::A_COMPRESS) || (!auto_set) || (verify_lv > 1) ) ) ) {
+		( ( !developer ) && ( (action != Action::A_COMPRESS) || (verify_lv > 1) ) ) ) {
 		show_help();
 		return -1;
-	}
-	
-	// display warning if not using automatic settings
-	if ( !auto_set ) {
-		fprintf( msgout,  " custom compression settings: \n" );
-		fprintf( msgout,  " -------------------------------------------------\n" );
-		fprintf( msgout,  " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-				cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
-		fprintf( msgout,  " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-				cmpnfo[0].nois_trs, cmpnfo[1].nois_trs, cmpnfo[2].nois_trs, cmpnfo[3].nois_trs );
-		fprintf( msgout,  " -------------------------------------------------\n\n" );
 	}
 	
 	// (re)set program has to be done first
@@ -984,9 +1051,6 @@ EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
 	----------------------------------------------- */
 EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
 {
-	// use automatic settings
-	auto_set = true;
-	
 	// (re)set buffers
 	reset_buffers();
 	action = Action::A_COMPRESS;
@@ -1227,42 +1291,7 @@ static void initialize_options( int argc, char** argv )
 		}
 		else if (arg == "-test") {
 			verify_lv = 2;
-		}
-		else if ( sscanf(arg.c_str(), "-t%i,%i", &i, &tmp_val ) == 2 ) {
-			i = ( i < 0 ) ? 0 : i;
-			i = ( i > 3 ) ? 3 : i;
-			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
-			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
-			cmpnfo[i].nois_trs = tmp_val;
-			auto_set = false;
-		}
-		else if ( sscanf(arg.c_str(), "-s%i,%i", &i, &tmp_val ) == 2 ) {
-			i = ( i < 0 ) ? 0 : i;
-			i = ( i > 3 ) ? 3 : i;
-			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
-			tmp_val = ( tmp_val > 49 ) ? 49 : tmp_val;
-			cmpnfo[i].segm_cnt = tmp_val;
-			auto_set = false;
-		}
-		else if ( sscanf(arg.c_str(), "-t%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val < 0  ) ?  0 : tmp_val;
-			tmp_val = ( tmp_val > 10 ) ? 10 : tmp_val;
-			cmpnfo[0].nois_trs = tmp_val;
-			cmpnfo[1].nois_trs = tmp_val;
-			cmpnfo[2].nois_trs = tmp_val;
-			cmpnfo[3].nois_trs = tmp_val;
-			auto_set = false;
-		}
-		else if ( sscanf(arg.c_str(), "-s%i", &tmp_val ) == 1 ) {
-			tmp_val = ( tmp_val <  1 ) ?  1 : tmp_val;
-			tmp_val = ( tmp_val > 64 ) ? 64 : tmp_val;
-			cmpnfo[0].segm_cnt = tmp_val;
-			cmpnfo[1].segm_cnt = tmp_val;
-			cmpnfo[2].segm_cnt = tmp_val;
-			cmpnfo[3].segm_cnt = tmp_val;
-			auto_set = false;
-		}
-		else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
+		} else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
 			tmp_val = std::max(tmp_val, 0);
 			tmp_val = std::min(tmp_val, 5);
 			coll_mode = CollectionMode(tmp_val);
@@ -1537,11 +1566,7 @@ static void show_help()
 	#if defined(DEV_BUILD)
 	if ( developer ) {
 	fprintf( msgout, "\n" );
-	fprintf( msgout, " [-s?]    set global number of segments (1<=s<=49)\n" );
-	fprintf( msgout, " [-t?]    set global noise threshold (0<=t<=10)\n" );
-	fprintf( msgout, "\n" );	
-	fprintf( msgout, " [-s?,?]  set number of segments for component\n" );
-	fprintf( msgout, " [-t?,?]  set noise threshold for component\n" );
+	fprintf( msgout, "\n" );
 	fprintf( msgout, "\n" );
 	fprintf( msgout, " [-test]  test algorithms, alert if error\n" );
 	fprintf( msgout, " [-split] split jpeg (to header & image data)\n" );
@@ -1869,8 +1894,6 @@ static bool check_file()
 			errorlevel = 2;
 			return false;
 		}
-		// PJG specific settings - auto unless specified otherwise
-		auto_set = true;
 	}
 	else {
 		// file is neither
@@ -2817,19 +2840,6 @@ PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output, const s
 	// PJG-Header
 	encoding_output->write(program_info::pjg_magic.data(), 2);
 
-	// store settings if not auto
-	if (!auto_set) {
-		std::uint8_t hcode = 0x00;
-		encoding_output->write_byte(hcode);
-		for (auto& component : components) {
-			encoding_output->write_byte(component.nois_trs);
-		}
-
-		for (auto& component : components) {
-			encoding_output->write_byte(component.segm_cnt);
-		}
-	}
-
 	// store version number
 	const auto hcode = program_info::appversion;
 	encoding_output->write_byte(hcode);
@@ -2899,24 +2909,7 @@ PjgDecoder::PjgDecoder(const std::unique_ptr<iostream>& decoding_stream) {
 		} catch (const std::runtime_error&) {
 			throw;
 		}
-		if (hcode == 0x00) {
-			// retrieve compression settings from file
-			for (auto& cmpt : cmpnfo) {
-				try {
-					cmpt.nois_trs = decoding_stream->read_byte();
-				} catch (std::runtime_error&) {
-					throw;
-				}
-			}
-			for (auto& cmpt : cmpnfo) {
-				try {
-					cmpt.segm_cnt = decoding_stream->read_byte();
-				} catch (std::runtime_error&) {
-					throw;
-				}
-			}
-			auto_set = false;
-		} else if (hcode >= 0x14) {
+		if (hcode >= 0x14) {
 			// compare version number
 			if (hcode != program_info::appversion) {
 				throw std::runtime_error("incompatible file, use " + program_info::appname
@@ -3001,74 +2994,6 @@ void jpg::setup_imginfo()
 			} catch (const std::runtime_error&) {
 				throw;
 			}
-		}
-	}
-
-	// check if information is complete
-	if (cmpnfo.empty()) {
-		throw std::runtime_error("header contains incomplete information");
-	}
-	for (const auto& cmpt : cmpnfo) {
-		if (cmpt.sfv == 0
-			|| cmpt.sfh == 0
-			|| cmpt.qtable[0] == 0
-			|| jpegtype == JpegType::UNKNOWN) {
-			throw std::runtime_error("header information is incomplete");
-		}
-	}
-
-	// do all remaining component info calculations
-	int sfhm = -1; // max horizontal sample factor
-	int sfvm = -1; // max verical sample factor
-	for (const auto& cmpt : cmpnfo) {
-		sfhm = std::max(cmpt.sfh, sfhm);
-		sfvm = std::max(cmpt.sfv, sfvm);
-	}
-	const int mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm))); // MCUs per line.
-	image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * sfvm)));
-	image::mcuc = mcuv * image::mcuh;
-	for (auto& cmpt : cmpnfo) {
-		cmpt.mbs = cmpt.sfv * cmpt.sfh;
-		cmpt.bcv = mcuv * cmpt.sfh;
-		cmpt.bch = image::mcuh * cmpt.sfv;
-		cmpt.bc = cmpt.bcv * cmpt.bch;
-		cmpt.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
-			(static_cast<float>(cmpt.sfh) / (8.0 * sfhm))));
-		cmpt.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
-			(static_cast<float>(cmpt.sfv) / (8.0 * sfvm))));
-
-		for (auto& coeffs : cmpt.colldata) {
-			coeffs.resize(cmpt.bc);
-		}
-
-		cmpt.zdstdata = std::vector<std::uint8_t>(cmpt.bc);
-		cmpt.eobxhigh = std::vector<std::uint8_t>(cmpt.bc);
-		cmpt.eobyhigh = std::vector<std::uint8_t>(cmpt.bc);
-		cmpt.zdstxlow = std::vector<std::uint8_t>(cmpt.bc);
-		cmpt.zdstylow = std::vector<std::uint8_t>(cmpt.bc);
-
-	}
-
-	// decide components' statistical ids
-	if (cmpnfo.size() <= 3) {
-		for (std::size_t cmpt = 0; cmpt < cmpnfo.size(); cmpt++) {
-			cmpnfo[cmpt].sid = cmpt;
-		}
-	} else {
-		for (auto& cmpt : cmpnfo) {
-			cmpt.sid = 0;
-		}
-	}
-
-	// also decide automatic settings here
-	if (auto_set) {
-		for (auto& cmpt : cmpnfo) {
-			int i;
-			for (i = 0;
-			     pjg::conf_sets[i][cmpt.sid] > static_cast<std::uint32_t>(cmpt.bc);
-			     i++);
-			cmpt.segm_cnt = pjg::conf_segm;
-			cmpt.nois_trs = pjg::conf_ntrs[i][cmpt.sid];
 		}
 	}
 }
