@@ -10,12 +10,12 @@
 class JpgReader {
 public:
 	// Read in header and image data.
-	void read();
+	void read(const std::unique_ptr<iostream>& str_in);
 
 private:
-	void read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment);
+	void read_sos(const std::unique_ptr<iostream>& str_in, const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment);
 
-	int scan_count = 0; // Count of scans.
+	int scan_count_ = 0; // Count of scans.
 };
 
 #endif

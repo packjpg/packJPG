@@ -644,7 +644,7 @@ namespace decode {
 	bool read() {
 		auto reader = std::make_unique<JpgReader>();
 		try {
-			reader->read();
+			reader->read(str_in);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -1978,66 +1978,69 @@ static bool reset_buffers() {
 	return true;
 }
 
-void JpgReader::read_sos(const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
+void JpgReader::read_sos(const std::unique_ptr<iostream>& jpg_input_stream, const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
-	std::uint32_t cpos = 0; // rst marker counter
+	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
 	while (true) {
 		// read byte from imagedata
-		std::uint8_t tmp = str_in->read_byte();
+		std::uint8_t byte = jpg_input_stream->read_byte();
 
 		// non-0xFF loop
-		if (tmp != 0xFF) {
+		if (byte != 0xFF) {
 			crst = 0;
-			while (tmp != 0xFF) {
-				huffw->write(tmp);
-				tmp = str_in->read_byte();
+			while (byte != 0xFF) {
+				huffw->write(byte);
+				byte = jpg_input_stream->read_byte();
 			}
 		}
 
 		// treatment of 0xFF
-		if (tmp == 0xFF) {
-			tmp = str_in->read_byte();
-			if (tmp == 0x00) {
+		if (byte == 0xFF) {
+			byte = jpg_input_stream->read_byte();
+			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF
 				huffw->write(0xFF);
-			} else if (tmp == 0xD0 + (cpos % 8)) { // restart marker
-				// increment rst counters
+			}
+			else if (byte == 0xD0 + (cpos % 8)) { // restart marker
+												  // increment rst counters
 				cpos++;
 				crst++;
-			} else { // in all other cases leave it to the header parser routines
-				// store number of wrongly set rst markers
+			}
+			else { // in all other cases leave it to the header parser routines
+				   // store number of wrongly set rst markers
 				if (crst > 0) {
 					if (jpg::rst_err.empty()) {
-						jpg::rst_err.resize(scan_count + 1);
+						jpg::rst_err.resize(scan_count_ + 1);
 					}
 				}
 				if (!jpg::rst_err.empty()) {
 					// realloc and set only if needed
-					jpg::rst_err.resize(scan_count + 1);
+					jpg::rst_err.resize(scan_count_ + 1);
 					if (crst > 255) {
 						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
 						// crst = 255;
 					}
-					jpg::rst_err[scan_count] = crst;
+					jpg::rst_err[scan_count_] = crst;
 				}
 				// end of current scan
-				scan_count++;
+				scan_count_++;
 				// on with the header parser routines
 				segment[0] = 0xFF;
-				segment[1] = tmp;
+				segment[1] = byte;
 				break;
 			}
-		} else {
+		}
+		else {
 			// otherwise this means end-of-file, so break out
 			break;
 		}
 	}
 }
 
-void JpgReader::read() {
-	scan_count = 0;
+void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
+	scan_count_ = 0;
 	// start headerwriter
 	auto hdrw = std::make_unique<abytewriter>(4096);
 
@@ -2052,7 +2055,7 @@ void JpgReader::read() {
 	while (true) {
 		if (type == Marker::kSOS) { // if last marker was sos
 			try {
-				read_sos(huffw, segment);
+				read_sos(str_in, huffw, segment);
 			} catch (const std::runtime_error&) {
 				throw;
 			}
