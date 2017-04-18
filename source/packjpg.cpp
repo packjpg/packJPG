@@ -265,6 +265,7 @@ packJPG by Matthias Stirner, 01/2016
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -279,6 +280,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "component.h"
 #include "dct8x8.h"
 #include "filetype.h"
+#include "frameinfo.h"
 #include "huffcodes.h"
 #include "hufftree.h"
 #include "jfifparse.h"
@@ -330,6 +332,7 @@ global variables: info about image
 ----------------------------------------------- */
 
 static std::vector<Component> cmpnfo; // separate info for each color component
+static FrameInfo frame_info;
 
 /* -----------------------------------------------
 global variables: info about files
@@ -339,7 +342,6 @@ static std::string jpgfilename;	// name of JPEG file
 static std::string pjgfilename;	// name of PJG file
 static int    jpgfilesize;			// size of JPEG file
 static int    pjgfilesize;			// size of PJG file
-static JpegType jpegtype = JpegType::UNKNOWN; // type of JPEG coding
 static FileType filetype;				// type of current file
 static std::unique_ptr<iostream> str_in;	// input stream
 static std::unique_ptr<iostream> str_out;	// output stream
@@ -406,25 +408,16 @@ static bool calc_zdst_lists() {
 	return true;
 }
 
-namespace image {
-	int imgwidth = 0; // width of image
-	int imgheight = 0; // height of image
-
-	int mcuh = 0; // mcus per collumn
-	int mcuc = 0; // count of mcus
-}
-
-
 namespace jfif {
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
-	inline void parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
+	inline FrameInfo parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
 		int hpos = 4; // current position in segment, start after segment header
-
+		FrameInfo frame_info;
 		// set JPEG coding type
 		if (type == Marker::kSOF2) {
-			jpegtype = JpegType::PROGRESSIVE;
+			frame_info.coding_process = JpegType::PROGRESSIVE;
 		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
-			jpegtype = JpegType::SEQUENTIAL;
+			frame_info.coding_process = JpegType::SEQUENTIAL;
 		} else {
 			throw std::runtime_error("Unsupported JPG coding type."); // TODO: switch case for each SOF type.
 		}
@@ -436,13 +429,13 @@ namespace jfif {
 		}
 
 		// image size, height & component count
-		image::imgheight = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
-		if (image::imgheight == 0) {
+		frame_info.image_height = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
+		if (frame_info.image_height == 0) {
 			throw std::runtime_error("Image height is zero in the frame header.");
 		}
 
-		image::imgwidth = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
-		if (image::imgwidth == 0) {
+		frame_info.image_width = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
+		if (frame_info.image_width == 0) {
 			throw std::runtime_error("Image width is zero in the frame header.");
 		}
 
@@ -489,16 +482,16 @@ namespace jfif {
 			sfhm = std::max(component.sfh, sfhm);
 			sfvm = std::max(component.sfv, sfvm);
 		}
-		const int mcuv = static_cast<int>(ceil(static_cast<float>(image::imgheight) / static_cast<float>(8 * sfhm))); // MCUs per line.
-		image::mcuh = static_cast<int>(ceil(static_cast<float>(image::imgwidth) / static_cast<float>(8 * sfvm)));
-		image::mcuc = mcuv * image::mcuh;
+		frame_info.mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info.image_height) / static_cast<float>(8 * sfhm))); // MCUs per line.
+		frame_info.mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info.image_width) / static_cast<float>(8 * sfvm)));
+		frame_info.mcu_count = frame_info.mcu_height * frame_info.mcu_width;
 		for (auto& component : cmpnfo) {
-			component.bcv = mcuv * component.sfh;
-			component.bch = image::mcuh * component.sfv;
+			component.bcv = frame_info.mcu_height * component.sfh;
+			component.bch = frame_info.mcu_width * component.sfv;
 			component.bc = component.bcv * component.bch;
-			component.ncv = static_cast<int>(ceil(static_cast<float>(image::imgheight) *
+			component.ncv = static_cast<int>(ceil(static_cast<float>(frame_info.image_height) *
 				(static_cast<float>(component.sfh) / (8.0 * sfhm))));
-			component.nch = static_cast<int>(ceil(static_cast<float>(image::imgwidth) *
+			component.nch = static_cast<int>(ceil(static_cast<float>(frame_info.image_width) *
 				(static_cast<float>(component.sfv) / (8.0 * sfvm))));
 
 			for (auto& coeffs : component.colldata) {
@@ -533,6 +526,7 @@ namespace jfif {
 			component.segm_cnt = pjg::conf_segm;
 			component.nois_trs = pjg::conf_ntrs[i][component.sid];
 		}
+		return frame_info;
 	}
 
 	// Helper function that parses SOS segments.
@@ -584,7 +578,11 @@ namespace jfif {
 		std::map<int, std::array<std::uint16_t, 64>> qtables;
 		for (auto& segment : segments) {
 			if (segment.get_type() == Marker::kDQT) {
-				parse_dqt(qtables, segment.get_data());
+				try {
+					parse_dqt(qtables, segment.get_data());
+				} catch (std::runtime_error&) {
+					throw;
+				}
 			}
 		}
 
@@ -598,7 +596,7 @@ namespace jfif {
 			case Marker::kSOF2:
 				// coding process: progressive DCT
 				try {
-					parse_sof(segment.get_type(), segment.get_data(), qtables);
+					frame_info = parse_sof(segment.get_type(), segment.get_data(), qtables);
 				} catch (const std::runtime_error&) {
 					throw;
 				}
@@ -696,7 +694,7 @@ namespace decode {
 	// JPEG decoding routine.
 	bool decode() {
 		try {
-			jpeg_decoder->decode(jpegtype, segments, cmpnfo, huffdata);
+			jpeg_decoder->decode(frame_info.coding_process, segments, cmpnfo, huffdata);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -1941,16 +1939,12 @@ static bool reset_buffers() {
 
 	cmpnfo.clear();
 
-	// preset imgwidth / imgheight / component count 
-	image::imgwidth = 0;
-	image::imgheight = 0;
-
-	// preset mcu info variables / restart interval
-	image::mcuc = 0;
-	image::mcuh = 0;
-
-	// preset jpegtype
-	jpegtype = JpegType::UNKNOWN;
+	frame_info.image_width = 0;
+	frame_info.image_height = 0;
+	frame_info.mcu_height = 0;
+	frame_info.mcu_width = 0;
+	frame_info.mcu_count = 0;
+	frame_info.coding_process = JpegType::UNKNOWN;
 
 	// reset padbit
 	jpg::padbit = -1;
@@ -2569,7 +2563,7 @@ void JpgEncoder::recode()
 		// (re)alloc restart marker positons array if needed
 		if ( rsti > 0 ) {
 			int tmp = rstc + ( ( scan_info.cmpc > 1 ) ?
-				( image::mcuc / rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / rsti ) );
+				( frame_info.mcu_count / rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / rsti ) );
 			rstp.resize(tmp + 1);
 		}		
 		
@@ -2601,7 +2595,7 @@ void JpgEncoder::recode()
 			// encoding for interleaved data
 			if ( scan_info.cmpc > 1 )
 			{				
-				if ( jpegtype == JpegType::SEQUENTIAL ) {
+				if ( frame_info.coding_process == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// copy from colldata
@@ -2657,7 +2651,7 @@ void JpgEncoder::recode()
 			}
 			else // encoding for non interleaved data
 			{
-				if ( jpegtype == JpegType::SEQUENTIAL ) {
+				if ( frame_info.coding_process == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved encoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// copy from colldata
@@ -2950,7 +2944,7 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int
 			(*csc) = 0;
 			(*cmp) = scan_info.cmp[ 0 ];
 			(*mcu)++;
-			if ( (*mcu) >= image::mcuc ) sta = CodingStatus::DONE;
+			if ( (*mcu) >= frame_info.mcu_count ) sta = CodingStatus::DONE;
 			else if ( rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = CodingStatus::RESTART;
 		}
@@ -2961,9 +2955,9 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int
 	
 	// get correct position in image ( x & y )
 	if ( cmpnfo[(*cmp)].sfh > 1 ) { // to fix mcu order
-		(*dpos)  = ( (*mcu) / image::mcuh ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
+		(*dpos)  = ( (*mcu) / frame_info.mcu_width ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
 		(*dpos) *= cmpnfo[(*cmp)].bch;
-		(*dpos) += ( (*mcu) % image::mcuh ) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
+		(*dpos) += ( (*mcu) % frame_info.mcu_width) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
 	}
 	else if ( cmpnfo[(*cmp)].sfv > 1 ) {
 		// simple calculation to speed up things if simple fixing is enough
