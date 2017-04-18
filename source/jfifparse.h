@@ -145,13 +145,13 @@ namespace jfif {
 			component.jid = segment[hpos];
 
 			std::uint8_t byte = segment[hpos + 1]; // TODO: sfh and sfv are incorrectly swapped below (per jfif standard).
-			component.sfv = bitops::LBITS(byte, 4);
-			if (component.sfv == 0 || component.sfv > 4) {
+			component.sfh = bitops::LBITS(byte, 4);
+			if (component.sfh == 0 || component.sfh > 4) {
 				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
 			}
 
-			component.sfh = bitops::RBITS(byte, 4);
-			if (component.sfh == 0 || component.sfh > 4) {
+			component.sfv = bitops::RBITS(byte, 4);
+			if (component.sfv == 0 || component.sfv > 4) {
 				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
 			}
 
