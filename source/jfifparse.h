@@ -99,6 +99,126 @@ namespace jfif {
 		int hpos = 4; // current position in segment, start after segment header
 		return pack(segment[hpos], segment[hpos + 1]);
 	}
+
+	// Helper function that parses SOF0/SOF1/SOF2 segments.
+	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
+		int hpos = 4; // current position in segment, start after segment header
+		auto frame_info = std::make_unique<FrameInfo>();
+		// set JPEG coding type
+		if (type == Marker::kSOF2) {
+			frame_info->coding_process = JpegType::PROGRESSIVE;
+		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
+			frame_info->coding_process = JpegType::SEQUENTIAL;
+		} else {
+			throw std::runtime_error("Unsupported JPG coding type."); // TODO: switch case for each SOF type.
+		}
+
+		// check data precision, only 8 bit is allowed
+		int precision = segment[hpos];
+		if (precision != 8) {
+			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
+		}
+
+		// image size, height & component count
+		frame_info->image_height = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
+		if (frame_info->image_height == 0) {
+			throw std::runtime_error("Image height is zero in the frame header.");
+		}
+
+		frame_info->image_width = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
+		if (frame_info->image_width == 0) {
+			throw std::runtime_error("Image width is zero in the frame header.");
+		}
+
+		int component_count = segment[hpos + 5];
+		if (component_count == 0) {
+			throw std::runtime_error("Zero component count in the frame header.");
+		} else if (component_count > 4) {
+			throw std::runtime_error("image has " + std::to_string(component_count) + " components, max 4 are supported");
+		}
+
+		frame_info->components.resize(component_count);
+
+		hpos += 6;
+		// components contained in image
+		for (auto& component : frame_info->components) {
+			component.jid = segment[hpos];
+
+			std::uint8_t byte = segment[hpos + 1]; // TODO: sfh and sfv are incorrectly swapped below (per jfif standard).
+			component.sfv = bitops::LBITS(byte, 4);
+			if (component.sfv == 0 || component.sfv > 4) {
+				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
+			}
+
+			component.sfh = bitops::RBITS(byte, 4);
+			if (component.sfh == 0 || component.sfh > 4) {
+				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
+			}
+
+			const int quantization_table_index = segment[hpos + 2];
+			if (quantization_table_index < 0 || quantization_table_index > 3) {
+				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+			}
+
+			component.qtable = qtables[quantization_table_index];
+			hpos += 3;
+
+			component.mbs = component.sfv * component.sfh;
+
+		}
+
+		int sfhm = -1; // max horizontal sample factor
+		int sfvm = -1; // max verical sample factor
+		for (const auto& component : frame_info->components) {
+			sfhm = std::max(component.sfh, sfhm);
+			sfvm = std::max(component.sfv, sfvm);
+		}
+		frame_info->mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) / static_cast<float>(8 * sfhm))); // MCUs per line.
+		frame_info->mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) / static_cast<float>(8 * sfvm)));
+		frame_info->mcu_count = frame_info->mcu_height * frame_info->mcu_width;
+		for (auto& component : frame_info->components) {
+			component.bcv = frame_info->mcu_height * component.sfh;
+			component.bch = frame_info->mcu_width * component.sfv;
+			component.bc = component.bcv * component.bch;
+			component.ncv = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) *
+				(static_cast<float>(component.sfh) / (8.0 * sfhm))));
+			component.nch = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) *
+				(static_cast<float>(component.sfv) / (8.0 * sfvm))));
+
+			for (auto& coeffs : component.colldata) {
+				coeffs.resize(component.bc);
+			}
+
+			component.zdstdata.resize(component.bc);
+			component.eobxhigh.resize(component.bc);
+			component.eobyhigh.resize(component.bc);
+			component.zdstxlow.resize(component.bc);
+			component.zdstylow.resize(component.bc);
+
+		}
+
+		// decide components' statistical ids
+		if (frame_info->components.size() <= 3) {
+			for (std::size_t component = 0; component < frame_info->components.size(); component++) {
+				frame_info->components[component].sid = component;
+			}
+		} else {
+			for (auto& component : frame_info->components) {
+				component.sid = 0;
+			}
+		}
+
+		// also decide automatic settings here
+		for (auto& component : frame_info->components) {
+			int i;
+			for (i = 0;
+			     pjg::conf_sets[i][component.sid] > static_cast<std::uint32_t>(component.bc);
+			     i++);
+			component.segm_cnt = pjg::conf_segm;
+			component.nois_trs = pjg::conf_ntrs[i][component.sid];
+		}
+		return frame_info;
+	}
 }
 
 #endif

@@ -331,8 +331,7 @@ static std::vector<std::uint8_t> huffdata; // huffman coded data
 global variables: info about image
 ----------------------------------------------- */
 
-static std::vector<Component> cmpnfo; // separate info for each color component
-static FrameInfo frame_info;
+static std::unique_ptr<FrameInfo> frame_info;
 
 /* -----------------------------------------------
 global variables: info about files
@@ -376,7 +375,7 @@ filter DC coefficients
 
 static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
-	for (auto& cmpt : cmpnfo) {
+	for (auto& cmpt : frame_info->components) {
 		cmpt.predict_dc();
 	}
 	return true;
@@ -389,7 +388,7 @@ unpredict DC coefficients
 
 static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
-	for (auto& cmpt : cmpnfo) {
+	for (auto& cmpt : frame_info->components) {
 		cmpt.unpredict_dc();
 	}
 	return true;
@@ -401,7 +400,7 @@ calculate zero distribution lists
 
 static bool calc_zdst_lists() {
 	// this functions counts, for each DCT block, the number of non-zero coefficients
-	for (auto& cmpt : cmpnfo) {
+	for (auto& cmpt : frame_info->components) {
 		cmpt.calc_zdst_lists();
 	}
 
@@ -409,142 +408,22 @@ static bool calc_zdst_lists() {
 }
 
 namespace jfif {
-	// Helper function that parses SOF0/SOF1/SOF2 segments.
-	inline FrameInfo parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
-		int hpos = 4; // current position in segment, start after segment header
-		FrameInfo frame_info;
-		// set JPEG coding type
-		if (type == Marker::kSOF2) {
-			frame_info.coding_process = JpegType::PROGRESSIVE;
-		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
-			frame_info.coding_process = JpegType::SEQUENTIAL;
-		} else {
-			throw std::runtime_error("Unsupported JPG coding type."); // TODO: switch case for each SOF type.
-		}
-
-		// check data precision, only 8 bit is allowed
-		int precision = segment[hpos];
-		if (precision != 8) {
-			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
-		}
-
-		// image size, height & component count
-		frame_info.image_height = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
-		if (frame_info.image_height == 0) {
-			throw std::runtime_error("Image height is zero in the frame header.");
-		}
-
-		frame_info.image_width = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
-		if (frame_info.image_width == 0) {
-			throw std::runtime_error("Image width is zero in the frame header.");
-		}
-
-		int component_count = segment[hpos + 5];
-		if (component_count == 0) {
-			throw std::runtime_error("Zero component count in the frame header.");
-		} else if (component_count > 4) {
-			throw std::runtime_error("image has " + std::to_string(component_count) + " components, max 4 are supported");
-		}
-
-		cmpnfo.resize(component_count);
-
-		hpos += 6;
-		// components contained in image
-		for (auto& component : cmpnfo) {
-			component.jid = segment[hpos];
-
-			std::uint8_t byte = segment[hpos + 1]; // TODO: sfh and sfv are incorrectly swapped below (per jfif standard).
-			component.sfv = bitops::LBITS(byte, 4);
-			if (component.sfv == 0 || component.sfv > 4) {
-				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
-			}
-
-			component.sfh = bitops::RBITS(byte, 4);
-			if (component.sfh == 0 || component.sfh > 4) {
-				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
-			}
-
-			const int quantization_table_index = segment[hpos + 2];
-			if (quantization_table_index < 0 || quantization_table_index > 3) {
-				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
-			}
-
-			component.qtable = qtables[quantization_table_index];
-			hpos += 3;
-
-			component.mbs = component.sfv * component.sfh;
-
-		}
-
-		int sfhm = -1; // max horizontal sample factor
-		int sfvm = -1; // max verical sample factor
-		for (const auto& component : cmpnfo) {
-			sfhm = std::max(component.sfh, sfhm);
-			sfvm = std::max(component.sfv, sfvm);
-		}
-		frame_info.mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info.image_height) / static_cast<float>(8 * sfhm))); // MCUs per line.
-		frame_info.mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info.image_width) / static_cast<float>(8 * sfvm)));
-		frame_info.mcu_count = frame_info.mcu_height * frame_info.mcu_width;
-		for (auto& component : cmpnfo) {
-			component.bcv = frame_info.mcu_height * component.sfh;
-			component.bch = frame_info.mcu_width * component.sfv;
-			component.bc = component.bcv * component.bch;
-			component.ncv = static_cast<int>(ceil(static_cast<float>(frame_info.image_height) *
-				(static_cast<float>(component.sfh) / (8.0 * sfhm))));
-			component.nch = static_cast<int>(ceil(static_cast<float>(frame_info.image_width) *
-				(static_cast<float>(component.sfv) / (8.0 * sfvm))));
-
-			for (auto& coeffs : component.colldata) {
-				coeffs.resize(component.bc);
-			}
-
-			component.zdstdata.resize(component.bc);
-			component.eobxhigh.resize(component.bc);
-			component.eobyhigh.resize(component.bc);
-			component.zdstxlow.resize(component.bc);
-			component.zdstylow.resize(component.bc);
-
-		}
-
-		// decide components' statistical ids
-		if (cmpnfo.size() <= 3) {
-			for (std::size_t component = 0; component < cmpnfo.size(); component++) {
-				cmpnfo[component].sid = component;
-			}
-		} else {
-			for (auto& component : cmpnfo) {
-				component.sid = 0;
-			}
-		}
-
-		// also decide automatic settings here
-		for (auto& component : cmpnfo) {
-			int i;
-			for (i = 0;
-			     pjg::conf_sets[i][component.sid] > static_cast<std::uint32_t>(component.bc);
-			     i++);
-			component.segm_cnt = pjg::conf_segm;
-			component.nois_trs = pjg::conf_ntrs[i][component.sid];
-		}
-		return frame_info;
-	}
-
 	// Helper function that parses SOS segments.
 	inline ScanInfo parse_sos(const std::vector<std::uint8_t>& segment) {
 		int hpos = 4; // current position in segment, start after segment header
 		ScanInfo scan_info;
 		scan_info.cmpc = segment[hpos];
-		if (scan_info.cmpc > cmpnfo.size()) {
-			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(cmpnfo.size()) + " are allowed");
+		if (scan_info.cmpc > frame_info->components.size()) {
+			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info->components.size()) + " are allowed");
 		}
 		hpos++;
 		for (int i = 0; i < scan_info.cmpc; i++) {
 			int cmp;
-			for (cmp = 0; (segment[hpos] != cmpnfo[cmp].jid) && (cmp < cmpnfo.size()); cmp++);
-			if (cmp == cmpnfo.size()) {
+			for (cmp = 0; (segment[hpos] != frame_info->components[cmp].jid) && (cmp < frame_info->components.size()); cmp++);
+			if (cmp == frame_info->components.size()) {
 				throw std::range_error("component id mismatch in start-of-scan");
 			}
-			auto& cmpt = cmpnfo[cmp];
+			auto& cmpt = frame_info->components[cmp];
 			scan_info.cmp[i] = cmp;
 			cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
 			cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
@@ -573,7 +452,7 @@ namespace jfif {
 	 * Throws an exception if there is an error parsing those segments or if a segment is invalid (e.g.,
 	 * an unsupported SOF type).
 	 */
-	inline void get_frame_info(const std::vector<Segment>& segments) {
+	inline std::unique_ptr<FrameInfo> get_frame_info(const std::vector<Segment>& segments) {
 		// Get the quantization tables:
 		std::map<int, std::array<std::uint16_t, 64>> qtables;
 		for (auto& segment : segments) {
@@ -596,11 +475,10 @@ namespace jfif {
 			case Marker::kSOF2:
 				// coding process: progressive DCT
 				try {
-					frame_info = parse_sof(segment.get_type(), segment.get_data(), qtables);
+					return parse_sof(segment.get_type(), segment.get_data(), qtables);
 				} catch (const std::runtime_error&) {
 					throw;
 				}
-				break;
 			case Marker::kSOF3:
 				// coding process: lossless sequential
 				throw std::runtime_error("sof3 marker found, image is coded lossless");
@@ -635,6 +513,8 @@ namespace jfif {
 				break; // Ignore other segments.
 			}
 		}
+
+		throw std::runtime_error("No SOF segment found.");
 	}
 }
 
@@ -694,7 +574,7 @@ namespace decode {
 	// JPEG decoding routine.
 	bool decode() {
 		try {
-			jpeg_decoder->decode(frame_info.coding_process, segments, cmpnfo, huffdata);
+			jpeg_decoder->decode(frame_info->coding_process, segments, frame_info->components, huffdata);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -705,7 +585,7 @@ namespace decode {
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
 		try {
-			jpeg_decoder->check_value_range(cmpnfo);
+			jpeg_decoder->check_value_range(frame_info->components);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -725,8 +605,8 @@ namespace pjg {
 	namespace encode {
 		bool encode() {
 			try {
-				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out, cmpnfo);
-				pjg_encoder->encode(jpg::padbit, cmpnfo, segments, jpg::rst_err, grbgdata);
+				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out, frame_info->components);
+				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, grbgdata);
 			} catch (const std::exception& e) {
 				std::strcpy(errormessage, e.what());
 				errorlevel = 2;
@@ -760,7 +640,7 @@ namespace dct {
 	adapt ICOS tables for quantizer tables
 	----------------------------------------------- */
 	bool adapt_icos() {
-		for (auto& cmpt : cmpnfo) {
+		for (auto& cmpt : frame_info->components) {
 			cmpt.adapt_icos();
 		}
 		return true;
@@ -1936,15 +1816,8 @@ static bool reset_buffers() {
 	jpg::rst_err.clear();
 
 	jpg::encode::jpeg_encoder = std::make_unique<JpgEncoder>();
-
-	cmpnfo.clear();
-
-	frame_info.image_width = 0;
-	frame_info.image_height = 0;
-	frame_info.mcu_height = 0;
-	frame_info.mcu_width = 0;
-	frame_info.mcu_count = 0;
-	frame_info.coding_process = JpegType::UNKNOWN;
+	
+	frame_info.reset(nullptr);
 
 	// reset padbit
 	jpg::padbit = -1;
@@ -2118,7 +1991,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 
 	// parse header for image info
 	try {
-		jfif::get_frame_info(segments);
+		frame_info = jfif::get_frame_info(segments);
 	} catch (const std::exception&) {
 		throw;
 	}
@@ -2563,7 +2436,7 @@ void JpgEncoder::recode()
 		// (re)alloc restart marker positons array if needed
 		if ( rsti > 0 ) {
 			int tmp = rstc + ( ( scan_info.cmpc > 1 ) ?
-				( frame_info.mcu_count / rsti ) : ( cmpnfo[ scan_info.cmp[ 0 ] ].bc / rsti ) );
+				( frame_info->mcu_count / rsti ) : (frame_info->components[ scan_info.cmp[ 0 ] ].bc / rsti ) );
 			rstp.resize(tmp + 1);
 		}		
 		
@@ -2595,21 +2468,21 @@ void JpgEncoder::recode()
 			// encoding for interleaved data
 			if ( scan_info.cmpc > 1 )
 			{				
-				if ( frame_info.coding_process == JpegType::SEQUENTIAL ) {
+				if ( frame_info->coding_process == JpegType::SEQUENTIAL ) {
 					// ---> sequential interleaved encoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// copy from colldata
 						for (int bpos = 0; bpos < 64; bpos++)
-							block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
+							block[ bpos ] = frame_info->components[cmp].colldata[ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = cmpnfo[cmp].colldata[ 0 ][ dpos ];
+						lastdc[ cmp ] = frame_info->components[cmp].colldata[ 0 ][ dpos ];
 						
 						// encode block
 						int eob = this->block_seq( huffw,
-						                              *hcodes[0][cmpnfo[cmp].huffac],
-						                              *hcodes[1][cmpnfo[cmp].huffac],
+						                              *hcodes[0][frame_info->components[cmp].huffac],
+						                              *hcodes[1][frame_info->components[cmp].huffac],
 						                              block );
 						
 						// check for errors, proceed if no error encountered
@@ -2622,13 +2495,13 @@ void JpgEncoder::recode()
 					// ---> succesive approximation first stage <---
 					while ( status == CodingStatus::OKAY ) {
 						// diff coding & bitshifting for dc 
-						int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
+						int tmp = frame_info->components[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
 						block[ 0 ] = tmp - lastdc[ cmp ];
 						lastdc[ cmp ] = tmp;
 						
 						// encode dc
 						this->dc_prg_fs(huffw,
-						                       *hcodes[0][cmpnfo[cmp].huffdc],
+						                       *hcodes[0][frame_info->components[cmp].huffdc],
 						                       block);
 						
 						// next mcupos
@@ -2640,7 +2513,7 @@ void JpgEncoder::recode()
 					// ---> succesive approximation later stage <---
 					while ( status == CodingStatus::OKAY ) {
 						// fetch bit from current bitplane
-						block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
+						block[ 0 ] = bitops::BITN(frame_info->components[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
 						
 						// encode dc correction bit
 						this->dc_prg_sa(huffw, block);
@@ -2651,26 +2524,26 @@ void JpgEncoder::recode()
 			}
 			else // encoding for non interleaved data
 			{
-				if ( frame_info.coding_process == JpegType::SEQUENTIAL ) {
+				if ( frame_info->coding_process == JpegType::SEQUENTIAL ) {
 					// ---> sequential non interleaved encoding <---
 					while ( status == CodingStatus::OKAY ) {
 						// copy from colldata
 						for (int bpos = 0; bpos < 64; bpos++)
-							block[ bpos ] = cmpnfo[cmp].colldata[ bpos ][ dpos ];
+							block[ bpos ] = frame_info->components[cmp].colldata[ bpos ][ dpos ];
 						
 						// diff coding for dc
 						block[ 0 ] -= lastdc[ cmp ];
-						lastdc[ cmp ] = cmpnfo[cmp].colldata[ 0 ][ dpos ];
+						lastdc[ cmp ] = frame_info->components[cmp].colldata[ 0 ][ dpos ];
 						
 						// encode block
 						int eob = this->block_seq( huffw,
-						                              *hcodes[0][cmpnfo[cmp].huffac],
-						                              *hcodes[1][cmpnfo[cmp].huffac],
+						                              *hcodes[0][frame_info->components[cmp].huffac],
+						                              *hcodes[1][frame_info->components[cmp].huffac],
 						                              block );
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+						else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.to == 0 ) {
@@ -2679,17 +2552,17 @@ void JpgEncoder::recode()
 						// ---> succesive approximation first stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// diff coding & bitshifting for dc 
-							int tmp = cmpnfo[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
+							int tmp = frame_info->components[cmp].colldata[ 0 ][ dpos ] >> scan_info.sal;
 							block[ 0 ] = tmp - lastdc[ cmp ];
 							lastdc[ cmp ] = tmp;
 							
 							// encode dc
 							this->dc_prg_fs(huffw,
-							                       *hcodes[0][cmpnfo[cmp].huffdc],
+							                       *hcodes[0][frame_info->components[cmp].huffdc],
 							                       block);							
 							
 							// check for errors, increment dpos otherwise
-							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
 					}
 					else {
@@ -2697,13 +2570,13 @@ void JpgEncoder::recode()
 						// ---> succesive approximation later stage <---
 						while ( status == CodingStatus::OKAY ) {
 							// fetch bit from current bitplane
-							block[ 0 ] = bitops::BITN(cmpnfo[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
+							block[ 0 ] = bitops::BITN(frame_info->components[cmp].colldata[ 0 ][ dpos ], scan_info.sal );
 							
 							// encode dc correction bit
 							this->dc_prg_sa(huffw, block);
 							
 							// next mcupos if no error happened
-							status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -2715,20 +2588,20 @@ void JpgEncoder::recode()
 							// copy from colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[ bpos ] =
-									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
+									fdiv2(frame_info->components[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
 							
 							// encode block
 							int eob = this->ac_prg_fs( huffw,
-							                              *hcodes[1][cmpnfo[cmp].huffac],
+							                              *hcodes[1][frame_info->components[cmp].huffac],
 							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
-						this->eobrun(huffw, *hcodes[1][cmpnfo[cmp].huffac], &eobrun);
+						this->eobrun(huffw, *hcodes[1][frame_info->components[cmp].huffac], &eobrun);
 					}
 					else {
 						// ---> progressive non interleaved AC encoding <---
@@ -2737,20 +2610,20 @@ void JpgEncoder::recode()
 							// copy from colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[ bpos ] =
-									fdiv2(cmpnfo[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
+									fdiv2(frame_info->components[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
 							
 							// encode block
 							int eob = this->ac_prg_sa( huffw, storw,
-							                              *hcodes[1][cmpnfo[cmp].huffac],
+							                              *hcodes[1][frame_info->components[cmp].huffac],
 							                              block, &eobrun, scan_info.from, scan_info.to );
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpnfo[cmp], rsti, &dpos, &rstw);
+							else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}						
 						
 						// encode remaining eobrun
-						this->eobrun(huffw, *hcodes[1][cmpnfo[cmp].huffac], &eobrun);
+						this->eobrun(huffw, *hcodes[1][frame_info->components[cmp].huffac], &eobrun);
 							
 						// encode remaining correction bits
 						this->crbits( huffw, storw );
@@ -2897,13 +2770,13 @@ void PjgDecoder::decode() {
 	this->deoptimize_header(segments);
 	// parse header for image-info
 	try {
-		jfif::get_frame_info(segments);
+		frame_info = jfif::get_frame_info(segments);
 	} catch (const std::exception&) {
 		throw;
 	}
 	
 	// decode actual components data
-	for (auto& cmpt : cmpnfo) {
+	for (auto& cmpt : frame_info->components) {
 		// decode frequency scan ('zero-sort-scan')
 		cmpt.freqscan = this->zstscan(); // set zero sort scan as freqscan
 		// decode zero-distribution-lists for higher (7x7) ACs
@@ -2937,14 +2810,14 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int
 	
 	
 	// increment all counts where needed
-	if ( ( ++(*sub) ) >= cmpnfo[(*cmp)].mbs ) {
+	if ( ( ++(*sub) ) >= frame_info->components[(*cmp)].mbs ) {
 		(*sub) = 0;
 		
 		if ( ( ++(*csc) ) >= scan_info.cmpc ) {
 			(*csc) = 0;
 			(*cmp) = scan_info.cmp[ 0 ];
 			(*mcu)++;
-			if ( (*mcu) >= frame_info.mcu_count ) sta = CodingStatus::DONE;
+			if ( (*mcu) >= frame_info->mcu_count ) sta = CodingStatus::DONE;
 			else if ( rsti > 0 )
 				if ( --(*rstw) == 0 ) sta = CodingStatus::RESTART;
 		}
@@ -2954,14 +2827,14 @@ CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int
 	}
 	
 	// get correct position in image ( x & y )
-	if ( cmpnfo[(*cmp)].sfh > 1 ) { // to fix mcu order
-		(*dpos)  = ( (*mcu) / frame_info.mcu_width ) * cmpnfo[(*cmp)].sfh + ( (*sub) / cmpnfo[(*cmp)].sfv );
-		(*dpos) *= cmpnfo[(*cmp)].bch;
-		(*dpos) += ( (*mcu) % frame_info.mcu_width) * cmpnfo[(*cmp)].sfv + ( (*sub) % cmpnfo[(*cmp)].sfv );
+	if ( frame_info->components[(*cmp)].sfh > 1 ) { // to fix mcu order
+		(*dpos)  = ( (*mcu) / frame_info->mcu_width ) * frame_info->components[(*cmp)].sfh + ( (*sub) / frame_info->components[(*cmp)].sfv );
+		(*dpos) *= frame_info->components[(*cmp)].bch;
+		(*dpos) += ( (*mcu) % frame_info->mcu_width) * frame_info->components[(*cmp)].sfv + ( (*sub) % frame_info->components[(*cmp)].sfv );
 	}
-	else if ( cmpnfo[(*cmp)].sfv > 1 ) {
+	else if ( frame_info->components[(*cmp)].sfv > 1 ) {
 		// simple calculation to speed up things if simple fixing is enough
-		(*dpos) = ( (*mcu) * cmpnfo[(*cmp)].mbs ) + (*sub);
+		(*dpos) = ( (*mcu) * frame_info->components[(*cmp)].mbs ) + (*sub);
 	}
 	else {
 		// no calculations needed without subsampling
@@ -3112,7 +2985,7 @@ static bool dump_coll()
 	const std::array<std::string, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
 	const auto& base = filelist[file_no];
 
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
 		// create filename
 		const auto fn = create_filename(base, ext[cmp]);
 
@@ -3129,14 +3002,14 @@ static bool dump_coll()
 
 		case CollectionMode::STD:
 			for (int bpos = 0; bpos < 64; bpos++) {
-				fwrite(cmpnfo[cmp].colldata[bpos].data(), sizeof(short), cmpnfo[cmp].bc, fp);
+				fwrite(frame_info->components[cmp].colldata[bpos].data(), sizeof(short), frame_info->components[cmp].bc, fp);
 			}
 			break;
 
 		case CollectionMode::DHF:
-			for (dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
+			for (dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
 				for (int bpos = 0; bpos < 64; bpos++) {
-					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
+					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -3145,11 +3018,11 @@ static bool dump_coll()
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
 				const int bpos = pjg::zigzag[i++];
-				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
-					cmpnfo[cmp].bch, fp);
+				fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short),
+					frame_info->components[cmp].bch, fp);
 				if ((i % 8) == 0) {
-					dpos += cmpnfo[cmp].bch;
-					if (dpos >= cmpnfo[cmp].bc) {
+					dpos += frame_info->components[cmp].bch;
+					if (dpos >= frame_info->components[cmp].bc) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -3159,11 +3032,11 @@ static bool dump_coll()
 			break;
 
 		case CollectionMode::UNC:
-			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
-				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+			for (int i = 0; i < (frame_info->components[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (frame_info->components[cmp].bch * 8); j++) {
 					const int bpos = pjg::zigzag[((i % 8) * 8) + (j % 8)];
-					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
-					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
+					dpos = ((i / 8) * frame_info->components[cmp].bch) + (j / 8);
+					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -3172,11 +3045,11 @@ static bool dump_coll()
 			dpos = 0;
 			for (int i = 0; i < 64; ) {
 				int bpos = pjg::even_zigzag[i++];
-				fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short),
-					cmpnfo[cmp].bch, fp);
+				fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short),
+					frame_info->components[cmp].bch, fp);
 				if ((i % 8) == 0) {
-					dpos += cmpnfo[cmp].bch;
-					if (dpos >= cmpnfo[cmp].bc) {
+					dpos += frame_info->components[cmp].bch;
+					if (dpos >= frame_info->components[cmp].bc) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -3186,11 +3059,11 @@ static bool dump_coll()
 			break;
 
 		case CollectionMode::UNC_ALT:
-			for (int i = 0; i < (cmpnfo[cmp].bcv * 8); i++) {
-				for (int j = 0; j < (cmpnfo[cmp].bch * 8); j++) {
+			for (int i = 0; i < (frame_info->components[cmp].bcv * 8); i++) {
+				for (int j = 0; j < (frame_info->components[cmp].bch * 8); j++) {
 					const int bpos = pjg::even_zigzag[((i % 8) * 8) + (j % 8)];
-					dpos = ((i / 8) * cmpnfo[cmp].bch) + (j / 8);
-					fwrite(&(cmpnfo[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
+					dpos = ((i / 8) * frame_info->components[cmp].bch) + (j / 8);
+					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
 				}
 			}
 			break;
@@ -3209,8 +3082,8 @@ static bool dump_zdst() {
 	const std::array<std::string, 4> ext{ "zdst0", "zdst1", "zdst2", "zdst3" };
 	const auto basename = filelist[file_no];
 
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
-		if (!dump_file(basename, ext[cmp], cmpnfo[cmp].zdstdata.data(), 1, cmpnfo[cmp].bc)) {
+	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
+		if (!dump_file(basename, ext[cmp], frame_info->components[cmp].zdstdata.data(), 1, frame_info->components[cmp].bc)) {
 			return false;
 		}
 	}
@@ -3298,7 +3171,7 @@ static bool dump_info() {
 	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
 	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
 	fprintf( fp, "imageheight: %i / imagewidth: %i\n", image::imgheight, image::imgwidth );
-	fprintf( fp, "component count: %u\n", cmpnfo.size());
+	fprintf( fp, "component count: %u\n", frame_info->components.size());
 	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
 	
 	// info about header
@@ -3318,28 +3191,28 @@ static bool dump_info() {
 	// info about compression settings	
 	fprintf(fp, "\ncompression settings:\n");
 	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		cmpnfo[0].segm_cnt, cmpnfo[1].segm_cnt, cmpnfo[2].segm_cnt, cmpnfo[3].segm_cnt);
+		frame_info->components[0].segm_cnt, frame_info->components[1].segm_cnt, frame_info->components[2].segm_cnt, frame_info->components[3].segm_cnt);
 	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		cmpnfo[0].nois_trs, cmpnfo[1].nois_trs, cmpnfo[2].nois_trs, cmpnfo[3].nois_trs);
+		frame_info->components[0].nois_trs, frame_info->components[1].nois_trs, frame_info->components[2].nois_trs, frame_info->components[3].nois_trs);
 	fprintf(fp, "\n");
 
 	// info about components
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
 		fprintf(fp, "\n");
 		fprintf(fp, "component number %i ->\n", cmp);
-		fprintf(fp, "sample factors: %i/%i (v/h)\n", cmpnfo[cmp].sfv, cmpnfo[cmp].sfh);
-		fprintf(fp, "blocks per mcu: %i\n", cmpnfo[cmp].mbs);
+		fprintf(fp, "sample factors: %i/%i (v/h)\n", frame_info->components[cmp].sfv, frame_info->components[cmp].sfh);
+		fprintf(fp, "blocks per mcu: %i\n", frame_info->components[cmp].mbs);
 		fprintf(fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].bc, cmpnfo[cmp].bcv, cmpnfo[cmp].bch);
+			frame_info->components[cmp].bc, frame_info->components[cmp].bcv, frame_info->components[cmp].bch);
 		fprintf(fp, "block count (sng): %i/%i/%i (all/v/h)\n",
-			cmpnfo[cmp].nc, cmpnfo[cmp].ncv, cmpnfo[cmp].nch);
+			frame_info->components[cmp].nc, frame_info->components[cmp].ncv, frame_info->components[cmp].nch);
 		fprintf(fp, "quantiser table ->");
 		for (int i = 0; i < 64; i++) {
 			int bpos = pjg::zigzag[i];
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
-			fprintf(fp, "%4i, ", cmpnfo[cmp].quant(bpos));
+			fprintf(fp, "%4i, ", frame_info->components[cmp].quant(bpos));
 		}
 		fprintf(fp, "\n");
 		fprintf(fp, "maximum values ->");
@@ -3348,7 +3221,7 @@ static bool dump_info() {
 			if ((i % 8) == 0) {
 				fprintf(fp, "\n");
 			}
-			fprintf(fp, "%4i, ", cmpnfo[cmp].max_v(bpos));
+			fprintf(fp, "%4i, ", frame_info->components[cmp].max_v(bpos));
 		}
 		fprintf(fp, "\n\n");
 	}
@@ -3374,12 +3247,12 @@ static bool dump_dist() {
 	}
 
 	// calculate & write distributions for each frequency
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
 		for (int bpos = 0; bpos < 64; bpos++) {
 			std::array<int, 1024 + 1> dist{};
 			// get distribution
-			for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
-				dist[std::abs(cmpnfo[cmp].colldata[bpos][dpos])]++;
+			for (int dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
+				dist[std::abs(frame_info->components[cmp].colldata[bpos][dpos])]++;
 			}
 			// write to file
 			fwrite(dist.data(), sizeof(int), dist.size(), fp);
@@ -3398,7 +3271,7 @@ static bool dump_dist() {
 static bool dump_pgm() {
 	const std::array<std::string, 4> ext{ "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
-	for (int cmp = 0; cmp < cmpnfo.size(); cmp++) {
+	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
 		// create filename
 		const auto fn = create_filename(filelist[file_no], ext[cmp]);
 
@@ -3411,17 +3284,17 @@ static bool dump_pgm() {
 		}
 
 		// alloc memory for image data
-		std::vector<std::uint8_t> imgdata(cmpnfo[cmp].bc * 64);
+		std::vector<std::uint8_t> imgdata(frame_info->components[cmp].bc * 64);
 
-		for (int dpos = 0; dpos < cmpnfo[cmp].bc; dpos++) {
+		for (int dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
 			// do inverse DCT, store in imgdata
-			int dcpos = (((dpos / cmpnfo[cmp].bch) * cmpnfo[cmp].bch) << 6) +
-				((dpos % cmpnfo[cmp].bch) << 3);
+			int dcpos = (((dpos / frame_info->components[cmp].bch) * frame_info->components[cmp].bch) << 6) +
+				((dpos % frame_info->components[cmp].bch) << 3);
 			for (int y = 0; y < 8; y++) {
-				int ypos = dcpos + (y * (cmpnfo[cmp].bch << 3));
+				int ypos = dcpos + (y * (frame_info->components[cmp].bch << 3));
 				for (int x = 0; x < 8; x++) {
 					int xpos = ypos + x;
-					int pix_v = cmpnfo[cmp].idct_2d_fst_8x8(dpos, x, y);
+					int pix_v = frame_info->components[cmp].idct_2d_fst_8x8(dpos, x, y);
 					pix_v = dct::DCT_RESCALE(pix_v);
 					pix_v = pix_v + 128;
 					imgdata[xpos] = std::uint8_t(clamp(pix_v, 0, 255));
@@ -3438,7 +3311,7 @@ static bool dump_pgm() {
 			program_info::subversion.c_str(),
 			program_info::versiondate.c_str(),
 			program_info::author.c_str());
-		fprintf(fp, "%i %i\n", cmpnfo[cmp].bch * 8, cmpnfo[cmp].bcv * 8);
+		fprintf(fp, "%i %i\n", frame_info->components[cmp].bch * 8, frame_info->components[cmp].bcv * 8);
 		fprintf(fp, "255\n");
 
 		// write image data

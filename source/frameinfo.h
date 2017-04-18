@@ -1,6 +1,7 @@
 #ifndef FRAMEINFO_H
 #define FRAMEINFO_H
 
+#include "component.h"
 #include "jpegtype.h"
 
 struct FrameInfo {
@@ -12,6 +13,8 @@ struct FrameInfo {
 	int mcu_height = 0;
 	int mcu_width = 0;
 	int mcu_count = 0;
+
+	std::vector<Component> components;
 };
 
 #endif
