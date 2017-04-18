@@ -419,7 +419,7 @@ namespace image {
 
 namespace jfif {
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
-	inline void parse_sof(Marker type, const std::vector<std::uint8_t>& segment) {
+	inline void parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
 		int hpos = 4; // current position in segment, start after segment header
 
 		// set JPEG coding type
@@ -438,12 +438,12 @@ namespace jfif {
 		}
 
 		// image size, height & component count
-		image::imgheight = pack(segment[hpos + 1], segment[hpos + 2]);
+		image::imgheight = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
 		if (image::imgheight == 0) {
 			throw std::runtime_error("Image height is zero in the frame header.");
 		}
 
-		image::imgwidth = pack(segment[hpos + 3], segment[hpos + 4]);
+		image::imgwidth = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
 		if (image::imgwidth == 0) {
 			throw std::runtime_error("Image width is zero in the frame header.");
 		}
@@ -576,101 +576,68 @@ namespace jfif {
 		return scan_info;
 	}
 
-	// Throws an error if the jfif segment is not valid in packjpg.
-	inline void parse_jfif(const Segment& segment)
-	{
-		switch (segment.get_type()) {
-		case Marker::kDHT:
-			break;
-		case Marker::kDQT:
-			try {
-				jfif::parse_dqt(qtables, segment.get_data());
-			} catch (const std::runtime_error&) {
-				throw;
+	/*
+	 * Gets and sets the frame info (components, etc.) by parsing the appropriate segments.
+	 * Throws an exception if there is an error parsing those segments or if a segment is invalid (e.g.,
+	 * an unsupported SOF type).
+	 */
+	inline void get_frame_info(const std::vector<Segment>& segments) {
+		// Get the quantization tables:
+		std::map<int, std::array<std::uint16_t, 64>> qtables;
+		for (auto& segment : segments) {
+			if (segment.get_type() == Marker::kDQT) {
+				parse_dqt(qtables, segment.get_data());
 			}
-			break;
-		case Marker::kDRI:
-			break;
-		case Marker::kSOS:
-			break;
-		case Marker::kSOF0:
-			// coding process: baseline DCT
-		case Marker::kSOF1:
-			// coding process: extended sequential DCT
-		case Marker::kSOF2:
-			// coding process: progressive DCT
-			try {
-				jfif::parse_sof(segment.get_type(), segment.get_data());
-			} catch (const std::runtime_error&) {
-				throw;
+		}
+
+		// Find and parse the SOF segment:
+		for (auto& segment : segments) {
+			switch (segment.get_type()) {
+			case Marker::kSOF0:
+				// coding process: baseline DCT
+			case Marker::kSOF1:
+				// coding process: extended sequential DCT
+			case Marker::kSOF2:
+				// coding process: progressive DCT
+				try {
+					parse_sof(segment.get_type(), segment.get_data(), qtables);
+				} catch (const std::runtime_error&) {
+					throw;
+				}
+				break;
+			case Marker::kSOF3:
+				// coding process: lossless sequential
+				throw std::runtime_error("sof3 marker found, image is coded lossless");
+			case Marker::kSOF5:
+				// coding process: differential sequential DCT
+				throw std::runtime_error("sof5 marker found, image is coded diff. sequential");
+			case Marker::kSOF6:
+				// coding process: differential progressive DCT
+				throw std::runtime_error("sof6 marker found, image is coded diff. progressive");
+			case Marker::kSOF7:
+				// coding process: differential lossless
+				throw std::runtime_error("sof7 marker found, image is coded diff. lossless");
+			case Marker::kSOF9:
+				// coding process: arithmetic extended sequential DCT
+				throw std::runtime_error("sof9 marker found, image is coded arithm. sequential");
+			case Marker::kSOF10:
+				// coding process: arithmetic extended sequential DCT
+				throw std::runtime_error("sof10 marker found, image is coded arithm. progressive");
+			case Marker::kSOF11:
+				// coding process: arithmetic extended sequential DCT
+				throw std::runtime_error("sof11 marker found, image is coded arithm. lossless");
+			case Marker::kSOF13:
+				// coding process: arithmetic differntial sequential DCT
+				throw std::runtime_error("sof13 marker found, image is coded arithm. diff. sequential");
+			case Marker::kSOF14:
+				// coding process: arithmetic differential progressive DCT
+				throw std::runtime_error("sof14 marker found, image is coded arithm. diff. progressive");
+			case Marker::kSOF15:
+				// coding process: arithmetic differntial lossless
+				throw std::runtime_error("sof15 marker found, image is coded arithm. diff. lossless");
+			default:
+				break; // Ignore other segments.
 			}
-			break;
-		case Marker::kSOF3:
-			// coding process: lossless sequential
-			throw std::runtime_error("sof3 marker found, image is coded lossless");
-		case Marker::kSOF5:
-			// coding process: differential sequential DCT
-			throw std::runtime_error("sof5 marker found, image is coded diff. sequential");
-		case Marker::kSOF6:
-			// coding process: differential progressive DCT
-			throw std::runtime_error("sof6 marker found, image is coded diff. progressive");
-		case Marker::kSOF7:
-			// coding process: differential lossless
-			throw std::runtime_error("sof7 marker found, image is coded diff. lossless");
-		case Marker::kSOF9:
-			// coding process: arithmetic extended sequential DCT
-			throw std::runtime_error("sof9 marker found, image is coded arithm. sequential");
-		case Marker::kSOF10:
-			// coding process: arithmetic extended sequential DCT
-			throw std::runtime_error("sof10 marker found, image is coded arithm. progressive");
-		case Marker::kSOF11:
-			// coding process: arithmetic extended sequential DCT
-			throw std::runtime_error("sof11 marker found, image is coded arithm. lossless");
-		case Marker::kSOF13:
-			// coding process: arithmetic differntial sequential DCT
-			throw std::runtime_error("sof13 marker found, image is coded arithm. diff. sequential");
-		case Marker::kSOF14:
-			// coding process: arithmetic differential progressive DCT
-			throw std::runtime_error("sof14 marker found, image is coded arithm. diff. progressive");
-		case Marker::kSOF15:
-			// coding process: arithmetic differntial lossless
-			throw std::runtime_error("sof15 marker found, image is coded arithm. diff. lossless");
-		case Marker::kAPP0:
-		case Marker::kAPP1:
-		case Marker::kAPP2:
-		case Marker::kAPP3:
-		case Marker::kAPP4:
-		case Marker::kAPP5:
-		case Marker::kAPP6:
-		case Marker::kAPP7:
-		case Marker::kAPP8:
-		case Marker::kAPP9:
-		case Marker::kAPP10:
-		case Marker::kAPP11:
-		case Marker::kAPP12:
-		case Marker::kAPP13:
-		case Marker::kAPP14:
-		case Marker::kAPP15:
-		case Marker::kCOM:
-			break;
-		case Marker::kRST0:
-		case Marker::kRST1:
-		case Marker::kRST2:
-		case Marker::kRST3:
-		case Marker::kRST4:
-		case Marker::kRST5:
-		case Marker::kRST6:
-		case Marker::kRST7:
-			// return errormessage - RST is out of place here
-			throw std::runtime_error("rst marker found out of place");
-		case Marker::kSOI:
-			// return errormessage - start-of-image is out of place here
-			throw std::runtime_error("soi marker found out of place");
-		case Marker::kEOI:
-			// return errormessage - end-of-image is out of place here
-			throw std::runtime_error("eoi marker found out of place");
-		default: // unknown marker segment
-			throw std::runtime_error("unknown marker found");
 		}
 	}
 }
@@ -2982,8 +2949,8 @@ void PjgDecoder::decode() {
 
 void jpg::setup_imginfo()
 {
-		
-	// header parser loop
+	jfif::get_frame_info(segments);
+	/*// header parser loop
 	for (const auto& segment : segments) {
 		const Marker type = segment.get_type();
 		if (type != Marker::kDHT
@@ -2995,7 +2962,7 @@ void jpg::setup_imginfo()
 				throw;
 			}
 		}
-	}
+	}*/
 }
 
 CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)

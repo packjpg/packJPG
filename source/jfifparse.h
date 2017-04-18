@@ -2,6 +2,7 @@
 #define JFIFPARSE_H
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -46,43 +47,50 @@ namespace jfif {
 		}
 	}
 
-	// Helper function that parses DQT segments.
-	inline void parse_dqt(std::array<std::array<std::uint16_t, 64>, 4>& qtables, const std::vector<std::uint8_t>& segment) {
-		int hpos = 4; // current position in segment, start after segment header
-		while (hpos < segment.size()) {
-			int lval = bitops::LBITS(segment[hpos], 4);
-			int rval = bitops::RBITS(segment[hpos], 4);
-			if (lval < 0 || lval >= 2) {
-				break;
+	/*
+	 * Reads quantization tables from a dqt segment into the supplied map. Any existing quantization table in the map with the same index
+	 * as one of the new quantization tables is overwritten. Throws a runtime_error exception if there is a problem parsing the segment.
+	 */
+	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const std::vector<std::uint8_t>& segment) {
+		std::size_t segment_pos = 4; // current position in segment, start after segment header
+		while (segment_pos < segment.size()) {
+			const std::uint8_t byte = segment[segment_pos];
+			const int precision = bitops::LBITS(byte, 4);
+			if (precision < 0 || precision > 1) {
+				throw std::runtime_error("Invalid quantization table element precision: " + std::to_string(precision));
 			}
-			if (rval < 0 || rval >= 4) {
-				break;
+
+			const int index = bitops::RBITS(byte, 4);
+			if (index < 0 || index > 3) {
+				throw std::runtime_error("Invalid quantization table destination identifier: " + std::to_string(index));
 			}
-			hpos++;
-			if (lval == 0) { // 8 bit precision
-				for (int i = 0; i < 64; i++) {
-					qtables[rval][i] = static_cast<std::uint16_t>(segment[hpos + i]);
-					if (qtables[rval][i] == 0) {
-						break;
+			segment_pos++;
+
+			std::array<std::uint16_t, 64> qtable{};
+			if (precision == 0) { // 8-bit quantization table element precision.
+				for (std::size_t i = 0; i < qtable.size(); i++) {
+					qtable[i] = static_cast<std::uint16_t>(segment[segment_pos + i]);
+					if (qtable[i] == 0) {
+						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
-				hpos += 64;
+				segment_pos += 64;
 			}
-			else { // 16 bit precision
-				for (int i = 0; i < 64; i++) {
-					qtables[rval][i] =
-						pack(segment[hpos + (2 * i)], segment[hpos + (2 * i) + 1]);
-					if (qtables[rval][i] == 0) {
-						break;
+			else { // 16-bit quantization table element precision.
+				for (std::size_t i = 0; i < qtable.size(); i++) {
+					qtable[i] = pack(segment[segment_pos + (2 * i)], segment[segment_pos + (2 * i) + 1]);
+					if (qtable[i] == 0) {
+						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
-				hpos += 128;
+				segment_pos += 128;
 			}
+			qtables[index] = qtable;
 		}
 
-		if (hpos != segment.size()) {
+		if (segment_pos != segment.size()) {
 			// if we get here, something went wrong
-			throw std::runtime_error("size mismatch in dqt marker");
+			throw std::runtime_error("Invalid length in DQT segment.");
 		}
 	}
 
