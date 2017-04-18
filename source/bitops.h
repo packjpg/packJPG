@@ -168,6 +168,166 @@ private:
 	int cbyte = 0;
 };
 
+class Reader {
+public:
+	Reader() {}
+
+	virtual ~Reader() {}
+
+	virtual std::size_t read(std::uint8_t* to, std::size_t num_to_read) = 0;
+	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
+	virtual std::uint8_t read_byte() = 0;
+	virtual bool read_byte(std::uint8_t* to) = 0;
+
+	virtual void rewind() = 0;
+	virtual std::size_t num_bytes_read() = 0;
+	virtual std::size_t get_size() = 0;
+	virtual std::vector<std::uint8_t> get_data() = 0;
+	virtual bool error() = 0;
+	virtual bool end_of_reader() = 0;
+};
+
+class FileReader : public Reader {
+public:
+	FileReader(const std::string& file_path);
+	~FileReader();
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void rewind() override;
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	FILE* fptr_ = nullptr;
+	std::vector<char> file_buffer_; // Used to replace the default file buffer for reads/writes to improve performance.
+	const std::string file_path_;
+};
+
+class MemoryReader : public Reader {
+public:
+	MemoryReader(const std::vector<std::uint8_t>& bytes);
+	~MemoryReader() {}
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void rewind() override;
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	const std::vector<std::uint8_t> data_;
+	std::vector<std::uint8_t>::const_iterator cbyte_; // The position in the data of the byte being read.
+	bool eof_ = false;
+};
+
+class StreamReader : public Reader {
+public:
+	StreamReader();
+	~StreamReader() {}
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void rewind() override;
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	std::unique_ptr<MemoryReader> reader_;
+};
+
+class Writer {
+public:
+	Writer() {}
+
+	virtual ~Writer() {}
+
+	virtual std::size_t write(const std::uint8_t* from, std::size_t n) = 0;
+	virtual bool write_byte(std::uint8_t byte) = 0;
+
+	virtual std::vector<std::uint8_t> get_data() = 0;
+
+	virtual void rewind() = 0;
+	virtual std::size_t num_bytes_written() = 0;
+	virtual bool error() = 0;
+};
+
+class FileWriter : public Writer {
+public:
+	FileWriter(const std::string& file_path);
+	~FileWriter();
+
+	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	bool write_byte(std::uint8_t byte) override;
+
+	std::vector<std::uint8_t> get_data() override;
+
+	void rewind() override;
+	std::size_t num_bytes_written() override;
+	bool error() override;
+
+private:
+	FILE* fptr_ = nullptr;
+	std::vector<char> file_buffer_; // Used to replace the default file buffer for reads/writes to improve performance.
+	const std::string file_path_;
+};
+
+class MemoryWriter : public Writer {
+public:
+	MemoryWriter();
+	MemoryWriter(std::size_t initial_capacity);
+	~MemoryWriter() {}
+
+	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	bool write_byte(std::uint8_t byte) override;
+
+	std::vector<std::uint8_t> get_data() override;
+
+	void rewind() override;
+	std::size_t num_bytes_written() override;
+	bool error() override;
+
+private:
+	std::vector<std::uint8_t> data_;
+	std::size_t curr_byte_ = 0;
+
+};
+
+class StreamWriter : public Writer {
+public:
+	StreamWriter();
+	~StreamWriter();
+
+	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	bool write_byte(std::uint8_t byte) override;
+
+	std::vector<std::uint8_t> get_data() override;
+
+	void rewind() override;
+	std::size_t num_bytes_written() override;
+	bool error() override;
+
+private:
+	std::unique_ptr<MemoryWriter> writer_;
+};
 
 /* -----------------------------------------------
 	class for input and output from file or memory
