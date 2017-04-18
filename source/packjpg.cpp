@@ -407,117 +407,6 @@ static bool calc_zdst_lists() {
 	return true;
 }
 
-namespace jfif {
-	// Helper function that parses SOS segments.
-	inline ScanInfo parse_sos(const std::vector<std::uint8_t>& segment) {
-		int hpos = 4; // current position in segment, start after segment header
-		ScanInfo scan_info;
-		scan_info.cmpc = segment[hpos];
-		if (scan_info.cmpc > frame_info->components.size()) {
-			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info->components.size()) + " are allowed");
-		}
-		hpos++;
-		for (int i = 0; i < scan_info.cmpc; i++) {
-			int cmp;
-			for (cmp = 0; (segment[hpos] != frame_info->components[cmp].jid) && (cmp < frame_info->components.size()); cmp++);
-			if (cmp == frame_info->components.size()) {
-				throw std::range_error("component id mismatch in start-of-scan");
-			}
-			auto& cmpt = frame_info->components[cmp];
-			scan_info.cmp[i] = cmp;
-			cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
-			cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
-			if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
-				(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
-				throw std::range_error("huffman table number mismatch");
-			}
-			hpos += 2;
-		}
-		scan_info.from = segment[hpos + 0];
-		scan_info.to = segment[hpos + 1];
-		scan_info.sah = bitops::LBITS(segment[hpos + 2], 4);
-		scan_info.sal = bitops::RBITS(segment[hpos + 2], 4);
-		// check for errors
-		if ((scan_info.from > scan_info.to) || (scan_info.from > 63) || (scan_info.to > 63)) {
-			throw std::range_error("spectral selection parameter out of range");
-		}
-		if ((scan_info.sah >= 12) || (scan_info.sal >= 12)) {
-			throw std::range_error("successive approximation parameter out of range");
-		}
-		return scan_info;
-	}
-
-	/*
-	 * Gets and sets the frame info (components, etc.) by parsing the appropriate segments.
-	 * Throws an exception if there is an error parsing those segments or if a segment is invalid (e.g.,
-	 * an unsupported SOF type).
-	 */
-	inline std::unique_ptr<FrameInfo> get_frame_info(const std::vector<Segment>& segments) {
-		// Get the quantization tables:
-		std::map<int, std::array<std::uint16_t, 64>> qtables;
-		for (auto& segment : segments) {
-			if (segment.get_type() == Marker::kDQT) {
-				try {
-					parse_dqt(qtables, segment.get_data());
-				} catch (std::runtime_error&) {
-					throw;
-				}
-			}
-		}
-
-		// Find and parse the SOF segment:
-		for (auto& segment : segments) {
-			switch (segment.get_type()) {
-			case Marker::kSOF0:
-				// coding process: baseline DCT
-			case Marker::kSOF1:
-				// coding process: extended sequential DCT
-			case Marker::kSOF2:
-				// coding process: progressive DCT
-				try {
-					return parse_sof(segment.get_type(), segment.get_data(), qtables);
-				} catch (const std::runtime_error&) {
-					throw;
-				}
-			case Marker::kSOF3:
-				// coding process: lossless sequential
-				throw std::runtime_error("sof3 marker found, image is coded lossless");
-			case Marker::kSOF5:
-				// coding process: differential sequential DCT
-				throw std::runtime_error("sof5 marker found, image is coded diff. sequential");
-			case Marker::kSOF6:
-				// coding process: differential progressive DCT
-				throw std::runtime_error("sof6 marker found, image is coded diff. progressive");
-			case Marker::kSOF7:
-				// coding process: differential lossless
-				throw std::runtime_error("sof7 marker found, image is coded diff. lossless");
-			case Marker::kSOF9:
-				// coding process: arithmetic extended sequential DCT
-				throw std::runtime_error("sof9 marker found, image is coded arithm. sequential");
-			case Marker::kSOF10:
-				// coding process: arithmetic extended sequential DCT
-				throw std::runtime_error("sof10 marker found, image is coded arithm. progressive");
-			case Marker::kSOF11:
-				// coding process: arithmetic extended sequential DCT
-				throw std::runtime_error("sof11 marker found, image is coded arithm. lossless");
-			case Marker::kSOF13:
-				// coding process: arithmetic differntial sequential DCT
-				throw std::runtime_error("sof13 marker found, image is coded arithm. diff. sequential");
-			case Marker::kSOF14:
-				// coding process: arithmetic differential progressive DCT
-				throw std::runtime_error("sof14 marker found, image is coded arithm. diff. progressive");
-			case Marker::kSOF15:
-				// coding process: arithmetic differntial lossless
-				throw std::runtime_error("sof15 marker found, image is coded arithm. diff. lossless");
-			default:
-				break; // Ignore other segments.
-			}
-		}
-
-		throw std::runtime_error("No SOF segment found.");
-	}
-}
-
 namespace jpg {
 
 char padbit = -1; // padbit (for huffman coding)
@@ -2099,7 +1988,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
 			try {
-				scan_info = jfif::parse_sos(segment.get_data());
+				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
@@ -2417,7 +2306,7 @@ void JpgEncoder::recode()
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
 			try {
-				scan_info = jfif::parse_sos(segment.get_data());
+				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
