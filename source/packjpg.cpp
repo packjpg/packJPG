@@ -646,9 +646,6 @@ char padbit = -1; // padbit (for huffman coding)
 
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
-// Parses header for imageinfo.
-void setup_imginfo();
-
 // Calculates next position for MCU.
 CodingStatus next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
 // Calculates next position (non interleaved).
@@ -2127,7 +2124,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 
 	// parse header for image info
 	try {
-		jpg::setup_imginfo();
+		jfif::get_frame_info(segments);
 	} catch (const std::exception&) {
 		throw;
 	}
@@ -2906,7 +2903,7 @@ void PjgDecoder::decode() {
 	this->deoptimize_header(segments);
 	// parse header for image-info
 	try {
-		jpg::setup_imginfo();
+		jfif::get_frame_info(segments);
 	} catch (const std::exception&) {
 		throw;
 	}
@@ -2939,24 +2936,6 @@ void PjgDecoder::decode() {
 /* ----------------------- End of main functions -------------------------- */
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
-
-void jpg::setup_imginfo()
-{
-	jfif::get_frame_info(segments);
-	/*// header parser loop
-	for (const auto& segment : segments) {
-		const Marker type = segment.get_type();
-		if (type != Marker::kDHT
-			&& type != Marker::kDRI
-			&& type != Marker::kSOS) {
-			try {
-				jfif::parse_jfif(segment);
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-		}
-	}*/
-}
 
 CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
