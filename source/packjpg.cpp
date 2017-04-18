@@ -321,8 +321,6 @@ static int  errorlevel;
 global variables: data storage
 ----------------------------------------------- */
 
-static std::array<std::array<std::uint16_t, 64>, 4> qtables; // quantization tables
-
 static std::vector<std::uint8_t> grbgdata; // garbage data
 static std::vector<Segment> segments; // Header segments.
 static std::vector<std::uint8_t> huffdata; // huffman coded data
@@ -1953,11 +1951,6 @@ static bool reset_buffers() {
 	// preset mcu info variables / restart interval
 	image::mcuc = 0;
 	image::mcuh = 0;
-
-	// reset quantization
-	for (auto& qtable : qtables) {
-		qtable.fill(0);
-	}
 
 	// preset jpegtype
 	jpegtype = JpegType::UNKNOWN;
