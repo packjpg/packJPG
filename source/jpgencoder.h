@@ -7,13 +7,14 @@
 
 #include "bitops.h"
 #include "huffcodes.h"
+#include "segment.h"
 
 class JpgEncoder {
 public:
 	// JPEG encoding routine.
-	void recode();
+	void recode(const std::vector<Segment>& segments);
 	// Merges header & image data to jpeg.
-	void merge();
+	void merge(const std::unique_ptr<iostream>& str_out, const std::vector<Segment>& segments);
 
 private:
 	// Sequential block encoding routine.

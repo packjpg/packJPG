@@ -323,9 +323,9 @@ static int  errorlevel;
 global variables: data storage
 ----------------------------------------------- */
 
-static std::vector<std::uint8_t> grbgdata; // garbage data
+static std::vector<std::uint8_t> garbage_data; // garbage data
 static std::vector<Segment> segments; // Header segments.
-static std::vector<std::uint8_t> huffdata; // huffman coded data
+static std::vector<std::uint8_t> huffman_data; // huffman coded data
 
 /* -----------------------------------------------
 global variables: info about image
@@ -372,7 +372,6 @@ static bool reset_buffers();
 /* -----------------------------------------------
 filter DC coefficients
 ----------------------------------------------- */
-
 static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
 	for (auto& cmpt : frame_info->components) {
@@ -381,11 +380,9 @@ static bool predict_dc() {
 	return true;
 }
 
-
 /* -----------------------------------------------
 unpredict DC coefficients
 ----------------------------------------------- */
-
 static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
 	for (auto& cmpt : frame_info->components) {
@@ -397,9 +394,7 @@ static bool unpredict_dc() {
 /* -----------------------------------------------
 calculate zero distribution lists
 ----------------------------------------------- */
-
 static bool calc_zdst_lists() {
-	// this functions counts, for each DCT block, the number of non-zero coefficients
 	for (auto& cmpt : frame_info->components) {
 		cmpt.calc_zdst_lists();
 	}
@@ -414,7 +409,7 @@ char padbit = -1; // padbit (for huffman coding)
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
 // Calculates next position for MCU.
-CodingStatus next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
+CodingStatus next_mcupos(const ScanInfo& scan_info, const std::unique_ptr<FrameInfo>& frame_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw);
 // Calculates next position (non interleaved).
 CodingStatus next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* rstw);
 
@@ -423,7 +418,7 @@ namespace encode {
 	// JPEG encoding routine.
 	bool recode() {
 		try {
-			jpeg_encoder->recode();
+			jpeg_encoder->recode(segments);
 		}
 		catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
@@ -435,7 +430,7 @@ namespace encode {
 	// Merges header & image data to jpeg.
 	bool merge() {
 		try {
-			jpeg_encoder->merge();
+			jpeg_encoder->merge(str_out, segments);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -463,7 +458,7 @@ namespace decode {
 	// JPEG decoding routine.
 	bool decode() {
 		try {
-			jpeg_decoder->decode(frame_info->coding_process, segments, frame_info->components, huffdata);
+			jpeg_decoder->decode(frame_info->coding_process, segments, frame_info->components, huffman_data);
 		} catch (const std::exception& e) {
 			std::strcpy(errormessage, e.what());
 			errorlevel = 2;
@@ -494,8 +489,8 @@ namespace pjg {
 	namespace encode {
 		bool encode() {
 			try {
-				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out, frame_info->components);
-				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, grbgdata);
+				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
+				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
 			} catch (const std::exception& e) {
 				std::strcpy(errormessage, e.what());
 				errorlevel = 2;
@@ -1700,8 +1695,8 @@ static bool compare_output() {
 static bool reset_buffers() {
 	// free buffers & set pointers nullptr
 	segments.clear();
-	huffdata.clear();
-	grbgdata.clear();
+	huffman_data.clear();
+	garbage_data.clear();
 	jpg::rst_err.clear();
 
 	jpg::encode::jpeg_encoder = std::make_unique<JpgEncoder>();
@@ -1826,7 +1821,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 			// get pointer for header data & size
 			segments = Segment::parse_segments(hdrw->get_data());
 			// get pointer for huffman data & size
-			huffdata = huffw->get_data();
+			huffman_data = huffw->get_data();
 			// everything is done here now
 			break;
 		}
@@ -1854,7 +1849,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 	// JPEG reader loop end
 
 	// check if everything went OK
-	if (segments.empty() || huffdata.empty()) {
+	if (segments.empty() || huffman_data.empty()) {
 		throw std::runtime_error("unexpected end of data encountered");
 	}
 
@@ -1872,7 +1867,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 			}
 			grbgw->write_n(segment.data(), len);
 		}
-		grbgdata = grbgw->get_data();
+		garbage_data = grbgw->get_data();
 	}
 
 	// get filesize
@@ -1886,18 +1881,18 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 	}
 }
 
-void JpgEncoder::merge() {
+void JpgEncoder::merge(const std::unique_ptr<iostream>& jpg_output_stream, const std::vector<Segment>& segments) {
 	int rpos = 0; // current restart marker position
 	int scan = 1; // number of current scan	
 
 	// write SOI
 	constexpr std::array<std::uint8_t, 2> SOI{0xFF, 0xD8};
-	str_out->write(SOI.data(), 2);
+	jpg_output_stream->write(SOI.data(), 2);
 
 	// JPEG writing loop
-	for (const auto& segment : segments) {
+	for (auto& segment : segments) {
 		// write header data to file
-		str_out->write(segment.get_data().data(), segment.get_data().size());
+		jpg_output_stream->write(segment.get_data().data(), segment.get_data().size());
 
 		// get out if last marker segment type was not SOS
 		if (segment.get_type() != Marker::kSOS) {
@@ -1911,18 +1906,18 @@ void JpgEncoder::merge() {
 		// ipos is the current position in image data.
 		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
 			// write current byte
-			str_out->write_byte(huffdata[ipos]);
+			jpg_output_stream->write_byte(huffman_data[ipos]);
 			// check current byte, stuff if needed
-			if (huffdata[ipos] == 0xFF) {
-				str_out->write_byte(std::uint8_t(0)); // 0xFF stuff value
+			if (huffman_data[ipos] == 0xFF) {
+				jpg_output_stream->write_byte(std::uint8_t(0)); // 0xFF stuff value
 			}
 			// insert restart markers if needed
 			if (!rstp.empty()) {
 				if (ipos == rstp[rpos]) {
 					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 					constexpr std::uint8_t mrk = 0xFF; // marker start
-					str_out->write_byte(mrk);
-					str_out->write_byte(rst);
+					jpg_output_stream->write_byte(mrk);
+					jpg_output_stream->write_byte(rst);
 					rpos++;
 					cpos++;
 				}
@@ -1933,8 +1928,8 @@ void JpgEncoder::merge() {
 			while (jpg::rst_err[scan - 1] > 0) {
 				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 				constexpr std::uint8_t mrk = 0xFF; // marker start
-				str_out->write_byte(mrk);
-				str_out->write_byte(rst);
+				jpg_output_stream->write_byte(mrk);
+				jpg_output_stream->write_byte(rst);
 				cpos++;
 				jpg::rst_err[scan - 1]--;
 			}
@@ -1946,20 +1941,20 @@ void JpgEncoder::merge() {
 
 	// write EOI
 	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9}; // EOI segment
-	str_out->write(EOI.data(), 2);
+	jpg_output_stream->write(EOI.data(), 2);
 
 	// write garbage if needed
-	if (!grbgdata.empty()) {
-		str_out->write(grbgdata.data(), grbgdata.size());
+	if (!garbage_data.empty()) {
+		jpg_output_stream->write(garbage_data.data(), garbage_data.size());
 	}
 
 	// errormessage if write error
-	if (str_out->chkerr()) {
+	if (jpg_output_stream->chkerr()) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
 
 	// get filesize
-	jpgfilesize = str_out->getsize();
+	jpgfilesize = jpg_output_stream->getsize();
 }
 
 void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
@@ -2061,7 +2056,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						else status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.sah == 0 ) {
@@ -2080,7 +2075,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 						
 						// next mcupos if no error happened
 						if ( status != CodingStatus::ERROR )
-							status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+							status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -2093,7 +2088,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 						// shift in next bit
 						cmpts[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 						
-						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -2274,8 +2269,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 	huffr = nullptr;
 }
 
-void JpgEncoder::recode()
-{		
+void JpgEncoder::recode(const std::vector<Segment>& segments) {		
 	std::array<std::int16_t, 64> block; // store block for coeffs
 	
 	// open huffman coded image data in abitwriter
@@ -2376,7 +2370,7 @@ void JpgEncoder::recode()
 						
 						// check for errors, proceed if no error encountered
 						if ( eob < 0 ) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						else status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else if ( scan_info.sah == 0 ) {
@@ -2394,7 +2388,7 @@ void JpgEncoder::recode()
 						                       block);
 						
 						// next mcupos
-						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 				else {
@@ -2407,7 +2401,7 @@ void JpgEncoder::recode()
 						// encode dc correction bit
 						this->dc_prg_sa(huffw, block);
 						
-						status = jpg::next_mcupos(scan_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
 			}
@@ -2540,16 +2534,16 @@ void JpgEncoder::recode()
 	}
 	
 	// get data into huffdata
-	huffdata = huffw->get_data();
+	huffman_data = huffw->get_data();
 	
 	// store last scan & restart positions
-	scnp[ scan_count ] = huffdata.size();
+	scnp[ scan_count ] = huffman_data.size();
 	if (!rstp.empty()) {
-		rstp[rstc] = huffdata.size();
+		rstp[rstc] = huffman_data.size();
 	}
 }
 
-PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output, const std::vector<Component>& components) {
+PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
 	// PJG-Header
 	encoding_output->write(program_info::pjg_magic.data(), 2);
 
@@ -2561,7 +2555,7 @@ PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output, const s
 	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
 }
 
-void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata) {
+void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {
 	// optimize header for compression
 	this->optimize_header(segments);
 	// set padbit to 1 if previously unset:
@@ -2598,10 +2592,10 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std:
 	}
 	
 	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	this->bit(!grbgdata.empty() ? 1 : 0);
+	this->bit(!garbage_data.empty() ? 1 : 0);
 	// encode garbage data only if needed
-	if (!grbgdata.empty()) {
-		this->generic(grbgdata);
+	if (!garbage_data.empty()) {
+		this->generic(garbage_data);
 	}
 	
 	// errormessage if write error
@@ -2685,7 +2679,7 @@ void PjgDecoder::decode() {
 	
 	// decode garbage data only if available
 	if (garbage_exists) {
-		grbgdata = this->generic();
+		garbage_data = this->generic();
 	}
 }
 
@@ -2693,7 +2687,7 @@ void PjgDecoder::decode() {
 
 /* ----------------------- Begin of JPEG specific functions -------------------------- */
 
-CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
+CodingStatus jpg::next_mcupos(const ScanInfo& scan_info, const std::unique_ptr<FrameInfo>& frame_info, int rsti, int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw)
 {
 	CodingStatus sta = CodingStatus::OKAY;
 	
