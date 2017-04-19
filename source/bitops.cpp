@@ -7,13 +7,7 @@ reading and writing of arrays
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <vector>
-
-#if defined(_WIN32) || defined(WIN32)
-#include <fcntl.h>
-#include <io.h>
-#endif
 
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	data(bits),
