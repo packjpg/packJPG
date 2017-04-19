@@ -91,58 +91,6 @@ private:
 	int cbit = 8; // The position of the next bit in the current byte.
 };
 
-
-/* -----------------------------------------------
-	class to read arrays bytewise
-	----------------------------------------------- */
-
-class abytereader {
-public:
-	abytereader(const std::vector<std::uint8_t>& bytes);
-	~abytereader();
-
-	std::uint8_t read_byte();
-	/*
-	 * Reads one byte to the pointer, returning whether there was a byte available to writer.
-	 */
-	bool read(std::uint8_t* byte);
-	/*
-	 * Reads the minimum of n and the numbers of unread bytes to the pointer, returning the number of bytes read.
-	 */
-	int read_n(std::uint8_t* byte, int n);
-	/*
-	 * Reads the minimum of n and the number of unread bytes to the vector, starting at the given offset in the
-	 * vector. If the destination vector is too small, it is resized. Returns the number of bytes read.
-	 */
-	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0);
-	/*
-	 * Resets the number of bytes read to zero.
-	 */
-	void reset();
-	/*
-	 * Returns the number of bytes in the reader.
-	 */
-	int num_bytes() const;
-	/*
-	 * Returns the number of bytes read.
-	 */
-	int num_bytes_read() const;
-	/*
-	 * Returns whether all bytes in the reader have been read.
-	 */
-	bool all_bytes_read() const;
-	/*
-	 * Returns a copy of the data backing the reader.
-	 */
-	std::vector<std::uint8_t> get_data() const;
-
-private:
-	const std::vector<std::uint8_t> data;
-	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
-	bool _eof = false;
-};
-
-
 /* -----------------------------------------------
 	class to write arrays bytewise
 	----------------------------------------------- */
@@ -174,16 +122,51 @@ public:
 
 	virtual ~Reader() {}
 
-	virtual std::size_t read(std::uint8_t* to, std::size_t num_to_read) = 0;
-	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
+	/*
+	* Reads the minimum of n and the number of unread bytes to the pointer.
+	*/
+	virtual std::size_t read(std::uint8_t* to, std::size_t n) = 0;
+
+	/*
+	* Reads the minimum of n and the number of unread bytes to the vector, starting at the given offset in the
+	* vector. If the destination vector is too small, it is resized. Returns the number of bytes read.
+	*/
+	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t n, std::size_t offset = 0) = 0;
+
+	/*
+	 * Returns one byte from the reader, throwing a std::runtime_error exception if there are none left to read.
+	 */
 	virtual std::uint8_t read_byte() = 0;
+
+	/*
+	* Reads one byte to the pointer, returning whether there was a byte available to writer.
+	*/
 	virtual bool read_byte(std::uint8_t* to) = 0;
 
+	/*
+	* Resets the number of bytes read to zero.
+	*/
 	virtual void rewind() = 0;
+
+	/*
+	* Returns the number of bytes read.
+	*/
 	virtual std::size_t num_bytes_read() = 0;
+
+	/*
+	* Returns the number of bytes in the reader.
+	*/
 	virtual std::size_t get_size() = 0;
+
+	/*
+	* Returns a copy of the data backing the reader.
+	*/
 	virtual std::vector<std::uint8_t> get_data() = 0;
+
 	virtual bool error() = 0;
+	/*
+	* Returns whether all bytes in the reader have been read.
+	*/
 	virtual bool end_of_reader() = 0;
 };
 
@@ -327,82 +310,6 @@ public:
 
 private:
 	std::unique_ptr<MemoryWriter> writer_;
-};
-
-/* -----------------------------------------------
-	class for input and output from file or memory
-	----------------------------------------------- */
-
-class iostream {
-public:
-	iostream() {}
-
-	virtual ~iostream() {}
-
-	virtual void switch_mode() = 0;
-	virtual int read(std::uint8_t* to, int dtsize) = 0;
-	virtual std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) = 0;
-	virtual std::uint8_t read_byte() = 0;
-	virtual bool read_byte(std::uint8_t* to) = 0;
-	virtual int write(const std::uint8_t* from, int dtsize) = 0;
-	virtual int write_byte(std::uint8_t byte) = 0;
-	virtual int rewind() = 0;
-	virtual int getpos() = 0;
-	virtual int getsize() = 0;
-	virtual std::vector<std::uint8_t> get_data() = 0;
-	virtual bool chkerr() = 0;
-	virtual bool chkeof() = 0;
-};
-
-class MemStream : public iostream {
-public:
-	MemStream(StreamMode mode);
-	MemStream(const std::vector<std::uint8_t>& bytes, StreamMode mode);
-	~MemStream();
-	void switch_mode() override;
-	int read(std::uint8_t* to, int dtsize) override;
-	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
-	std::uint8_t read_byte() override;
-	bool read_byte(std::uint8_t* to) override;
-	int write(const std::uint8_t* from, int dtsize) override;
-	int write_byte(std::uint8_t byte) override;
-	int rewind() override;
-	int getpos() override;
-	int getsize() override;
-	bool chkerr() override;
-	bool chkeof() override;
-	std::vector<std::uint8_t> get_data() override;
-
-private:
-	std::unique_ptr<abytewriter> mwrt;
-	std::unique_ptr<abytereader> mrdr;
-	StreamMode io_mode = StreamMode::kRead;
-	bool is_stream;
-};
-
-class FileStream : public iostream {
-public:
-	FileStream(const std::string& file_path, StreamMode iomode);
-	~FileStream();
-	void switch_mode() override;
-	int read(std::uint8_t* to, int dtsize) override;
-	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
-	std::uint8_t read_byte() override;
-	bool read_byte(std::uint8_t* to) override;
-	int write(const std::uint8_t* from, int dtsize) override;
-	int write_byte(std::uint8_t byte) override;
-	int rewind() override;
-	int getpos() override;
-	int getsize() override;
-	bool chkerr() override;
-	bool chkeof() override;
-	std::vector<std::uint8_t> get_data() override;
-
-private:
-	FILE* fptr = nullptr;
-	std::vector<char> file_buffer; // Used to replace the default file buffer for reads/writes to improve performance.
-	const std::string file_path;
-	StreamMode io_mode;
 };
 
 #endif

@@ -11,7 +11,7 @@
 
 class PjgEncoder {
 public:
-	PjgEncoder(const std::unique_ptr<iostream>& encoding_output);
+	PjgEncoder(const std::unique_ptr<Writer>& encoding_output);
 
 	// Encodes image data as pjg.
 	void encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata);

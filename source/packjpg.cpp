@@ -342,8 +342,9 @@ static std::string pjgfilename;	// name of PJG file
 static int    jpgfilesize;			// size of JPEG file
 static int    pjgfilesize;			// size of PJG file
 static FileType filetype;				// type of current file
-static std::unique_ptr<iostream> str_in;	// input stream
-static std::unique_ptr<iostream> str_out;	// output stream
+static std::unique_ptr<Reader> str_in;	// input stream
+static std::unique_ptr<Writer> str_out;	// output stream
+static std::unique_ptr<Reader> str_str;	// storage stream
 
 
 /* -----------------------------------------------
@@ -582,7 +583,6 @@ static int lib_out_type = -1;
 #endif
 
 #if !defined(BUILD_LIB)
-static std::unique_ptr<iostream> str_str;	// storage stream
 
 static std::vector<std::string> filelist; // list of files to process 
 static int    file_no  = 0;			// number of current file
@@ -880,12 +880,12 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType in_ty = StreamType(in_type);
 	if (in_ty == StreamType::kFile) {
 		std::string file_path((char*)in_src);
-		str_out = std::make_unique<FileStream>(file_path, StreamMode::kRead);
+		str_in = std::make_unique<FileReader>(file_path);
 	} else if (in_ty == StreamType::kMemory) {
 		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
-		str_in = std::make_unique<MemStream>(data, StreamMode::kRead);
+		str_in = std::make_unique<MemoryReader>(data);
 	} else { // Stream
-		str_in = std::make_unique<MemStream>(StreamMode::kRead);
+		str_in = std::make_unique<StreamReader>();
 	}
 	if ( str_in->chkerr() ) {
 		sprintf( errormessage, "error opening input stream" );
@@ -897,11 +897,11 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	StreamType out_ty = StreamType(out_type);
 	if (out_ty == StreamType::kFile) {
 		std::string file_path((char*)out_dest);
-		str_out = std::make_unique<FileStream>(file_path, StreamMode::kWrite);
+		str_out = std::make_unique<FileWriter>(file_path, StreamMode::kWrite);
 	} else if (out_ty == StreamType::kMemory) {
-		str_out = std::make_unique<MemStream>(std::vector<std::uint8_t>() , StreamMode::kWrite);
+		str_out = std::make_unique<MemoryWriter>();
 	} else { // Stream
-		str_out = std::make_unique<MemStream>(StreamMode::kWrite);
+		str_out = std::make_unique<StreamWriter>();
 	}
 	if ( str_out->chkerr() ) {
 		sprintf( errormessage, "error opening output stream" );
@@ -1543,11 +1543,11 @@ static bool check_file()
 	
 	// open input stream, check for errors
 	if (pipe_on) {
-		str_in = std::make_unique<MemStream>(StreamMode::kRead);
+		str_in = std::make_unique<StreamReader>();
 	} else {
-		str_in = std::make_unique<FileStream>(filename, StreamMode::kRead);
+		str_in = std::make_unique<FileReader>(filename);
 	}
-	if ( str_in->chkerr() ) {
+	if ( str_in->error() ) {
 		sprintf( errormessage, FRD_ERRMSG.c_str(), filename.c_str());
 		errorlevel = 2;
 		return false;
@@ -1582,12 +1582,12 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = std::make_unique<MemStream>(StreamMode::kWrite);
+			str_out = std::make_unique<StreamWriter>();
 		}
 		else {
-			str_out = std::make_unique<FileStream>(pjgfilename, StreamMode::kWrite);
+			str_out = std::make_unique<FileWriter>(pjgfilename);
 		}
-		if ( str_out->chkerr() ) {
+		if ( str_out->error() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), pjgfilename.c_str() );
 			errorlevel = 2;
 			return false;
@@ -1609,11 +1609,11 @@ static bool check_file()
 		}
 		// open output stream, check for errors
 		if (pipe_on) {
-			str_out = std::make_unique<MemStream>(StreamMode::kWrite);
+			str_out = std::make_unique<StreamWriter>();
 		} else {
-			str_out = std::make_unique<FileStream>(jpgfilename, StreamMode::kWrite);
+			str_out = std::make_unique<FileWriter>(jpgfilename);
 		}
-		if ( str_out->chkerr() ) {
+		if ( str_out->error() ) {
 			sprintf( errormessage, FWR_ERRMSG.c_str(), jpgfilename.c_str());
 			errorlevel = 2;
 			return false;
@@ -1634,27 +1634,20 @@ static bool check_file()
 /* -----------------------------------------------
 	swap streams / init verification
 	----------------------------------------------- */
-static bool swap_streams()	
-{
-	std::uint8_t dmp[ 2 ];
+static bool swap_streams() {
+	std::array<std::uint8_t, 2> magic_bytes;
 	
 	// store input stream
 	str_str = std::move(str_in);
 	str_str->rewind();
 	
 	// replace input stream by output stream / switch mode for reading / read first bytes
-	str_in = std::move(str_out);
-	str_in->switch_mode();
-	str_in->read( dmp, 2 );
+	const auto pjg_bytes = str_out->get_data();
+	str_in = std::make_unique<MemoryReader>(pjg_bytes);
+	str_in->read(magic_bytes.data(), 2);
 	
 	// open new stream for output / check for errors
-	str_out = std::make_unique<MemStream>(std::vector<std::uint8_t>(), StreamMode::kWrite);
-	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "error opening comparison stream" );
-		errorlevel = 2;
-		return false;
-	}
-	
+	str_out = std::make_unique<MemoryWriter>();
 	
 	return true;
 }
@@ -1709,7 +1702,7 @@ static bool reset_buffers() {
 	return true;
 }
 
-void JpgReader::read_sos(const std::unique_ptr<iostream>& jpg_input_stream, const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
+void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
@@ -1770,7 +1763,7 @@ void JpgReader::read_sos(const std::unique_ptr<iostream>& jpg_input_stream, cons
 	}
 }
 
-void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
+void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 	scan_count_ = 0;
 	// start headerwriter
 	auto hdrw = std::make_unique<abytewriter>(4096);
@@ -1871,7 +1864,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 	}
 
 	// get filesize
-	jpgfilesize = str_in->getsize();
+	jpgfilesize = str_in->get_size();
 
 	// parse header for image info
 	try {
@@ -1881,7 +1874,7 @@ void JpgReader::read(const std::unique_ptr<iostream>& str_in) {
 	}
 }
 
-void JpgEncoder::merge(const std::unique_ptr<iostream>& jpg_output_stream, const std::vector<Segment>& segments) {
+void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const std::vector<Segment>& segments) {
 	int rpos = 0; // current restart marker position
 	int scan = 1; // number of current scan	
 
@@ -1949,12 +1942,12 @@ void JpgEncoder::merge(const std::unique_ptr<iostream>& jpg_output_stream, const
 	}
 
 	// errormessage if write error
-	if (jpg_output_stream->chkerr()) {
+	if (jpg_output_stream->error()) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
 
 	// get filesize
-	jpgfilesize = jpg_output_stream->getsize();
+	jpgfilesize = jpg_output_stream->num_bytes_written();
 }
 
 void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
@@ -2543,7 +2536,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 	}
 }
 
-PjgEncoder::PjgEncoder(const std::unique_ptr<iostream>& encoding_output) {
+PjgEncoder::PjgEncoder(const std::unique_ptr<Writer>& encoding_output) {
 	// PJG-Header
 	encoding_output->write(program_info::pjg_magic.data(), 2);
 
@@ -2599,15 +2592,15 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std:
 	}
 	
 	// errormessage if write error
-	if ( str_out->chkerr() ) {
+	if ( str_out->error() ) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
 	
 	// get filesize
-	pjgfilesize = str_out->getsize();
+	pjgfilesize = str_out->num_bytes_written();
 }
 
-PjgDecoder::PjgDecoder(const std::unique_ptr<iostream>& decoding_stream) {
+PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
 	while (true) {
 		std::uint8_t hcode;
@@ -2634,7 +2627,7 @@ PjgDecoder::PjgDecoder(const std::unique_ptr<iostream>& decoding_stream) {
 	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
 
 	// get filesize
-	pjgfilesize = decoding_stream->getsize();
+	pjgfilesize = decoding_stream->get_size();
 }
 
 void PjgDecoder::decode() {

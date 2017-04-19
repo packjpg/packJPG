@@ -13,7 +13,7 @@
 
 class PjgDecoder {
 public:
-	PjgDecoder(const std::unique_ptr<iostream>& decoding_stream);
+	PjgDecoder(const std::unique_ptr<Reader>& decoding_stream);
 
 	// Decodes image encoded as pjg to colldata.
 	void decode();

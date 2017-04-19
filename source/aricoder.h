@@ -304,7 +304,7 @@ private:
 
 class ArithmeticEncoder {
 public:
-	ArithmeticEncoder(iostream* stream);
+	ArithmeticEncoder(Writer* stream);
 	~ArithmeticEncoder();
 
 	// Generic UniversalModel encoding function.
@@ -350,7 +350,7 @@ private:
 	void writeNrbitsAsOne();
 
 	// io variables:
-	iostream* sptr; // Pointer to iostream for writing.
+	Writer* sptr; // Pointer to iostream for writing.
 	std::uint8_t bbyte = 0;
 	std::uint8_t cbit = 0;
 
@@ -363,7 +363,7 @@ private:
 
 class ArithmeticDecoder {
 public:
-	ArithmeticDecoder(iostream* stream);
+	ArithmeticDecoder(Reader* stream);
 	~ArithmeticDecoder();
 
 	// Generic UniversalModel decoding function.
@@ -404,7 +404,7 @@ private:
 	std::uint8_t read_bit();
 
 	// io variables:
-	iostream* sptr; // Pointer to iostream for reading.
+	Reader* sptr; // Pointer to iostream for reading.
 	std::uint8_t bbyte = 0;
 	std::uint8_t cbit = 0;
 

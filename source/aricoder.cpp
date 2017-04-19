@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <functional>
 
-ArithmeticEncoder::ArithmeticEncoder(iostream* stream) : sptr(stream) {}
+ArithmeticEncoder::ArithmeticEncoder(Writer* stream) : sptr(stream) {}
 
 ArithmeticEncoder::~ArithmeticEncoder() {
 	// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
@@ -123,7 +123,7 @@ void ArithmeticEncoder::writeNrbitsAsOne() {
 	nrbits = 0;
 }
 
-ArithmeticDecoder::ArithmeticDecoder(iostream* stream) : sptr(stream) {
+ArithmeticDecoder::ArithmeticDecoder(Reader* stream) : sptr(stream) {
 	// code buffer has to be filled before starting decoding
 	for (int i = 0; i < CODER_USE_BITS; i++) {
 		ccode = (ccode << 1) | read_bit();
