@@ -290,8 +290,11 @@ packJPG by Matthias Stirner, 01/2016
 #include "pjgdecoder.h"
 #include "pjgencoder.h"
 #include "pjpgtbl.h"
+#include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"
+#include "streamtype.h"
+#include "writer.h"
 
 #if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
 	#define BUILD_LIB

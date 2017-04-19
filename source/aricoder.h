@@ -1,11 +1,11 @@
 #ifndef ARICODER_H
 #define ARICODER_H
 
-#include "bitops.h"
-
 #include <algorithm>
 #include <cstdint>
 #include <vector>
+#include "reader.h"
+#include "writer.h"
 
 constexpr uint32_t CODER_USE_BITS = 31;
 constexpr uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);

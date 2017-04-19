@@ -1,6 +1,9 @@
 #include "pjgdecoder.h"
 #include <algorithm>
 
+#include "bitops.h"
+#include "writer.h"
+
 std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	int tpos; // true position
 

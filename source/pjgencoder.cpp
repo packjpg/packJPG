@@ -3,6 +3,8 @@
 #include <numeric>
 #include <algorithm>
 
+#include "bitops.h"
+
 std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& cmpt) {
 	// calculate zero sort scan
 	const auto zsrtscan = this->get_zerosort_scan(cmpt);

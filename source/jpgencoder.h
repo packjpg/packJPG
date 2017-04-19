@@ -8,6 +8,7 @@
 #include "bitops.h"
 #include "huffcodes.h"
 #include "segment.h"
+#include "writer.h"
 
 class JpgEncoder {
 public:

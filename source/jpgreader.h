@@ -5,7 +5,8 @@
 #include <memory>
 #include <vector>
 
-#include "bitops.h"
+#include "reader.h"
+#include "writer.h"
 
 class JpgReader {
 public:
