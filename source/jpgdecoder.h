@@ -48,7 +48,7 @@ private:
 		return n + (1 << s);
 	}
 
-	std::unique_ptr<abitreader> huffr; // bitwise reader for image data
+	std::unique_ptr<BitReader> huffr; // bitwise reader for image data
 };
 
 #endif

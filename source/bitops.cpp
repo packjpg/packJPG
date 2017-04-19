@@ -15,18 +15,18 @@ reading and writing of arrays
 #include <io.h>
 #endif
 
-abitreader::abitreader(const std::vector<std::uint8_t>& bits) :
+BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	data(bits),
 	cbyte(std::begin(data)),
 	eof_(bits.empty()) {}
 
-abitreader::~abitreader() {}
+BitReader::~BitReader() {}
 
 /* -----------------------------------------------
 	reads n bits from abitreader
 	----------------------------------------------- */
 
-unsigned int abitreader::read(int nbits) {
+unsigned int BitReader::read(int nbits) {
 	unsigned int retval = 0;
 
 	// safety check for eof
@@ -54,7 +54,7 @@ unsigned int abitreader::read(int nbits) {
 	return retval;
 }
 
-std::uint8_t abitreader::read_bit() {
+std::uint8_t BitReader::read_bit() {
 	// safety check for eof
 	if (eof()) {
 		overread_ = true;
@@ -78,7 +78,7 @@ std::uint8_t abitreader::read_bit() {
 	to skip padding from current byte
 	----------------------------------------------- */
 
-std::uint8_t abitreader::unpad(std::uint8_t fillbit) {
+std::uint8_t BitReader::unpad(std::uint8_t fillbit) {
 	if ((cbit == 8) || eof()) {
 		return fillbit;
 	} else {
@@ -93,23 +93,23 @@ std::uint8_t abitreader::unpad(std::uint8_t fillbit) {
 	return fillbit;
 }
 
-bool abitreader::eof() const {
+bool BitReader::eof() const {
 	return eof_;
 }
 
-bool abitreader::overread() const {
+bool BitReader::overread() const {
 	return overread_;
 }
 
-abitwriter::abitwriter(int size) : data(std::max(size, 65536)) {}
+BitWriter::BitWriter(int size) : data(std::max(size, 65536)) {}
 
-abitwriter::~abitwriter() {}
+BitWriter::~BitWriter() {}
 
 /* -----------------------------------------------
 	writes n bits to abitwriter
 	----------------------------------------------- */
 
-void abitwriter::write(unsigned int val, int nbits) {
+void BitWriter::write(unsigned int val, int nbits) {
 	// test if pointer beyond flush treshold
 	if (cbyte > (data.size() - 5)) {
 		data.resize(data.size() * 2);
@@ -133,7 +133,7 @@ void abitwriter::write(unsigned int val, int nbits) {
 	writes one bit to abitwriter
 	----------------------------------------------- */
 
-void abitwriter::write_bit(std::uint8_t bit) {
+void BitWriter::write_bit(std::uint8_t bit) {
 
 	// write data
 	if (bit) {
@@ -154,7 +154,7 @@ void abitwriter::write_bit(std::uint8_t bit) {
 /* -----------------------------------------------
 	Sets the fillbit for padding data.
    ----------------------------------------------- */
-void abitwriter::set_fillbit(std::uint8_t fillbit) {
+void BitWriter::set_fillbit(std::uint8_t fillbit) {
 	fillbit_ = fillbit;
 }
 
@@ -163,13 +163,13 @@ void abitwriter::set_fillbit(std::uint8_t fillbit) {
 	pads data using fillbit
 	----------------------------------------------- */
 
-void abitwriter::pad() {
+void BitWriter::pad() {
 	while (cbit < 8) {
 		write(fillbit_, 1);
 	}
 }
 
-std::vector<std::uint8_t> abitwriter::get_data() {
+std::vector<std::uint8_t> BitWriter::get_data() {
 	pad(); // Pad the last bits of the data before returning it.
 	data.resize(cbyte);
 	return data;
@@ -179,7 +179,7 @@ std::vector<std::uint8_t> abitwriter::get_data() {
 	gets size of data array from abitwriter
 	----------------------------------------------- */
 
-int abitwriter::getpos() const {
+int BitWriter::getpos() const {
 	return cbyte;
 }
 

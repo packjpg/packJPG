@@ -28,20 +28,15 @@ enum class StreamType {
 	kStream = 2
 };
 
-enum class StreamMode {
-	kRead = 0,
-	kWrite = 1
-};
-
 
 /* -----------------------------------------------
 	class to read arrays bitwise
 	----------------------------------------------- */
 
-class abitreader {
+class BitReader {
 public:
-	abitreader(const std::vector<std::uint8_t>& bits);
-	~abitreader();
+	BitReader(const std::vector<std::uint8_t>& bits);
+	~BitReader();
 	unsigned int read(int nbits);
 	std::uint8_t read_bit();
 	std::uint8_t unpad(std::uint8_t fillbit);
@@ -65,10 +60,10 @@ private:
 	class to write arrays bitwise
 	----------------------------------------------- */
 
-class abitwriter {
+class BitWriter {
 public:
-	abitwriter(int size);
-	~abitwriter();
+	BitWriter(int size);
+	~BitWriter();
 	void write(unsigned int val, int nbits);
 	void write_bit(std::uint8_t bit);
 	void set_fillbit(std::uint8_t fillbit);

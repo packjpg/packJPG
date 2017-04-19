@@ -49,7 +49,7 @@ public:
 	}
 
 	// Returns next the next code (from the tree and the Huffman data).
-	int next_huffcode(const std::unique_ptr<abitreader>& huffr) const {
+	int next_huffcode(const std::unique_ptr<BitReader>& huffr) const {
 		int node = 0;
 
 		while (node < 256) {

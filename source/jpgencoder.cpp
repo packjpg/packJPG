@@ -2,7 +2,7 @@
 
 #include "pjpgtbl.h"
 
-int JpgEncoder::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block) {
+int JpgEncoder::block_seq(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block) {
 	// encode DC
 	this->dc_prg_fs(huffw, dctbl, block);
 
@@ -37,7 +37,7 @@ int JpgEncoder::block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCo
 	return 64 - z;
 }
 
-void JpgEncoder::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block) {
+void JpgEncoder::dc_prg_fs(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block) {
 	// encode DC	
 	int s = pjg::bitlen2048n(block[0]);
 	std::uint16_t n = envli(s, block[0]);
@@ -45,7 +45,7 @@ void JpgEncoder::dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffC
 	huffw->write(n, s);
 }
 
-int JpgEncoder::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
+int JpgEncoder::ac_prg_fs(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
 	int bpos;
 	int hc;
 
@@ -87,13 +87,13 @@ int JpgEncoder::ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCo
 	}
 }
 
-void JpgEncoder::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block) {
+void JpgEncoder::dc_prg_sa(const std::unique_ptr<BitWriter>& huffw, const std::array<std::int16_t, 64>& block) {
 	// enocode next bit of dc coefficient
 	huffw->write_bit(block[0]);
 }
 
 
-int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
+int JpgEncoder::ac_prg_sa(const std::unique_ptr<BitWriter>& huffw, const std::unique_ptr<MemoryWriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
 	int eob = from;
 	int bpos;
 	int hc;
@@ -166,7 +166,7 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 }
 
 
-void JpgEncoder::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun) {
+void JpgEncoder::eobrun(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& actbl, int* eobrun) {
 	int hc;
 
 	if ((*eobrun) > 0) {
@@ -185,7 +185,7 @@ void JpgEncoder::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCode
 	}
 }
 
-void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw) {
+void JpgEncoder::crbits(const std::unique_ptr<BitWriter>& huffw, const std::unique_ptr<MemoryWriter>& storw) {
 	const auto& data = storw->get_data();
 
 	// write bits to huffwriter

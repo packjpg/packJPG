@@ -1955,7 +1955,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 	short block[64]; // store block for coeffs
 	int scan_count = 0; // Count of scans.
 	// open huffman coded image data for input in abitreader
-	huffr = std::make_unique<abitreader>(huffdata); // bitwise reader for image data
+	huffr = std::make_unique<BitReader>(huffdata); // bitwise reader for image data
 	
 	// JPEG decompression loop
 	int rsti = 0; // restart interval
@@ -2266,7 +2266,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 	std::array<std::int16_t, 64> block; // store block for coeffs
 	
 	// open huffman coded image data in abitwriter
-	auto huffw = std::make_unique<abitwriter>(0); // bitwise writer for image data
+	auto huffw = std::make_unique<BitWriter>(0); // bitwise writer for image data
 	huffw->set_fillbit( jpg::padbit );
 	
 	// init storage writer

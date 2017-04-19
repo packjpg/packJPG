@@ -18,21 +18,21 @@ public:
 
 private:
 	// Sequential block encoding routine.
-	int block_seq(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+	int block_seq(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
 	// Progressive DC encoding routine.
-	void dc_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
+	void dc_prg_fs(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
 	// Progressive AC encoding routine.
-	int ac_prg_fs(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
+	int ac_prg_fs(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
 		int* eobrun, int from, int to);
 	// Progressive DC SA encoding routine.
-	void dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::array<std::int16_t, 64>& block);
+	void dc_prg_sa(const std::unique_ptr<BitWriter>& huffw, const std::array<std::int16_t, 64>& block);
 	// Progressive AC SA encoding routine.
-	int ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw, const HuffCodes& actbl,
+	int ac_prg_sa(const std::unique_ptr<BitWriter>& huffw, const std::unique_ptr<MemoryWriter>& storw, const HuffCodes& actbl,
 	              const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to);
 	// Run of EOB encoding routine.
-	void eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCodes& actbl, int* eobrun);
+	void eobrun(const std::unique_ptr<BitWriter>& huffw, const HuffCodes& actbl, int* eobrun);
 	// Correction bits encoding routine.
-	void crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw);
+	void crbits(const std::unique_ptr<BitWriter>& huffw, const std::unique_ptr<MemoryWriter>& storw);
 
 	static constexpr std::int16_t fdiv2(std::int16_t v, int p) {
 		return (v < 0) ? -((-v) >> p) : (v >> p);
