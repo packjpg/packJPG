@@ -91,31 +91,6 @@ private:
 	int cbit = 8; // The position of the next bit in the current byte.
 };
 
-/* -----------------------------------------------
-	class to write arrays bytewise
-	----------------------------------------------- */
-
-class abytewriter {
-public:
-	abytewriter(int size);
-	~abytewriter();
-	/*
-	 * Writes the byte.
-	 */
-	void write(std::uint8_t byte);
-	/*
-	 * Writes n bytes from the pointer.
-	 */
-	void write_n(const std::uint8_t* bytes, int n);
-	std::vector<std::uint8_t> get_data();
-	int getpos() const;
-	void reset();
-
-private:
-	std::vector<std::uint8_t> data;
-	int cbyte = 0;
-};
-
 class Reader {
 public:
 	Reader() {}

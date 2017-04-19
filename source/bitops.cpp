@@ -183,48 +183,6 @@ int abitwriter::getpos() const {
 	return cbyte;
 }
 
-abytewriter::abytewriter(int size) : data(std::max(size, 65536)) {}
-
-abytewriter::~abytewriter() {}
-
-void abytewriter::write(std::uint8_t byte) {
-	if (cbyte == data.size()) {
-		data.resize(data.size() * 2);
-	}
-
-	// write data
-	data[cbyte] = byte;
-	cbyte++;
-}
-
-void abytewriter::write_n(const std::uint8_t* bytes, int n) {
-	// Bounds check
-	if (n <= 0) {
-		return;
-	}
-
-	// make sure that pointer doesn't get beyond flush threshold
-	while (cbyte + n >= data.size()) {
-		data.resize(data.size() * 2);
-	}
-
-	std::copy(bytes, bytes + n, std::next(std::begin(data), cbyte));
-	cbyte += n;
-}
-
-std::vector<std::uint8_t> abytewriter::get_data() {
-	std::vector<std::uint8_t> copy(data.begin(), data.begin() + cbyte);
-	return copy;
-}
-
-int abytewriter::getpos() const {
-	return cbyte;
-}
-
-void abytewriter::reset() {
-	cbyte = 0;
-}
-
 FileReader::FileReader(const std::string& file_path) : file_path_(file_path) {
 	fptr_ = fopen(file_path.c_str(), "rb");
 	if (fptr_ != nullptr) {
@@ -382,13 +340,13 @@ StreamReader::StreamReader() {
 	_setmode(_fileno(stdin), _O_BINARY);
 #endif
 	// read whole stream into memory buffer
-	auto writer = std::make_unique<abytewriter>(0);
+	auto writer = std::make_unique<MemoryWriter>();
 	constexpr auto buffer_capacity = 1024 * 1024;
 	std::vector<std::uint8_t> buffer(buffer_capacity);
 
 	auto bytes_read = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 	while (bytes_read > 0) {
-		writer->write_n(buffer.data(), bytes_read);
+		writer->write(buffer.data(), bytes_read);
 		bytes_read = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 	}
 	const auto bytes = writer->get_data();

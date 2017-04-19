@@ -93,7 +93,7 @@ void JpgEncoder::dc_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::
 }
 
 
-int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
+int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
 	int eob = from;
 	int bpos;
 	int hc;
@@ -138,16 +138,16 @@ int JpgEncoder::ac_prg_sa(const std::unique_ptr<abitwriter>& huffw, const std::u
 			// reset zeroes
 			z = 0;
 		} else { // store correction bits
-			std::uint16_t n = block[bpos] & 0x1;
-			storw->write(n);
+			std::uint8_t n = block[bpos] & 0x1;
+			storw->write_byte(n);
 		}
 	}
 
 	// fast processing after eob
 	for (; bpos <= to; bpos++) {
 		if (block[bpos] != 0) { // store correction bits
-			std::uint16_t n = block[bpos] & 0x1;
-			storw->write(n);
+			std::uint8_t n = block[bpos] & 0x1;
+			storw->write_byte(n);
 		}
 	}
 
@@ -185,7 +185,7 @@ void JpgEncoder::eobrun(const std::unique_ptr<abitwriter>& huffw, const HuffCode
 	}
 }
 
-void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<abytewriter>& storw) {
+void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::unique_ptr<MemoryWriter>& storw) {
 	const auto& data = storw->get_data();
 
 	// write bits to huffwriter
@@ -193,6 +193,6 @@ void JpgEncoder::crbits(const std::unique_ptr<abitwriter>& huffw, const std::uni
 		huffw->write_bit(bit);
 	}
 
-	// reset abytewriter, discard data
-	storw->reset();
+	// reset writer, discard data
+	storw->rewind();
 }

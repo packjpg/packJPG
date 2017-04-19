@@ -408,14 +408,14 @@ void PjgDecoder::ac_low(Component& cmpt) {
 }
 
 std::vector<std::uint8_t> PjgDecoder::generic() {
-	auto bwrt = std::make_unique<abytewriter>(1024);
+	auto bwrt = std::make_unique<MemoryWriter>();
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 	while (true) {
 		int c = decoder_->decode(model.get());
 		if (c == 256) {
 			break;
 		}
-		bwrt->write(static_cast<std::uint8_t>(c));
+		bwrt->write_byte(static_cast<std::uint8_t>(c));
 		model->shift_context(c);
 	}
 

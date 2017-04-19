@@ -1702,7 +1702,7 @@ static bool reset_buffers() {
 	return true;
 }
 
-void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const std::unique_ptr<abytewriter>& huffw, std::vector<std::uint8_t>& segment) {
+void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const std::unique_ptr<MemoryWriter>& huffw, std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
@@ -1714,7 +1714,7 @@ void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const 
 		if (byte != 0xFF) {
 			crst = 0;
 			while (byte != 0xFF) {
-				huffw->write(byte);
+				huffw->write_byte(byte);
 				byte = jpg_input_stream->read_byte();
 			}
 		}
@@ -1725,7 +1725,7 @@ void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const 
 			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF
-				huffw->write(0xFF);
+				huffw->write_byte(0xFF);
 			}
 			else if (byte == 0xD0 + (cpos % 8)) { // restart marker
 												  // increment rst counters
@@ -1766,10 +1766,10 @@ void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const 
 void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 	scan_count_ = 0;
 	// start headerwriter
-	auto hdrw = std::make_unique<abytewriter>(4096);
+	auto hdrw = std::make_unique<MemoryWriter>();
 
 	// start huffman writer
-	auto huffw = std::make_unique<abytewriter>(0);
+	auto huffw = std::make_unique<MemoryWriter>();
 
 	// alloc memory for segment data first
 	std::vector<std::uint8_t> segment(1024);
@@ -1837,7 +1837,7 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 		if (str_in->read(segment, len - 4, 4) != static_cast<std::size_t>(len - 4)) {
 			break;
 		}
-		hdrw->write_n(segment.data(), len);
+		hdrw->write(segment.data(), len);
 	}
 	// JPEG reader loop end
 
@@ -1851,14 +1851,14 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 	bool garbage_avail = str_in->read_byte(&tmp);
 	if (garbage_avail) {
 
-		auto grbgw = std::make_unique<abytewriter>(1024);
-		grbgw->write(tmp);
+		auto grbgw = std::make_unique<MemoryWriter>();
+		grbgw->write_byte(tmp);
 		while (true) {
 			std::size_t len = str_in->read(segment, segment.capacity());
 			if (len == 0) {
 				break;
 			}
-			grbgw->write_n(segment.data(), len);
+			grbgw->write(segment.data(), len);
 		}
 		garbage_data = grbgw->get_data();
 	}
@@ -2270,7 +2270,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 	huffw->set_fillbit( jpg::padbit );
 	
 	// init storage writer
-	auto storw = std::make_unique<abytewriter>(0); // bytewise writer for storage of correction bits
+	auto storw = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
 	
 	// preset count of scans and restarts
 	int scan_count = 0;
@@ -2489,9 +2489,9 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 									fdiv2(frame_info->components[cmp].colldata[ bpos ][ dpos ], scan_info.sal );
 							
 							// encode block
-							int eob = this->ac_prg_sa( huffw, storw,
-							                              *hcodes[1][frame_info->components[cmp].huffac],
-							                              block, &eobrun, scan_info.from, scan_info.to );
+							int eob = this->ac_prg_sa(huffw, storw,
+							                          *hcodes[1][frame_info->components[cmp].huffac],
+							                          block, &eobrun, scan_info.from, scan_info.to);
 							
 							// check for errors, proceed if no error encountered
 							if ( eob < 0 ) status = CodingStatus::ERROR;
@@ -2502,7 +2502,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 						this->eobrun(huffw, *hcodes[1][frame_info->components[cmp].huffac], &eobrun);
 							
 						// encode remaining correction bits
-						this->crbits( huffw, storw );
+						this->crbits(huffw, storw);
 					}
 				}
 			}
