@@ -339,8 +339,8 @@ static std::unique_ptr<FrameInfo> frame_info;
 global variables: info about files
 ----------------------------------------------- */
 
-static std::string jpgfilename;	// name of JPEG file
-static std::string pjgfilename;	// name of PJG file
+static std::string destination_file = "";
+
 static int    jpgfilesize;			// size of JPEG file
 static int    pjgfilesize;			// size of PJG file
 static FileType filetype;				// type of current file
@@ -806,10 +806,8 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	// copy errormessage / remove files if error (and output is file)
 	if ( errorlevel >= err_tol ) {
 		if ( lib_out_type == 0 ) {
-			if ( filetype == FileType::F_JPG ) {
-				if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str());
-			} else if ( filetype == FileType::F_PJG ) {
-				if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
+			if (file_exists(destination_file)) {
+				remove(destination_file);
 			}
 		}
 		if ( msg != nullptr ) strcpy( msg, errormessage.c_str() );
@@ -827,11 +825,11 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 		{
 			case FileType::F_JPG:
 				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
-					pjgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
+					destination_file.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case FileType::F_PJG:
 				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
-					jpgfilename.c_str(), cr, ( total >= 0 ) ? total : -1 );
+					destination_file.c_str(), cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case FileType::F_UNK:
 				sprintf( msg, "Unknown filetype" );
@@ -924,24 +922,23 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}
 	
 	// clear filenames if needed
-	jpgfilename = "";
-	pjgfilename = "";
+	destination_file = "";
 	
 	// check input stream
 	str_in->read( buffer, 2 );
 	if ( ( buffer[0] == 0xFF ) && ( buffer[1] == 0xD8 ) ) {
 		// file is JPEG
 		filetype = FileType::F_JPG;
-		// copy filenames
-		jpgfilename = (in_type == 0) ? (char*)in_src : "JPG in memory";
-		pjgfilename = (out_type == 0) ? (char*)out_dest : "PJG in memory";
+		if (out_type == 0) {
+			destination_file = static_cast<char*>(out_dest);
+		}
 	}
 	else if ( (buffer[0] == program_info::pjg_magic[0]) && (buffer[1] == program_info::pjg_magic[1]) ) {
 		// file is PJG
 		filetype = FileType::F_PJG;
-		// copy filenames
-		pjgfilename = (in_type == 0) ? (char*)in_src : "PJG in memory";
-		jpgfilename = (out_type == 0) ? (char*)out_dest : "JPG in memory";
+		if (out_type == 0) {
+			destination_file = static_cast<char*>(out_dest);
+		}
 	}
 	else {
 		// file is neither
@@ -1144,10 +1141,8 @@ static void process_ui()
 	str_str.reset(nullptr);
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
-		if ( filetype == FileType::F_JPG ) {
-			if ( file_exists( pjgfilename ) ) remove( pjgfilename.c_str() );
-		} else if ( filetype == FileType::F_PJG ) {
-			if ( file_exists( jpgfilename ) ) remove( jpgfilename.c_str());
+		if (file_exists(destination_file)) {
+			remove(destination_file.c_str());
 		}
 	}
 	
@@ -1549,12 +1544,11 @@ static void execute( bool (*function)() )
 	check file and determine filetype
 	----------------------------------------------- */
 #if !defined(BUILD_LIB)
-static bool check_file()
-{	
+static bool check_file() {
 	std::uint8_t fileid[ 2 ]{};
-	const std::string& filename = filelist[ file_no ];
-	
-	
+	const std::string& filename = filelist[file_no];
+
+
 	// open input stream, check for errors
 	if (pipe_on) {
 		str_in = std::make_unique<StreamReader>();
@@ -1567,85 +1561,57 @@ static bool check_file()
 			return false;
 		}
 	}
-	
+
 	// free memory from filenames if needed
-	jpgfilename = "";
-	pjgfilename = "";
-	
+	destination_file = "";
+
 	// immediately return error if 2 bytes can't be read
-	if ( str_in->read( fileid, 2 ) != 2 ) { 
+	if (str_in->read(fileid, 2) != 2) {
 		filetype = FileType::F_UNK;
 		errormessage = "file doesn't contain enough data";
 		errorlevel = 2;
 		return false;
 	}
-	
+
 	// check file id, determine filetype
-	if ( ( fileid[0] == 0xFF ) && ( fileid[1] == 0xD8 ) ) {
+	if ((fileid[0] == 0xFF) && (fileid[1] == 0xD8)) {
 		// file is JPEG
 		filetype = FileType::F_JPG;
 		// create filenames
-		if ( !pipe_on ) {
-			jpgfilename = filename;
-			pjgfilename = ( overwrite ) ?
-				create_filename( filename, program_info::pjg_ext ) :
-				unique_filename(filename, program_info::pjg_ext);
+		if (!pipe_on) {
+			destination_file = (overwrite) ?
+				              create_filename(filename, program_info::pjg_ext) :
+				              unique_filename(filename, program_info::pjg_ext);
 		}
-		else {
-			jpgfilename = create_filename( "STDIN", "" );
-			pjgfilename = create_filename( "STDOUT", "" );
-		}
-		// open output stream, check for errors
-		if (pipe_on) {
-			str_out = std::make_unique<StreamWriter>();
-		}
-		else {
-			try {
-				str_out = std::make_unique<FileWriter>(pjgfilename);
-			} catch (const std::runtime_error& e) {
-				errormessage = e.what();
-				errorlevel = 2;
-				return false;
-			}
-		}
-	}
-	else if ( ( fileid[0] == program_info::pjg_magic[0] ) && ( fileid[1] == program_info::pjg_magic[1] ) ) {
+	} else if ((fileid[0] == program_info::pjg_magic[0]) && (fileid[1] == program_info::pjg_magic[1])) {
 		// file is PJG
 		filetype = FileType::F_PJG;
 		// create filenames
-		if ( !pipe_on ) {
-			pjgfilename = filename;
-			jpgfilename = ( overwrite ) ?
-				create_filename( filename, program_info::jpg_ext) :
-				unique_filename( filename, program_info::jpg_ext);
+		if (!pipe_on) {
+			destination_file = (overwrite) ?
+				              create_filename(filename, program_info::jpg_ext) :
+				              unique_filename(filename, program_info::jpg_ext);
 		}
-		else {
-			jpgfilename = create_filename( "STDOUT", "" );
-			pjgfilename = create_filename( "STDIN", "" );
-		}
-		// open output stream, check for errors
-		if (pipe_on) {
-			str_out = std::make_unique<StreamWriter>();
-		} else {
-			str_out = std::make_unique<FileWriter>(jpgfilename);
-			try {
-				str_out = std::make_unique<FileWriter>(jpgfilename);
-			} catch (const std::runtime_error& e) {
-				errormessage = e.what();
-				errorlevel = 2;
-				return false;
-			}
-		}
-	}
-	else {
+	} else {
 		// file is neither
 		filetype = FileType::F_UNK;
 		errormessage = "file type of " + filename + " is unknown";
 		errorlevel = 2;
-		return false;		
+		return false;
 	}
-	
-	
+
+	if (pipe_on) {
+		str_out = std::make_unique<StreamWriter>();
+	} else {
+		try {
+			str_out = std::make_unique<FileWriter>(destination_file);
+		} catch (const std::runtime_error& e) {
+			errormessage = e.what();
+			errorlevel = 2;
+			return false;
+		}
+	}
+
 	return true;
 }
 

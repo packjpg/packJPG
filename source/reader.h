@@ -128,5 +128,4 @@ private:
 	std::unique_ptr<MemoryReader> reader_;
 };
 
-
 #endif

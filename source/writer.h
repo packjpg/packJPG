@@ -82,5 +82,4 @@ private:
 	std::unique_ptr<MemoryWriter> writer_;
 };
 
-
 #endif
