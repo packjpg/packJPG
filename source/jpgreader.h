@@ -13,7 +13,7 @@
 class JpgReader {
 public:
 	// Read in header and image data.
-	void read(const std::unique_ptr<Reader>& str_in);
+	void read(Reader& str_in);
 
 	std::vector<Segment> get_segments();
 	std::unique_ptr<FrameInfo> get_frame_info();
@@ -22,7 +22,7 @@ public:
 	std::vector<std::uint8_t> get_rst_err();
 
 private:
-	void read_sos(const std::unique_ptr<Reader>& str_in, const std::unique_ptr<MemoryWriter>& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err);
+	void read_sos(Reader& str_in, const std::unique_ptr<MemoryWriter>& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err);
 
 	int scan_count_ = 0; // Count of scans.
 

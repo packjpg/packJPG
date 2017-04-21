@@ -14,7 +14,7 @@
 
 class PjgDecoder {
 public:
-	PjgDecoder(const std::unique_ptr<Reader>& decoding_stream);
+	PjgDecoder(Reader& decoding_stream);
 
 	// Decodes image encoded as pjg to colldata.
 	void decode();
@@ -61,7 +61,7 @@ private:
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
 
-	std::uint8_t padbit_;
+	std::uint8_t padbit_ = -1;
 
 	std::vector<std::uint8_t> rst_err_;
 	std::vector<std::uint8_t> garbage_data_;

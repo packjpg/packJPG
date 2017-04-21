@@ -412,7 +412,7 @@ namespace encode {
 	// Merges header & image data to jpeg.
 	bool merge() {
 		try {
-			jpeg_encoder->merge(str_out, segments, garbage_data, jpg::rst_err);
+			jpeg_encoder->merge(*str_out, segments, garbage_data, jpg::rst_err);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
 			error = true;
@@ -432,7 +432,7 @@ namespace decode {
 	bool read() {
 		auto reader = std::make_unique<JpgReader>();
 		try {
-			reader->read(str_in);
+			reader->read(*str_in);
 
 			frame_info = reader->get_frame_info();
 			segments = reader->get_segments();
@@ -483,7 +483,7 @@ namespace pjg {
 	namespace encode {
 		bool encode() {
 			try {
-				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
+				auto pjg_encoder = std::make_unique<PjgEncoder>(*str_out);
 				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
 			} catch (const std::exception& e) {
 				errormessage = e.what();
@@ -500,7 +500,7 @@ namespace pjg {
 			// get filesize
 			pjgfilesize = str_in->get_size();
 			try {
-				auto pjg_decoder = std::make_unique<PjgDecoder>(str_in);
+				auto pjg_decoder = std::make_unique<PjgDecoder>(*str_in);
 				pjg_decoder->decode();
 
 				frame_info = pjg_decoder->get_frame_info();

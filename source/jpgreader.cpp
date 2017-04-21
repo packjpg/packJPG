@@ -5,7 +5,7 @@
 #include "jfifparse.h"
 #include "segment.h"
 
-void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
+void JpgReader::read(Reader& str_in) {
 	scan_count_ = 0;
 	// start headerwriter
 	auto hdrw = std::make_unique<MemoryWriter>();
@@ -27,7 +27,7 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 			}
 		} else {
 			// read in next marker
-			if (str_in->read(segment, 2) != 2) {
+			if (str_in.read(segment, 2) != 2) {
 				break;
 			}
 			if (segment[0] != 0xFF) {
@@ -62,7 +62,7 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 		}
 
 		// read in next segments' length and check it
-		if (str_in->read(segment, 2, 2) != 2) {
+		if (str_in.read(segment, 2, 2) != 2) {
 			break;
 		}
 		uint32_t len = 2 + jfif::pack(segment[2], segment[3]); // Length of current marker segment.
@@ -76,7 +76,7 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 		}
 
 		// read rest of segment, store back in header writer
-		if (str_in->read(segment, len - 4, 4) != static_cast<std::size_t>(len - 4)) {
+		if (str_in.read(segment, len - 4, 4) != static_cast<std::size_t>(len - 4)) {
 			break;
 		}
 		hdrw->write(segment.data(), len);
@@ -90,13 +90,13 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 
 	// store garbage after EOI if needed
 	std::uint8_t tmp;
-	bool garbage_avail = str_in->read_byte(&tmp);
+	bool garbage_avail = str_in.read_byte(&tmp);
 	if (garbage_avail) {
 
 		auto grbgw = std::make_unique<MemoryWriter>();
 		grbgw->write_byte(tmp);
 		while (true) {
-			std::size_t len = str_in->read(segment, segment.capacity());
+			std::size_t len = str_in.read(segment, segment.capacity());
 			if (len == 0) {
 				break;
 			}
@@ -114,26 +114,26 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 }
 
 
-void JpgReader::read_sos(const std::unique_ptr<Reader>& jpg_input_stream, const std::unique_ptr<MemoryWriter>& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err) {
+void JpgReader::read_sos(Reader& jpg_input_stream, const std::unique_ptr<MemoryWriter>& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err) {
 	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
 	while (true) {
 		// read byte from imagedata
-		std::uint8_t byte = jpg_input_stream->read_byte();
+		std::uint8_t byte = jpg_input_stream.read_byte();
 
 		// non-0xFF loop
 		if (byte != 0xFF) {
 			crst = 0;
 			while (byte != 0xFF) {
 				huffw->write_byte(byte);
-				byte = jpg_input_stream->read_byte();
+				byte = jpg_input_stream.read_byte();
 			}
 		}
 
 		// treatment of 0xFF
 		if (byte == 0xFF) {
-			byte = jpg_input_stream->read_byte();
+			byte = jpg_input_stream.read_byte();
 			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF

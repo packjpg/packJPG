@@ -16,7 +16,7 @@ public:
 	// JPEG encoding routine.
 	void recode(const std::vector<Segment>& segments, const std::unique_ptr<FrameInfo>& frame_info, std::uint8_t padbit);
 	// Merges header & image data to jpeg.
-	void merge(const std::unique_ptr<Writer>& str_out, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
+	void merge(Writer& str_out, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
 
 private:
 	// Sequential block encoding routine.

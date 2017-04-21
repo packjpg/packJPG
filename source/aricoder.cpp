@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <functional>
 
-ArithmeticEncoder::ArithmeticEncoder(Writer* stream) : sptr(stream) {}
+ArithmeticEncoder::ArithmeticEncoder(Writer& stream) : sptr(stream) {}
 
 ArithmeticEncoder::~ArithmeticEncoder() {
 	// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
@@ -80,13 +80,13 @@ void ArithmeticEncoder::writeNrbitsAsZero() {
 		int remainingBits = 8 - cbit;
 		nrbits -= remainingBits;
 		bbyte <<= remainingBits;
-		sptr->write_byte(bbyte);
+		sptr.write_byte(bbyte);
 		cbit = 0;
 	}
 
 	constexpr std::uint8_t zero = 0;
 	while (nrbits >= 8) {
-		sptr->write_byte(zero);
+		sptr.write_byte(zero);
 		nrbits -= 8;
 	}
 	/*
@@ -105,12 +105,12 @@ void ArithmeticEncoder::writeNrbitsAsOne() {
 		nrbits -= remainingBits;
 		bbyte <<= remainingBits;
 		bbyte |= all_ones >> (8 - remainingBits);
-		sptr->write_byte(bbyte);
+		sptr.write_byte(bbyte);
 		cbit = 0;
 	}
 
 	while (nrbits >= 8) {
-		sptr->write_byte(all_ones);
+		sptr.write_byte(all_ones);
 		nrbits -= 8;
 	}
 
@@ -123,7 +123,7 @@ void ArithmeticEncoder::writeNrbitsAsOne() {
 	nrbits = 0;
 }
 
-ArithmeticDecoder::ArithmeticDecoder(Reader* stream) : sptr(stream) {
+ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : sptr(stream) {
 	// code buffer has to be filled before starting decoding
 	for (int i = 0; i < CODER_USE_BITS; i++) {
 		ccode = (ccode << 1) | read_bit();
@@ -191,7 +191,7 @@ std::uint8_t ArithmeticDecoder::read_bit()
 {
 	// read in new byte if needed
 	if (cbit == 0) {
-		if (!sptr->read_byte(&bbyte)) // read next byte if available
+		if (!sptr.read_byte(&bbyte)) // read next byte if available
 			bbyte = 0; // if no more data is left in the stream
 		cbit = 8;
 	}

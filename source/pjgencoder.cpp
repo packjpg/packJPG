@@ -6,15 +6,15 @@
 #include "bitops.h"
 #include "programinfo.h"
 
-PjgEncoder::PjgEncoder(const std::unique_ptr<Writer>& encoding_output) {
+PjgEncoder::PjgEncoder(Writer& encoding_output) {
 	// PJG-Header
-	encoding_output->write(program_info::pjg_magic);
+	encoding_output.write(program_info::pjg_magic);
 
 	// store version number
-	encoding_output->write_byte(program_info::appversion);
+	encoding_output.write_byte(program_info::appversion);
 
 	// init arithmetic compression
-	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
+	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output);
 }
 
 void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {

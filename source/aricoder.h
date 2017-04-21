@@ -304,7 +304,7 @@ private:
 
 class ArithmeticEncoder {
 public:
-	ArithmeticEncoder(Writer* stream);
+	ArithmeticEncoder(Writer& stream);
 	~ArithmeticEncoder();
 
 	// Generic UniversalModel encoding function.
@@ -332,7 +332,7 @@ public:
 	 * Returns whether an error occurred in the writer backing the encoder.
 	 */
 	bool error() const {
-		return sptr->error();
+		return sptr.error();
 	}
 
 private:
@@ -348,7 +348,7 @@ private:
 
 		// write bit if done
 		if (cbit == 8) {
-			sptr->write_byte(bbyte);
+			sptr.write_byte(bbyte);
 			cbit = 0;
 		}
 	}
@@ -357,7 +357,7 @@ private:
 	void writeNrbitsAsOne();
 
 	// io variables:
-	Writer* sptr; // Pointer to iostream for writing.
+	Writer& sptr; // Pointer to iostream for writing.
 	std::uint8_t bbyte = 0;
 	std::uint8_t cbit = 0;
 
@@ -370,7 +370,7 @@ private:
 
 class ArithmeticDecoder {
 public:
-	ArithmeticDecoder(Reader* stream);
+	ArithmeticDecoder(Reader& stream);
 	~ArithmeticDecoder();
 
 	// Generic UniversalModel decoding function.
@@ -411,7 +411,7 @@ private:
 	std::uint8_t read_bit();
 
 	// io variables:
-	Reader* sptr; // Pointer to iostream for reading.
+	Reader& sptr; // Pointer to iostream for reading.
 	std::uint8_t bbyte = 0;
 	std::uint8_t cbit = 0;
 

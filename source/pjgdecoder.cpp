@@ -8,12 +8,12 @@
 #include "writer.h"
 #include "jfifparse.h"
 
-PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
+PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
 	while (true) {
 		std::uint8_t hcode;
 		try {
-			hcode = decoding_stream->read_byte();
+			hcode = decoding_stream.read_byte();
 		} catch (const std::runtime_error&) {
 			throw;
 		}
@@ -32,7 +32,7 @@ PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
 
 
 	// init arithmetic compression
-	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
+	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream);
 }
 
 void PjgDecoder::decode() {

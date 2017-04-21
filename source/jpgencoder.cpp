@@ -279,18 +279,18 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 }
 
 
-void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err) {
+void JpgEncoder::merge(Writer& jpg_output_stream, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err) {
 	int rpos = 0; // current restart marker position
 	int scan = 1; // number of current scan	
 
 	// write SOI
 	constexpr std::array<std::uint8_t, 2> SOI{0xFF, 0xD8};
-	jpg_output_stream->write(SOI);
+	jpg_output_stream.write(SOI);
 
 	// JPEG writing loop
 	for (auto& segment : segments) {
 		// write segment data to file
-		jpg_output_stream->write(segment.get_data());
+		jpg_output_stream.write(segment.get_data());
 
 		// get out if last marker segment type was not SOS
 		if (segment.get_type() != Marker::kSOS) {
@@ -304,18 +304,18 @@ void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const s
 		// ipos is the current position in image data.
 		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
 			// write current byte
-			jpg_output_stream->write_byte(huffman_data[ipos]);
+			jpg_output_stream.write_byte(huffman_data[ipos]);
 			// check current byte, stuff if needed
 			if (huffman_data[ipos] == 0xFF) {
-				jpg_output_stream->write_byte(std::uint8_t(0)); // 0xFF stuff value
+				jpg_output_stream.write_byte(std::uint8_t(0)); // 0xFF stuff value
 			}
 			// insert restart markers if needed
 			if (!rstp.empty()) {
 				if (ipos == rstp[rpos]) {
 					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 					constexpr std::uint8_t mrk = 0xFF; // marker start
-					jpg_output_stream->write_byte(mrk);
-					jpg_output_stream->write_byte(rst);
+					jpg_output_stream.write_byte(mrk);
+					jpg_output_stream.write_byte(rst);
 					rpos++;
 					cpos++;
 				}
@@ -326,8 +326,8 @@ void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const s
 			while (rst_err[scan - 1] > 0) {
 				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 				constexpr std::uint8_t mrk = 0xFF; // marker start
-				jpg_output_stream->write_byte(mrk);
-				jpg_output_stream->write_byte(rst);
+				jpg_output_stream.write_byte(mrk);
+				jpg_output_stream.write_byte(rst);
 				cpos++;
 				rst_err[scan - 1]--;
 			}
@@ -339,15 +339,15 @@ void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const s
 
 	// write EOI
 	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9}; // EOI segment
-	jpg_output_stream->write(EOI);
+	jpg_output_stream.write(EOI);
 
 	// write garbage if needed
 	if (!garbage_data.empty()) {
-		jpg_output_stream->write(garbage_data);
+		jpg_output_stream.write(garbage_data);
 	}
 
 	// errormessage if write error
-	if (jpg_output_stream->error()) {
+	if (jpg_output_stream.error()) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
 }

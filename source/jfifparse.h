@@ -1,6 +1,7 @@
 #ifndef JFIFPARSE_H
 #define JFIFPARSE_H
 
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -173,16 +174,16 @@ namespace jfif {
 			h_max = std::max(component.sfh, h_max);
 			v_max = std::max(component.sfv, v_max);
 		}
-		frame_info->mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
-		frame_info->mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) / static_cast<float>(8 * v_max)));
+		frame_info->mcu_height = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
+		frame_info->mcu_width = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_width) / static_cast<float>(8 * v_max)));
 		frame_info->mcu_count = frame_info->mcu_height * frame_info->mcu_width;
 		for (auto& component : frame_info->components) {
 			component.bcv = frame_info->mcu_height * component.sfh;
 			component.bch = frame_info->mcu_width * component.sfv;
 			component.bc = component.bcv * component.bch;
-			component.ncv = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) *
+			component.ncv = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_height) *
 				(static_cast<float>(component.sfh) / (8.0 * h_max))));
-			component.nch = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) *
+			component.nch = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_width) *
 				(static_cast<float>(component.sfv) / (8.0 * v_max))));
 
 			for (auto& coeffs : component.colldata) {
