@@ -265,6 +265,7 @@ packJPG by Matthias Stirner, 01/2016
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <experimental/filesystem>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -539,7 +540,6 @@ static void progress_bar(int current, int last);
 static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 #endif
-static bool file_exists(const std::string& filename);
 
 
 /* -----------------------------------------------
@@ -787,8 +787,8 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	// copy errormessage / remove files if error (and output is file)
 	if (error) {
 		if ( lib_out_type == 0 ) {
-			if (file_exists(destination_file)) {
-				remove(destination_file);
+			if (std::experimental::filesystem::exists(destination_file)) {
+				std::experimental::filesystem::remove(destination_file);
 			}
 		}
 		if ( msg != nullptr ) strcpy( msg, errormessage.c_str() );
@@ -1120,8 +1120,8 @@ static void process_ui()
 	str_str.reset(nullptr);
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && (error || ( action != Action::A_COMPRESS ) ) ) {
-		if (file_exists(destination_file)) {
-			remove(destination_file.c_str());
+		if (std::experimental::filesystem::exists(destination_file)) {
+			std::experimental::filesystem::remove(destination_file);
 		}
 	}
 	
@@ -2756,28 +2756,13 @@ static std::string create_filename(const std::string& oldname, const std::string
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension) {
 	auto filename_base = oldname.substr(0, oldname.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
-	while (file_exists(filename)) {
+	while (std::experimental::filesystem::exists(filename)) {
 		filename_base += "_";
 		filename = filename_base + "." + new_extension;
 	}
 	return filename;
 }
 #endif
-
-/* -----------------------------------------------
-checks if a file exists
------------------------------------------------ */
-static bool file_exists(const std::string& filename) {
-	// needed for both, executable and library
-	FILE* fp = fopen(filename.c_str(), "rb");
-
-	if (fp == nullptr) {
-		return false;
-	} else {
-		fclose(fp);
-		return true;
-	}
-}
 
 /* ----------------------- End of miscellaneous helper functions -------------------------- */
 
