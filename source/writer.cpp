@@ -60,6 +60,7 @@ void FileWriter::rewind() {
 }
 
 std::size_t FileWriter::num_bytes_written() {
+	fflush(fptr_);
 	return std::experimental::filesystem::file_size(file_path_);
 }
 
