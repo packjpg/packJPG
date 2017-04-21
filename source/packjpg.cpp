@@ -299,14 +299,6 @@ packJPG by Matthias Stirner, 01/2016
 #include "streamtype.h"
 #include "writer.h"
 
-#if defined BUILD_DLL // define BUILD_LIB from the compiler options if you want to compile a DLL!
-	#define BUILD_LIB
-#endif
-
-#if defined BUILD_LIB // define BUILD_LIB as compiler option if you want to compile a library!
-	#include "packjpglib.h"
-#endif
-
 const std::string FWR_ERRMSG("could not write file / file write-protected: ");
 
 /* -----------------------------------------------
@@ -348,12 +340,10 @@ static std::unique_ptr<Reader> str_str;	// storage stream
 /* -----------------------------------------------
 	function declarations: main interface
 	----------------------------------------------- */
-#if !defined( BUILD_LIB )
 static void initialize_options( int argc, char** argv );
 static void process_ui();
 static std::string get_status( bool (*function)() );
 static void show_help();
-#endif
 static void process_file();
 static void execute( bool (*function)() );
 
@@ -361,11 +351,9 @@ static void execute( bool (*function)() );
 /* -----------------------------------------------
 	function declarations: main functions
 	----------------------------------------------- */
-#if !defined( BUILD_LIB )
 static bool check_file();
 static bool swap_streams();
 static bool compare_output();
-#endif
 static bool reset_buffers();
 
 /* -----------------------------------------------
@@ -550,32 +538,18 @@ namespace dct {
 /* -----------------------------------------------
 	function declarations: miscelaneous helpers
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
 static void progress_bar(int current, int last);
 static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
-#endif
-
-/* -----------------------------------------------
-	global variables: library only variables
-	----------------------------------------------- */
-#if defined(BUILD_LIB)
-static int lib_in_type  = -1;
-static int lib_out_type = -1;
-#endif
-
-#if !defined(BUILD_LIB)
 
 static std::vector<std::string> filelist; // list of files to process 
 static int    file_no  = 0;			// number of current file
 
-#endif
 
 /* -----------------------------------------------
 	global variables: settings
 	----------------------------------------------- */
 
-#if !defined(BUILD_LIB)
 static int  verbosity  = -1;	// level of verbosity
 static bool overwrite  = false;	// overwrite files yes / no
 static bool wait_on_finish  = false;	// pause after finished yes / no
@@ -584,13 +558,11 @@ static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detai
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 
-#endif
 
 /* -----------------------------------------------
 	main-function
 	----------------------------------------------- */
 
-#if !defined(BUILD_LIB)
 int main( int argc, char** argv )
 {	
 	errormessage = "no errormessage specified";
@@ -686,243 +658,6 @@ int main( int argc, char** argv )
 	
 	return 0;
 }
-#endif
-
-/* ----------------------- Begin of library only functions -------------------------- */
-
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-	
-#if defined(BUILD_LIB)
-EXPORT bool pjglib_convert_stream2stream( char* msg )
-{
-	// process in main function
-	return pjglib_convert_stream2mem( nullptr, nullptr, msg ); 
-}
-
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-EXPORT bool pjglib_convert_file2file( char* in, char* out, char* msg )
-{
-	// init streams
-	pjglib_init_streams( (void*) in, 0, 0, (void*) out, 0 );
-	
-	// process in main function
-	return pjglib_convert_stream2mem( nullptr, nullptr, msg ); 
-}
-
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
-{
-	// (re)set buffers
-	reset_buffers();
-	
-	// main compression / decompression routines
-	auto begin = std::chrono::steady_clock::now();
-	
-	// process one file
-	process_file();
-	
-	// fetch pointer and size of output (only for memory output)
-	if (!error && ( lib_out_type == 1 ) &&
-		 ( out_file != nullptr ) && ( out_size != nullptr ) ) {
-		*out_size = str_out->num_bytes_written();
-		const auto& data = str_out->get_data();
-		auto arr = new unsigned char[data.size()];
-		std::copy(std::begin(data), std::end(data), arr);
-		*out_file = arr;
-	}
-	
-	// close iostreams
-	str_in.reset(nullptr);
-	str_out.reset(nullptr);
-	
-	auto end = std::chrono::steady_clock::now();
-	
-	// copy errormessage / remove files if error (and output is file)
-	if (error) {
-		if ( lib_out_type == 0 ) {
-			if (std::experimental::filesystem::exists(destination_file)) {
-				std::experimental::filesystem::remove(destination_file);
-			}
-		}
-		if ( msg != nullptr ) strcpy( msg, errormessage.c_str() );
-		return false;
-	}
-	
-	// get compression info
-	auto duration = end - begin;
-	auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
-	
-	// write success message else
-	if ( msg != nullptr ) {
-		switch( filetype )
-		{
-			case FileType::F_JPG:
-				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
-					destination_file.c_str(), cr, ( total >= 0 ) ? total : -1 );
-				break;
-			case FileType::F_PJG:
-				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
-					destination_file.c_str(), cr, ( total >= 0 ) ? total : -1 );
-				break;
-			case FileType::F_UNK:
-				sprintf( msg, "Unknown filetype" );
-				break;	
-		}
-	}
-	
-	
-	return true;
-}
-
-/* -----------------------------------------------
-	DLL export init input (file/mem)
-	----------------------------------------------- */
-EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* out_dest, int out_type )
-{
-	/* a short reminder about input/output stream types:
-	
-	if input is file
-	----------------
-	in_scr -> name of input file
-	in_type -> 0
-	in_size -> ignore
-	
-	if input is memory
-	------------------
-	in_scr -> array containg data
-	in_type -> 1
-	in_size -> size of data array
-	
-	if input is *FILE (f.e. stdin)
-	------------------------------
-	in_src -> stream pointer
-	in_type -> 2
-	in_size -> ignore
-	
-	vice versa for output streams! */
-	
-	std::uint8_t buffer[ 2 ];
-	
-	// (re)set error flag
-	errorfunction = nullptr;
-	error = false;
-	jpgfilesize = 0;
-	pjgfilesize = 0;
-	
-	// open input stream, check for errors
-	StreamType in_ty = StreamType(in_type);
-	if (in_ty == StreamType::kFile) {
-		std::string file_path((char*)in_src);
-		try {
-			str_in = std::make_unique<FileReader>(file_path);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return;
-		}
-	} else if (in_ty == StreamType::kMemory) {
-		std::vector<std::uint8_t> data((std::uint8_t*)in_src, (std::uint8_t*)in_src + in_size);
-		str_in = std::make_unique<MemoryReader>(data);
-	} else { // Stream
-		str_in = std::make_unique<StreamReader>();
-	}
-	if ( str_in->error() ) {
-		errormessage = "error opening input stream";
-		error = true;
-		return;
-	}	
-	
-	// open output stream, check for errors
-	StreamType out_ty = StreamType(out_type);
-	if (out_ty == StreamType::kFile) {
-		std::string file_path((char*)out_dest);
-		try {
-			str_out = std::make_unique<FileWriter>(file_path);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return;
-		}
-	} else if (out_ty == StreamType::kMemory) {
-		str_out = std::make_unique<MemoryWriter>();
-	} else { // Stream
-		str_out = std::make_unique<StreamWriter>();
-	}
-	if ( str_out->error() ) {
-		errormessage = "error opening output stream";
-		error = true;
-		return;
-	}
-	
-	// clear filenames if needed
-	destination_file = "";
-	
-	// check input stream
-	str_in->read( buffer, 2 );
-	if ( ( buffer[0] == 0xFF ) && ( buffer[1] == 0xD8 ) ) {
-		// file is JPEG
-		filetype = FileType::F_JPG;
-		if (out_type == 0) {
-			destination_file = static_cast<char*>(out_dest);
-		}
-	}
-	else if ( (buffer[0] == program_info::pjg_magic[0]) && (buffer[1] == program_info::pjg_magic[1]) ) {
-		// file is PJG
-		filetype = FileType::F_PJG;
-		if (out_type == 0) {
-			destination_file = static_cast<char*>(out_dest);
-		}
-	}
-	else {
-		// file is neither
-		filetype = FileType::F_UNK;
-		errormessage = "filetype of input stream is unknown";
-		error = true;
-		return;
-	}
-	
-	// store types of in-/output
-	lib_in_type  = in_type;
-	lib_out_type = out_type;
-}
-
-/* -----------------------------------------------
-	DLL export version information
-	----------------------------------------------- */
-EXPORT const char* pjglib_version_info()
-{
-	static char v_info[ 256 ];
-	
-	// copy version info to string
-	sprintf( v_info, "--> %s library v%i.%i%s (%s) by %s <--",
-		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
-			
-	return (const char*) v_info;
-}
-
-/* -----------------------------------------------
-	DLL export version information
-	----------------------------------------------- */
-EXPORT const char* pjglib_short_name()
-{
-	static char v_name[ 256 ];
-	
-	// copy version info to string
-	sprintf( v_name, "%s v%i.%i%s",
-		program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str());
-			
-	return (const char*) v_name;
-}
-#endif
-
-/* ----------------------- End of libary only functions -------------------------- */
 
 /* ----------------------- Begin of main interface functions -------------------------- */
 
@@ -930,7 +665,6 @@ EXPORT const char* pjglib_short_name()
 /* -----------------------------------------------
 	reads in commandline arguments
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)	
 static void initialize_options( int argc, char** argv )
 {	
 	int tmp_val;
@@ -948,11 +682,7 @@ static void initialize_options( int argc, char** argv )
 			verbosity = tmp_val;
 			verbosity = ( verbosity < 0 ) ? 0 : verbosity;
 			verbosity = ( verbosity > 2 ) ? 2 : verbosity;			
-		}
-		else if (arg == "-vp") {
-			verbosity = -1;
-		}
-		else if (arg == "-w") {
+		} else if (arg == "-w") {
 			wait_on_finish = true;
 		}
 		else if (arg == "-o") {
@@ -1169,8 +899,6 @@ static void show_help()
 	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.c_str(), program_info::pjg_ext.c_str() );
 	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.c_str(), program_info::jpg_ext.c_str() );
 }
-#endif
-
 
 /* -----------------------------------------------
 	processes one file
@@ -1184,7 +912,6 @@ static void process_file() {
 		execute(predict_dc);
 		execute(calc_zdst_lists);
 		execute(pjg::encode::encode);
-#if !defined(BUILD_LIB)
 		if (verify_lv > 0) { // verifcation
 			execute(reset_buffers);
 			execute(swap_streams);
@@ -1195,14 +922,12 @@ static void process_file() {
 			execute(jpg::encode::merge);
 			execute(compare_output);
 		}
-#endif
 	} else if (filetype == FileType::F_PJG) {
 		execute(pjg::decode::decode);
 		execute(dct::adapt_icos);
 		execute(unpredict_dc);
 		execute(jpg::encode::recode);
 		execute(jpg::encode::merge);
-#if !defined(BUILD_LIB)
 		if (verify_lv > 0) { // verify
 			execute(reset_buffers);
 			execute(swap_streams);
@@ -1215,7 +940,6 @@ static void process_file() {
 			execute(pjg::encode::encode);
 			execute(compare_output);
 		}
-#endif
 	}
 	// reset buffers
 	reset_buffers();
@@ -1276,7 +1000,6 @@ static void execute( bool (*function)() )
 /* -----------------------------------------------
 	check file and determine filetype
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
 static bool check_file() {
 	std::uint8_t fileid[ 2 ]{};
 	const std::string& filename = filelist[file_no];
@@ -1395,8 +1118,6 @@ static bool compare_output() {
 
 	return true;
 }
-#endif
-
 
 /* -----------------------------------------------
 	set each variable to its initial value
@@ -1427,7 +1148,6 @@ static bool reset_buffers() {
 /* -----------------------------------------------
 	displays progress bar on screen
 	----------------------------------------------- */
-#if !defined(BUILD_LIB)
 static void progress_bar( int current, int last )
 {
 	constexpr int BARLEN = 36;
@@ -1474,6 +1194,5 @@ static std::string unique_filename(const std::string& oldname, const std::string
 	}
 	return filename;
 }
-#endif
 
 /* ----------------------- End of miscellaneous helper functions -------------------------- */
