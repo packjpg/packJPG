@@ -951,9 +951,7 @@ static void process_file() {
 	----------------------------------------------- */
 static void execute( bool (*function)() )
 {
-	if (!error) {
-		#if !defined BUILD_LIB
-		
+	if (!error) {		
 		// write statusmessage
 		if ( verbosity == 2 ) {
 			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
@@ -981,14 +979,6 @@ static void execute( bool (*function)() )
 			errorfunction = function;
 			if ( verbosity == 2 ) fprintf( msgout,  "%8s", "ERROR" );
 		}
-		#else
-		// call function
-		( *function )();
-		
-		// store errorfunction if needed
-		if (error && ( errorfunction == nullptr ) )
-			errorfunction = function;
-		#endif
 	}
 }
 
