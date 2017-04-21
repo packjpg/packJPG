@@ -5,14 +5,13 @@
 #include "jfifparse.h"
 
 
-void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& frame_info, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata)
-{
+void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& frame_info, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata) {
 	short block[64]; // store block for coeffs
 	int scan_count = 0; // Count of scans.
-						// open huffman coded image data for input in abitreader
+	// open huffman coded image data for input in abitreader
 	huffr = std::make_unique<BitReader>(huffdata); // bitwise reader for image data
 
-												   // JPEG decompression loop
+	// JPEG decompression loop
 	int rsti = 0; // restart interval
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
@@ -23,24 +22,19 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 		if (type == Marker::kDHT) {
 			try {
 				jfif::parse_dht(segment.get_data(), hcodes);
-			}
-			catch (const std::range_error&) {
+			} catch (const std::range_error&) {
 				throw;
 			}
 			build_trees(hcodes, htrees);
-		}
-		else if (type == Marker::kDRI) {
+		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
-		}
-		else if (type == Marker::kSOS) {
+		} else if (type == Marker::kSOS) {
 			try {
 				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
-			}
-			catch (std::runtime_error&) {
+			} catch (std::runtime_error&) {
 				throw;
 			}
-		}
-		else {
+		} else {
 			continue;
 		}
 
@@ -53,7 +47,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 		for (int csc = 0; csc < scan_info.cmpc; csc++) {
 			auto& cmpt = cmpts[scan_info.cmp[csc]];
 			if ((scan_info.sal == 0 && !htrees[0][cmpt.huffdc]) ||
-				(scan_info.sah >  0 && !htrees[1][cmpt.huffac])) {
+				(scan_info.sah > 0 && !htrees[1][cmpt.huffac])) {
 				throw std::runtime_error("huffman table missing in scan%i" + std::to_string(scan_count));
 			}
 		}
@@ -67,12 +61,11 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 		int dpos = 0;
 
 		// JPEG imagedata decoding routines
-		while (true)
-		{
+		while (true) {
 			// (re)set last DCs for diff coding
 			std::array<int, 4> lastdc{}; // last dc for each component
 
-										 // (re)set status
+			// (re)set status
 			int eob = 0;
 			CodingStatus status = CodingStatus::OKAY;
 
@@ -80,19 +73,18 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 			int eobrun = 0; // run of eobs
 			int peobrun = 0; // previous eobrun
 
-							 // (re)set rst wait counter
+			// (re)set rst wait counter
 			int rstw = rsti; // restart wait counter
 
-							 // decoding for interleaved data
-			if (scan_info.cmpc > 1)
-			{
+			// decoding for interleaved data
+			if (scan_info.cmpc > 1) {
 				if (jpegtype == JpegType::SEQUENTIAL) {
 					// ---> sequential interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
 						// decode block
 						eob = this->block_seq(*htrees[0][cmpts[cmp].huffdc],
-							*htrees[1][cmpts[cmp].huffdc],
-							block);
+						                      *htrees[1][cmpts[cmp].huffdc],
+						                      block);
 
 						// check for non optimal coding
 						if ((eob > 1) && (block[eob - 1] == 0)) {
@@ -108,16 +100,17 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							cmpts[cmp].colldata[bpos][dpos] = block[bpos];
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						if (eob < 0)
+							status = CodingStatus::ERROR;
+						else
+							status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
-				}
-				else if (scan_info.sah == 0) {
+				} else if (scan_info.sah == 0) {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while (status == CodingStatus::OKAY) {
 						status = this->dc_prg_fs(*htrees[0][cmpts[cmp].huffdc],
-							block);
+						                         block);
 
 						// fix dc for diff coding
 						cmpts[cmp].colldata[0][dpos] = block[0] + lastdc[cmp];
@@ -130,8 +123,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 						if (status != CodingStatus::ERROR)
 							status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
-				}
-				else {
+				} else {
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation later stage <---					
 					while (status == CodingStatus::OKAY) {
@@ -144,16 +136,15 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-			}
-			else // decoding for non interleaved data
+			} else // decoding for non interleaved data
 			{
 				if (jpegtype == JpegType::SEQUENTIAL) {
 					// ---> sequential non interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
 						// decode block
 						eob = this->block_seq(*htrees[0][cmpts[cmp].huffdc],
-							*htrees[1][cmpts[cmp].huffdc],
-							block);
+						                      *htrees[1][cmpts[cmp].huffdc],
+						                      block);
 
 						// check for non optimal coding
 						if ((eob > 1) && (block[eob - 1] == 0)) {
@@ -169,17 +160,18 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							cmpts[cmp].colldata[bpos][dpos] = block[bpos];
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
+						if (eob < 0)
+							status = CodingStatus::ERROR;
+						else
+							status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 					}
-				}
-				else if (scan_info.to == 0) {
+				} else if (scan_info.to == 0) {
 					if (scan_info.sah == 0) {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while (status == CodingStatus::OKAY) {
 							status = this->dc_prg_fs(*htrees[0][cmpts[cmp].huffdc],
-								block);
+							                         block);
 
 							// fix dc for diff coding
 							cmpts[cmp].colldata[0][dpos] = block[0] + lastdc[cmp];
@@ -192,8 +184,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							if (status != CodingStatus::ERROR)
 								status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
-					}
-					else {
+					} else {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
@@ -207,8 +198,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
-				}
-				else {
+				} else {
 					if (scan_info.sah == 0) {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation first stage <---
@@ -216,35 +206,36 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							if (eobrun == 0) {
 								// decode block
 								eob = this->ac_prg_fs(*htrees[1][cmpts[cmp].huffac],
-									block, &eobrun, scan_info.from, scan_info.to);
+								                      block, &eobrun, scan_info.from, scan_info.to);
 
 								if (eobrun > 0) {
 									// check for non optimal coding
 									if ((eob == scan_info.from) && (peobrun > 0) &&
-										(peobrun <	hcodes[1][cmpts[cmp].huffac]->max_eobrun - 1)) {
+										(peobrun < hcodes[1][cmpts[cmp].huffac]->max_eobrun - 1)) {
 										throw std::runtime_error("reconstruction of inefficient coding not supported");
 									}
 									peobrun = eobrun;
 									eobrun--;
-								}
-								else peobrun = 0;
+								} else
+									peobrun = 0;
 
 								// copy to colldata
 								for (int bpos = scan_info.from; bpos < eob; bpos++)
 									cmpts[cmp].colldata[bpos][dpos] = block[bpos] << scan_info.sal;
-							}
-							else eobrun--;
+							} else
+								eobrun--;
 
 							// check for errors
-							if (eob < 0) status = CodingStatus::ERROR;
-							else status = this->skip_eobrun(cmpts[cmp], rsti, &dpos, &rstw, &eobrun);
+							if (eob < 0)
+								status = CodingStatus::ERROR;
+							else
+								status = this->skip_eobrun(cmpts[cmp], rsti, &dpos, &rstw, &eobrun);
 
 							// proceed only if no error encountered
 							if (status == CodingStatus::OKAY)
 								status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
-					}
-					else {
+					} else {
 						// ---> progressive non interleaved AC decoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
@@ -255,7 +246,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 							if (eobrun == 0) {
 								// decode block (long routine)
 								eob = this->ac_prg_sa(*htrees[1][cmpts[cmp].huffac],
-									block, &eobrun, scan_info.from, scan_info.to);
+								                      block, &eobrun, scan_info.from, scan_info.to);
 
 								if (eobrun > 0) {
 									// check for non optimal coding
@@ -267,10 +258,9 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 									// store eobrun
 									peobrun = eobrun;
 									eobrun--;
-								}
-								else peobrun = 0;
-							}
-							else {
+								} else
+									peobrun = 0;
+							} else {
 								// decode block (short routine)
 								this->eobrun_sa(block, scan_info.from, scan_info.to);
 								eob = 0;
@@ -282,8 +272,10 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 								cmpts[cmp].colldata[bpos][dpos] += block[bpos] << scan_info.sal;
 
 							// proceed only if no error encountered
-							if (eob < 0) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
+							if (eob < 0)
+								status = CodingStatus::ERROR;
+							else
+								status = jpg::next_mcuposn(cmpts[cmp], rsti, &dpos, &rstw);
 						}
 					}
 				}
@@ -295,8 +287,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 					throw std::runtime_error("inconsistent use of padbits");
 					//jpg::padbit = 1;
 				}
-			}
-			else {
+			} else {
 				padbit = huffr->unpad(padbit);
 				padbit_set = true;
 			}
@@ -305,8 +296,7 @@ void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& fra
 			if (status == CodingStatus::ERROR) {
 				throw std::runtime_error("decode error in scan" + std::to_string(scan_count)
 					+ " / mcu" + std::to_string((scan_info.cmpc > 1) ? mcu : dpos));
-			}
-			else if (status == CodingStatus::DONE) {
+			} else if (status == CodingStatus::DONE) {
 				scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			}
@@ -545,14 +535,14 @@ void JpgDecoder::eobrun_sa(short* block, int from, int to) {
 }
 
 CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun) {
-	if ((*eobrun) > 0) // error check for eobrun
-	{
+	if ((*eobrun) > 0) {// error check for eobrun
 		// compare rst wait counter if needed
 		if (rsti > 0) {
-			if ((*eobrun) > (*rstw))
+			if ((*eobrun) > (*rstw)) {
 				return CodingStatus::ERROR;
-			else
+			} else {
 				(*rstw) -= (*eobrun);
+			}
 		}
 
 		// fix for non interleaved mcu - horizontal
@@ -575,13 +565,15 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos,
 		(*eobrun) = 0;
 
 		// check position
-		if ((*dpos) == cmpt.bc)
+		if ((*dpos) == cmpt.bc) {
 			return CodingStatus::DONE;
-		else if ((*dpos) > cmpt.bc)
+		} else if ((*dpos) > cmpt.bc) {
 			return CodingStatus::ERROR;
-		else if (rsti > 0)
-			if ((*rstw) == 0)
+		} else if (rsti > 0) {
+			if ((*rstw) == 0) {
 				return CodingStatus::RESTART;
+			}
+		}
 	}
 
 	return CodingStatus::OKAY;
