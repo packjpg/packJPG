@@ -13,11 +13,11 @@
 
 class JpgEncoder {
 public:
-	JpgEncoder(const std::vector<Segment>& segments);
+	JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& segments);
 	// JPEG encoding routine.
 	void recode(FrameInfo& frame_info, std::uint8_t padbit);
 	// Merges header & image data to jpeg.
-	void merge(Writer& str_out, const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
+	void merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
 
 private:
 	// Sequential block encoding routine.
@@ -56,6 +56,8 @@ private:
 		}
 		return length;
 	}
+
+	Writer& jpg_output_writer_;
 
 	const std::vector<Segment>& segments;
 

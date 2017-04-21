@@ -38,11 +38,11 @@ void PjgToJpgController::execute() {
 		component.unpredict_dc();
 	}
 
-	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>(segments);
+	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>(jpg_output_, segments);
 
 	try {
 		jpeg_encoder->recode(*frame_info, padbit);
-		jpeg_encoder->merge(jpg_output_, garbage_data, rst_err);
+		jpeg_encoder->merge(garbage_data, rst_err);
 	} catch (const std::exception&) {
 		throw;
 	}

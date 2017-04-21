@@ -399,7 +399,7 @@ namespace encode {
 	std::unique_ptr<JpgEncoder> jpeg_encoder;
 	// JPEG encoding routine.
 	bool recode() {
-		jpeg_encoder = std::make_unique<JpgEncoder>(segments);
+		jpeg_encoder = std::make_unique<JpgEncoder>(*str_out, segments);
 		try {
 			jpeg_encoder->recode(*frame_info, jpg::padbit);
 		} catch (const std::exception& e) {
@@ -412,7 +412,7 @@ namespace encode {
 	// Merges header & image data to jpeg.
 	bool merge() {
 		try {
-			jpeg_encoder->merge(*str_out, garbage_data, jpg::rst_err);
+			jpeg_encoder->merge(garbage_data, jpg::rst_err);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
 			error = true;
@@ -430,9 +430,9 @@ namespace decode {
 
 	// Read in header and image data.
 	bool read() {
-		auto reader = std::make_unique<JpgReader>();
+		auto reader = std::make_unique<JpgReader>(*str_in);
 		try {
-			reader->read(*str_in);
+			reader->read();
 
 			frame_info = reader->get_frame_info();
 			segments = reader->get_segments();
@@ -452,7 +452,7 @@ namespace decode {
 	bool decode() {
 		jpeg_decoder = std::make_unique<JpgDecoder>();
 		try {
-			jpeg_decoder->decode(frame_info->coding_process, *frame_info, segments, frame_info->components, huffman_data);
+			jpeg_decoder->decode(*frame_info, segments, huffman_data);
 			jpg::padbit = jpeg_decoder->get_padbit();
 		} catch (const std::exception& e) {
 			errormessage = e.what();

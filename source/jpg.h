@@ -51,26 +51,26 @@ inline CodingStatus next_mcupos(const ScanInfo& scan_info, const FrameInfo& fram
 }
 
 // Calculates next position (non interleaved).
-inline CodingStatus next_mcuposn(const Component& cmpt, int rsti, int* dpos, int* rstw) {
+inline CodingStatus next_mcuposn(const Component& component, int rsti, int* dpos, int* rstw) {
 	// increment position
 	(*dpos)++;
 
 	// fix for non interleaved mcu - horizontal
-	if (cmpt.bch != cmpt.nch) {
-		if (*dpos % cmpt.bch == cmpt.nch) {
-			*dpos += (cmpt.bch - cmpt.nch);
+	if (component.bch != component.nch) {
+		if (*dpos % component.bch == component.nch) {
+			*dpos += (component.bch - component.nch);
 		}
 	}
 
 	// fix for non interleaved mcu - vertical
-	if (cmpt.bcv != cmpt.ncv) {
-		if (*dpos / cmpt.bch == cmpt.ncv) {
-			*dpos = cmpt.bc;
+	if (component.bcv != component.ncv) {
+		if (*dpos / component.bch == component.ncv) {
+			*dpos = component.bc;
 		}
 	}
 
 	// check position
-	if (*dpos >= cmpt.bc) {
+	if (*dpos >= component.bc) {
 		return CodingStatus::DONE;
 	} else if (rsti > 0) {
 		if (--(*rstw) == 0) {

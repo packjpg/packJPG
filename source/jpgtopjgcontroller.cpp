@@ -16,16 +16,16 @@ JpgToPjgController::~JpgToPjgController() {
 
 void JpgToPjgController::execute() {
 	//jpgfilesize = jpg_input_->get_size();
-	auto reader = std::make_unique<JpgReader>();
 
 	std::unique_ptr<FrameInfo> frame_info;
 	std::vector<Segment> segments;
 	std::vector<std::uint8_t> huffman_data;
 	std::vector<std::uint8_t> garbage_data;
 	std::vector<std::uint8_t> rst_err;
-	std::uint8_t padbit;
+
+	auto reader = std::make_unique<JpgReader>(jpg_input_);
 	try {
-		reader->read(jpg_input_);
+		reader->read();
 
 		frame_info = reader->get_frame_info();
 		segments = reader->get_segments();
@@ -36,9 +36,11 @@ void JpgToPjgController::execute() {
 		throw;
 	}
 
+	std::uint8_t padbit;
+
 	std::unique_ptr<JpgDecoder> jpeg_decoder = std::make_unique<JpgDecoder>();
 	try {
-		jpeg_decoder->decode(frame_info->coding_process, *frame_info, segments, frame_info->components, huffman_data);
+		jpeg_decoder->decode(*frame_info, segments, huffman_data);
 		padbit = jpeg_decoder->get_padbit();
 		jpeg_decoder->check_value_range(frame_info->components);
 	} catch (const std::exception&) {
