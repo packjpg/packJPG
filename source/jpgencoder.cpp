@@ -10,18 +10,18 @@
 void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_ptr<FrameInfo>& frame_info, std::uint8_t padbit) {
 	std::array<std::int16_t, 64> block; // store block for coeffs
 
-										// open huffman coded image data in abitwriter
+	// open huffman coded image data in abitwriter
 	auto huffw = std::make_unique<BitWriter>(0); // bitwise writer for image data
 	huffw->set_fillbit(padbit);
 
 	// init storage writer
 	auto storw = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
 
-												   // preset count of scans and restarts
+	// preset count of scans and restarts
 	int scan_count = 0;
 	int rstc = 0; // count of restart markers
 
-				  // JPEG decompression loop
+	// JPEG decompression loop
 	int rsti = 0; // Restart interval.
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	for (const auto& segment : segments) {
@@ -31,23 +31,18 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 		if (type == Marker::kDHT) {
 			try {
 				jfif::parse_dht(segment.get_data(), hcodes);
-			}
-			catch (const std::range_error&) {
+			} catch (const std::range_error&) {
 				throw;
 			}
-		}
-		else if (type == Marker::kDRI) {
+		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
-		}
-		else if (type == Marker::kSOS) {
+		} else if (type == Marker::kSOS) {
 			try {
 				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
-			}
-			catch (std::runtime_error&) {
+			} catch (std::runtime_error&) {
 				throw;
 			}
-		}
-		else {
+		} else {
 			continue;
 		}
 
@@ -62,7 +57,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 		// (re)alloc restart marker positons array if needed
 		if (rsti > 0) {
 			int tmp = rstc + ((scan_info.cmpc > 1) ?
-				(frame_info->mcu_count / rsti) : (frame_info->components[scan_info.cmp[0]].bc / rsti));
+				                  (frame_info->mcu_count / rsti) : (frame_info->components[scan_info.cmp[0]].bc / rsti));
 			rstp.resize(tmp + 1);
 		}
 
@@ -77,23 +72,21 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 		scnp[scan_count] = huffw->getpos();
 
 		// JPEG imagedata encoding routines
-		while (true)
-		{
+		while (true) {
 			// (re)set last DCs for diff coding
 			std::array<int, 4> lastdc{}; // last dc for each component
 
-										 // (re)set status
+			// (re)set status
 			CodingStatus status = CodingStatus::OKAY;
 
 			// (re)set eobrun
 			int eobrun = 0; // run of eobs
 
-							// (re)set rst wait counter
+			// (re)set rst wait counter
 			int rstw = rsti; // restart wait counter
 
-							 // encoding for interleaved data
-			if (scan_info.cmpc > 1)
-			{
+			// encoding for interleaved data
+			if (scan_info.cmpc > 1) {
 				if (frame_info->coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential interleaved encoding <---
 					while (status == CodingStatus::OKAY) {
@@ -107,16 +100,17 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 
 						// encode block
 						int eob = this->block_seq(huffw,
-							*hcodes[0][frame_info->components[cmp].huffac],
-							*hcodes[1][frame_info->components[cmp].huffac],
-							block);
+						                          *hcodes[0][frame_info->components[cmp].huffac],
+						                          *hcodes[1][frame_info->components[cmp].huffac],
+						                          block);
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0) status = CodingStatus::ERROR;
-						else status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						if (eob < 0)
+							status = CodingStatus::ERROR;
+						else
+							status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
-				}
-				else if (scan_info.sah == 0) {
+				} else if (scan_info.sah == 0) {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation first stage <---
 					while (status == CodingStatus::OKAY) {
@@ -127,14 +121,13 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 
 						// encode dc
 						this->dc_prg_fs(huffw,
-							*hcodes[0][frame_info->components[cmp].huffdc],
-							block);
+						                *hcodes[0][frame_info->components[cmp].huffdc],
+						                block);
 
 						// next mcupos
 						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
-				}
-				else {
+				} else {
 					// ---> progressive interleaved DC encoding <---
 					// ---> succesive approximation later stage <---
 					while (status == CodingStatus::OKAY) {
@@ -147,8 +140,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
 					}
 				}
-			}
-			else // encoding for non interleaved data
+			} else // encoding for non interleaved data
 			{
 				if (frame_info->coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential non interleaved encoding <---
@@ -163,16 +155,17 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 
 						// encode block
 						int eob = this->block_seq(huffw,
-							*hcodes[0][frame_info->components[cmp].huffac],
-							*hcodes[1][frame_info->components[cmp].huffac],
-							block);
+						                          *hcodes[0][frame_info->components[cmp].huffac],
+						                          *hcodes[1][frame_info->components[cmp].huffac],
+						                          block);
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0) status = CodingStatus::ERROR;
-						else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
+						if (eob < 0)
+							status = CodingStatus::ERROR;
+						else
+							status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 					}
-				}
-				else if (scan_info.to == 0) {
+				} else if (scan_info.to == 0) {
 					if (scan_info.sah == 0) {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation first stage <---
@@ -184,14 +177,13 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 
 							// encode dc
 							this->dc_prg_fs(huffw,
-								*hcodes[0][frame_info->components[cmp].huffdc],
-								block);
+							                *hcodes[0][frame_info->components[cmp].huffdc],
+							                block);
 
 							// check for errors, increment dpos otherwise
 							status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
-					}
-					else {
+					} else {
 						// ---> progressive non interleaved DC encoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
@@ -205,8 +197,7 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 							status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
 					}
-				}
-				else {
+				} else {
 					if (scan_info.sah == 0) {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation first stage <---
@@ -214,38 +205,41 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 							// copy from colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[bpos] =
-								fdiv2(frame_info->components[cmp].colldata[bpos][dpos], scan_info.sal);
+									fdiv2(frame_info->components[cmp].colldata[bpos][dpos], scan_info.sal);
 
 							// encode block
 							int eob = this->ac_prg_fs(huffw,
-								*hcodes[1][frame_info->components[cmp].huffac],
-								block, &eobrun, scan_info.from, scan_info.to);
+							                          *hcodes[1][frame_info->components[cmp].huffac],
+							                          block, &eobrun, scan_info.from, scan_info.to);
 
 							// check for errors, proceed if no error encountered
-							if (eob < 0) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
+							if (eob < 0)
+								status = CodingStatus::ERROR;
+							else
+								status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
 
 						// encode remaining eobrun
 						this->eobrun(huffw, *hcodes[1][frame_info->components[cmp].huffac], &eobrun);
-					}
-					else {
+					} else {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
 							// copy from colldata
 							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
 								block[bpos] =
-								fdiv2(frame_info->components[cmp].colldata[bpos][dpos], scan_info.sal);
+									fdiv2(frame_info->components[cmp].colldata[bpos][dpos], scan_info.sal);
 
 							// encode block
 							int eob = this->ac_prg_sa(huffw, storw,
-								*hcodes[1][frame_info->components[cmp].huffac],
-								block, &eobrun, scan_info.from, scan_info.to);
+							                          *hcodes[1][frame_info->components[cmp].huffac],
+							                          block, &eobrun, scan_info.from, scan_info.to);
 
 							// check for errors, proceed if no error encountered
-							if (eob < 0) status = CodingStatus::ERROR;
-							else status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
+							if (eob < 0)
+								status = CodingStatus::ERROR;
+							else
+								status = jpg::next_mcuposn(frame_info->components[cmp], rsti, &dpos, &rstw);
 						}
 
 						// encode remaining eobrun
@@ -264,12 +258,10 @@ void JpgEncoder::recode(const std::vector<Segment>& segments, const std::unique_
 			if (status == CodingStatus::ERROR) {
 				throw std::runtime_error("encode error in scan" + std::to_string(scan_count)
 					+ " / mcu" + std::to_string((scan_info.cmpc > 1) ? mcu : dpos));
-			}
-			else if (status == CodingStatus::DONE) {
+			} else if (status == CodingStatus::DONE) {
 				scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
-			}
-			else if (status == CodingStatus::RESTART) {
+			} else if (status == CodingStatus::RESTART) {
 				if (rsti > 0) // store rstp & stay in the loop
 					rstp[rstc++] = huffw->getpos() - 1;
 			}
