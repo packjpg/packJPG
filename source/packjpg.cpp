@@ -314,12 +314,7 @@ global variables: messages
 
 static std::string errormessage;
 static bool(*errorfunction)();
-static int  errorlevel;
-// meaning of errorlevel:
-// -1 -> wrong input
-// 0 -> no error
-// 1 -> warning
-// 2 -> fatal error
+static bool  error;
 
 /* -----------------------------------------------
 global variables: data storage
@@ -425,7 +420,7 @@ namespace encode {
 		}
 		catch (const std::exception& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 		return true;
@@ -436,7 +431,7 @@ namespace encode {
 			jpeg_encoder->merge(str_out, segments);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 		return true;
@@ -453,7 +448,7 @@ namespace decode {
 			reader->read(str_in);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 		return true;
@@ -464,7 +459,7 @@ namespace decode {
 			jpeg_decoder->decode(frame_info->coding_process, segments, frame_info->components, huffman_data);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 		return true;
@@ -475,7 +470,7 @@ namespace decode {
 			jpeg_decoder->check_value_range(frame_info->components);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 		return true;
@@ -494,9 +489,10 @@ namespace pjg {
 			try {
 				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
 				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
+				pjgfilesize = str_out->num_bytes_written();
 			} catch (const std::exception& e) {
 				errormessage = e.what();
-				errorlevel = 2;
+				error = true;
 				return false;
 			}
 			return true;
@@ -510,7 +506,7 @@ namespace pjg {
 				pjg_decoder->decode();
 			} catch (const std::exception& e) {
 				errormessage = e.what();
-				errorlevel = 2;
+				error = true;
 				return false;
 			}
 			return true;
@@ -595,7 +591,6 @@ static int    file_no  = 0;			// number of current file
 	global variables: settings
 	----------------------------------------------- */
 
-static int  err_tol = 1;		// error threshold ( proceed on warnings yes (2) / no (1) )
 static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
 
 #if !defined(BUILD_LIB)
@@ -639,12 +634,9 @@ int main( int argc, char** argv )
 	errormessage = "no errormessage specified";
 		
 	int error_cnt = 0;
-	int warn_cnt  = 0;
 	
 	double acc_jpgsize = 0;
 	double acc_pjgsize = 0;
-		
-	errorlevel = 0;
 	
 	
 	// read options from command line
@@ -667,21 +659,20 @@ int main( int argc, char** argv )
 	
 	// process file(s) - this is the main function routine
 	static std::vector<std::string> err_list(filelist.size()); // list of error messages 
-	static std::vector<int> err_tp(filelist.size()); // list of error types
+	static std::vector<bool> err_tp(filelist.size()); // list of error types
 
 	auto begin = std::chrono::steady_clock::now();
 	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
 		// process current file
 		process_ui();
 		// store error message and type if any
-		if ( errorlevel > 0 ) {
-			err_tp[file_no] = errorlevel;
+		if (error) {
+			err_tp[file_no] = true;
 			err_list[file_no] = errormessage;
 		}
 		// count errors / warnings / file sizes
-		if ( errorlevel >= err_tol ) error_cnt++;
+		if (error) error_cnt++;
 		else {
-			if ( errorlevel == 1 ) warn_cnt++;
 			acc_jpgsize += jpgfilesize;
 			acc_pjgsize += pjgfilesize;
 		}
@@ -695,17 +686,7 @@ int main( int argc, char** argv )
 			fprintf( stderr, "\n\nfiles with errors:\n" );
 			fprintf( stderr, "------------------\n" );
 			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
-				if ( err_tp[ file_no ] >= err_tol ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
-				}
-			}
-		}
-		// print summary of warnings to screen
-		if ( warn_cnt > 0 ) {
-			fprintf( stderr, "\n\nfiles with warnings:\n" );
-			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
-				if ( err_tp[ file_no ] == 1 ) {
+				if (err_tp[ file_no ]) {
 					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
 				}
 			}
@@ -713,8 +694,8 @@ int main( int argc, char** argv )
 	}
 	
 	// show statistics
-	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s), %i warning(s)\n",
-		filelist.size(), error_cnt, warn_cnt );
+	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s)\n",
+		filelist.size(), error_cnt);
 	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) &&
 	 ( action == Action::A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0;
@@ -788,7 +769,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	process_file();
 	
 	// fetch pointer and size of output (only for memory output)
-	if ( ( errorlevel < err_tol ) && ( lib_out_type == 1 ) &&
+	if (!error && ( lib_out_type == 1 ) &&
 		 ( out_file != nullptr ) && ( out_size != nullptr ) ) {
 		*out_size = str_out->num_bytes_written();
 		const auto& data = str_out->get_data();
@@ -804,7 +785,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	auto end = std::chrono::steady_clock::now();
 	
 	// copy errormessage / remove files if error (and output is file)
-	if ( errorlevel >= err_tol ) {
+	if (error) {
 		if ( lib_out_type == 0 ) {
 			if (file_exists(destination_file)) {
 				remove(destination_file);
@@ -870,9 +851,9 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	
 	std::uint8_t buffer[ 2 ];
 	
-	// (re)set errorlevel
+	// (re)set error flag
 	errorfunction = nullptr;
-	errorlevel = 0;
+	error = false;
 	jpgfilesize = 0;
 	pjgfilesize = 0;
 	
@@ -884,7 +865,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 			str_in = std::make_unique<FileReader>(file_path);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return;
 		}
 	} else if (in_ty == StreamType::kMemory) {
@@ -895,7 +876,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}
 	if ( str_in->error() ) {
 		errormessage = "error opening input stream";
-		errorlevel = 2;
+		error = true;
 		return;
 	}	
 	
@@ -907,7 +888,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 			str_out = std::make_unique<FileWriter>(file_path);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return;
 		}
 	} else if (out_ty == StreamType::kMemory) {
@@ -917,7 +898,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	}
 	if ( str_out->error() ) {
 		errormessage = "error opening output stream";
-		errorlevel = 2;
+		error = true;
 		return;
 	}
 	
@@ -944,7 +925,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 		// file is neither
 		filetype = FileType::F_UNK;
 		errormessage = "filetype of input stream is unknown";
-		errorlevel = 2;
+		error = true;
 		return;
 	}
 	
@@ -1001,9 +982,7 @@ static void initialize_options( int argc, char** argv )
 		argv++;
 		std::string arg = *argv;
 		// switches begin with '-'
-		if (arg == "-p") {
-			err_tol = 2;
-		} else if (arg == "-ver") {
+		if (arg == "-ver") {
 			verify_lv = ( verify_lv < 1 ) ? 1 : verify_lv;
 		}
 		else if ( sscanf(arg.c_str(), "-v%i", &tmp_val ) == 1 ){
@@ -1077,7 +1056,7 @@ static void process_ui()
 {
 
 	errorfunction = nullptr;
-	errorlevel = 0;
+	error = false;
 	jpgfilesize = 0;
 	pjgfilesize = 0;	
 	#if !defined(DEV_BUILD)
@@ -1140,7 +1119,7 @@ static void process_ui()
 	str_out.reset(nullptr);
 	str_str.reset(nullptr);
 	// delete if broken or if output not needed
-	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != Action::A_COMPRESS ) ) ) {
+	if ( ( !pipe_on ) && (error || ( action != Action::A_COMPRESS ) ) ) {
 		if (file_exists(destination_file)) {
 			remove(destination_file.c_str());
 		}
@@ -1159,37 +1138,37 @@ static void process_ui()
 		std::string errtypemsg;
 		switch ( verbosity ) {
 			case 0:			
-				if ( errorlevel < err_tol ) {
+				if (!error) {
 					if ( action == Action::A_COMPRESS ) fprintf( msgout,  "%.2f%%", cr );
 					else fprintf( msgout, "DONE" );
 				}
 				else fprintf( msgout,  "ERROR" );
-				if ( errorlevel > 0 ) fprintf( msgout,  "\n" );
+				if (error) fprintf( msgout,  "\n" );
 				break;
 			
 			case 1:
-				fprintf( msgout, "%s\n",  ( errorlevel < err_tol ) ? "DONE" : "ERROR" );
+				fprintf( msgout, "%s\n",  (!error) ? "DONE" : "ERROR" );
 				break;
 			
 			case 2:
-				if ( errorlevel < err_tol ) fprintf( msgout,  "\n-> %s OK\n", actionmsg.c_str());
+				if (!error) fprintf( msgout,  "\n-> %s OK\n", actionmsg.c_str());
 				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg.c_str());
 				break;
 		}
 		
 		// set type of error message
-		switch ( errorlevel ) {
-			case 0:	errtypemsg = "none"; break;
-			case 1: errtypemsg = ( err_tol > 1 ) ?  "warning (ignored)" : "warning (skipped file)"; break;
-			case 2: errtypemsg = "fatal error"; break;
+		if (error) {
+			errtypemsg = "fatal error";
+		} else {
+			errtypemsg = "none";
 		}
 		
 		// error/ warning message
-		if ( errorlevel > 0 ) {
+		if (error) {
 			fprintf(msgout, " %s -> %s:\n", get_status( errorfunction ).c_str(), errtypemsg.c_str());
 			fprintf(msgout, " %s\n", errormessage.c_str());
 		}
-		if ((verbosity > 0) && (errorlevel < err_tol) && (action == Action::A_COMPRESS)) {
+		if ((verbosity > 0) && !error && (action == Action::A_COMPRESS)) {
 			auto duration = end - begin;
 			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 			if ( total >= 0 ) {
@@ -1481,7 +1460,7 @@ static void process_file()
 	}	
 	#if !defined(BUILD_LIB) && defined(DEV_BUILD)
 	// write error file if verify lv > 1
-	if ( ( verify_lv > 1 ) && ( errorlevel >= err_tol ) )
+	if ( ( verify_lv > 1 ) && error )
 		dump_errfile();
 	#endif
 	// reset buffers
@@ -1494,7 +1473,7 @@ static void process_file()
 	----------------------------------------------- */
 static void execute( bool (*function)() )
 {
-	if ( errorlevel < err_tol ) {
+	if (!error) {
 		#if !defined BUILD_LIB
 		
 		// write statusmessage
@@ -1511,7 +1490,7 @@ static void execute( bool (*function)() )
 		// set endtime
 		auto end = std::chrono::steady_clock::now();
 		
-		if ( ( errorlevel > 0 ) && ( errorfunction == nullptr ) )
+		if (error && ( errorfunction == nullptr ) )
 			errorfunction = function;
 		
 		// write time or failure notice
@@ -1529,7 +1508,7 @@ static void execute( bool (*function)() )
 		( *function )();
 		
 		// store errorfunction if needed
-		if ( ( errorlevel > 0 ) && ( errorfunction == nullptr ) )
+		if (error && ( errorfunction == nullptr ) )
 			errorfunction = function;
 		#endif
 	}
@@ -1557,7 +1536,7 @@ static bool check_file() {
 			str_in = std::make_unique<FileReader>(filename);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 	}
@@ -1569,7 +1548,7 @@ static bool check_file() {
 	if (str_in->read(fileid, 2) != 2) {
 		filetype = FileType::F_UNK;
 		errormessage = "file doesn't contain enough data";
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -1596,7 +1575,7 @@ static bool check_file() {
 		// file is neither
 		filetype = FileType::F_UNK;
 		errormessage = "file type of " + filename + " is unknown";
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -1607,7 +1586,7 @@ static bool check_file() {
 			str_out = std::make_unique<FileWriter>(destination_file);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 	}
@@ -1644,7 +1623,7 @@ static bool compare_output() {
 	const auto& verif_data = str_out->get_data();
 	if (input_data.size() != verif_data.size()) {
 		errormessage = "Expected size: " + std::to_string(input_data.size()) + ", Verification size: " + std::to_string(verif_data.size());
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -1656,7 +1635,7 @@ static bool compare_output() {
 		|| result.second != std::end(verif_data)) {
 		const auto first_diff = std::distance(std::begin(input_data), result.first);
 		errormessage = "Difference found at byte position " + std::to_string(first_diff);
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -1775,7 +1754,7 @@ void JpgReader::read(const std::unique_ptr<Reader>& str_in) {
 			if (segment[0] != 0xFF) {
 				// ugly fix for incorrect marker segment sizes
 				throw std::runtime_error("size mismatch in marker segment FF");
-				/*errorlevel = 2;
+				/*error = true;
 				if (type == Marker::kCOM) { //  if last marker was COM try again
 					if (str_in->read(segment, 2) != 2) {
 						break;
@@ -2579,9 +2558,6 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std:
 	if ( str_out->error() ) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
-	
-	// get filesize
-	pjgfilesize = str_out->num_bytes_written();
 }
 
 PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
@@ -2853,7 +2829,7 @@ static bool dump_coll()
 		FILE* fp = fopen(fn.c_str(), "wb");
 		if (fp == nullptr) {
 			errormessage = FWR_ERRMSG + fn;
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 
@@ -2962,7 +2938,7 @@ static bool dump_file(const std::string& base, const std::string& ext, void* dat
 	FILE* fp = fopen(fn.c_str(), "wb");
 	if (fp == nullptr) {
 		errormessage = FWR_ERRMSG + fn;
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -2984,26 +2960,19 @@ static bool dump_errfile() {
 
 	// create filename based on errorlevel
 	std::string fn;
-	if (errorlevel == 1) {
-		fn = create_filename(filelist[file_no], "wrn.nfo");
-	} else {
-		fn = create_filename(filelist[file_no], "err.nfo");
-	}
+	fn = create_filename(filelist[file_no], "err.nfo");
 
 	// open file for output
 	FILE* fp = fopen(fn.c_str(), "w");
 	if (fp == nullptr) {
 		errormessage = FWR_ERRMSG + fn;
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
 	// write status and errormessage to file
-	fprintf(fp, "--> error (level %i) in file \"%s\" <--\n", errorlevel, filelist[file_no].c_str());
-	fprintf(fp, "\n");
 	// write error specification to file
-	fprintf(fp, " %s -> %s:\n", get_status(errorfunction).c_str(),
-		(errorlevel == 1) ? "warning" : "error");
+	fprintf(fp, " %s -> %s:\n", get_status(errorfunction).c_str(), "error");
 	fprintf(fp, " %s\n", errormessage.c_str());
 
 	// done, close file
@@ -3023,7 +2992,7 @@ static bool dump_info() {
 	FILE* fp = fopen(fn.c_str(), "w");
 	if (fp == nullptr) {
 		errormessage = FWR_ERRMSG + fn;
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -3102,7 +3071,7 @@ static bool dump_dist() {
 	FILE* fp = fopen(fn.c_str(), "wb");
 	if (fp == nullptr) {
 		errormessage = FWR_ERRMSG + fn;
-		errorlevel = 2;
+		error = true;
 		return false;
 	}
 
@@ -3139,7 +3108,7 @@ static bool dump_pgm() {
 		FILE* fp = fopen(fn.c_str(), "wb");
 		if (fp == nullptr) {
 			errormessage = FWR_ERRMSG + fn;
-			errorlevel = 2;
+			error = true;
 			return false;
 		}
 
