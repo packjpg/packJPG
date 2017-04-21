@@ -550,10 +550,10 @@ static int    file_no  = 0;			// number of current file
 	global variables: settings
 	----------------------------------------------- */
 
-static int  verbosity  = -1;	// level of verbosity
+static bool verbose = false;	// level of verbosity
 static bool overwrite  = false;	// overwrite files yes / no
 static bool wait_on_finish  = false;	// pause after finished yes / no
-static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
+static bool verify = false;		// verification level ( none (0), simple (1), detailed output (2) )
 
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
@@ -582,7 +582,7 @@ int main( int argc, char** argv )
 	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str() );
 	
 	// check if user input is wrong, show help screen if it is
-	if (filelist.empty() || verify_lv > 1 ) {
+	if (filelist.empty()) {
 		show_help();
 		return -1;
 	}
@@ -613,7 +613,7 @@ int main( int argc, char** argv )
 	auto end = std::chrono::steady_clock::now();
 	
 	// errors summary: only needed for -v2 or progress bar
-	if ( ( verbosity == -1 ) || ( verbosity == 2 ) ) {
+	if (verbose) {
 		// print summary of errors to screen
 		if ( error_cnt > 0 ) {
 			fprintf( stderr, "\n\nfiles with errors:\n" );
@@ -629,7 +629,7 @@ int main( int argc, char** argv )
 	// show statistics
 	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s)\n",
 		filelist.size(), error_cnt);
-	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) ) {
+	if ( (filelist.size() > error_cnt ) && verbose) {
 		acc_jpgsize /= 1024.0;
 		acc_pjgsize /= 1024.0;
 		std::chrono::duration<double> duration = end - begin;
@@ -665,97 +665,80 @@ int main( int argc, char** argv )
 /* -----------------------------------------------
 	reads in commandline arguments
 	----------------------------------------------- */
-static void initialize_options( int argc, char** argv )
-{	
-	int tmp_val;
-	int i;
-	
+static void initialize_options(int argc, char** argv) {
 	// read in arguments
-	while ( --argc > 0 ) {
+	while (--argc > 0) {
 		argv++;
 		std::string arg = *argv;
 		// switches begin with '-'
-		if (arg == "-ver") {
-			verify_lv = ( verify_lv < 1 ) ? 1 : verify_lv;
-		}
-		else if ( sscanf(arg.c_str(), "-v%i", &tmp_val ) == 1 ){
-			verbosity = tmp_val;
-			verbosity = ( verbosity < 0 ) ? 0 : verbosity;
-			verbosity = ( verbosity > 2 ) ? 2 : verbosity;			
+		if (arg == "-verify") {
+			verify = true;
+		} else if (arg == "-verbose") {
+			verbose = true;
 		} else if (arg == "-w") {
 			wait_on_finish = true;
-		}
-		else if (arg == "-o") {
+		} else if (arg == "-o") {
 			overwrite = true;
 		} else if (arg == "-") {
 			// switch standard message out stream
 			msgout = stderr;
 			// use "-" as placeholder for stdin
 			filelist.push_back("-");
-		}
-		else {
+		} else {
 			// if argument is not switch, it's a filename
 			filelist.push_back(arg);
-		}		
+		}
 	}
 }
 
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-static void process_ui()
-{
+static void process_ui() {
 
 	errorfunction = nullptr;
 	error = false;
 	jpgfilesize = 0;
-	pjgfilesize = 0;	
-	
+	pjgfilesize = 0;
+
 	// compare file name, set pipe if needed
-	if ( filelist[ file_no ] == "-") {
+	if (filelist[file_no] == "-") {
 		pipe_on = true;
-		filelist[ file_no ] = "STDIN";
-	}
-	else {		
+		filelist[file_no] = "STDIN";
+	} else {
 		pipe_on = false;
 	}
 
 	std::string actionmsg;
-	if ( verbosity >= 0 ) { // standard UI
-		fprintf( msgout,  "\nProcessing file %i of %u \"%s\" -> ",
-					file_no + 1, filelist.size(), filelist[ file_no ].c_str() );
-		
-		if ( verbosity > 1 )
-			fprintf( msgout,  "\n----------------------------------------" );
-		
-		// check input file and determine filetype
-		execute( check_file );
-		
-		// get specific action message
-		if (filetype == FileType::F_UNK) {
-			actionmsg = "unknown filetype";
-		} else {
-			actionmsg = filetype == FileType::F_JPG ? "Compressing" : "Decompressing";
-		}
-		
-		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg.c_str() );
+	fprintf(msgout, "\nProcessing file %i of %u \"%s\" -> ",
+	        file_no + 1, filelist.size(), filelist[file_no].c_str());
+
+	if (verbose) {
+		fprintf(msgout, "\n----------------------------------------");
 	}
-	else { // progress bar UI
-		// update progress message
-		fprintf( msgout, "Processing file %2i of %2u ", file_no + 1, filelist.size());
-		progress_bar( file_no, filelist.size());
-		fprintf( msgout, "\r" );
-		execute( check_file );
+
+	// check input file and determine filetype
+	execute(check_file);
+
+	// get specific action message
+	if (filetype == FileType::F_UNK) {
+		actionmsg = "unknown filetype";
+	} else {
+		actionmsg = filetype == FileType::F_JPG ? "Compressing" : "Decompressing";
 	}
-	fflush( msgout );
-	
-	
+
+	if (!verbose) {
+		fprintf(msgout, "%s -> ", actionmsg.c_str());
+	}
+	fflush(msgout);
+
+
 	// main function routine
 	auto begin = std::chrono::steady_clock::now();
-	
+
 	// streams are initiated, start processing file
 	process_file();
-	
+
 	// close iostreams
 	str_in.reset(nullptr);
 	str_out.reset(nullptr);
@@ -766,75 +749,57 @@ static void process_ui()
 			std::experimental::filesystem::remove(destination_file);
 		}
 	}
-	
+
 	auto end = std::chrono::steady_clock::now();
-	
+
 	// speed and compression ratio calculation
-	float cr = ( jpgfilesize > 0 ) ? ( 100.0 * pjgfilesize / jpgfilesize ) : 0;
-	
-	if ( verbosity >= 0 ) { // standard UI
-		if ( verbosity > 1 )
-			fprintf( msgout,  "\n----------------------------------------" );
-		
-		// display success/failure message
-		std::string errtypemsg;
-		switch ( verbosity ) {
-			case 0:			
-				if (!error) {
-					fprintf( msgout,  "%.2f%%", cr );
-				}
-				else fprintf( msgout,  "ERROR" );
-				if (error) fprintf( msgout,  "\n" );
-				break;
-			
-			case 1:
-				fprintf( msgout, "%s\n",  (!error) ? "DONE" : "ERROR" );
-				break;
-			
-			case 2:
-				if (!error) fprintf( msgout,  "\n-> %s OK\n", actionmsg.c_str());
-				else  fprintf( msgout,  "\n-> %s ERROR\n", actionmsg.c_str());
-				break;
-		}
-		
-		// set type of error message
-		if (error) {
-			errtypemsg = "fatal error";
+	float cr = (jpgfilesize > 0) ? (100.0 * pjgfilesize / jpgfilesize) : 0;
+	if (verbose)
+		fprintf(msgout, "\n----------------------------------------");
+
+	// display success/failure message
+	std::string errtypemsg;
+	if (!verbose) {
+		if (!error) {
+			fprintf(msgout, "%.2f%%", cr);
 		} else {
-			errtypemsg = "none";
+			fprintf(msgout, "ERROR\n");
 		}
-		
-		// error/ warning message
-		if (error) {
-			fprintf(msgout, " %s -> %s:\n", get_status( errorfunction ).c_str(), errtypemsg.c_str());
-			fprintf(msgout, " %s\n", errormessage.c_str());
+	} else {
+		if (!error) {
+			fprintf(msgout, "\n-> %s OK\n", actionmsg.c_str());
+		} else {
+			fprintf(msgout, "\n-> %s ERROR\n", actionmsg.c_str());
 		}
-		if ((verbosity > 0) && !error) {
-			auto duration = end - begin;
-			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-			if ( total >= 0 ) {
-				fprintf( msgout,  " time taken  : %7lld msec\n", total );
-				int bpms = (total > 0) ? (jpgfilesize / total) : jpgfilesize;
-				fprintf( msgout,  " byte per ms : %7i byte\n", bpms );
-			}
-			else {
-				fprintf( msgout,  " time taken  : %7s msec\n", "N/A" );
-				fprintf( msgout,  " byte per ms : %7s byte\n", "N/A" );
-			}
-			fprintf( msgout,  " comp. ratio : %7.2f %%\n", cr );		
-		}	
-		if ( ( verbosity > 1 ))
-			fprintf( msgout,  "\n" );
 	}
-	else { // progress bar UI
-		// if this is the last file, update progress bar one last time
-		if ( file_no + 1 == filelist.size()) {
-			// update progress message
-			fprintf( msgout, "Processed %2i of %2u files ", file_no + 1, filelist.size());
-			progress_bar( 1, 1 );
-			fprintf( msgout, "\r" );
-		}	
+
+	// set type of error message
+	if (error) {
+		errtypemsg = "fatal error";
+	} else {
+		errtypemsg = "none";
 	}
+
+	// error/ warning message
+	if (error) {
+		fprintf(msgout, " %s -> %s:\n", get_status(errorfunction).c_str(), errtypemsg.c_str());
+		fprintf(msgout, " %s\n", errormessage.c_str());
+	}
+	if (verbose && !error) {
+		auto duration = end - begin;
+		auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+		if (total >= 0) {
+			fprintf(msgout, " time taken  : %7lld msec\n", total);
+			int bpms = (total > 0) ? (jpgfilesize / total) : jpgfilesize;
+			fprintf(msgout, " byte per ms : %7i byte\n", bpms);
+		} else {
+			fprintf(msgout, " time taken  : %7s msec\n", "N/A");
+			fprintf(msgout, " byte per ms : %7s byte\n", "N/A");
+		}
+		fprintf(msgout, " comp. ratio : %7.2f %%\n", cr);
+	}
+	if (verbose)
+		fprintf(msgout, "\n");
 }
 
 /* -----------------------------------------------
@@ -912,7 +877,7 @@ static void process_file() {
 		execute(predict_dc);
 		execute(calc_zdst_lists);
 		execute(pjg::encode::encode);
-		if (verify_lv > 0) { // verifcation
+		if (verify) {
 			execute(reset_buffers);
 			execute(swap_streams);
 			execute(pjg::decode::decode);
@@ -928,7 +893,7 @@ static void process_file() {
 		execute(unpredict_dc);
 		execute(jpg::encode::recode);
 		execute(jpg::encode::merge);
-		if (verify_lv > 0) { // verify
+		if (verify) {
 			execute(reset_buffers);
 			execute(swap_streams);
 			execute(jpg::decode::read);
@@ -953,7 +918,7 @@ static void execute( bool (*function)() )
 {
 	if (!error) {		
 		// write statusmessage
-		if ( verbosity == 2 ) {
+		if (verbose) {
 			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
 			for ( int i = get_status(function).length(); i <= 30; i++ )
 				fprintf( msgout,  " " );			
@@ -973,11 +938,11 @@ static void execute( bool (*function)() )
 		if ( success ) {
 			auto duration = end - begin;
 			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-			if ( verbosity == 2 ) fprintf( msgout,  "%7lldms", ( total >= 0 ) ? total : -1 );
+			if (verbose) fprintf( msgout,  "%7lldms", ( total >= 0 ) ? total : -1 );
 		}
 		else {
 			errorfunction = function;
-			if ( verbosity == 2 ) fprintf( msgout,  "%8s", "ERROR" );
+			if (verbose) fprintf( msgout,  "%8s", "ERROR" );
 		}
 	}
 }
