@@ -291,6 +291,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "pjgdecoder.h"
 #include "pjgencoder.h"
 #include "pjpgtbl.h"
+#include "programinfo.h"
 #include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"
@@ -502,6 +503,8 @@ namespace pjg {
 
 	namespace decode {
 		bool decode() {
+			// get filesize
+			pjgfilesize = str_in->get_size();
 			try {
 				auto pjg_decoder = std::make_unique<PjgDecoder>(str_in);
 				pjg_decoder->decode();
@@ -605,24 +608,6 @@ static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 
 #endif
-
-namespace program_info {
-	const std::uint8_t appversion = 25;
-	const std::string subversion = "k";
-	const std::string apptitle = "packJPG";
-	const std::string appname = "packjpg";
-	const std::string versiondate = "01/22/2016";
-	const std::array<std::uint8_t, 2> pjg_magic{ 'J', 'S' };
-
-	const std::string author = "Matthias Stirner / Se";
-	const std::string website = "http://packjpg.encode.ru/";
-	const std::string copyright = "2006-2016 HTW Aalen University & Matthias Stirner";
-	const std::string email = "packjpg (at) matthiasstirner.com";
-
-	const std::string pjg_ext = "pjg";
-	const std::string jpg_ext = "jpg";
-}
-
 
 /* -----------------------------------------------
 	main-function
@@ -2497,96 +2482,6 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 	if (!rstp.empty()) {
 		rstp[rstc] = huffman_data.size();
 	}
-}
-
-PjgEncoder::PjgEncoder(const std::unique_ptr<Writer>& encoding_output) {
-	// PJG-Header
-	encoding_output->write(program_info::pjg_magic);
-
-	// store version number
-	encoding_output->write_byte(program_info::appversion);
-
-	// init arithmetic compression
-	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
-}
-
-void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {
-	// optimize header for compression
-	this->optimize_header(segments);
-	// set padbit to 1 if previously unset:
-	if (padbit == -1) {
-		padbit = 1;
-	}
-	
-	// encode JPG header
-	this->generic(segments);
-	// store padbit (padbit can't be retrieved from the header)
-	this->bit(padbit);
-	// also encode one bit to signal false/correct use of RST markers
-	this->bit(rst_err.empty() ? 0 : 1);
-	// encode # of false set RST markers per scan
-	if (!rst_err.empty()) {
-		this->generic(rst_err);
-	}
-	
-	// encode actual components data
-	for (int cmp = 0; cmp < cmpts.size(); cmp++ ) {
-		auto& cmpt = cmpts[cmp];
-		// encode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(cmpt); // set zero sort scan as freqscan
-		// encode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(cmpt);
-		// encode coefficients for higher (7x7) ACs
-		this->ac_high(cmpt);
-		// encode zero-distribution-lists for lower ACs
-		this->zdst_low(cmpt);
-		// encode coefficients for first row / collumn ACs
-		this->ac_low(cmpt);
-		// encode coefficients for DC
-		this->dc(cmpt);
-	}
-	
-	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	this->bit(!garbage_data.empty() ? 1 : 0);
-	// encode garbage data only if needed
-	if (!garbage_data.empty()) {
-		this->generic(garbage_data);
-	}
-	
-	// errormessage if write error
-	if ( str_out->error() ) {
-		throw std::runtime_error("write error, possibly drive is full");
-	}
-}
-
-PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
-	// check header codes ( maybe position in other function ? )
-	while (true) {
-		std::uint8_t hcode;
-		try {
-			hcode = decoding_stream->read_byte();
-		} catch (const std::runtime_error&) {
-			throw;
-		}
-		if (hcode >= 0x14) {
-			// compare version number
-			if (hcode != program_info::appversion) {
-				throw std::runtime_error("incompatible file, use " + program_info::appname
-					+ " v" + std::to_string(hcode / 10) + "." + std::to_string(hcode % 10));
-			} else {
-				break;
-			}
-		} else {
-			throw std::runtime_error("unknown header code, use newer version of " + program_info::appname);
-		}
-	}
-
-
-	// init arithmetic compression
-	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
-
-	// get filesize
-	pjgfilesize = decoding_stream->get_size();
 }
 
 void PjgDecoder::decode() {

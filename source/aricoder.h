@@ -328,6 +328,13 @@ public:
 		model->update_model(c);
 	}
 
+	/*
+	 * Returns whether an error occurred in the writer backing the encoder.
+	 */
+	bool error() const {
+		return sptr->error();
+	}
+
 private:
 	// Encodes the sybol.
 	void encode(const Symbol* s);

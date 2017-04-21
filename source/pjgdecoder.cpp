@@ -1,8 +1,38 @@
 #include "pjgdecoder.h"
+
 #include <algorithm>
+#include <string>
 
 #include "bitops.h"
+#include "programinfo.h"
 #include "writer.h"
+
+PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
+	// check header codes ( maybe position in other function ? )
+	while (true) {
+		std::uint8_t hcode;
+		try {
+			hcode = decoding_stream->read_byte();
+		} catch (const std::runtime_error&) {
+			throw;
+		}
+		if (hcode >= 0x14) {
+			// compare version number
+			if (hcode != program_info::appversion) {
+				throw std::runtime_error("incompatible file, use " + program_info::appname
+					+ " v" + std::to_string(hcode / 10) + "." + std::to_string(hcode % 10));
+			} else {
+				break;
+			}
+		} else {
+			throw std::runtime_error("unknown header code, use newer version of " + program_info::appname);
+		}
+	}
+
+
+	// init arithmetic compression
+	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
+}
 
 std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	int tpos; // true position
