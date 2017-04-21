@@ -292,21 +292,21 @@ namespace jfif {
 	}
 
 	// Helper function that parses SOS segments.
-	inline ScanInfo get_scan_info(const std::unique_ptr<FrameInfo>& frame_info, const std::vector<std::uint8_t>& segment) {
+	inline ScanInfo get_scan_info(FrameInfo& frame_info, const std::vector<std::uint8_t>& segment) {
 		int hpos = 4; // current position in segment, start after segment header
 		ScanInfo scan_info;
 		scan_info.cmpc = segment[hpos];
-		if (scan_info.cmpc > frame_info->components.size()) {
-			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info->components.size()) + " are allowed");
+		if (scan_info.cmpc > frame_info.components.size()) {
+			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
 		}
 		hpos++;
 		for (int i = 0; i < scan_info.cmpc; i++) {
 			int cmp;
-			for (cmp = 0; (segment[hpos] != frame_info->components[cmp].jid) && (cmp < frame_info->components.size()); cmp++);
-			if (cmp == frame_info->components.size()) {
+			for (cmp = 0; (segment[hpos] != frame_info.components[cmp].jid) && (cmp < frame_info.components.size()); cmp++);
+			if (cmp == frame_info.components.size()) {
 				throw std::range_error("component id mismatch in start-of-scan");
 			}
-			auto& cmpt = frame_info->components[cmp];
+			auto& cmpt = frame_info.components[cmp];
 			scan_info.cmp[i] = cmp;
 			cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
 			cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);

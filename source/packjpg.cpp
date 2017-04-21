@@ -396,13 +396,13 @@ char padbit = -1; // padbit (for huffman coding)
 std::vector<std::uint8_t> rst_err; // number of wrong-set RST markers per scan
 
 namespace encode {
-	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>();
+	std::unique_ptr<JpgEncoder> jpeg_encoder;
 	// JPEG encoding routine.
 	bool recode() {
+		jpeg_encoder = std::make_unique<JpgEncoder>(segments);
 		try {
-			jpeg_encoder->recode(segments, frame_info, jpg::padbit);
-		}
-		catch (const std::exception& e) {
+			jpeg_encoder->recode(*frame_info, jpg::padbit);
+		} catch (const std::exception& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
@@ -412,7 +412,7 @@ namespace encode {
 	// Merges header & image data to jpeg.
 	bool merge() {
 		try {
-			jpeg_encoder->merge(*str_out, segments, garbage_data, jpg::rst_err);
+			jpeg_encoder->merge(*str_out, garbage_data, jpg::rst_err);
 		} catch (const std::exception& e) {
 			errormessage = e.what();
 			error = true;
@@ -426,7 +426,7 @@ namespace encode {
 }
 
 namespace decode {
-	std::unique_ptr<JpgDecoder> jpeg_decoder = std::make_unique<JpgDecoder>();
+	std::unique_ptr<JpgDecoder> jpeg_decoder;
 
 	// Read in header and image data.
 	bool read() {
@@ -450,8 +450,9 @@ namespace decode {
 	}
 	// JPEG decoding routine.
 	bool decode() {
+		jpeg_decoder = std::make_unique<JpgDecoder>();
 		try {
-			jpeg_decoder->decode(frame_info->coding_process, frame_info, segments, frame_info->components, huffman_data);
+			jpeg_decoder->decode(frame_info->coding_process, *frame_info, segments, frame_info->components, huffman_data);
 			jpg::padbit = jpeg_decoder->get_padbit();
 		} catch (const std::exception& e) {
 			errormessage = e.what();
@@ -1084,9 +1085,7 @@ static bool reset_buffers() {
 	huffman_data.clear();
 	garbage_data.clear();
 	jpg::rst_err.clear();
-
-	jpg::encode::jpeg_encoder = std::make_unique<JpgEncoder>();
-	
+		
 	frame_info.reset(nullptr);
 
 	// reset padbit

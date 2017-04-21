@@ -5,7 +5,7 @@
 #include "jfifparse.h"
 
 
-void JpgDecoder::decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& frame_info, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata) {
+void JpgDecoder::decode(JpegType jpegtype, FrameInfo& frame_info, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata) {
 	short block[64]; // store block for coeffs
 	int scan_count = 0; // Count of scans.
 	// open huffman coded image data for input in abitreader
