@@ -1,6 +1,7 @@
 #include "reader.h"
 
 #include <algorithm>
+#include <experimental/filesystem>
 #include "writer.h"
 
 #if defined(_WIN32) || defined(WIN32)
@@ -56,11 +57,7 @@ std::size_t FileReader::num_bytes_read() {
 }
 
 std::size_t FileReader::get_size() {
-	const auto position = num_bytes_read();
-	fseek(fptr_, 0, SEEK_END);
-	const auto size = ftell(fptr_);
-	fseek(fptr_, position, SEEK_SET);
-	return size;
+	return std::experimental::filesystem::file_size(file_path_);
 }
 
 std::vector<std::uint8_t> FileReader::get_data() {
