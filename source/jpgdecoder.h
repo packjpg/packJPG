@@ -10,14 +10,18 @@
 #include "hufftree.h"
 #include "jpegtype.h"
 #include "segment.h"
+#include "frameinfo.h"
+#include <memory>
 
 class JpgDecoder {
 public:
 
 	// JPEG decoding routine.
-	void decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
+	void decode(JpegType jpegtype, const std::unique_ptr<FrameInfo>& frame_info, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
 	void check_value_range(const std::vector<Component>& cmpts);
+
+	std::uint8_t get_padbit();
 
 private:
 	// Sequential block decoding routine.
@@ -48,6 +52,9 @@ private:
 	static constexpr int e_devli(int s, int n) {
 		return n + (1 << s);
 	}
+
+	bool padbit_set = false;
+	std::uint8_t padbit = -1;
 
 	std::unique_ptr<BitReader> huffr; // bitwise reader for image data
 };
