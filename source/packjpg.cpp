@@ -307,8 +307,6 @@ packJPG by Matthias Stirner, 01/2016
 	#include "packjpglib.h"
 #endif
 
-// #define DEV_BUILD // uncomment to include developer functions
-
 const std::string FWR_ERRMSG("could not write file / file write-protected: ");
 
 /* -----------------------------------------------
@@ -558,37 +556,6 @@ static std::string create_filename(const std::string& oldname, const std::string
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 #endif
 
-
-/* -----------------------------------------------
-	function declarations: developers functions
-	----------------------------------------------- */
-
-// these are developers functions, they are not needed
-// in any way to compress jpg or decompress pjg
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-enum class CollectionMode {
-	STD = 0, // standard collections
-	DHF = 1, // sequential order collections, 'dhufs'
-	SQU = 2, // square collections
-	UNC = 3, // uncollections
-	SQU_ALT = 4, // square collections / alt order (even/uneven)
-	UNC_ALT = 5 // uncollections / alt order (even/uneven)
-};
-
-static CollectionMode coll_mode = CollectionMode::STD; // Write mode for collections.
-
-static bool dump_hdr();
-static bool dump_huf();
-static bool dump_coll();
-static bool dump_zdst();
-static bool dump_file( const std::string& base, const std::string& ext, void* data, int bpv, int size );
-static bool dump_errfile();
-static bool dump_info();
-static bool dump_dist();
-static bool dump_pgm();
-#endif
-
-
 /* -----------------------------------------------
 	global variables: library only variables
 	----------------------------------------------- */
@@ -608,15 +575,11 @@ static int    file_no  = 0;			// number of current file
 	global variables: settings
 	----------------------------------------------- */
 
-static Action action = Action::A_COMPRESS;// what to do with JPEG/PJG files
-
 #if !defined(BUILD_LIB)
 static int  verbosity  = -1;	// level of verbosity
 static bool overwrite  = false;	// overwrite files yes / no
 static bool wait_on_finish  = false;	// pause after finished yes / no
 static int  verify_lv  = 0;		// verification level ( none (0), simple (1), detailed output (2) )
-
-static bool developer  = false;	// allow developers functions yes/sno
 
 static FILE*  msgout   = stdout;// stream for output of messages
 static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
@@ -647,8 +610,7 @@ int main( int argc, char** argv )
 	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str() );
 	
 	// check if user input is wrong, show help screen if it is
-	if (filelist.empty() ||
-		( ( !developer ) && ( (action != Action::A_COMPRESS) || (verify_lv > 1) ) ) ) {
+	if (filelist.empty() || verify_lv > 1 ) {
 		show_help();
 		return -1;
 	}
@@ -695,8 +657,7 @@ int main( int argc, char** argv )
 	// show statistics
 	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s)\n",
 		filelist.size(), error_cnt);
-	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) &&
-	 ( action == Action::A_COMPRESS ) ) {
+	if ( (filelist.size() > error_cnt ) && ( verbosity != 0 ) ) {
 		acc_jpgsize /= 1024.0;
 		acc_pjgsize /= 1024.0;
 		std::chrono::duration<double> duration = end - begin;
@@ -759,7 +720,6 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 {
 	// (re)set buffers
 	reset_buffers();
-	action = Action::A_COMPRESS;
 	
 	// main compression / decompression routines
 	auto begin = std::chrono::steady_clock::now();
@@ -997,45 +957,7 @@ static void initialize_options( int argc, char** argv )
 		}
 		else if (arg == "-o") {
 			overwrite = true;
-		}
-		#if defined(DEV_BUILD)
-		else if (arg == "-dev") {
-			developer = true;
-		}
-		else if (arg == "-test") {
-			verify_lv = 2;
-		} else if ( sscanf(arg.c_str(), "-coll%i", &tmp_val ) == 1 ) {
-			tmp_val = std::max(tmp_val, 0);
-			tmp_val = std::min(tmp_val, 5);
-			coll_mode = CollectionMode(tmp_val);
-			action = Action::A_COLL_DUMP;
-		}
-		else if ( sscanf(arg.c_str(), "-fcol%i", &tmp_val ) == 1 ) {
-			tmp_val = std::max(tmp_val, 0);
-			tmp_val = std::min(tmp_val, 5);
-			coll_mode = CollectionMode(tmp_val);
-			action = Action::A_FCOLL_DUMP;
-		}
-		else if (arg == "-split") {
-			action = Action::A_SPLIT_DUMP;
-		}
-		else if (arg == "-zdst") {
-			action = Action::A_ZDST_DUMP;
-		}	
-		else if (arg == "-info") {
-			action = Action::A_TXT_INFO;
-		}
-		else if (arg == "-dist") {
-			action = Action::A_DIST_INFO;
-		}
-		else if (arg == "-pgm") {
-			action = Action::A_PGM_DUMP;
-		}
-	   	else if (arg == "-comp") {
-			action = Action::A_COMPRESS;
-		}
-		#endif
-		else if (arg == "-") {
+		} else if (arg == "-") {
 			// switch standard message out stream
 			msgout = stderr;
 			// use "-" as placeholder for stdin
@@ -1058,12 +980,9 @@ static void process_ui()
 	error = false;
 	jpgfilesize = 0;
 	pjgfilesize = 0;	
-	#if !defined(DEV_BUILD)
-	action = Action::A_COMPRESS;
-	#endif
 	
 	// compare file name, set pipe if needed
-	if ( filelist[ file_no ] == "-" && ( action == Action::A_COMPRESS ) ) {
+	if ( filelist[ file_no ] == "-") {
 		pipe_on = true;
 		filelist[ file_no ] = "STDIN";
 	}
@@ -1083,16 +1002,10 @@ static void process_ui()
 		execute( check_file );
 		
 		// get specific action message
-		if ( filetype == FileType::F_UNK ) actionmsg = "unknown filetype";
-		else switch ( action ) {
-			case Action::A_COMPRESS:	actionmsg = ( filetype == FileType::F_JPG ) ? "Compressing" : "Decompressing";	break;
-			case Action::A_SPLIT_DUMP:	actionmsg = "Splitting"; break;			
-			case Action::A_COLL_DUMP:	actionmsg = "Extracting Colls"; break;
-			case Action::A_FCOLL_DUMP:	actionmsg = "Extracting FColls"; break;
-			case Action::A_ZDST_DUMP:	actionmsg = "Extracting ZDST lists"; break;			
-			case Action::A_TXT_INFO:	actionmsg = "Extracting info"; break;		
-			case Action::A_DIST_INFO:	actionmsg = "Extracting distributions";	break;		
-			case Action::A_PGM_DUMP:	actionmsg = "Converting"; break;
+		if (filetype == FileType::F_UNK) {
+			actionmsg = "unknown filetype";
+		} else {
+			actionmsg = filetype == FileType::F_JPG ? "Compressing" : "Decompressing";
 		}
 		
 		if ( verbosity < 2 ) fprintf( msgout, "%s -> ", actionmsg.c_str() );
@@ -1118,7 +1031,7 @@ static void process_ui()
 	str_out.reset(nullptr);
 	str_str.reset(nullptr);
 	// delete if broken or if output not needed
-	if ( ( !pipe_on ) && (error || ( action != Action::A_COMPRESS ) ) ) {
+	if (!pipe_on && error) {
 		if (std::experimental::filesystem::exists(destination_file)) {
 			std::experimental::filesystem::remove(destination_file);
 		}
@@ -1138,8 +1051,7 @@ static void process_ui()
 		switch ( verbosity ) {
 			case 0:			
 				if (!error) {
-					if ( action == Action::A_COMPRESS ) fprintf( msgout,  "%.2f%%", cr );
-					else fprintf( msgout, "DONE" );
+					fprintf( msgout,  "%.2f%%", cr );
 				}
 				else fprintf( msgout,  "ERROR" );
 				if (error) fprintf( msgout,  "\n" );
@@ -1167,7 +1079,7 @@ static void process_ui()
 			fprintf(msgout, " %s -> %s:\n", get_status( errorfunction ).c_str(), errtypemsg.c_str());
 			fprintf(msgout, " %s\n", errormessage.c_str());
 		}
-		if ((verbosity > 0) && !error && (action == Action::A_COMPRESS)) {
+		if ((verbosity > 0) && !error) {
 			auto duration = end - begin;
 			auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 			if ( total >= 0 ) {
@@ -1181,7 +1093,7 @@ static void process_ui()
 			}
 			fprintf( msgout,  " comp. ratio : %7.2f %%\n", cr );		
 		}	
-		if ( ( verbosity > 1 ) && ( action == Action::A_COMPRESS ) )
+		if ( ( verbosity > 1 ))
 			fprintf( msgout,  "\n" );
 	}
 	else { // progress bar UI
@@ -1232,27 +1144,7 @@ static inline std::string get_status( bool (*function)() )
 		return "Verifying output stream";
 	} else if ( function == *reset_buffers ) {
 		return "Resetting program";
-	}
-	#if defined(DEV_BUILD)
-	else if ( function == *dump_hdr ) {
-		return "Writing header data to file";
-	} else if ( function == *dump_huf ) {
-		return "Writing huffman data to file";
-	} else if ( function == *dump_coll ) {
-		return "Writing collections to files";
-	} else if ( function == *dump_zdst ) {
-		return "Writing zdist lists to files";
-	} else if ( function == *dump_errfile ) {
-		return "Writing error info to file";
-	} else if ( function == *dump_info ) {
-		return "Writing info to files";
-	} else if ( function == *dump_dist ) {
-		return "Writing distributions to files";
-	} else if ( function == *dump_pgm ) {
-		return "Writing converted image to pgm";
-	}
-	#endif
-	else {
+	} else {
 		return "Function description missing!";
 	}
 }
@@ -1273,22 +1165,6 @@ static void show_help()
 	fprintf( msgout, " [-v?]    set level of verbosity (max: 2) (def: 0)\n" );
 	fprintf( msgout, " [-w]		wait after processing files\n" );
 	fprintf( msgout, " [-o]     overwrite existing files\n" );
-	fprintf( msgout, " [-p]     proceed on warnings\n" );
-	#if defined(DEV_BUILD)
-	if ( developer ) {
-	fprintf( msgout, "\n" );
-	fprintf( msgout, "\n" );
-	fprintf( msgout, "\n" );
-	fprintf( msgout, " [-test]  test algorithms, alert if error\n" );
-	fprintf( msgout, " [-split] split jpeg (to header & image data)\n" );
-	fprintf( msgout, " [-coll?] write collections (0=std,1=dhf,2=squ,3=unc)\n" );
-	fprintf( msgout, " [-fcol?] write predicted collections (see above)\n" );
-	fprintf( msgout, " [-zdst]  write zero distribution lists\n" );	
-	fprintf( msgout, " [-info]  write debug info to .nfo file\n" );	
-	fprintf( msgout, " [-dist]  write distribution data to file\n" );
-	fprintf( msgout, " [-pgm]   convert and write to pgm files\n" );
-	}
-	#endif
 	fprintf( msgout, "\n" );
 	fprintf( msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", program_info::appname.c_str(), program_info::pjg_ext.c_str() );
 	fprintf( msgout, "          \"%s -p *.%s\"\n", program_info::appname.c_str(), program_info::jpg_ext.c_str() );
@@ -1299,169 +1175,48 @@ static void show_help()
 /* -----------------------------------------------
 	processes one file
 	----------------------------------------------- */
-static void process_file()
-{	
-	if ( filetype == FileType::F_JPG ) {
-		switch ( action ) {
-			case Action::A_COMPRESS:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute( jpg::decode::check_value_range );
-				execute( dct::adapt_icos );
-				execute( predict_dc );
-				execute( calc_zdst_lists );
-				execute( pjg::encode::encode );
-				#if !defined(BUILD_LIB)	
-				if ( verify_lv > 0 ) { // verifcation
-					execute( reset_buffers );
-					execute( swap_streams );
-					execute( pjg::decode::decode );
-					execute( dct::adapt_icos );
-					execute( unpredict_dc );
-					execute( jpg::encode::recode );
-					execute( jpg::encode::merge );
-					execute( compare_output );
-				}
-				#endif
-				break;
-				
-			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-			case Action::A_SPLIT_DUMP:
-				execute( jpg::decode::read );
-				execute( dump_hdr );
-				execute( dump_huf );
-				break;
-				
-			case Action::A_COLL_DUMP:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute( dump_coll );
-				break;
-				
-			case Action::A_FCOLL_DUMP:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute( jpg::decode::check_value_range );
-				execute( dct::adapt_icos );
-				execute( predict_dc );
-				execute( dump_coll );
-				break;
-				
-			case Action::A_ZDST_DUMP:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute( jpg::decode::check_value_range );
-				execute( dct::adapt_icos );
-				execute( predict_dc );
-				execute( calc_zdst_lists );
-				execute( dump_zdst );
-				break;
-				
-			case Action::A_TXT_INFO:
-				execute( jpg::decode::read );
-				execute( dump_info );
-				break;
-				
-			case Action::A_DIST_INFO:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute( jpg::decode::check_value_range );
-				execute( dct::adapt_icos );
-				execute( predict_dc );
-				execute( dump_dist );
-				break;
-			
-			case Action::A_PGM_DUMP:
-				execute( jpg::decode::read );
-				execute( jpg::decode::decode );
-				execute(dct::adapt_icos );
-				execute( dump_pgm );
-				break;
-			#else
-			default:
-				break;
-			#endif
+static void process_file() {
+	if (filetype == FileType::F_JPG) {
+		execute(jpg::decode::read);
+		execute(jpg::decode::decode);
+		execute(jpg::decode::check_value_range);
+		execute(dct::adapt_icos);
+		execute(predict_dc);
+		execute(calc_zdst_lists);
+		execute(pjg::encode::encode);
+#if !defined(BUILD_LIB)
+		if (verify_lv > 0) { // verifcation
+			execute(reset_buffers);
+			execute(swap_streams);
+			execute(pjg::decode::decode);
+			execute(dct::adapt_icos);
+			execute(unpredict_dc);
+			execute(jpg::encode::recode);
+			execute(jpg::encode::merge);
+			execute(compare_output);
 		}
+#endif
+	} else if (filetype == FileType::F_PJG) {
+		execute(pjg::decode::decode);
+		execute(dct::adapt_icos);
+		execute(unpredict_dc);
+		execute(jpg::encode::recode);
+		execute(jpg::encode::merge);
+#if !defined(BUILD_LIB)
+		if (verify_lv > 0) { // verify
+			execute(reset_buffers);
+			execute(swap_streams);
+			execute(jpg::decode::read);
+			execute(jpg::decode::decode);
+			execute(jpg::decode::check_value_range);
+			execute(dct::adapt_icos);
+			execute(predict_dc);
+			execute(calc_zdst_lists);
+			execute(pjg::encode::encode);
+			execute(compare_output);
+		}
+#endif
 	}
-	else if ( filetype == FileType::F_PJG )	{
-		switch ( action )
-		{
-			case Action::A_COMPRESS:
-				execute( pjg::decode::decode );
-				execute( dct::adapt_icos );
-				execute( unpredict_dc );
-				execute( jpg::encode::recode );
-				execute( jpg::encode::merge );
-				#if !defined(BUILD_LIB)
-				if ( verify_lv > 0 ) { // verify
-					execute( reset_buffers );
-					execute( swap_streams );
-					execute( jpg::decode::read );
-					execute( jpg::decode::decode );
-					execute( jpg::decode::check_value_range );
-					execute(dct::adapt_icos );
-					execute( predict_dc );
-					execute( calc_zdst_lists );
-					execute( pjg::encode::encode );
-					execute( compare_output );
-				}
-				#endif
-				break;
-				
-			#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-			case Action::A_SPLIT_DUMP:
-				execute( pjg::decode::decode);
-				execute( dct::adapt_icos );
-				execute( unpredict_dc );
-				execute( jpg::encode::recode );
-				execute( dump_hdr );
-				execute( dump_huf );
-				break;
-				
-			case Action::A_COLL_DUMP:
-				execute( pjg::decode::decode);
-				execute(dct::adapt_icos );
-				execute( unpredict_dc );
-				execute( dump_coll );
-				break;
-				
-			case Action::A_FCOLL_DUMP:
-				execute( pjg::decode::decode);
-				execute( dump_coll );
-				break;
-				
-			case Action::A_ZDST_DUMP:
-				execute( pjg::decode::decode);
-				execute( dump_zdst );
-				break;
-			
-			case Action::A_TXT_INFO:
-				execute( pjg::decode::decode);
-				execute( dump_info );
-				break;
-			
-			case Action::A_DIST_INFO:
-				execute( pjg::decode::decode);
-				execute( dump_dist );
-				break;
-			
-			case Action::A_PGM_DUMP:
-				execute( pjg::decode::decode);
-				execute( dct::adapt_icos );
-				execute( unpredict_dc );
-				execute( dump_pgm );
-				break;
-			#else
-			default:
-				break;
-			#endif
-		}
-	}	
-	#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-	// write error file if verify lv > 1
-	if ( ( verify_lv > 1 ) && error )
-		dump_errfile();
-	#endif
 	// reset buffers
 	reset_buffers();
 }
@@ -1722,380 +1477,3 @@ static std::string unique_filename(const std::string& oldname, const std::string
 #endif
 
 /* ----------------------- End of miscellaneous helper functions -------------------------- */
-
-/* ----------------------- Begin of developers functions -------------------------- */
-
-
-/* -----------------------------------------------
-	Writes header file
-	----------------------------------------------- */
-#if !defined(BUILD_LIB) && defined(DEV_BUILD)
-static bool dump_hdr() {
-	const std::string ext = "hdr";
-	const auto basename = filelist[file_no];
-
-	if (!dump_file(basename, ext, hdrdata.data(), 1, hdrdata.size())) {
-		return false;
-	}
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes huffman coded file
-	----------------------------------------------- */
-static bool dump_huf() {
-	const std::string ext = "huf";
-	const auto basename = filelist[file_no];
-
-	if (!dump_file(basename, ext, huffdata.data(), 1, huffdata.size())) {
-		return false;
-	}
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes collections of DCT coefficients
-	----------------------------------------------- */
-static bool dump_coll()
-{
-	const std::array<std::string, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
-	const auto& base = filelist[file_no];
-
-	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
-		// create filename
-		const auto fn = create_filename(base, ext[cmp]);
-
-		// open file for output
-		FILE* fp = fopen(fn.c_str(), "wb");
-		if (fp == nullptr) {
-			errormessage = FWR_ERRMSG + fn;
-			error = true;
-			return false;
-		}
-
-		int dpos;
-		switch (coll_mode) {
-
-		case CollectionMode::STD:
-			for (int bpos = 0; bpos < 64; bpos++) {
-				fwrite(frame_info->components[cmp].colldata[bpos].data(), sizeof(short), frame_info->components[cmp].bc, fp);
-			}
-			break;
-
-		case CollectionMode::DHF:
-			for (dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
-				for (int bpos = 0; bpos < 64; bpos++) {
-					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
-				}
-			}
-			break;
-
-		case CollectionMode::SQU:
-			dpos = 0;
-			for (int i = 0; i < 64; ) {
-				const int bpos = pjg::zigzag[i++];
-				fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short),
-					frame_info->components[cmp].bch, fp);
-				if ((i % 8) == 0) {
-					dpos += frame_info->components[cmp].bch;
-					if (dpos >= frame_info->components[cmp].bc) {
-						dpos = 0;
-					} else {
-						i -= 8;
-					}
-				}
-			}
-			break;
-
-		case CollectionMode::UNC:
-			for (int i = 0; i < (frame_info->components[cmp].bcv * 8); i++) {
-				for (int j = 0; j < (frame_info->components[cmp].bch * 8); j++) {
-					const int bpos = pjg::zigzag[((i % 8) * 8) + (j % 8)];
-					dpos = ((i / 8) * frame_info->components[cmp].bch) + (j / 8);
-					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
-				}
-			}
-			break;
-
-		case CollectionMode::SQU_ALT:
-			dpos = 0;
-			for (int i = 0; i < 64; ) {
-				int bpos = pjg::even_zigzag[i++];
-				fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short),
-					frame_info->components[cmp].bch, fp);
-				if ((i % 8) == 0) {
-					dpos += frame_info->components[cmp].bch;
-					if (dpos >= frame_info->components[cmp].bc) {
-						dpos = 0;
-					} else {
-						i -= 8;
-					}
-				}
-			}
-			break;
-
-		case CollectionMode::UNC_ALT:
-			for (int i = 0; i < (frame_info->components[cmp].bcv * 8); i++) {
-				for (int j = 0; j < (frame_info->components[cmp].bch * 8); j++) {
-					const int bpos = pjg::even_zigzag[((i % 8) * 8) + (j % 8)];
-					dpos = ((i / 8) * frame_info->components[cmp].bch) + (j / 8);
-					fwrite(&(frame_info->components[cmp].colldata[bpos][dpos]), sizeof(short), 1, fp);
-				}
-			}
-			break;
-		}
-
-		fclose(fp);
-	}
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes zero distribution data to file;
-	----------------------------------------------- */
-static bool dump_zdst() {
-	const std::array<std::string, 4> ext{ "zdst0", "zdst1", "zdst2", "zdst3" };
-	const auto basename = filelist[file_no];
-
-	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
-		if (!dump_file(basename, ext[cmp], frame_info->components[cmp].zdstdata.data(), 1, frame_info->components[cmp].bc)) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes to file
-	----------------------------------------------- */
-static bool dump_file(const std::string& base, const std::string& ext, void* data, int bpv, int size) {
-	// create filename
-	const auto fn = create_filename(base, ext);
-
-	// open file for output
-	FILE* fp = fopen(fn.c_str(), "wb");
-	if (fp == nullptr) {
-		errormessage = FWR_ERRMSG + fn;
-		error = true;
-		return false;
-	}
-
-	// write & close
-	fwrite(data, bpv, size, fp);
-	fclose(fp);
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes error info file
-	----------------------------------------------- */
-static bool dump_errfile() {
-	// return immediately if theres no error
-	if (errorlevel == 0) {
-		return true;
-	}
-
-	// create filename based on errorlevel
-	std::string fn;
-	fn = create_filename(filelist[file_no], "err.nfo");
-
-	// open file for output
-	FILE* fp = fopen(fn.c_str(), "w");
-	if (fp == nullptr) {
-		errormessage = FWR_ERRMSG + fn;
-		error = true;
-		return false;
-	}
-
-	// write status and errormessage to file
-	// write error specification to file
-	fprintf(fp, " %s -> %s:\n", get_status(errorfunction).c_str(), "error");
-	fprintf(fp, " %s\n", errormessage.c_str());
-
-	// done, close file
-	fclose(fp);
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes info to textfile
-	----------------------------------------------- */
-static bool dump_info() {
-	// create filename
-	const auto fn = create_filename(filelist[file_no], "nfo");
-
-	// open file for output
-	FILE* fp = fopen(fn.c_str(), "w");
-	if (fp == nullptr) {
-		errormessage = FWR_ERRMSG + fn;
-		error = true;
-		return false;
-	}
-
-	// info about image
-	fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", jpgfilename.c_str());
-	fprintf( fp, "coding process: %s\n", ( jpegtype == JpegType::SEQUENTIAL ) ? "sequential" : "progressive" );
-	fprintf( fp, "imageheight: %i / imagewidth: %i\n", image::imgheight, image::imgwidth );
-	fprintf( fp, "component count: %u\n", frame_info->components.size());
-	fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", image::mcuc, image::mcuv, image::mcuh );
-	
-	// info about header
-	fprintf(fp, "\nfile header structure:\n");
-	fprintf(fp, " type  length   hpos\n");
-	// header parser loop
-	int hpos; // Position in the header.
-	int len = 0; // Length of current marker segment.
-	for (hpos = 0; hpos < hdrdata.size(); hpos += len) {
-		std::uint8_t type = hdrdata[hpos + 1]; // Type of current marker segment.
-		len = 2 + jfif::pack(hdrdata[hpos + 2], hdrdata[hpos + 3]);
-		fprintf(fp, " FF%2X  %6i %6i\n", (int)type, len, hpos);
-	}
-	fprintf(fp, " _END       0 %6i\n", hpos);
-	fprintf(fp, "\n");
-
-	// info about compression settings	
-	fprintf(fp, "\ncompression settings:\n");
-	fprintf(fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		frame_info->components[0].segm_cnt, frame_info->components[1].segm_cnt, frame_info->components[2].segm_cnt, frame_info->components[3].segm_cnt);
-	fprintf(fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
-		frame_info->components[0].nois_trs, frame_info->components[1].nois_trs, frame_info->components[2].nois_trs, frame_info->components[3].nois_trs);
-	fprintf(fp, "\n");
-
-	// info about components
-	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
-		fprintf(fp, "\n");
-		fprintf(fp, "component number %i ->\n", cmp);
-		fprintf(fp, "sample factors: %i/%i (v/h)\n", frame_info->components[cmp].sfv, frame_info->components[cmp].sfh);
-		fprintf(fp, "blocks per mcu: %i\n", frame_info->components[cmp].mbs);
-		fprintf(fp, "block count (mcu): %i/%i/%i (all/v/h)\n",
-			frame_info->components[cmp].bc, frame_info->components[cmp].bcv, frame_info->components[cmp].bch);
-		fprintf(fp, "block count (sng): %i/%i/%i (all/v/h)\n",
-			frame_info->components[cmp].nc, frame_info->components[cmp].ncv, frame_info->components[cmp].nch);
-		fprintf(fp, "quantiser table ->");
-		for (int i = 0; i < 64; i++) {
-			int bpos = pjg::zigzag[i];
-			if ((i % 8) == 0) {
-				fprintf(fp, "\n");
-			}
-			fprintf(fp, "%4i, ", frame_info->components[cmp].quant(bpos));
-		}
-		fprintf(fp, "\n");
-		fprintf(fp, "maximum values ->");
-		for (int i = 0; i < 64; i++) {
-			int bpos = pjg::zigzag[i];
-			if ((i % 8) == 0) {
-				fprintf(fp, "\n");
-			}
-			fprintf(fp, "%4i, ", frame_info->components[cmp].max_v(bpos));
-		}
-		fprintf(fp, "\n\n");
-	}
-
-	fclose(fp);
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Writes distribution for use in valdist.h
-	----------------------------------------------- */
-static bool dump_dist() {
-	// create filename
-	const auto fn = create_filename(filelist[file_no], "dist");
-
-	// open file for output
-	FILE* fp = fopen(fn.c_str(), "wb");
-	if (fp == nullptr) {
-		errormessage = FWR_ERRMSG + fn;
-		error = true;
-		return false;
-	}
-
-	// calculate & write distributions for each frequency
-	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
-		for (int bpos = 0; bpos < 64; bpos++) {
-			std::array<int, 1024 + 1> dist{};
-			// get distribution
-			for (int dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
-				dist[std::abs(frame_info->components[cmp].colldata[bpos][dpos])]++;
-			}
-			// write to file
-			fwrite(dist.data(), sizeof(int), dist.size(), fp);
-		}
-	}
-
-	// close file
-	fclose(fp);
-
-	return true;
-}
-
-/* -----------------------------------------------
-	Do inverse DCT and write pgms
-	----------------------------------------------- */
-static bool dump_pgm() {
-	const std::array<std::string, 4> ext{ "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
-
-	for (int cmp = 0; cmp < frame_info->components.size(); cmp++) {
-		// create filename
-		const auto fn = create_filename(filelist[file_no], ext[cmp]);
-
-		// open file for output
-		FILE* fp = fopen(fn.c_str(), "wb");
-		if (fp == nullptr) {
-			errormessage = FWR_ERRMSG + fn;
-			error = true;
-			return false;
-		}
-
-		// alloc memory for image data
-		std::vector<std::uint8_t> imgdata(frame_info->components[cmp].bc * 64);
-
-		for (int dpos = 0; dpos < frame_info->components[cmp].bc; dpos++) {
-			// do inverse DCT, store in imgdata
-			int dcpos = (((dpos / frame_info->components[cmp].bch) * frame_info->components[cmp].bch) << 6) +
-				((dpos % frame_info->components[cmp].bch) << 3);
-			for (int y = 0; y < 8; y++) {
-				int ypos = dcpos + (y * (frame_info->components[cmp].bch << 3));
-				for (int x = 0; x < 8; x++) {
-					int xpos = ypos + x;
-					int pix_v = frame_info->components[cmp].idct_2d_fst_8x8(dpos, x, y);
-					pix_v = dct::DCT_RESCALE(pix_v);
-					pix_v = pix_v + 128;
-					imgdata[xpos] = std::uint8_t(clamp(pix_v, 0, 255));
-				}
-			}
-		}
-
-		// write PGM header
-		fprintf(fp, "P5\n");
-		fprintf(fp, "# created by %s v%i.%i%s (%s) by %s\n",
-			program_info::apptitle.c_str(),
-			program_info::appversion / 10,
-			program_info::appversion % 10,
-			program_info::subversion.c_str(),
-			program_info::versiondate.c_str(),
-			program_info::author.c_str());
-		fprintf(fp, "%i %i\n", frame_info->components[cmp].bch * 8, frame_info->components[cmp].bcv * 8);
-		fprintf(fp, "255\n");
-
-		// write image data
-		fwrite(imgdata.data(), sizeof(char), imgdata.size(), fp);
-
-		// close file
-		fclose(fp);
-	}
-
-	return true;
-}
-#endif
-
-/* ----------------------- End of developers functions -------------------------- */
-
-/* ----------------------- End of file -------------------------- */
