@@ -671,9 +671,9 @@ static void initialize_options(int argc, char** argv) {
 		argv++;
 		std::string arg = *argv;
 		// switches begin with '-'
-		if (arg == "-verify") {
+		if (arg == "-verify" || arg == "-ver") {
 			verify = true;
-		} else if (arg == "-verbose") {
+		} else if (arg == "-verbose" || arg == "-v2" || arg == "-v1") {
 			verbose = true;
 		} else if (arg == "-w") {
 			wait_on_finish = true;

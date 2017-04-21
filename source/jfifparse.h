@@ -145,13 +145,13 @@ namespace jfif {
 			component.jid = segment[hpos];
 
 			std::uint8_t byte = segment[hpos + 1];
-			component.sfh = bitops::LBITS(byte, 4);
-			if (component.sfh == 0 || component.sfh > 4) {
+			component.sfv = bitops::LBITS(byte, 4);
+			if (component.sfv == 0 || component.sfv > 4) {
 				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
 			}
 
-			component.sfv = bitops::RBITS(byte, 4);
-			if (component.sfv == 0 || component.sfv > 4) {
+			component.sfh = bitops::RBITS(byte, 4);
+			if (component.sfh == 0 || component.sfh > 4) {
 				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
 			}
 
@@ -173,8 +173,8 @@ namespace jfif {
 			h_max = std::max(component.sfh, h_max);
 			v_max = std::max(component.sfv, v_max);
 		}
-		frame_info->mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) / static_cast<float>(8 * v_max))); // MCUs per line.
-		frame_info->mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) / static_cast<float>(8 * h_max)));
+		frame_info->mcu_height = static_cast<int>(ceil(static_cast<float>(frame_info->image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
+		frame_info->mcu_width = static_cast<int>(ceil(static_cast<float>(frame_info->image_width) / static_cast<float>(8 * v_max)));
 		frame_info->mcu_count = frame_info->mcu_height * frame_info->mcu_width;
 		for (auto& component : frame_info->components) {
 			component.bcv = frame_info->mcu_height * component.sfh;
