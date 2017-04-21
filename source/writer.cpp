@@ -29,6 +29,14 @@ std::size_t FileWriter::write(const std::uint8_t* from, std::size_t n) {
 	return fwrite(from, sizeof from[0], n, fptr_);
 }
 
+std::size_t FileWriter::write(const std::vector<std::uint8_t>& bytes) {
+	return write(bytes.data(), bytes.size());
+}
+
+std::size_t FileWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	return write(bytes.data(), 2);
+}
+
 bool FileWriter::write_byte(std::uint8_t byte) {
 	return fputc(byte, fptr_) == byte;
 }
@@ -76,6 +84,23 @@ std::size_t MemoryWriter::write(const std::uint8_t* from, std::size_t n) {
 	return n;
 }
 
+std::size_t MemoryWriter::write(const std::vector<std::uint8_t>& bytes) {
+	while (curr_byte_ + bytes.size() >= data_.size()) {
+		data_.resize(data_.size() * 2);
+	}
+
+	const auto curr = std::next(std::begin(data_), curr_byte_);
+	std::copy(std::begin(bytes), std::end(bytes), curr);
+
+	curr_byte_ += bytes.size();
+
+	return bytes.size();
+}
+
+std::size_t MemoryWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	return write(bytes.data(), 2);
+}
+
 bool MemoryWriter::write_byte(std::uint8_t byte) {
 	if (curr_byte_ == data_.size()) {
 		data_.resize(data_.size() * 2);
@@ -117,6 +142,14 @@ StreamWriter::~StreamWriter() {
 
 std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
 	return writer_->write(from, n);
+}
+
+std::size_t StreamWriter::write(const std::vector<std::uint8_t>& bytes) {
+	return writer_->write(bytes);
+}
+
+std::size_t StreamWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	return writer_->write(bytes);
 }
 
 bool StreamWriter::write_byte(std::uint8_t byte) {

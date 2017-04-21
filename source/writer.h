@@ -1,6 +1,7 @@
 #ifndef WRITER_H
 #define WRITER_H
 
+#include <array>
 #include <cstdio>
 #include <memory>
 #include <vector>
@@ -12,6 +13,9 @@ public:
 	virtual ~Writer() {}
 
 	virtual std::size_t write(const std::uint8_t* from, std::size_t n) = 0;
+	virtual std::size_t write(const std::vector<std::uint8_t>& bytes) = 0;
+	virtual std::size_t write(const std::array<std::uint8_t, 2>& bytes) = 0;
+
 	virtual bool write_byte(std::uint8_t byte) = 0;
 
 	virtual std::vector<std::uint8_t> get_data() = 0;
@@ -27,6 +31,8 @@ public:
 	~FileWriter();
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
+	std::size_t write(const std::array<std::uint8_t, 2>& bytes) override;
 	bool write_byte(std::uint8_t byte) override;
 
 	std::vector<std::uint8_t> get_data() override;
@@ -50,6 +56,8 @@ public:
 	}
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
+	std::size_t write(const std::array<std::uint8_t, 2>& bytes) override;
 	bool write_byte(std::uint8_t byte) override;
 
 	std::vector<std::uint8_t> get_data() override;
@@ -70,6 +78,8 @@ public:
 	~StreamWriter();
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
+	std::size_t write(const std::array<std::uint8_t, 2>& bytes) override;
 	bool write_byte(std::uint8_t byte) override;
 
 	std::vector<std::uint8_t> get_data() override;

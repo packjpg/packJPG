@@ -1843,12 +1843,12 @@ void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const s
 
 	// write SOI
 	constexpr std::array<std::uint8_t, 2> SOI{0xFF, 0xD8};
-	jpg_output_stream->write(SOI.data(), 2);
+	jpg_output_stream->write(SOI);
 
 	// JPEG writing loop
 	for (auto& segment : segments) {
-		// write header data to file
-		jpg_output_stream->write(segment.get_data().data(), segment.get_data().size());
+		// write segment data to file
+		jpg_output_stream->write(segment.get_data());
 
 		// get out if last marker segment type was not SOS
 		if (segment.get_type() != Marker::kSOS) {
@@ -1897,11 +1897,11 @@ void JpgEncoder::merge(const std::unique_ptr<Writer>& jpg_output_stream, const s
 
 	// write EOI
 	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9}; // EOI segment
-	jpg_output_stream->write(EOI.data(), 2);
+	jpg_output_stream->write(EOI);
 
 	// write garbage if needed
 	if (!garbage_data.empty()) {
-		jpg_output_stream->write(garbage_data.data(), garbage_data.size());
+		jpg_output_stream->write(garbage_data);
 	}
 
 	// errormessage if write error
@@ -2501,11 +2501,10 @@ void JpgEncoder::recode(const std::vector<Segment>& segments) {
 
 PjgEncoder::PjgEncoder(const std::unique_ptr<Writer>& encoding_output) {
 	// PJG-Header
-	encoding_output->write(program_info::pjg_magic.data(), 2);
+	encoding_output->write(program_info::pjg_magic);
 
 	// store version number
-	const auto hcode = program_info::appversion;
-	encoding_output->write_byte(hcode);
+	encoding_output->write_byte(program_info::appversion);
 
 	// init arithmetic compression
 	encoder_ = std::make_unique<ArithmeticEncoder>(encoding_output.get());
