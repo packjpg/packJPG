@@ -6,7 +6,7 @@ CC       = gcc
 CPP      = g++
 RC       = windres -O coff
 CPPFLAGS = -I. -O3 -Wall -pedantic -funroll-loops -ffast-math -fsched-spec-load -fomit-frame-pointer -std=c++14
-LDFLAGS  = -static -static-libgcc -static-libstdc++
+LDFLAGS  = -static -static-libgcc -static-libstdc++ -lstdc++fs
 CSRC     = $(wildcard *.c)
 CPPSRC   = $(wildcard *.cpp)
 DEPS     = $(wildcard *.h) Makefile
