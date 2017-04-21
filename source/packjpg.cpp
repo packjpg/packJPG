@@ -489,12 +489,12 @@ namespace pjg {
 			try {
 				auto pjg_encoder = std::make_unique<PjgEncoder>(str_out);
 				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
-				pjgfilesize = str_out->num_bytes_written();
 			} catch (const std::exception& e) {
 				errormessage = e.what();
 				error = true;
 				return false;
 			}
+			pjgfilesize = str_out->num_bytes_written();
 			return true;
 		}
 	}
