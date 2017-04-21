@@ -507,6 +507,12 @@ namespace pjg {
 			try {
 				auto pjg_decoder = std::make_unique<PjgDecoder>(str_in);
 				pjg_decoder->decode();
+
+				frame_info = pjg_decoder->get_frame_info();
+				segments = pjg_decoder->get_segments();
+				jpg::padbit = pjg_decoder->get_padbit();
+				jpg::rst_err = pjg_decoder->get_rst_err();
+				garbage_data = pjg_decoder->get_garbage_data();
 			} catch (const std::exception& e) {
 				errormessage = e.what();
 				error = true;
@@ -2131,52 +2137,6 @@ void JpgDecoder::decode(JpegType jpegtype, const std::vector<Segment>& segments,
 	}
 
 	huffr = nullptr;
-}
-
-void PjgDecoder::decode() {
-	// decode JPG header
-	segments = Segment::parse_segments(this->generic());
-	// retrieve padbit from stream
-	jpg::padbit = this->bit();
-	// decode one bit that signals false /correct use of RST markers
-	auto cb = this->bit();
-	// decode # of false set RST markers per scan only if available
-	if ( cb == 1 ) {
-		jpg::rst_err = this->generic();
-	}
-	
-	// undo header optimizations
-	this->deoptimize_header(segments);
-	// parse header for image-info
-	try {
-		frame_info = jfif::get_frame_info(segments);
-	} catch (const std::exception&) {
-		throw;
-	}
-	
-	// decode actual components data
-	for (auto& cmpt : frame_info->components) {
-		// decode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(); // set zero sort scan as freqscan
-		// decode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(cmpt);
-		// decode coefficients for higher (7x7) ACs
-		this->ac_high(cmpt);
-		// decode zero-distribution-lists for lower ACs
-		this->zdst_low(cmpt);
-		// decode coefficients for first row / collumn ACs
-		this->ac_low(cmpt);
-		// decode coefficients for DC
-		this->dc(cmpt);
-	}
-	
-	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	auto garbage_exists = this->bit() == 1;
-	
-	// decode garbage data only if available
-	if (garbage_exists) {
-		garbage_data = this->generic();
-	}
 }
 
 /* ----------------------- End of main functions -------------------------- */

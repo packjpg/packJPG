@@ -6,6 +6,7 @@
 #include "bitops.h"
 #include "programinfo.h"
 #include "writer.h"
+#include "jfifparse.h"
 
 PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
@@ -32,6 +33,75 @@ PjgDecoder::PjgDecoder(const std::unique_ptr<Reader>& decoding_stream) {
 
 	// init arithmetic compression
 	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream.get());
+}
+
+void PjgDecoder::decode() {
+	// decode JPG header
+	segments_ = Segment::parse_segments(this->generic());
+	// retrieve padbit from stream
+	padbit_ = this->bit();
+	// decode one bit that signals false /correct use of RST markers
+	auto cb = this->bit();
+	// decode # of false set RST markers per scan only if available
+	if (cb == 1) {
+		rst_err_ = this->generic();
+	}
+
+	// undo header optimizations
+	this->deoptimize_header(segments_);
+	// parse header for image-info
+	try {
+		frame_info_ = jfif::get_frame_info(segments_);
+	}
+	catch (const std::exception&) {
+		throw;
+	}
+
+	// decode actual components data
+	for (auto& cmpt : frame_info_->components) {
+		// decode frequency scan ('zero-sort-scan')
+		cmpt.freqscan = this->zstscan(); // set zero sort scan as freqscan
+										 // decode zero-distribution-lists for higher (7x7) ACs
+		this->zdst_high(cmpt);
+		// decode coefficients for higher (7x7) ACs
+		this->ac_high(cmpt);
+		// decode zero-distribution-lists for lower ACs
+		this->zdst_low(cmpt);
+		// decode coefficients for first row / collumn ACs
+		this->ac_low(cmpt);
+		// decode coefficients for DC
+		this->dc(cmpt);
+	}
+
+	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
+	auto garbage_exists = this->bit() == 1;
+
+	// decode garbage data only if available
+	if (garbage_exists) {
+		garbage_data_ = this->generic();
+	}
+}
+
+std::unique_ptr<FrameInfo> PjgDecoder::get_frame_info() {
+	return std::move(frame_info_);
+}
+
+
+std::vector<Segment> PjgDecoder::get_segments() {
+	return segments_;
+}
+
+
+std::uint8_t PjgDecoder::get_padbit() {
+	return padbit_;
+}
+
+std::vector<std::uint8_t> PjgDecoder::get_rst_err() {
+	return rst_err_;
+}
+
+std::vector<std::uint8_t> PjgDecoder::get_garbage_data() {
+	return garbage_data_;
 }
 
 std::array<std::uint8_t, 64> PjgDecoder::zstscan() {

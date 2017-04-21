@@ -13,6 +13,7 @@
 
 class JpgDecoder {
 public:
+
 	// JPEG decoding routine.
 	void decode(JpegType jpegtype, const std::vector<Segment>& segments, std::vector<Component>& cmpts, const std::vector<std::uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.

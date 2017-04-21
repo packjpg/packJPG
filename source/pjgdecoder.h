@@ -8,6 +8,7 @@
 
 #include "aricoder.h"
 #include "component.h"
+#include "frameinfo.h"
 #include "pjgcontext.h"
 #include "segment.h"
 
@@ -17,6 +18,12 @@ public:
 
 	// Decodes image encoded as pjg to colldata.
 	void decode();
+
+	std::vector<Segment> get_segments();
+	std::vector<std::uint8_t> get_garbage_data();
+	std::unique_ptr<FrameInfo> get_frame_info();
+	std::uint8_t get_padbit();
+	std::vector<std::uint8_t> get_rst_err();
 private:
 	// Undoes DHT segment optimizations.
 	void deoptimize_dht(Segment& segment);
@@ -50,6 +57,14 @@ private:
 
 	// Decodes one bit.
 	std::uint8_t bit();
+
+	std::unique_ptr<FrameInfo> frame_info_;
+	std::vector<Segment> segments_;
+
+	std::uint8_t padbit_;
+
+	std::vector<std::uint8_t> rst_err_;
+	std::vector<std::uint8_t> garbage_data_;
 
 	std::unique_ptr<ArithmeticDecoder> decoder_;
 	PjgContext context_;
