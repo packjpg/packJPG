@@ -266,7 +266,6 @@ packJPG by Matthias Stirner, 01/2016
 #include <array>
 #include <chrono>
 #include <experimental/filesystem>
-#include <map>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -275,39 +274,26 @@ packJPG by Matthias Stirner, 01/2016
 #include <vector>
 #include <cstdio>
 
-#include "action.h"
-#include "aricoder.h"
-#include "bitops.h"
 #include "component.h"
-#include "dct8x8.h"
 #include "filetype.h"
 #include "frameinfo.h"
-#include "huffcodes.h"
-#include "hufftree.h"
-#include "jpg.h"
-#include "jfifparse.h"
 #include "jpgdecoder.h"
 #include "jpgencoder.h"
 #include "jpgreader.h"
 #include "pjgdecoder.h"
 #include "pjgencoder.h"
-#include "pjpgtbl.h"
 #include "programinfo.h"
 #include "reader.h"
-#include "scaninfo.h"
 #include "segment.h"
-#include "streamtype.h"
 #include "writer.h"
-
-const std::string FWR_ERRMSG("could not write file / file write-protected: ");
 
 /* -----------------------------------------------
 global variables: messages
 ----------------------------------------------- */
 
 static std::string errormessage;
-static bool(*errorfunction)();
-static bool  error;
+static bool(*errorfunction)() = nullptr;
+static bool error = false;
 
 /* -----------------------------------------------
 global variables: data storage
@@ -329,19 +315,19 @@ global variables: info about files
 
 static std::string destination_file = "";
 
-static int    jpgfilesize;			// size of JPEG file
-static int    pjgfilesize;			// size of PJG file
-static FileType filetype;				// type of current file
-static std::unique_ptr<Reader> str_in;	// input stream
-static std::unique_ptr<Writer> str_out;	// output stream
-static std::unique_ptr<Reader> str_str;	// storage stream
+static int jpgfilesize = 0; // size of JPEG file
+static int pjgfilesize = 0; // size of PJG file
+static FileType filetype; // type of current file
+static std::unique_ptr<Reader> str_in; // input stream
+static std::unique_ptr<Writer> str_out; // output stream
+static std::unique_ptr<Reader> str_str; // storage stream
 
 
 /* -----------------------------------------------
 	function declarations: main interface
 	----------------------------------------------- */
 static void initialize_options( int argc, char** argv );
-static void process_ui();
+static void process_ui(const std::string& input_file);
 static std::string get_status( bool (*function)() );
 static void show_help();
 static void process_file();
@@ -351,18 +337,17 @@ static void execute( bool (*function)() );
 /* -----------------------------------------------
 	function declarations: main functions
 	----------------------------------------------- */
-static bool check_file();
+static bool check_file(const std::string& input_file);
 static bool swap_streams();
 static bool compare_output();
-static bool reset_buffers();
 
 /* -----------------------------------------------
 filter DC coefficients
 ----------------------------------------------- */
 static bool predict_dc() {
 	// apply prediction, store prediction error instead of DC
-	for (auto& cmpt : frame_info->components) {
-		cmpt.predict_dc();
+	for (auto& component : frame_info->components) {
+		component.predict_dc();
 	}
 	return true;
 }
@@ -372,8 +357,8 @@ unpredict DC coefficients
 ----------------------------------------------- */
 static bool unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
-	for (auto& cmpt : frame_info->components) {
-		cmpt.unpredict_dc();
+	for (auto& component : frame_info->components) {
+		component.unpredict_dc();
 	}
 	return true;
 }
@@ -382,8 +367,8 @@ static bool unpredict_dc() {
 calculate zero distribution lists
 ----------------------------------------------- */
 static bool calc_zdst_lists() {
-	for (auto& cmpt : frame_info->components) {
-		cmpt.calc_zdst_lists();
+	for (auto& component : frame_info->components) {
+		component.calc_zdst_lists();
 	}
 
 	return true;
@@ -528,8 +513,8 @@ namespace dct {
 	adapt ICOS tables for quantizer tables
 	----------------------------------------------- */
 	bool adapt_icos() {
-		for (auto& cmpt : frame_info->components) {
-			cmpt.adapt_icos();
+		for (auto& component : frame_info->components) {
+			component.adapt_icos();
 		}
 		return true;
 	}
@@ -539,7 +524,6 @@ namespace dct {
 /* -----------------------------------------------
 	function declarations: miscelaneous helpers
 	----------------------------------------------- */
-static void progress_bar(int current, int last);
 static std::string create_filename(const std::string& oldname, const std::string& new_extension);
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 
@@ -588,17 +572,22 @@ int main( int argc, char** argv )
 		return -1;
 	}
 	
-	// (re)set program has to be done first
-	reset_buffers();
-	
 	// process file(s) - this is the main function routine
 	static std::vector<std::string> err_list(filelist.size()); // list of error messages 
 	static std::vector<bool> err_tp(filelist.size()); // list of error types
 
 	auto begin = std::chrono::steady_clock::now();
 	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
+		auto& file = filelist[file_no];
+		if (file == "-") {
+			pipe_on = true;
+			file = "STDIN";
+		} else {
+			pipe_on = false;
+		}
+		fprintf(msgout, "\nProcessing file %i of %u \"%s\" -> ", file_no + 1, filelist.size(), file.c_str());
 		// process current file
-		process_ui();
+		process_ui(filelist[file_no]);
 		// store error message and type if any
 		if (error) {
 			err_tp[file_no] = true;
@@ -649,14 +638,13 @@ int main( int argc, char** argv )
 		fprintf( msgout,  " avg. comp. ratio  : %8.2f %%\n", cr );		
 		fprintf( msgout,  " --------------------------------- \n" );
 	}
-	
+
 	// pause before exit
-	if ( wait_on_finish && ( msgout != stderr ) ) {
-		fprintf( msgout, "\n\n< press ENTER >\n" );
-		fgetc( stdin );
+	if (wait_on_finish && msgout != stderr) {
+		fprintf(msgout, "\n\n< press ENTER >\n");
+		fgetc(stdin);
 	}
-	
-	
+
 	return 0;
 }
 
@@ -695,31 +683,21 @@ static void initialize_options(int argc, char** argv) {
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
-static void process_ui() {
+static void process_ui(const std::string& input_file) {
 
 	errorfunction = nullptr;
 	error = false;
 	jpgfilesize = 0;
 	pjgfilesize = 0;
 
-	// compare file name, set pipe if needed
-	if (filelist[file_no] == "-") {
-		pipe_on = true;
-		filelist[file_no] = "STDIN";
-	} else {
-		pipe_on = false;
-	}
-
 	std::string actionmsg;
-	fprintf(msgout, "\nProcessing file %i of %u \"%s\" -> ",
-	        file_no + 1, filelist.size(), filelist[file_no].c_str());
 
 	if (verbose) {
 		fprintf(msgout, "\n----------------------------------------");
 	}
 
 	// check input file and determine filetype
-	execute(check_file);
+	check_file(input_file);
 
 	// get specific action message
 	if (filetype == FileType::F_UNK) {
@@ -810,8 +788,6 @@ static inline std::string get_status( bool (*function)() )
 {	
 	if ( function == nullptr ) {
 		return "unknown action";
-	} else if ( function == *check_file ) {
-		return "Determining filetype";
 	} else if ( function == *jpg::decode::read ) {
 		return "Reading header & image data";
 	} else if ( function == *jpg::encode::merge ) {
@@ -838,8 +814,6 @@ static inline std::string get_status( bool (*function)() )
 		return "Swapping input/output streams";
 	} else if ( function == *compare_output ) {
 		return "Verifying output stream";
-	} else if ( function == *reset_buffers ) {
-		return "Resetting program";
 	} else {
 		return "Function description missing!";
 	}
@@ -879,7 +853,6 @@ static void process_file() {
 		execute(calc_zdst_lists);
 		execute(pjg::encode::encode);
 		if (verify) {
-			execute(reset_buffers);
 			execute(swap_streams);
 			execute(pjg::decode::decode);
 			execute(dct::adapt_icos);
@@ -895,7 +868,6 @@ static void process_file() {
 		execute(jpg::encode::recode);
 		execute(jpg::encode::merge);
 		if (verify) {
-			execute(reset_buffers);
 			execute(swap_streams);
 			execute(jpg::decode::read);
 			execute(jpg::decode::decode);
@@ -907,8 +879,6 @@ static void process_file() {
 			execute(compare_output);
 		}
 	}
-	// reset buffers
-	reset_buffers();
 }
 
 
@@ -956,10 +926,8 @@ static void execute( bool (*function)() )
 /* -----------------------------------------------
 	check file and determine filetype
 	----------------------------------------------- */
-static bool check_file() {
+static bool check_file(const std::string& filename) {
 	std::uint8_t fileid[ 2 ]{};
-	const std::string& filename = filelist[file_no];
-
 
 	// open input stream, check for errors
 	if (pipe_on) {
@@ -1075,53 +1043,9 @@ static bool compare_output() {
 	return true;
 }
 
-/* -----------------------------------------------
-	set each variable to its initial value
-	----------------------------------------------- */
-
-static bool reset_buffers() {
-	// free buffers & set pointers nullptr
-	segments.clear();
-	huffman_data.clear();
-	garbage_data.clear();
-	jpg::rst_err.clear();
-		
-	frame_info.reset(nullptr);
-
-	// reset padbit
-	jpg::padbit = -1;
-
-	return true;
-}
-
 /* ----------------------- End of main functions -------------------------- */
 
 /* ----------------------- Begin of miscellaneous helper functions -------------------------- */
-
-
-/* -----------------------------------------------
-	displays progress bar on screen
-	----------------------------------------------- */
-static void progress_bar( int current, int last )
-{
-	constexpr int BARLEN = 36;
-	int barpos = ((current * BARLEN) + (last / 2)) / last;
-
-	// generate progress bar
-	fprintf(msgout, "[");
-	for (int i = 0; i < BARLEN; i++) {
-		if (i < barpos) {
-			#if defined(_WIN32)
-			fprintf(msgout, "\xFE");
-			#else
-			fprintf(msgout, "X");
-			#endif
-		} else {
-			fprintf(msgout, " ");
-		}
-	}
-	fprintf(msgout, "]");
-}
 
 /* -----------------------------------------------
 	Replaces the file extension of oldname (if any) with new_extension.

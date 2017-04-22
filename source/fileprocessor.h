@@ -20,6 +20,9 @@ public:
 	void execute();
 
 private:
+	FileType get_file_type();
+	void verify_output(Writer& verification_output);
+
 	bool verify_;
 	bool verbose_;
 
