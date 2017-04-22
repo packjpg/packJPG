@@ -1,15 +1,17 @@
 #ifndef PJGTOJPGCONTROLLER_H
 #define PJGTOJPGCONTROLLER_H
 
+#include "controller.h"
+
 #include "reader.h"
 #include "writer.h"
 
-class PjgToJpgController {
+class PjgToJpgController : public Controller {
 public:
 	PjgToJpgController(Reader& pjg_input, Writer& jpg_output);
 	~PjgToJpgController();
 
-	void execute();
+	void execute() override;
 
 private:
 	Reader& pjg_input_;
