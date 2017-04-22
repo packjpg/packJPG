@@ -313,13 +313,12 @@ static std::unique_ptr<FrameInfo> frame_info;
 global variables: info about files
 ----------------------------------------------- */
 
-static std::string destination_file = "";
+static std::string output_file = "";
 
 static int jpgfilesize = 0; // size of JPEG file
 static int pjgfilesize = 0; // size of PJG file
-static FileType filetype; // type of current file
-static std::unique_ptr<Reader> str_in; // input stream
-static std::unique_ptr<Writer> str_out; // output stream
+static std::unique_ptr<Reader> input_reader; // input stream
+static std::unique_ptr<Writer> output_writer; // output stream
 static std::unique_ptr<Reader> str_str; // storage stream
 
 
@@ -330,14 +329,13 @@ static void initialize_options( int argc, char** argv );
 static void process_ui(const std::string& input_file);
 static std::string get_status( bool (*function)() );
 static void show_help();
-static void process_file();
+static void process_file(FileType filetype);
 static void execute( bool (*function)() );
 
 
 /* -----------------------------------------------
 	function declarations: main functions
 	----------------------------------------------- */
-static bool check_file(const std::string& input_file);
 static bool swap_streams();
 static bool compare_output();
 
@@ -384,7 +382,7 @@ namespace encode {
 	std::unique_ptr<JpgEncoder> jpeg_encoder;
 	// JPEG encoding routine.
 	bool recode() {
-		jpeg_encoder = std::make_unique<JpgEncoder>(*str_out, segments);
+		jpeg_encoder = std::make_unique<JpgEncoder>(*output_writer, segments);
 		try {
 			jpeg_encoder->recode(*frame_info, jpg::padbit);
 		} catch (const std::exception& e) {
@@ -405,7 +403,7 @@ namespace encode {
 		}
 
 		// get filesize
-		jpgfilesize = str_out->num_bytes_written();
+		jpgfilesize = output_writer->num_bytes_written();
 		return true;
 	}
 }
@@ -415,7 +413,7 @@ namespace decode {
 
 	// Read in header and image data.
 	bool read() {
-		auto reader = std::make_unique<JpgReader>(*str_in);
+		auto reader = std::make_unique<JpgReader>(*input_reader);
 		try {
 			reader->read();
 
@@ -430,7 +428,7 @@ namespace decode {
 			return false;
 		}
 		// get filesize
-		jpgfilesize = str_in->get_size();
+		jpgfilesize = input_reader->get_size();
 		return true;
 	}
 	// JPEG decoding routine.
@@ -469,14 +467,14 @@ namespace pjg {
 	namespace encode {
 		bool encode() {
 			try {
-				auto pjg_encoder = std::make_unique<PjgEncoder>(*str_out);
+				auto pjg_encoder = std::make_unique<PjgEncoder>(*output_writer);
 				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
 			} catch (const std::exception& e) {
 				errormessage = e.what();
 				error = true;
 				return false;
 			}
-			pjgfilesize = str_out->num_bytes_written();
+			pjgfilesize = output_writer->num_bytes_written();
 			return true;
 		}
 	}
@@ -484,9 +482,9 @@ namespace pjg {
 	namespace decode {
 		bool decode() {
 			// get filesize
-			pjgfilesize = str_in->get_size();
+			pjgfilesize = input_reader->get_size();
 			try {
-				auto pjg_decoder = std::make_unique<PjgDecoder>(*str_in);
+				auto pjg_decoder = std::make_unique<PjgDecoder>(*input_reader);
 				pjg_decoder->decode();
 
 				frame_info = pjg_decoder->get_frame_info();
@@ -592,10 +590,8 @@ int main( int argc, char** argv )
 		if (error) {
 			err_tp[file_no] = true;
 			err_list[file_no] = errormessage;
-		}
-		// count errors / warnings / file sizes
-		if (error) error_cnt++;
-		else {
+			error_cnt++;
+		} else {
 			acc_jpgsize += jpgfilesize;
 			acc_pjgsize += pjgfilesize;
 		}
@@ -680,6 +676,44 @@ static void initialize_options(int argc, char** argv) {
 	}
 }
 
+static FileType get_file_type(Reader& input) {
+	// immediately return error if 2 bytes can't be read
+	std::array<std::uint8_t, 2> fileid{};
+	if (input.read(fileid.data(), 2) != 2) {
+		throw std::runtime_error("Not enough data to determine file type");
+	}
+
+	constexpr std::array<std::uint8_t, 2> jpg_magic{0xFF, 0xD8};
+	auto is_jpg = std::equal(std::begin(fileid),
+	                         std::end(fileid),
+	                         std::begin(jpg_magic),
+	                         std::end(jpg_magic));
+
+	auto is_pjg = std::equal(std::begin(fileid),
+	                         std::end(fileid),
+	                         std::begin(program_info::pjg_magic),
+	                         std::end(program_info::pjg_magic));
+
+	if (is_jpg) {
+		return FileType::JPG;
+	} else if (is_pjg) {
+		return FileType::PJG;
+	} else {
+		throw std::runtime_error("Unknown file type.");
+	}
+}
+
+static std::string get_output_destination(const std::string& filename, FileType type) {
+	if (pipe_on) {
+		return "";
+	} else {
+		const auto extension = type == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext;
+		auto output_destination = overwrite ? create_filename(filename, extension) :
+			                          unique_filename(filename, extension);
+		return output_destination;
+	}
+}
+
 /* -----------------------------------------------
 	UI for processing one file
 	----------------------------------------------- */
@@ -690,21 +724,50 @@ static void process_ui(const std::string& input_file) {
 	jpgfilesize = 0;
 	pjgfilesize = 0;
 
-	std::string actionmsg;
-
 	if (verbose) {
 		fprintf(msgout, "\n----------------------------------------");
 	}
 
 	// check input file and determine filetype
-	check_file(input_file);
+
+	// open input stream, check for errors
+	if (pipe_on) {
+		input_reader = std::make_unique<StreamReader>();
+	} else {
+		try {
+			input_reader = std::make_unique<FileReader>(input_file);
+		} catch (const std::runtime_error& e) {
+			errormessage = e.what();
+			error = true;
+			return;
+		}
+	}
+
+	FileType type;
+	try {
+		type = get_file_type(*input_reader);
+	} catch (const std::runtime_error& e) {
+		errormessage = e.what();
+		error = true;
+		return;
+	}
+
+	output_file = get_output_destination(input_file, type);
+
+	if (pipe_on) {
+		output_writer = std::make_unique<StreamWriter>();
+	} else {
+		try {
+			output_writer = std::make_unique<FileWriter>(output_file);
+		} catch (const std::runtime_error& e) {
+			errormessage = e.what();
+			error = true;
+			return;
+		}
+	}
 
 	// get specific action message
-	if (filetype == FileType::F_UNK) {
-		actionmsg = "unknown filetype";
-	} else {
-		actionmsg = filetype == FileType::F_JPG ? "Compressing" : "Decompressing";
-	}
+	std::string actionmsg = type == FileType::JPG ? "Compressing" : "Decompressing";
 
 	if (!verbose) {
 		fprintf(msgout, "%s -> ", actionmsg.c_str());
@@ -716,16 +779,16 @@ static void process_ui(const std::string& input_file) {
 	auto begin = std::chrono::steady_clock::now();
 
 	// streams are initiated, start processing file
-	process_file();
+	process_file(type);
 
 	// close iostreams
-	str_in.reset(nullptr);
-	str_out.reset(nullptr);
+	input_reader.reset(nullptr);
+	output_writer.reset(nullptr);
 	str_str.reset(nullptr);
 	// delete if broken or if output not needed
 	if (!pipe_on && error) {
-		if (std::experimental::filesystem::exists(destination_file)) {
-			std::experimental::filesystem::remove(destination_file);
+		if (std::experimental::filesystem::exists(output_file)) {
+			std::experimental::filesystem::remove(output_file);
 		}
 	}
 
@@ -843,8 +906,8 @@ static void show_help()
 /* -----------------------------------------------
 	processes one file
 	----------------------------------------------- */
-static void process_file() {
-	if (filetype == FileType::F_JPG) {
+static void process_file(FileType filetype) {
+	if (filetype == FileType::JPG) {
 		execute(jpg::decode::read);
 		execute(jpg::decode::decode);
 		execute(jpg::decode::check_value_range);
@@ -861,7 +924,7 @@ static void process_file() {
 			execute(jpg::encode::merge);
 			execute(compare_output);
 		}
-	} else if (filetype == FileType::F_PJG) {
+	} else {
 		execute(pjg::decode::decode);
 		execute(dct::adapt_icos);
 		execute(unpredict_dc);
@@ -922,79 +985,6 @@ static void execute( bool (*function)() )
 
 /* ----------------------- Begin of main functions -------------------------- */
 
-
-/* -----------------------------------------------
-	check file and determine filetype
-	----------------------------------------------- */
-static bool check_file(const std::string& filename) {
-	std::uint8_t fileid[ 2 ]{};
-
-	// open input stream, check for errors
-	if (pipe_on) {
-		str_in = std::make_unique<StreamReader>();
-	} else {
-		try {
-			str_in = std::make_unique<FileReader>(filename);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return false;
-		}
-	}
-
-	// free memory from filenames if needed
-	destination_file = "";
-
-	// immediately return error if 2 bytes can't be read
-	if (str_in->read(fileid, 2) != 2) {
-		filetype = FileType::F_UNK;
-		errormessage = "file doesn't contain enough data";
-		error = true;
-		return false;
-	}
-
-	// check file id, determine filetype
-	if ((fileid[0] == 0xFF) && (fileid[1] == 0xD8)) {
-		// file is JPEG
-		filetype = FileType::F_JPG;
-		// create filenames
-		if (!pipe_on) {
-			destination_file = (overwrite) ?
-				              create_filename(filename, program_info::pjg_ext) :
-				              unique_filename(filename, program_info::pjg_ext);
-		}
-	} else if ((fileid[0] == program_info::pjg_magic[0]) && (fileid[1] == program_info::pjg_magic[1])) {
-		// file is PJG
-		filetype = FileType::F_PJG;
-		// create filenames
-		if (!pipe_on) {
-			destination_file = (overwrite) ?
-				              create_filename(filename, program_info::jpg_ext) :
-				              unique_filename(filename, program_info::jpg_ext);
-		}
-	} else {
-		// file is neither
-		filetype = FileType::F_UNK;
-		errormessage = "file type of " + filename + " is unknown";
-		error = true;
-		return false;
-	}
-
-	if (pipe_on) {
-		str_out = std::make_unique<StreamWriter>();
-	} else {
-		try {
-			str_out = std::make_unique<FileWriter>(destination_file);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return false;
-		}
-	}
-
-	return true;
-}
-
 /* -----------------------------------------------
 	swap streams / init verification
 	----------------------------------------------- */
@@ -1002,16 +992,16 @@ static bool swap_streams() {
 	std::array<std::uint8_t, 2> magic_bytes;
 	
 	// store input stream
-	str_str = std::move(str_in);
+	str_str = std::move(input_reader);
 	str_str->rewind();
 	
 	// replace input stream by output stream / switch mode for reading / read first bytes
-	const auto pjg_bytes = str_out->get_data();
-	str_in = std::make_unique<MemoryReader>(pjg_bytes);
-	str_in->read(magic_bytes.data(), 2);
+	const auto pjg_bytes = output_writer->get_data();
+	input_reader = std::make_unique<MemoryReader>(pjg_bytes);
+	input_reader->read(magic_bytes.data(), 2);
 	
 	// open new stream for output / check for errors
-	str_out = std::make_unique<MemoryWriter>();
+	output_writer = std::make_unique<MemoryWriter>();
 	
 	return true;
 }
@@ -1021,7 +1011,7 @@ static bool swap_streams() {
 	----------------------------------------------- */
 static bool compare_output() {
 	const auto& input_data = str_str->get_data();
-	const auto& verif_data = str_out->get_data();
+	const auto& verif_data = output_writer->get_data();
 	if (input_data.size() != verif_data.size()) {
 		errormessage = "Expected size: " + std::to_string(input_data.size()) + ", Verification size: " + std::to_string(verif_data.size());
 		error = true;
