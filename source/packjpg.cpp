@@ -575,7 +575,8 @@ int main(int argc, char** argv) {
 		} else {
 			pipe_on = false;
 		}
-		fprintf(msgout, "\nProcessing file %i of %u \"%s\" -> ", file_no + 1, filelist.size(), file.c_str());
+		const auto processing_message = "\nProcessing file " + std::to_string(file_no + 1) + " of " + std::to_string(filelist.size()) + " \"" + file + "\" -> ";
+		fprintf(msgout, processing_message.c_str());
 		// process current file
 		process_ui(file);
 		// store error message and type if any
@@ -605,7 +606,8 @@ int main(int argc, char** argv) {
 	}
 
 	// show statistics
-	fprintf(msgout, "\n\n-> %u file(s) processed, %u error(s)\n", filelist.size(), error_count);
+	const auto processed_sum_message = "\n\n-> " + std::to_string(filelist.size()) + " file(s) processed, " + std::to_string(error_count)  + " error(s)\n";
+	fprintf(msgout, processed_sum_message.c_str());
 	if (acc_jpgsize > 0 && verbose) {
 		std::chrono::duration<double> duration = end - begin;
 		double total = duration.count();

@@ -88,7 +88,7 @@ std::size_t MemoryReader::read(std::uint8_t* to, std::size_t num_to_read) {
 		return 0;
 	}
 	auto numAvailable = std::distance(cbyte_, std::end(data_));
-	int numRead = std::min(static_cast<std::size_t>(numAvailable), num_to_read);
+	auto numRead = std::min(static_cast<std::size_t>(numAvailable), num_to_read);
 	auto end = std::next(cbyte_, numRead);
 	std::copy(cbyte_, end, to);
 	cbyte_ = end;

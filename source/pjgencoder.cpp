@@ -510,7 +510,7 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt
 	std::iota(std::begin(index), std::end(index), std::uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
 
 																	// Count the number of zeroes for each frequency:
-	std::array<uint32_t, 64> zeroDist; // Distribution of zeroes per band.
+	std::array<std::size_t, 64> zeroDist; // Distribution of zeroes per band.
 	std::transform(std::begin(cmpt.colldata),
 		std::end(cmpt.colldata),
 		std::begin(zeroDist),
@@ -521,7 +521,7 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt
 	// Sort in ascending order according to the number of zeroes per band:
 	std::stable_sort(std::begin(index) + 1, // Skip the first element.
 		std::end(index),
-		[&](const uint32_t& a, const uint32_t& b) {
+		[&](const auto& a, const auto& b) {
 		return zeroDist[a] < zeroDist[b];
 	}
 	);
