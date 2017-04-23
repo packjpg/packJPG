@@ -290,7 +290,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				}
 			} else {
 				padbit = huffr->unpad(padbit);
-				padbit_set = true;
+				padbit_set = padbit == 0 || padbit == 1;
 			}
 
 			// evaluate status
