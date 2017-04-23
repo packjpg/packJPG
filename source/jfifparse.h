@@ -213,7 +213,7 @@ namespace jfif {
 		for (auto& component : frame_info->components) {
 			int i;
 			for (i = 0;
-			     pjg::conf_sets[i][component.sid] > static_cast<std::uint32_t>(component.bc);
+			     pjg::conf_sets[i][component.sid] > static_cast<std::size_t>(component.bc);
 			     i++);
 			component.segm_cnt = pjg::conf_segm;
 			component.nois_trs = pjg::conf_ntrs[i][component.sid];

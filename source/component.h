@@ -33,7 +33,7 @@ struct Component {
 	int bc = -1; // block count (all) (interleaved)
 	int ncv = -1; // block count vertical (non interleaved)
 	int nch = -1; // block count horizontal (non interleaved)
-	int sid = -1; // statistical identity
+	std::size_t sid = 0; // statistical identity
 	int jid = -1; // jpeg internal id
 
 	int segm_cnt = 10; // number of segments
@@ -72,7 +72,7 @@ struct Component {
 		const int absmaxp = max_v(0);
 		const int corr_f = (2 * absmaxp) + 1;
 
-		for (int dpos = 1; dpos < bc; dpos++) {
+		for (std::size_t dpos = 1; dpos < colldata[0].size(); dpos++) {
 			auto& coef = colldata[0][dpos];
 			coef += dc_1ddct_predictor(dpos); // 1d dct predictor
 			// fix range
@@ -89,22 +89,22 @@ struct Component {
 		std::array<std::uint16_t, 64> quant; // local copy of quantization	
 
 		// make a local copy of the quantization values, check
-		for (int ipos = 0; ipos < quant.size(); ipos++) {
+		for (std::size_t ipos = 0; ipos < quant.size(); ipos++) {
 			quant[ipos] = this->quant(pjg::zigzag[ipos]);
 			if (quant[ipos] >= 2048) { // if this is true, it can be safely assumed (for 8 bit JPEG), that all coefficients are zero
 				quant[ipos] = 0;
 			}
 		}
 		// adapt idct 8x8 table
-		for (int ipos = 0; ipos < adpt_idct_8x8.size(); ipos++) {
+		for (std::size_t ipos = 0; ipos < adpt_idct_8x8.size(); ipos++) {
 			adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
 		}
 		// adapt idct 1x8 table
-		for (int ipos = 0; ipos < adpt_idct_1x8.size(); ipos++) {
+		for (std::size_t ipos = 0; ipos < adpt_idct_1x8.size(); ipos++) {
 			adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
 		}
 		// adapt idct 8x1 table
-		for (int ipos = 0; ipos < adpt_idct_8x1.size(); ipos++) {
+		for (std::size_t ipos = 0; ipos < adpt_idct_8x1.size(); ipos++) {
 			adpt_idct_8x1[ipos] = dct::icos_idct_1x8[ipos] * quant[ipos % 8];
 		}
 	}
@@ -113,23 +113,23 @@ struct Component {
 	// This functions counts, for each DCT block, the number of non-zero coefficients
 	void calc_zdst_lists() {
 		// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
-		for (int bpos = 1; bpos < colldata.size(); bpos++) {
+		for (std::size_t  bpos = 1; bpos < colldata.size(); bpos++) {
 			const int b_x = pjg::unzigzag[bpos] % 8;
 			const int b_y = pjg::unzigzag[bpos] / 8;
 			if (b_x == 0) {
-				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+				for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 					if (colldata[bpos][dpos] != 0) {
 						zdstylow[dpos]++;
 					}
 				}
 			} else if (b_y == 0) {
-				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+				for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 					if (colldata[bpos][dpos] != 0) {
 						zdstxlow[dpos]++;
 					}
 				}
 			} else {
-				for (int dpos = 0; dpos < colldata[bpos].size(); dpos++) {
+				for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 					if (colldata[bpos][dpos] != 0) {
 						zdstdata[dpos]++;
 					}

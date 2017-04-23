@@ -307,7 +307,7 @@ void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vecto
 
 		// write & expand huffman coded image data
 		// ipos is the current position in image data.
-		for (std::uint32_t ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
+		for (auto ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
 			// write current byte
 			jpg_output_writer_.write_byte(huffman_data[ipos]);
 			// check current byte, stuff if needed

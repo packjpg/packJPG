@@ -64,8 +64,8 @@ private:
 
 	std::vector<std::uint8_t> huffman_data;
 
-	std::vector<std::uint32_t> rstp; // restart markers positions in huffdata
-	std::vector<std::uint32_t> scnp; // scan start positions in huffdata
+	std::vector<std::size_t> rstp; // restart markers positions in huffdata
+	std::vector<std::size_t> scnp; // scan start positions in huffdata
 };
 
 #endif

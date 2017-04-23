@@ -313,8 +313,8 @@ static std::unique_ptr<FrameInfo> frame_info;
 global variables: info about files
 ----------------------------------------------- */
 
-static int jpgfilesize = 0; // size of JPEG file
-static int pjgfilesize = 0; // size of PJG file
+static std::size_t jpgfilesize = 0; // size of JPEG file
+static std::size_t pjgfilesize = 0; // size of PJG file
 static std::unique_ptr<Reader> input_reader; // input stream
 static std::unique_ptr<Writer> output_writer; // output stream
 static std::unique_ptr<Reader> str_str; // storage stream
@@ -563,8 +563,8 @@ int main(int argc, char** argv) {
 	static std::vector<bool> err_tp(filelist.size()); // list of error types
 
 	auto begin = std::chrono::steady_clock::now();
-	double acc_jpgsize = 0;
-	double acc_pjgsize = 0;
+	std::size_t acc_jpgsize = 0;
+	std::size_t acc_pjgsize = 0;
 	std::size_t error_count = 0;
 	std::size_t file_no;
 	for (file_no = 0; file_no < filelist.size(); file_no++) {
@@ -607,15 +607,13 @@ int main(int argc, char** argv) {
 	// show statistics
 	fprintf(msgout, "\n\n-> %u file(s) processed, %u error(s)\n", filelist.size(), error_count);
 	if (acc_jpgsize > 0 && verbose) {
-		acc_jpgsize /= 1024.0;
-		acc_pjgsize /= 1024.0;
 		std::chrono::duration<double> duration = end - begin;
 		double total = duration.count();
 
 		fprintf(msgout, " --------------------------------- \n");
 		if (total > 0) {
 			fprintf(msgout, " total time       : %8.2f s\n", total);
-			int kbps = acc_jpgsize / total;
+			int kbps = (acc_jpgsize / 1024) / total;
 			fprintf(msgout, " avg. kbyte per s : %8i KBps\n", kbps);
 		} else {
 			fprintf(msgout, " total time       : N/A s\n");
@@ -786,7 +784,7 @@ static void process_ui(const std::string& input_file) {
 	auto end = std::chrono::steady_clock::now();
 
 	// speed and compression ratio calculation
-	float cr = (jpgfilesize > 0) ? (100.0 * pjgfilesize / jpgfilesize) : 0;
+	double cr = (jpgfilesize > 0) ? (100.0 * pjgfilesize / jpgfilesize) : 0;
 	if (verbose)
 		fprintf(msgout, "\n----------------------------------------");
 
@@ -823,8 +821,8 @@ static void process_ui(const std::string& input_file) {
 		auto total = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 		if (total >= 0) {
 			fprintf(msgout, " time taken  : %7lld msec\n", total);
-			int bpms = (total > 0) ? (jpgfilesize / total) : jpgfilesize;
-			fprintf(msgout, " byte per ms : %7i byte\n", bpms);
+			auto bpms = (total > 0) ? (jpgfilesize / total) : jpgfilesize;
+			fprintf(msgout, " byte per ms : %7lld byte\n", bpms);
 		} else {
 			fprintf(msgout, " time taken  : %7s msec\n", "N/A");
 			fprintf(msgout, " byte per ms : %7s byte\n", "N/A");
@@ -945,8 +943,9 @@ static void execute( bool (*function)() )
 		// write statusmessage
 		if (verbose) {
 			fprintf( msgout,  "\n%s ", get_status( function ).c_str() );
-			for ( int i = get_status(function).length(); i <= 30; i++ )
-				fprintf( msgout,  " " );			
+			for (std::size_t i = get_status(function).length(); i <= 30; i++) {
+				fprintf(msgout, " ");
+			}
 		}
 		
 		// set starttime
