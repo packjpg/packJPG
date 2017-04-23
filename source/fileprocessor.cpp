@@ -40,6 +40,12 @@ FileProcessor::FileProcessor(bool verify, bool verbose) : verify_reversible_(ver
 }
 
 void FileProcessor::execute() {
+	if (executed_) {
+		throw std::runtime_error("Already executed the file processor.");
+	} else {
+		executed_ = true;
+	}
+
 	try {
 		controller_->execute();
 	} catch (const std::runtime_error&) {
@@ -51,6 +57,8 @@ void FileProcessor::execute() {
 	}
 
 	auto output_as_input = std::make_unique<MemoryReader>(output_->get_data());
+	std::array<std::uint8_t, 2> magic_bytes{};
+	output_as_input->read(magic_bytes.data(), 2);
 	auto verification_output = std::make_unique<MemoryWriter>();
 	std::unique_ptr<Controller> reversed_controller;
 	if (file_type_ == FileType::JPG) {
@@ -64,6 +72,22 @@ void FileProcessor::execute() {
 		verify_reversible(*verification_output);
 	} catch (const std::runtime_error&) {
 		throw;
+	}
+}
+
+std::size_t FileProcessor::get_jpg_size() {
+	if (file_type_ == FileType::JPG) {
+		return input_->get_size();
+	} else {
+		return output_->num_bytes_written();
+	}
+}
+
+std::size_t FileProcessor::get_pjg_size() {
+	if (file_type_ == FileType::JPG) {
+		return output_->num_bytes_written();
+	} else {
+		return input_->get_size();
 	}
 }
 

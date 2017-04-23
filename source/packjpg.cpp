@@ -291,7 +291,7 @@ packJPG by Matthias Stirner, 01/2016
 global variables: messages
 ----------------------------------------------- */
 
-static std::string errormessage;
+static std::string errormessage = "no errormessage specified";
 static bool(*errorfunction)() = nullptr;
 static bool error = false;
 
@@ -312,8 +312,6 @@ static std::unique_ptr<FrameInfo> frame_info;
 /* -----------------------------------------------
 global variables: info about files
 ----------------------------------------------- */
-
-static std::string output_file = "";
 
 static int jpgfilesize = 0; // size of JPEG file
 static int pjgfilesize = 0; // size of PJG file
@@ -526,7 +524,6 @@ static std::string create_filename(const std::string& oldname, const std::string
 static std::string unique_filename(const std::string& oldname, const std::string& new_extension);
 
 static std::vector<std::string> filelist; // list of files to process 
-static int    file_no  = 0;			// number of current file
 
 
 /* -----------------------------------------------
@@ -546,36 +543,31 @@ static bool   pipe_on  = false;	// use stdin/stdout instead of filelist
 	main-function
 	----------------------------------------------- */
 
-int main( int argc, char** argv )
-{	
-	errormessage = "no errormessage specified";
-		
-	int error_cnt = 0;
-	
-	double acc_jpgsize = 0;
-	double acc_pjgsize = 0;
-	
-	
+int main(int argc, char** argv) {
 	// read options from command line
-	initialize_options( argc, argv );
-	
+	initialize_options(argc, argv);
+
 	// write program info to screen
-	fprintf( msgout,  "\n--> %s v%i.%i%s (%s) by %s <--\n",
-	         program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
-	fprintf( msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str() );
-	
+	fprintf(msgout, "\n--> %s v%i.%i%s (%s) by %s <--\n",
+	        program_info::apptitle.c_str(), program_info::appversion / 10, program_info::appversion % 10, program_info::subversion.c_str(), program_info::versiondate.c_str(), program_info::author.c_str());
+	fprintf(msgout, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str());
+
 	// check if user input is wrong, show help screen if it is
 	if (filelist.empty()) {
 		show_help();
 		return -1;
 	}
-	
+
 	// process file(s) - this is the main function routine
 	static std::vector<std::string> err_list(filelist.size()); // list of error messages 
 	static std::vector<bool> err_tp(filelist.size()); // list of error types
 
 	auto begin = std::chrono::steady_clock::now();
-	for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
+	double acc_jpgsize = 0;
+	double acc_pjgsize = 0;
+	std::size_t error_count = 0;
+	std::size_t file_no;
+	for (file_no = 0; file_no < filelist.size(); file_no++) {
 		auto& file = filelist[file_no];
 		if (file == "-") {
 			pipe_on = true;
@@ -585,54 +577,53 @@ int main( int argc, char** argv )
 		}
 		fprintf(msgout, "\nProcessing file %i of %u \"%s\" -> ", file_no + 1, filelist.size(), file.c_str());
 		// process current file
-		process_ui(filelist[file_no]);
+		process_ui(file);
 		// store error message and type if any
 		if (error) {
 			err_tp[file_no] = true;
 			err_list[file_no] = errormessage;
-			error_cnt++;
+			error_count++;
 		} else {
 			acc_jpgsize += jpgfilesize;
 			acc_pjgsize += pjgfilesize;
 		}
 	}
 	auto end = std::chrono::steady_clock::now();
-	
+
 	// errors summary: only needed for -v2 or progress bar
 	if (verbose) {
 		// print summary of errors to screen
-		if ( error_cnt > 0 ) {
-			fprintf( stderr, "\n\nfiles with errors:\n" );
-			fprintf( stderr, "------------------\n" );
-			for ( file_no = 0; file_no < filelist.size(); file_no++ ) {
-				if (err_tp[ file_no ]) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ].c_str(), err_list[ file_no ].c_str());
+		if (error_count > 0) {
+			fprintf(stderr, "\n\nfiles with errors:\n");
+			fprintf(stderr, "------------------\n");
+			for (file_no = 0; file_no < filelist.size(); file_no++) {
+				if (err_tp[file_no]) {
+					fprintf(stderr, "%s (%s)\n", filelist[file_no].c_str(), err_list[file_no].c_str());
 				}
 			}
 		}
 	}
-	
+
 	// show statistics
-	fprintf( msgout,  "\n\n-> %i file(s) processed, %i error(s)\n",
-		filelist.size(), error_cnt);
-	if ( (filelist.size() > error_cnt ) && verbose) {
+	fprintf(msgout, "\n\n-> %u file(s) processed, %u error(s)\n", filelist.size(), error_count);
+	if (acc_jpgsize > 0 && verbose) {
 		acc_jpgsize /= 1024.0;
 		acc_pjgsize /= 1024.0;
 		std::chrono::duration<double> duration = end - begin;
 		double total = duration.count();
-		
-		fprintf( msgout,  " --------------------------------- \n" );
-		if ( total > 0 ) {
-			fprintf( msgout,  " total time       : %8.2f sec\n", total );
+
+		fprintf(msgout, " --------------------------------- \n");
+		if (total > 0) {
+			fprintf(msgout, " total time       : %8.2f s\n", total);
 			int kbps = acc_jpgsize / total;
-			fprintf( msgout,  " avg. kbyte per s : %8i byte\n", kbps );
+			fprintf(msgout, " avg. kbyte per s : %8i KBps\n", kbps);
 		} else {
-			fprintf( msgout,  " total time       : %8s sec\n", "N/A" );
-			fprintf( msgout,  " avg. kbyte per s : %8s byte\n", "N/A" );
+			fprintf(msgout, " total time       : N/A s\n");
+			fprintf(msgout, " avg. kbyte per s : N/A KBps\n");
 		}
-		double cr = (acc_jpgsize > 0) ? (100.0 * acc_pjgsize / acc_jpgsize) : 0;
-		fprintf( msgout,  " avg. comp. ratio  : %8.2f %%\n", cr );		
-		fprintf( msgout,  " --------------------------------- \n" );
+		double cr = 100.0 * acc_pjgsize / acc_jpgsize;
+		fprintf(msgout, " avg. comp. ratio  : %8.2f %%\n", cr);
+		fprintf(msgout, " --------------------------------- \n");
 	}
 
 	// pause before exit
@@ -669,7 +660,7 @@ static void initialize_options(int argc, char** argv) {
 			msgout = stderr;
 			// use "-" as placeholder for stdin
 			filelist.push_back("-");
-		} else {
+		} else if (std::experimental::filesystem::exists(arg)) {
 			// if argument is not switch, it's a filename
 			filelist.push_back(arg);
 		}
@@ -752,7 +743,7 @@ static void process_ui(const std::string& input_file) {
 		return;
 	}
 
-	output_file = get_output_destination(input_file, type);
+	const auto output_file = get_output_destination(input_file, type);
 
 	if (pipe_on) {
 		output_writer = std::make_unique<StreamWriter>();

@@ -21,6 +21,9 @@ public:
 
 	void execute();
 
+	std::size_t get_jpg_size();
+	std::size_t get_pjg_size();
+
 private:
 	/*
 	 * Returns the file type, either JPG or PJG. Throws a runtime error if
@@ -30,9 +33,11 @@ private:
 	void verify_reversible(Writer& verification_output) const;
 	std::string determine_output_destination(const std::string& input_file, const std::string& new_extension) const;
 
-	bool overwrite_ = false;
-	bool verify_reversible_ = true;
-	bool verbose_ = false;
+	bool overwrite_ = false; // Output file destination overwrites any existing destination instead of selecting a unique name?
+	bool verify_reversible_ = true; // After (de)compressing, reverse the process to make sure the output can be returned to its original state.
+	bool verbose_ = false; // Display a lot of information to the user while running?
+
+	bool executed_ = false; // Has execute() been run?
 
 	std::unique_ptr<Controller> controller_;
 
