@@ -308,24 +308,24 @@ public:
 	~ArithmeticEncoder();
 
 	// Generic UniversalModel encoding function.
-	void encode(UniversalModel* model, int c) {
+	void encode(UniversalModel& model, int c) {
 		Symbol s;
 		int esc;
 
 		do {
-			esc = model->convert_int_to_symbol(c, &s);
+			esc = model.convert_int_to_symbol(c, &s);
 			encode(&s);
 		} while (esc);
-		model->update_model(c);
+		model.update_model(c);
 	}
 
 	// Generic BinaryModel encoding function.
-	void encode(BinaryModel* model, int c) {
+	void encode(BinaryModel& model, int c) {
 		Symbol s;
 
-		model->convert_int_to_symbol(c, &s);
+		model.convert_int_to_symbol(c, &s);
 		encode(&s);
-		model->update_model(c);
+		model.update_model(c);
 	}
 
 	/*
@@ -374,32 +374,32 @@ public:
 	~ArithmeticDecoder();
 
 	// Generic UniversalModel decoding function.
-	int decode(UniversalModel* model) {
+	int decode(UniversalModel& model) {
 		Symbol s;
 		uint32_t count;
 		int c;
 
 		do {
-			model->get_symbol_scale(&s);
+			model.get_symbol_scale(&s);
 			count = decode_count(&s);
-			c = model->convert_symbol_to_int(count, &s);
+			c = model.convert_symbol_to_int(count, &s);
 			decode(&s);
 		} while (c == ESCAPE_SYMBOL);
-		model->update_model(c);
+		model.update_model(c);
 
 		return c;
 	}
 
 	// Generic BinaryModel decoding function.
-	int decode(BinaryModel* model)
+	int decode(BinaryModel& model)
 	{
 		Symbol s;
 
-		model->get_symbol_scale(&s);
+		model.get_symbol_scale(&s);
 		uint32_t count = decode_count(&s);
-		int c = model->convert_symbol_to_int(count, &s);
+		int c = model.convert_symbol_to_int(count, &s);
 		decode(&s);
-		model->update_model(c);
+		model.update_model(c);
 
 		return c;
 	}

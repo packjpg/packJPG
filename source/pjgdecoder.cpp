@@ -124,7 +124,7 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 		model->exclude_symbols(64 - i);
 
 		// decode symbol
-		int cpos = decoder_->decode(model.get()); // coded position	
+		int cpos = decoder_->decode(*model); // coded position	
 		model->shift_context(cpos);
 
 		if (cpos == 0) {
@@ -170,7 +170,7 @@ void PjgDecoder::zdst_high(Component& cmpt) {
 		// shift context
 		model->shift_context((coords.first + coords.second + 2) / 4);
 		// decode symbol
-		zdstls[dpos] = decoder_->decode(model.get());
+		zdstls[dpos] = decoder_->decode(*model);
 	}
 }
 
@@ -190,13 +190,13 @@ void PjgDecoder::zdst_low(Component& cmpt) {
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eobx[dpos]); // shift context
-		zdstls_x[dpos] = decoder_->decode(model.get()); // decode symbol
+		zdstls_x[dpos] = decoder_->decode(*model); // decode symbol
 	}
 	// arithmetic encode zero-distribution-list (first collumn)
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eoby[dpos]); // shift context
-		zdstls_y[dpos] = decoder_->decode(model.get()); // decode symbol
+		zdstls_y[dpos] = decoder_->decode(*model); // decode symbol
 	}
 }
 
@@ -246,7 +246,7 @@ void PjgDecoder::dc(Component& cmpt) {
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
 		// decode bit length of current coefficient
-		const int clen = decoder_->decode(mod_len.get());
+		const int clen = decoder_->decode(*mod_len);
 
 		// simple treatment if coefficient is zero
 		if (clen == 0) {
@@ -258,14 +258,14 @@ void PjgDecoder::dc(Component& cmpt) {
 			for (int bp = clen - 2; bp >= 0; bp--) {
 				mod_res->shift_model(snum, bp); // shift in 2 contexts
 				// decode bit
-				const int bt = decoder_->decode(mod_res.get());
+				const int bt = decoder_->decode(*mod_res);
 				// update absv
 				absv = absv << 1;
 				if (bt)
 					absv |= 1;
 			}
 			// decode sign
-			const int sgn = decoder_->decode(mod_sgn.get());
+			const int sgn = decoder_->decode(*mod_sgn);
 			// copy to colldata
 			coeffs[dpos] = (sgn == 0) ? absv : -absv;
 			// store absolute value/sign
@@ -348,7 +348,7 @@ void PjgDecoder::ac_high(Component& cmpt) {
 			mod_len->exclude_symbols(max_len);
 
 			// decode bit length of current coefficient
-			const int clen = decoder_->decode(mod_len.get());
+			const int clen = decoder_->decode(*mod_len);
 			// simple treatment if coefficient is zero
 			if (clen == 0) {
 				// coeffs[ dpos ] = 0;
@@ -359,7 +359,7 @@ void PjgDecoder::ac_high(Component& cmpt) {
 				for (int bp = clen - 2; bp >= 0; bp--) {
 					mod_res->shift_model(snum, bp); // shift in 2 contexts
 					// decode bit
-					const int bt = decoder_->decode(mod_res.get());
+					const int bt = decoder_->decode(*mod_res);
 					// update absv
 					absv = absv << 1;
 					if (bt)
@@ -370,7 +370,7 @@ void PjgDecoder::ac_high(Component& cmpt) {
 				if (p_y > 0)
 					ctx_sgn += 3 * sgn_nbv[dpos]; // IMPROVE! !!!!!!!!!!!
 				mod_sgn->shift_context(ctx_sgn);
-				const int sgn = decoder_->decode(mod_sgn.get());
+				const int sgn = decoder_->decode(*mod_sgn);
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
@@ -464,7 +464,7 @@ void PjgDecoder::ac_low(Component& cmpt) {
 			mod_len->exclude_symbols(max_len);
 
 			// decode bit length of current coefficient
-			const int clen = decoder_->decode(mod_len.get());
+			const int clen = decoder_->decode(*mod_len);
 			// simple treatment if coefficients == 0
 			if (clen == 0) {
 				// coeffs[ dpos ] = 0;
@@ -477,7 +477,7 @@ void PjgDecoder::ac_low(Component& cmpt) {
 				for (; bp >= thrs_bp; bp--) {
 					mod_top->shift_model(ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp); // shift in 3 contexts
 					// decode bit
-					const int bt = decoder_->decode(mod_top.get());
+					const int bt = decoder_->decode(*mod_top);
 					// update context
 					ctx_res = ctx_res << 1;
 					if (bt)
@@ -487,7 +487,7 @@ void PjgDecoder::ac_low(Component& cmpt) {
 				for (; bp >= 0; bp--) {
 					mod_res->shift_model(zdstls[dpos], bp); // shift in 2 contexts
 					// decode bit
-					const int bt = decoder_->decode(mod_res.get());
+					const int bt = decoder_->decode(*mod_res);
 					// update absv
 					absv = absv << 1;
 					if (bt)
@@ -495,7 +495,7 @@ void PjgDecoder::ac_low(Component& cmpt) {
 				}
 				// decode sign
 				mod_sgn->shift_model(zdstls[dpos], ctx_sgn);
-				const int sgn = decoder_->decode(mod_sgn.get());
+				const int sgn = decoder_->decode(*mod_sgn);
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// decrement # of non zeroes
@@ -514,7 +514,7 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 	auto bwrt = std::make_unique<MemoryWriter>();
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 	while (true) {
-		int c = decoder_->decode(model.get());
+		int c = decoder_->decode(*model);
 		if (c == 256) {
 			break;
 		}
@@ -527,7 +527,7 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 
 std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
-	std::uint8_t bit = decoder_->decode(model.get()); // This conversion is okay since there are only 2 symbols in the model.
+	std::uint8_t bit = decoder_->decode(*model); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
 

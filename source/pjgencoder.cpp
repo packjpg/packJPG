@@ -95,7 +95,7 @@ std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& cmpt) {
 		if (c == 64) {
 			// remaining list is in sorted scanorder
 			// encode zero and make a quick exit
-			encoder_->encode(model.get(), 0);
+			encoder_->encode(*model, 0);
 			break;
 		}
 
@@ -109,7 +109,7 @@ std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& cmpt) {
 		freqlist[tpos] = 0;
 
 		// encode coded position in list
-		encoder_->encode(model.get(), cpos);
+		encoder_->encode(*model, cpos);
 		model->shift_context(cpos);
 	}
 
@@ -131,7 +131,7 @@ void PjgEncoder::zdst_high(const Component& cmpt) {
 		// shift context
 		model->shift_context((coords.first + coords.second + 2) / 4);
 		// encode symbol
-		encoder_->encode(model.get(), zdstls[dpos]);
+		encoder_->encode(*model, zdstls[dpos]);
 	}
 }
 
@@ -149,13 +149,13 @@ void PjgEncoder::zdst_low(const Component& cmpt) {
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eobx[dpos]); // shift context
-		encoder_->encode(model.get(), zdstls_x[dpos]); // encode symbol
+		encoder_->encode(*model, zdstls_x[dpos]); // encode symbol
 	}
 	// arithmetic encode zero-distribution-list (first collumn)
 	for (int dpos = 0; dpos < bc; dpos++) {
 		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
 		model->shift_context(ctx_eoby[dpos]); // shift context
-		encoder_->encode(model.get(), zdstls_y[dpos]); // encode symbol
+		encoder_->encode(*model, zdstls_y[dpos]); // encode symbol
 	}
 }
 
@@ -209,24 +209,24 @@ void PjgEncoder::dc(const Component& cmpt) {
 		// simple treatment if coefficient is zero
 		if (coeffs[dpos] == 0) {
 			// encode bit length (0) of current coefficient			
-			encoder_->encode(mod_len.get(), 0);
+			encoder_->encode(*mod_len, 0);
 		} else {
 			// get absolute val, sign & bit length for current coefficient
 			const int absv = std::abs(coeffs[dpos]);
 			const int clen = pjg::bitlen1024p(absv);
 			const int sgn = (coeffs[dpos] > 0) ? 0 : 1;
 			// encode bit length of current coefficient
-			encoder_->encode(mod_len.get(), clen);
+			encoder_->encode(*mod_len, clen);
 			// encoding of residual
 			// first set bit must be 1, so we start at clen - 2
 			for (int bp = clen - 2; bp >= 0; bp--) {
 				mod_res->shift_model(snum, bp); // shift in 2 contexts
 				// encode/get bit
 				const int bt = bitops::BITN(absv, bp);
-				encoder_->encode(mod_res.get(), bt);
+				encoder_->encode(*mod_res, bt);
 			}
 			// encode sign
-			encoder_->encode(mod_sgn.get(), sgn);
+			encoder_->encode(*mod_sgn, sgn);
 			// store absolute value
 			absv_store[dpos] = absv;
 		}
@@ -309,28 +309,28 @@ void PjgEncoder::ac_high(Component& cmpt) {
 			// simple treatment if coefficient is zero
 			if (coeffs[dpos] == 0) {
 				// encode bit length (0) of current coefficien
-				encoder_->encode(mod_len.get(), 0);
+				encoder_->encode(*mod_len, 0);
 			} else {
 				// get absolute val, sign & bit length for current coefficient
 				const int absv = std::abs(coeffs[dpos]);
 				const int clen = pjg::bitlen1024p(absv);
 				const int sgn = (coeffs[dpos] > 0) ? 0 : 1;
 				// encode bit length of current coefficient				
-				encoder_->encode(mod_len.get(), clen);
+				encoder_->encode(*mod_len, clen);
 				// encoding of residual
 				// first set bit must be 1, so we start at clen - 2
 				for (int bp = clen - 2; bp >= 0; bp--) {
 					mod_res->shift_model(snum, bp); // shift in 2 contexts
 					// encode/get bit
 					const int bt = bitops::BITN(absv, bp);
-					encoder_->encode(mod_res.get(), bt);
+					encoder_->encode(*mod_res, bt);
 				}
 				// encode sign				
 				int ctx_sgn = (p_x > 0) ? sgn_nbh[dpos] : 0; // Sign context.
 				if (p_y > 0)
 					ctx_sgn += 3 * sgn_nbv[dpos]; // IMPROVE !!!!!!!!!!!
 				mod_sgn->shift_context(ctx_sgn);
-				encoder_->encode(mod_sgn.get(), sgn);
+				encoder_->encode(*mod_sgn, sgn);
 				// store absolute value/sign, decrement zdst
 				absv_store[dpos] = absv;
 				sgn_store[dpos] = sgn + 1;
@@ -428,14 +428,14 @@ void PjgEncoder::ac_low(Component& cmpt) {
 			// simple treatment if coefficient is zero
 			if (coeffs[dpos] == 0) {
 				// encode bit length (0) of current coefficient
-				encoder_->encode(mod_len.get(), 0);
+				encoder_->encode(*mod_len, 0);
 			} else {
 				// get absolute val, sign & bit length for current coefficient
 				const int absv = std::abs(coeffs[dpos]);
 				const int clen = pjg::bitlen2048n(absv);
 				const int sgn = (coeffs[dpos] > 0) ? 0 : 1;
 				// encode bit length of current coefficient
-				encoder_->encode(mod_len.get(), clen);
+				encoder_->encode(*mod_len, clen);
 				// encoding of residual
 				int bp = clen - 2; // first set bit must be 1, so we start at clen - 2
 				int ctx_res = (bp >= thrs_bp) ? 1 : 0; // Bitplane context for residual.
@@ -445,7 +445,7 @@ void PjgEncoder::ac_low(Component& cmpt) {
 					mod_top->shift_model(ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp); // shift in 3 contexts
 					// encode/get bit
 					const int bt = bitops::BITN(absv, bp);
-					encoder_->encode(mod_top.get(), bt);
+					encoder_->encode(*mod_top, bt);
 					// update context
 					ctx_res = ctx_res << 1;
 					if (bt)
@@ -455,11 +455,11 @@ void PjgEncoder::ac_low(Component& cmpt) {
 					mod_res->shift_model(zdstls[dpos], bp); // shift in 2 contexts
 					// encode/get bit
 					const int bt = bitops::BITN(absv, bp);
-					encoder_->encode(mod_res.get(), bt);
+					encoder_->encode(*mod_res, bt);
 				}
 				// encode sign
 				mod_sgn->shift_model(ctx_len, ctx_sgn);
-				encoder_->encode(mod_sgn.get(), sgn);
+				encoder_->encode(*mod_sgn, sgn);
 				// decrement # of non zeroes
 				zdstls[dpos]--;
 			}
@@ -478,12 +478,12 @@ void PjgEncoder::generic(const std::vector<Segment>& segments) {
 
 	for (const auto& segment : segments) {
 		for (std::uint8_t byte : segment.get_data()) {
-			encoder_->encode(model.get(), byte);
+			encoder_->encode(*model, byte);
 			model->shift_context(byte);
 		}
 	}
 	// encode end-of-data symbol (256)
-	encoder_->encode(model.get(), 256);
+	encoder_->encode(*model, 256);
 }
 
 void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
@@ -491,17 +491,17 @@ void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 
 	for (std::uint8_t byte : data) {
-		encoder_->encode(model.get(), byte);
+		encoder_->encode(*model, byte);
 		model->shift_context(byte);
 	}
 	// encode end-of-data symbol (256)
-	encoder_->encode(model.get(), 256);
+	encoder_->encode(*model, 256);
 }
 
 void PjgEncoder::bit(std::uint8_t bit) {
 	// encode one bit
 	auto model = std::make_unique<BinaryModel>(1, -1);
-	encoder_->encode(model.get(), bit);
+	encoder_->encode(*model, bit);
 }
 
 std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt) {
