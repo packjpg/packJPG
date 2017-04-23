@@ -365,7 +365,7 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short*
 	// decode ac
 	for (bpos = 1; bpos < 64;) {
 		// decode next
-		hc = actree.next_huffcode(huffr);
+		hc = actree.next_huffcode(*huffr);
 		// analyse code
 		if (hc > 0) {
 			std::uint8_t z = bitops::LBITS(hc, 4);
@@ -395,7 +395,7 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short*
 
 CodingStatus JpgDecoder::dc_prg_fs(const HuffTree& dctree, short* block) {
 	// decode dc
-	int hc = dctree.next_huffcode(huffr);
+	int hc = dctree.next_huffcode(*huffr);
 	if (hc < 0) {
 		return CodingStatus::ERROR; // return error
 	}
@@ -418,7 +418,7 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int
 	// decode ac
 	for (bpos = from; bpos <= to;) {
 		// decode next
-		hc = actree.next_huffcode(huffr);
+		hc = actree.next_huffcode(*huffr);
 		if (hc < 0)
 			return -1;
 		l = bitops::LBITS(hc, 4);
@@ -470,7 +470,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 	if ((*eobrun) == 0)
 		while (bpos <= to) {
 			// decode next
-			hc = actree.next_huffcode(huffr);
+			hc = actree.next_huffcode(*huffr);
 			if (hc < 0)
 				return -1;
 			l = bitops::LBITS(hc, 4);

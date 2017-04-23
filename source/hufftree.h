@@ -49,11 +49,11 @@ public:
 	}
 
 	// Returns next the next code (from the tree and the Huffman data).
-	int next_huffcode(const std::unique_ptr<BitReader>& huffr) const {
+	int next_huffcode(BitReader& huffr) const {
 		int node = 0;
 
 		while (node < 256) {
-			node = (huffr->read_bit() == 1) ?
+			node = (huffr.read_bit() == 1) ?
 				       r[node] : l[node];
 			if (node == 0)
 				break;
