@@ -105,15 +105,18 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 
 						// encode block
 						int eob = this->block_seq(*huffw,
-						                          *hcodes[0][frame_info.components[cmp].huffac],
-						                          *hcodes[1][frame_info.components[cmp].huffac],
-						                          block);
+							*hcodes[0][frame_info.components[cmp].huffac],
+							*hcodes[1][frame_info.components[cmp].huffac],
+							block);
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0)
+						if (eob < 0) {
 							status = CodingStatus::ERROR;
-						else
-							status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+						} else {
+							status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+							dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+						}
+
 					}
 				} else if (scan_info.sah == 0) {
 					// ---> progressive interleaved DC encoding <---
@@ -130,7 +133,8 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						                block);
 
 						// next mcupos
-						status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
 				} else {
 					// ---> progressive interleaved DC encoding <---
@@ -142,7 +146,8 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						// encode dc correction bit
 						this->dc_prg_sa(*huffw, block);
 
-						status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
 				}
 			} else // encoding for non interleaved data

@@ -10,31 +10,35 @@
 
 namespace jpg {
 
-// Calculates next position for MCU.
-inline CodingStatus next_mcupos(const ScanInfo& scan_info, const FrameInfo& frame_info, int rsti, int& mcu, int& cmp, int& csc, int& sub, int& dpos, int& rstw) {
-	CodingStatus status = CodingStatus::OKAY;
-
-	// increment all counts where needed
-	if (++sub >= frame_info.components[cmp].mbs) {
+// increment all counts where needed
+inline CodingStatus increment_counts(const FrameInfo& frame_info, const ScanInfo& scan_info, int rsti, int& mcu, int& component, int& csc, int& sub, int& rstw) {
+	sub++;
+	if (sub >= frame_info.components[component].mbs) {
 		sub = 0;
-
-		if (++csc >= scan_info.cmpc) {
+		csc++;
+		if (csc >= scan_info.cmpc) {
 			csc = 0;
-			cmp = scan_info.cmp[0];
+			component = scan_info.cmp[0];
 			mcu++;
 			if (mcu >= frame_info.mcu_count) {
-				status = CodingStatus::DONE;
+				return CodingStatus::DONE;
 			} else if (rsti > 0) {
-				if (--rstw == 0) {
-					status = CodingStatus::RESTART;
+				rstw--;
+				if (rstw == 0) {
+					return CodingStatus::RESTART;
 				}
 			}
 		} else {
-			cmp = scan_info.cmp[csc];
+			component = scan_info.cmp[csc];
 		}
 	}
+	return CodingStatus::OKAY;
+}
 
+// Calculates next position for MCU.
+inline int next_mcupos(const FrameInfo& frame_info, int mcu, int cmp, int sub) {
 	// get correct position in image ( x & y )
+	int dpos;
 	if (frame_info.components[cmp].sfh > 1) { // to fix mcu order
 		dpos = (mcu / frame_info.mcu_width) * frame_info.components[cmp].sfh + (sub / frame_info.components[cmp].sfv);
 		dpos *= frame_info.components[cmp].bch;
@@ -46,8 +50,7 @@ inline CodingStatus next_mcupos(const ScanInfo& scan_info, const FrameInfo& fram
 		// no calculations needed without subsampling
 		dpos = mcu;
 	}
-
-	return status;
+	return dpos;
 }
 
 // Calculates next position (non interleaved).

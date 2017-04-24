@@ -101,10 +101,12 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							components[cmp].colldata[bpos][dpos] = block[bpos];
 
 						// check for errors, proceed if no error encountered
-						if (eob < 0)
+						if (eob >= 0) {
+							status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+							dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+						} else {
 							status = CodingStatus::ERROR;
-						else
-							status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+						}
 					}
 				} else if (scan_info.sah == 0) {
 					// ---> progressive interleaved DC decoding <---
@@ -122,7 +124,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 
 						// next mcupos if no error happened
 						if (status != CodingStatus::ERROR)
-							status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+							status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+							dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
 				} else {
 					// ---> progressive interleaved DC decoding <---
@@ -134,7 +137,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						// shift in next bit
 						components[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
 
-						status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
+						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
 				}
 			} else // decoding for non interleaved data
