@@ -27,7 +27,7 @@ private:
 	// Sequential block decoding routine.
 	int block_seq(const HuffTree& dctree, const HuffTree& actree, short* block);
 	// Progressive DC decoding routine.
-	CodingStatus dc_prg_fs(const HuffTree& dctree, short* block);
+	void dc_prg_fs(const HuffTree& dctree, short* block);
 	// Progressive AC decoding routine.
 	int ac_prg_fs(const HuffTree& actree, short* block,
 	              int& eobrun, int from, int to);
