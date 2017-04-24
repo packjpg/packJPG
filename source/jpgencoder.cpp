@@ -113,7 +113,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						if (eob < 0)
 							status = CodingStatus::ERROR;
 						else
-							status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+							status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
 					}
 				} else if (scan_info.sah == 0) {
 					// ---> progressive interleaved DC encoding <---
@@ -130,7 +130,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						                block);
 
 						// next mcupos
-						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
 					}
 				} else {
 					// ---> progressive interleaved DC encoding <---
@@ -142,7 +142,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						// encode dc correction bit
 						this->dc_prg_sa(*huffw, block);
 
-						status = jpg::next_mcupos(scan_info, frame_info, rsti, &mcu, &cmp, &csc, &sub, &dpos, &rstw);
+						status = jpg::next_mcupos(scan_info, frame_info, rsti, mcu, cmp, csc, sub, dpos, rstw);
 					}
 				}
 			} else // encoding for non interleaved data
@@ -168,7 +168,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						if (eob < 0)
 							status = CodingStatus::ERROR;
 						else
-							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 					}
 				} else if (scan_info.to == 0) {
 					if (scan_info.sah == 0) {
@@ -186,7 +186,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							                block);
 
 							// check for errors, increment dpos otherwise
-							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 					} else {
 						// ---> progressive non interleaved DC encoding <---
@@ -199,7 +199,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							this->dc_prg_sa(*huffw, block);
 
 							// next mcupos if no error happened
-							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, &dpos, &rstw);
+							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 					}
 				} else {
@@ -221,7 +221,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							if (eob < 0)
 								status = CodingStatus::ERROR;
 							else
-								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, &dpos, &rstw);
+								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 
 						// encode remaining eobrun
@@ -244,7 +244,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							if (eob < 0)
 								status = CodingStatus::ERROR;
 							else
-								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, &dpos, &rstw);
+								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 
 						// encode remaining eobrun
