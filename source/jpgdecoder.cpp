@@ -62,13 +62,14 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 		int dpos = 0;
 
 		// JPEG imagedata decoding routines
-		while (true) {
-			// (re)set last DCs for diff coding
-			std::array<int, 4> lastdc{}; // last dc for each component
-
+		CodingStatus status = CodingStatus::OKAY;
+		while (status != CodingStatus::DONE) {
 			// (re)set status
 			int eob;
-			CodingStatus status = CodingStatus::OKAY;
+			status = CodingStatus::OKAY;
+
+			// (re)set last DCs for diff coding
+			std::array<int, 4> lastdc{}; // last dc for each component
 
 			// (re)set eobrun
 			int eobrun = 0; // run of eobs
@@ -141,8 +142,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
 				}
-			} else // decoding for non interleaved data
-			{
+			} else { // decoding for non interleaved data
 				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential non interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
@@ -303,14 +303,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				padbit_set = padbit == 0 || padbit == 1;
 			}
 
-			// evaluate status
-			if (status == CodingStatus::ERROR) {
-				throw std::runtime_error("decode error in scan" + std::to_string(scan_count)
-					+ " / mcu" + std::to_string((scan_info.cmpc > 1) ? mcu : dpos));
-			} else if (status == CodingStatus::DONE) {
-				scan_count++; // increment scan counter
-				break; // leave decoding loop, everything is done here
-			}
+			scan_count++; // Increment scan counter.
 		}
 	}
 
