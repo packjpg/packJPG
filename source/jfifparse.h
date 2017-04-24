@@ -14,6 +14,7 @@
 #include "jpegtype.h"
 #include "scaninfo.h"
 #include "segment.h"
+#include <numeric>
 
 namespace jfif {
 	constexpr int pack(std::uint8_t left, std::uint8_t right) {
@@ -22,28 +23,31 @@ namespace jfif {
 
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
-		int hpos = 4; // current position in segment, start after segment header
-					  // build huffman trees & codes
-		while (hpos < segment.size()) {
-			int lval = bitops::LBITS(segment[hpos], 4);
-			int rval = bitops::RBITS(segment[hpos], 4);
-			if (lval < 0 || lval >= 2 || rval < 0 || rval >= 4) {
-				break;
+		std::size_t pos = 4; // Current position in segment, start after segment header.
+		// build huffman trees & codes
+		while (pos < segment.size()) {
+			auto byte = segment[pos];
+			int table_class = bitops::LBITS(byte, 4);
+			if (table_class != 0 && table_class != 1) {
+				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
 			}
 
-			hpos++;
+			int table_index = bitops::RBITS(byte, 4);
+
+			if (table_index > 3) {
+				throw std::runtime_error("Invalid table destination identifier " + std::to_string(table_index) + " in DHT.");
+			}
+
+			pos++;
+
+			const auto count = std::accumulate(std::begin(segment) + pos, std::begin(segment) + pos + 16, std::size_t(16));
 			// build huffman codes & trees
-			hcodes[lval][rval] = std::make_unique<HuffCodes>(&(segment[hpos + 0]), &(segment[hpos + 16]));
+			hcodes[table_class][table_index] = std::make_unique<HuffCodes>(segment, pos);
 
-			int skip = 16;
-			for (int i = 0; i < 16; i++) {
-				skip += static_cast<int>(segment[hpos + i]);
-			}
-			hpos += skip;
+			pos += count;
 		}
 
-		if (hpos != segment.size()) {
-			// if we get here, something went wrong
+		if (pos != segment.size()) {
 			throw std::range_error("size mismatch in dht marker");
 		}
 	}
