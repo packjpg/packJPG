@@ -302,9 +302,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				padbit = huffr->unpad(padbit);
 				padbit_set = padbit == 0 || padbit == 1;
 			}
-
-			scan_count++; // Increment scan counter.
 		}
+		scan_count++; // Increment scan counter.
 	}
 
 	// check for missing data
