@@ -615,8 +615,8 @@ int main(int argc, char** argv) {
 		fprintf(msgout, " --------------------------------- \n");
 		if (total > 0) {
 			fprintf(msgout, " total time       : %8.2f s\n", total);
-			int kbps = (acc_jpgsize / 1024) / total;
-			fprintf(msgout, " avg. kbyte per s : %8i KBps\n", kbps);
+			auto kbps = (acc_jpgsize / 1024) / total;
+			fprintf(msgout, " avg. kbyte per s : %8.0f KBps\n", kbps);
 		} else {
 			fprintf(msgout, " total time       : N/A s\n");
 			fprintf(msgout, " avg. kbyte per s : N/A KBps\n");

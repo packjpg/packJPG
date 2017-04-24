@@ -40,11 +40,11 @@ struct Component {
 	int nois_trs = 6; // bit pattern noise threshold
 
 
-	int quant(int bp) const {
+	int quant(std::size_t bp) const {
 		return qtable[bp];
 	}
 
-	int max_v(int bp) const {
+	int max_v(std::size_t bp) const {
 		return (quant(bp) > 0) ? (pjg::freqmax[bp] + quant(bp) - 1) / quant(bp) : 0;
 	}
 
@@ -54,7 +54,7 @@ struct Component {
 		const int absmaxp = max_v(0);
 		const int corr_f = (2 * absmaxp) + 1;
 
-		for (int dpos = colldata[0].size() - 1; dpos > 0; dpos--) {
+		for (std::size_t dpos = colldata[0].size() - 1; dpos > 0; dpos--) {
 			auto& coef = colldata[0][dpos];
 			coef -= dc_1ddct_predictor(dpos); // 1d dct
 			// fix range
@@ -145,7 +145,7 @@ private:
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_8x1(int dpos, int ix) const {
+	int idct_2d_fst_8x1(std::size_t dpos, int ix) const {
 		// calculate start index
 		const int ixy = ix << 3;
 
@@ -164,7 +164,7 @@ private:
 	}
 
 	// Inverse DCT transform using precalc tables (fast).
-	int idct_2d_fst_1x8(int dpos, int iy) const {
+	int idct_2d_fst_1x8(std::size_t dpos, int iy) const {
 		// calculate start index
 		const int ixy = iy << 3;
 
@@ -183,10 +183,10 @@ private:
 	}
 
 	// 1D DCT predictor for DC coefficients.
-	int dc_1ddct_predictor(int dpos) {
+	int dc_1ddct_predictor(std::size_t dpos) {
 		const int w = bch;
-		const int px = dpos % w;
-		const int py = dpos / w;
+		const auto px = dpos % w;
+		const auto py = dpos / w;
 
 		// Store current block DC coefficient:
 		const auto swap = colldata[0][dpos];
