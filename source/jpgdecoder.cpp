@@ -303,7 +303,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				padbit_set = padbit == 0 || padbit == 1;
 			}
 		}
-		scan_count++; // Increment scan counter.
+		scan_count++;
 	}
 
 	// check for missing data
@@ -322,18 +322,18 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 
 void JpgDecoder::check_value_range(const std::vector<Component>& components) {
 	// out of range should never happen with unmodified JPEGs
-	for (std::size_t i = 0; i < components.size(); i++) {
-		const auto& component = components[i];
-		for (std::size_t bpos = 0; bpos < component.colldata.size(); bpos++) {
-			const auto& coeffs = component.colldata[bpos];
-			const int absmax = component.max_v(bpos);
-			for (int dpos = 0; dpos < component.bc; dpos++)
-				if (std::abs(coeffs[dpos]) > absmax) {
-					throw std::range_error("value out of range error: cmp " + std::to_string(i)
-						+ ", frq " + std::to_string(bpos)
-						+ ", val " + std::to_string(coeffs[dpos])
+	for (const auto& component : components) {
+		for (std::size_t freq = 0; freq < component.colldata.size(); freq++) {
+			const auto& coefficients = component.colldata[freq];
+			const auto absmax = component.max_v(freq);
+			for (auto value : coefficients) {
+				if (std::abs(value) > absmax) {
+					throw std::range_error("value out of range error: cmp id: " + std::to_string(component.jid)
+						+ ", frq " + std::to_string(freq)
+						+ ", val " + std::to_string(value)
 						+ ", max " + std::to_string(absmax));
 				}
+			}
 		}
 	}
 }
