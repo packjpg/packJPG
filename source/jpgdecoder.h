@@ -30,17 +30,17 @@ private:
 	CodingStatus dc_prg_fs(const HuffTree& dctree, short* block);
 	// Progressive AC decoding routine.
 	int ac_prg_fs(const HuffTree& actree, short* block,
-		int* eobrun, int from, int to);
+	              int& eobrun, int from, int to);
 	// Progressive DC SA decoding routine.
 	void dc_prg_sa(short* block);
 	// Progressive AC SA decoding routine.
 	int ac_prg_sa(const HuffTree& actree, short* block,
-		int* eobrun, int from, int to);
+	              int& eobrun, int from, int to);
 	// Run of EOB SA decoding routine.
 	void eobrun_sa(short* block, int from, int to);
 
 	// Skips the eobrun, calculates next position.
-	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun);
+	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun);
 
 	void build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes,
 		std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees);

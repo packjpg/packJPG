@@ -211,7 +211,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							if (eobrun == 0) {
 								// decode block
 								eob = this->ac_prg_fs(*htrees[1][components[cmp].huffac],
-								                      block, &eobrun, scan_info.from, scan_info.to);
+								                      block, eobrun, scan_info.from, scan_info.to);
 
 								if (eobrun > 0) {
 									// check for non optimal coding
@@ -234,7 +234,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							if (eob < 0)
 								status = CodingStatus::ERROR;
 							else
-								status = this->skip_eobrun(components[cmp], rsti, &dpos, &rstw, &eobrun);
+								status = this->skip_eobrun(components[cmp], rsti, dpos, rstw, eobrun);
 
 							// proceed only if no error encountered
 							if (status == CodingStatus::OKAY)
@@ -251,7 +251,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							if (eobrun == 0) {
 								// decode block (long routine)
 								eob = this->ac_prg_sa(*htrees[1][components[cmp].huffac],
-								                      block, &eobrun, scan_info.from, scan_info.to);
+								                      block, eobrun, scan_info.from, scan_info.to);
 
 								if (eobrun > 0) {
 									// check for non optimal coding
@@ -357,19 +357,15 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 
 int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short* block) {
 	int eob = 64;
-	int bpos;
-	int hc;
-
-
 	// decode dc
 	if (this->dc_prg_fs(dctree, block) == CodingStatus::ERROR) {
 		return -1; // Return error
 	}
 
 	// decode ac
-	for (bpos = 1; bpos < 64;) {
+	for (int bpos = 1; bpos < 64;) {
 		// decode next
-		hc = actree.next_huffcode(*huffr);
+		int hc = actree.next_huffcode(*huffr);
 		// analyse code
 		if (hc > 0) {
 			std::uint8_t z = bitops::LBITS(hc, 4);
@@ -411,29 +407,24 @@ CodingStatus JpgDecoder::dc_prg_fs(const HuffTree& dctree, short* block) {
 	return CodingStatus::OKAY;
 }
 
-int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int from, int to) {
+int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int& eobrun, int from, int to) {
 	int eob = to + 1;
-	int bpos;
-	int hc;
-	int l;
-	int r;
-
-
 	// decode ac
-	for (bpos = from; bpos <= to;) {
+	for (int bpos = from; bpos <= to;) {
 		// decode next
-		hc = actree.next_huffcode(*huffr);
+		int hc = actree.next_huffcode(*huffr);
 		if (hc < 0)
 			return -1;
-		l = bitops::LBITS(hc, 4);
-		r = bitops::RBITS(hc, 4);
+		int l = bitops::LBITS(hc, 4);
+		int r = bitops::RBITS(hc, 4);
 		// analyse code
 		if ((l == 15) || (r > 0)) { // decode run/level combination
 			std::uint8_t z = l;
 			std::uint8_t s = r;
 			std::uint16_t n = huffr->read(s);
-			if ((z + bpos) > to)
-				return -1; // run is to long			
+			if ((z + bpos) > to) {
+				return -1; // run is to long
+			}
 			while (z > 0) { // write zeroes
 				block[bpos++] = 0;
 				z--;
@@ -443,7 +434,7 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int* eobrun, int
 			eob = bpos;
 			std::uint8_t s = l;
 			std::uint16_t n = huffr->read(s);
-			(*eobrun) = e_devli(s, n);
+			eobrun = e_devli(s, n);
 			// while( bpos <= to ) // fill remaining block with zeroes
 			//	block[ bpos++ ] = 0;
 			break;
@@ -460,42 +451,37 @@ void JpgDecoder::dc_prg_sa(short* block) {
 	block[0] = huffr->read_bit();
 }
 
-int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int from, int to) {
-	signed char z;
+int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int& eobrun, int from, int to) {
 	signed char v;
 	int bpos = from;
 	int eob = to;
-	int hc;
-	int l;
-	int r;
-
-
 	// decode AC succesive approximation bits
-	if ((*eobrun) == 0)
+	if (eobrun == 0) {
 		while (bpos <= to) {
 			// decode next
-			hc = actree.next_huffcode(*huffr);
+			int hc = actree.next_huffcode(*huffr);
 			if (hc < 0)
 				return -1;
-			l = bitops::LBITS(hc, 4);
-			r = bitops::RBITS(hc, 4);
+			int l = bitops::LBITS(hc, 4);
+			int r = bitops::RBITS(hc, 4);
 			// analyse code
 			if ((l == 15) || (r > 0)) { // decode run/level combination
-				z = l;
+				signed char z = l;
 				std::uint8_t s = r;
-				if (s == 0)
+				if (s == 0) {
 					v = 0;
-				else if (s == 1) {
+				} else if (s == 1) {
 					std::uint8_t n = huffr->read_bit();
 					v = (n == 0) ? -1 : 1; // fast decode vli
-				} else
+				} else {
 					return -1; // decoding error
+				}
 				// write zeroes / write correction bits
 				while (true) {
 					if (block[bpos] == 0) { // skip zeroes / write value
-						if (z > 0)
+						if (z > 0) {
 							z--;
-						else {
+						} else {
 							block[bpos++] = v;
 							break;
 						}
@@ -510,13 +496,14 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int* eobrun, int
 				eob = bpos;
 				std::uint8_t s = l;
 				std::uint16_t n = huffr->read(s);
-				(*eobrun) = e_devli(s, n);
+				eobrun = e_devli(s, n);
 				break;
 			}
 		}
+	}
 
 	// read after eob correction bits
-	if ((*eobrun) > 0) {
+	if (eobrun > 0) {
 		for (; bpos <= to; bpos++) {
 			if (block[bpos] != 0) {
 				std::int16_t n = huffr->read_bit();
@@ -539,43 +526,43 @@ void JpgDecoder::eobrun_sa(short* block, int from, int to) {
 	}
 }
 
-CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int* dpos, int* rstw, int* eobrun) {
-	if ((*eobrun) > 0) {// error check for eobrun
+CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun) {
+	if (eobrun > 0) {// error check for eobrun
 		// compare rst wait counter if needed
 		if (rsti > 0) {
-			if ((*eobrun) > (*rstw)) {
+			if (eobrun > rstw) {
 				return CodingStatus::ERROR;
 			} else {
-				(*rstw) -= (*eobrun);
+				rstw -= eobrun;
 			}
 		}
 
 		// fix for non interleaved mcu - horizontal
 		if (cmpt.bch != cmpt.nch) {
-			(*dpos) += ((((*dpos) % cmpt.bch) + (*eobrun)) /
+			dpos += (((dpos % cmpt.bch) + eobrun) /
 				cmpt.nch) * (cmpt.bch - cmpt.nch);
 		}
 
 		// fix for non interleaved mcu - vertical
 		if (cmpt.bcv != cmpt.ncv) {
-			if ((*dpos) / cmpt.bch >= cmpt.ncv)
-				(*dpos) += (cmpt.bcv - cmpt.ncv) *
-					cmpt.bch;
+			if (dpos / cmpt.bch >= cmpt.ncv) {
+				dpos += (cmpt.bcv - cmpt.ncv) * cmpt.bch;
+			}
 		}
 
 		// skip blocks 
-		(*dpos) += (*eobrun);
+		dpos += eobrun;
 
 		// reset eobrun
-		(*eobrun) = 0;
+		eobrun = 0;
 
 		// check position
-		if ((*dpos) == cmpt.bc) {
+		if (dpos == cmpt.bc) {
 			return CodingStatus::DONE;
-		} else if ((*dpos) > cmpt.bc) {
+		} else if (dpos > cmpt.bc) {
 			return CodingStatus::ERROR;
 		} else if (rsti > 0) {
-			if ((*rstw) == 0) {
+			if (rstw == 0) {
 				return CodingStatus::RESTART;
 			}
 		}
