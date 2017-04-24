@@ -6,7 +6,7 @@
 
 
 void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffdata) {
-	short block[64]; // store block for coeffs
+	std::array<std::int16_t, 64> block; // store block for coeffs
 	int scan_count = 0; // Count of scans.
 	// open huffman coded image data for input in abitreader
 	huffr = std::make_unique<BitReader>(huffdata); // bitwise reader for image data
@@ -361,7 +361,7 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 }
 
 
-int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short* block) {
+int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::array<std::int16_t, 64>& block) {
 	int eob = 64;
 	// decode dc
 	try {
@@ -379,13 +379,13 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short*
 			std::uint8_t z = bitops::LBITS(hc, 4);
 			std::uint8_t s = bitops::RBITS(hc, 4);
 			std::uint16_t n = huffr->read(s);
-			if ((z + bpos) >= 64)
+			if ((z + bpos) >= block.size()) {
 				throw std::runtime_error("Run is too long"); // run is to long
-			while (z > 0) { // write zeroes
-				block[bpos++] = 0;
-				z--;
 			}
-			block[bpos++] = static_cast<short>(devli(s, n)); // decode cvli
+			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
+			bpos += z;
+			block[bpos] = static_cast<short>(devli(s, n)); // decode cvli
+			bpos++;
 		} else if (hc == 0) { // EOB
 			eob = bpos;
 			// while( bpos < 64 ) // fill remaining block with zeroes
@@ -401,7 +401,7 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, short*
 	return eob;
 }
 
-void JpgDecoder::dc_prg_fs(const HuffTree& dctree, short* block) {
+void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block) {
 	// decode dc
 	int hc = dctree.next_huffcode(*huffr);
 	if (hc < 0) {
@@ -412,7 +412,7 @@ void JpgDecoder::dc_prg_fs(const HuffTree& dctree, short* block) {
 	block[0] = devli(s, n);
 }
 
-int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int& eobrun, int from, int to) {
+int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
 	int eob = to + 1;
 	// decode ac
 	for (int bpos = from; bpos <= to;) {
@@ -431,11 +431,10 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int& eobrun, int
 			if ((z + bpos) > to) {
 				throw std::runtime_error("Run is too long.");
 			}
-			while (z > 0) { // write zeroes
-				block[bpos++] = 0;
-				z--;
-			}
-			block[bpos++] = static_cast<short>(devli(s, n)); // decode cvli
+			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
+			bpos += z;
+			block[bpos] = static_cast<short>(devli(s, n)); // decode cvli
+			bpos++;
 		} else { // decode eobrun
 			eob = bpos;
 			std::uint8_t s = l;
@@ -452,12 +451,12 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, short* block, int& eobrun, int
 	return eob;
 }
 
-void JpgDecoder::dc_prg_sa(short* block) {
+void JpgDecoder::dc_prg_sa(std::array<std::int16_t, 64>& block) {
 	// decode next bit of dc coefficient
 	block[0] = huffr->read_bit();
 }
 
-int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int& eobrun, int from, int to) {
+int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
 	signed char v;
 	int bpos = from;
 	int eob = to;
@@ -523,7 +522,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, short* block, int& eobrun, int
 	return eob;
 }
 
-void JpgDecoder::eobrun_sa(short* block, int from, int to) {
+void JpgDecoder::eobrun_sa(std::array<std::int16_t, 64>& block, int from, int to) {
 	// fast eobrun decoding routine for succesive approximation
 	for (int bpos = from; bpos <= to; bpos++) {
 		if (block[bpos] != 0) {

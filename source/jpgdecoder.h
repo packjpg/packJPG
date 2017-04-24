@@ -12,6 +12,7 @@
 #include "segment.h"
 #include "frameinfo.h"
 #include <memory>
+#include <algorithm>
 
 class JpgDecoder {
 public:
@@ -25,19 +26,18 @@ public:
 
 private:
 	// Sequential block decoding routine.
-	int block_seq(const HuffTree& dctree, const HuffTree& actree, short* block);
+	int block_seq(const HuffTree& dctree, const HuffTree& actree, std::array<std::int16_t, 64>& block);
 	// Progressive DC decoding routine.
-	void dc_prg_fs(const HuffTree& dctree, short* block);
+	void dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block);
 	// Progressive AC decoding routine.
-	int ac_prg_fs(const HuffTree& actree, short* block,
+	int ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& block,
 	              int& eobrun, int from, int to);
 	// Progressive DC SA decoding routine.
-	void dc_prg_sa(short* block);
+	void dc_prg_sa(std::array<std::int16_t, 64>& block);
 	// Progressive AC SA decoding routine.
-	int ac_prg_sa(const HuffTree& actree, short* block,
-	              int& eobrun, int from, int to);
+	int ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to);
 	// Run of EOB SA decoding routine.
-	void eobrun_sa(short* block, int from, int to);
+	void eobrun_sa(std::array<std::int16_t, 64>& block, int from, int to);
 
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun);
