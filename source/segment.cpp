@@ -6,8 +6,7 @@ Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset
 	if (offset >= headerData.size() - 1) {
 		return; // If there aren't at least two bytes to read the segment type, nothing to read.
 	}
-	header_pos_ = offset;
-	auto type = Marker(headerData[header_pos_ + 1]);
+	auto type = Marker(headerData[offset + 1]);
 
 	// Handle invalid enums:
 	switch (type) {
@@ -174,11 +173,11 @@ Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset
 	// Read in the length of the data if the marker has a length field:
 	int size; // The number of bytes in the segment.
 	if (has_length(type_)) {
-		size = 2 + (int(headerData[header_pos_ + 2]) << 8) + int(headerData[header_pos_ + 3]);
+		size = 2 + (int(headerData[offset + 2]) << 8) + int(headerData[offset + 3]);
 	} else {
 		size = 2;
 	}
-	const auto start = std::next(std::begin(headerData), header_pos_);
+	const auto start = std::next(std::begin(headerData), offset);
 	const auto end = std::next(start, size);
 	data_ = std::vector<std::uint8_t>(start, end);
 
@@ -192,20 +191,8 @@ std::size_t Segment::get_size() const {
 	return data_.size();
 }
 
-std::size_t Segment::get_header_offset() const {
-	return header_pos_;
-}
-
 std::vector<std::uint8_t> Segment::get_data() const {
 	return data_;
-}
-
-void Segment::set_data(std::vector<std::uint8_t>& data) {
-	if (data.size() == data_.size()
-		&& data[0] == data_[0]
-		&& data[1] == data_[1]) {
-		data_ = data;
-	}
 }
 
 bool Segment::has_length(Marker type) {

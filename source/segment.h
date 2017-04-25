@@ -91,23 +91,11 @@ public:
 	Returns -1 if the segment is invalid.
 	*/
 	std::size_t get_size() const;
-	/* Returns the index of the start of the segment data in the header data.
-	The start of the segment is the index of the 0xFF that precedes the segment marker type.
-	Returns -1 if the segment is invalid.
-	*/
-	std::size_t get_header_offset() const;
 
 	/*
 	Returns a copy of the segment's data, including the marker (and length field, where applicable).
 	*/
 	std::vector<std::uint8_t> get_data() const;
-
-	/*
-	Attempts to set the segment's data as the given input. This will fail if the size
-	of the input vector is different than the current size of the segment or if the marker
-	(i.e. the first two bytes) is different.
-	*/
-	void set_data(std::vector<std::uint8_t>& data);
 
 	/*
 	 * Optimizes the segment (if it is a DHT or DQT segment) for PJG compression.
@@ -160,7 +148,6 @@ private:
 	void undo_dqt_optimization();
 
 	Marker type_ = Marker::kINVALID; // The type of the segment.
-	std::size_t header_pos_ = 0; // The index of the header data where the segment starts.
 	std::vector<std::uint8_t> data_; // The bytes in the segment, including the segment type and length fields where applicable.
 };
 
