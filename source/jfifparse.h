@@ -383,40 +383,61 @@ namespace jfif {
 
 	// Helper function that parses SOS segments.
 	inline ScanInfo get_scan_info(FrameInfo& frame_info, const std::vector<std::uint8_t>& segment) {
-		int hpos = 4; // current position in segment, start after segment header
+		auto reader = std::make_unique<MemoryReader>(segment);
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
+		reader->read(skip, 4);
 		ScanInfo scan_info;
-		scan_info.cmpc = segment[hpos];
-		if (scan_info.cmpc > frame_info.components.size()) {
-			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
+		try {
+			scan_info.cmpc = reader->read_byte();
+			if (scan_info.cmpc > frame_info.components.size()) {
+				throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
+			}
+		} catch (const std::runtime_error&) {
+			throw;
 		}
-		hpos++;
 		for (int i = 0; i < scan_info.cmpc; i++) {
+			int jpeg_id;
+			try {
+				jpeg_id = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 			int cmp;
-			for (cmp = 0; (segment[hpos] != frame_info.components[cmp].jid) && (cmp < frame_info.components.size()); cmp++);
+			for (cmp = 0; (jpeg_id != frame_info.components[cmp].jid) && (cmp < frame_info.components.size()); cmp++);
 			if (cmp == frame_info.components.size()) {
 				throw std::range_error("component id mismatch in start-of-scan");
 			}
-			auto& cmpt = frame_info.components[cmp];
+			auto& component = frame_info.components[cmp];
 			scan_info.cmp[i] = cmp;
-			cmpt.huffdc = bitops::LBITS(segment[hpos + 1], 4);
-			cmpt.huffac = bitops::RBITS(segment[hpos + 1], 4);
-			if ((cmpt.huffdc < 0) || (cmpt.huffdc >= 4) ||
-				(cmpt.huffac < 0) || (cmpt.huffac >= 4)) {
+			std::uint8_t byte;
+			try {
+				byte = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+			component.huffdc = bitops::LBITS(byte, 4);
+			component.huffac = bitops::RBITS(byte, 4);
+			if (component.huffdc > 3 || component.huffac > 3) {
 				throw std::range_error("huffman table number mismatch");
 			}
-			hpos += 2;
 		}
-		scan_info.from = segment[hpos + 0];
-		scan_info.to = segment[hpos + 1];
-		scan_info.sah = bitops::LBITS(segment[hpos + 2], 4);
-		scan_info.sal = bitops::RBITS(segment[hpos + 2], 4);
-		// check for errors
-		if ((scan_info.from > scan_info.to) || (scan_info.from > 63) || (scan_info.to > 63)) {
-			throw std::range_error("spectral selection parameter out of range");
+		try {
+			scan_info.from = reader->read_byte();
+			scan_info.to = reader->read_byte();
+			if (scan_info.from > scan_info.to || scan_info.from > 63 || scan_info.to > 63) {
+				throw std::range_error("spectral selection parameter out of range");
+			}
+
+			const auto byte = reader->read_byte();
+			scan_info.sah = bitops::LBITS(byte, 4);
+			scan_info.sal = bitops::RBITS(byte, 4);
+			if (scan_info.sah >= 12 || scan_info.sal >= 12) {
+				throw std::range_error("successive approximation parameter out of range");
+			}
+		} catch (const std::runtime_error&) {
+			throw;
 		}
-		if ((scan_info.sah >= 12) || (scan_info.sal >= 12)) {
-			throw std::range_error("successive approximation parameter out of range");
-		}
+
 		return scan_info;
 	}
 }
