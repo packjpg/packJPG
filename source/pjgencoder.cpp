@@ -19,7 +19,9 @@ PjgEncoder::PjgEncoder(Writer& encoding_output) {
 
 void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {
 	// optimize header for compression
-	this->optimize_header(segments);
+	for (auto& segment : segments) {
+		segment.optimize();
+	}
 	// set padbit to 1 if previously unset:
 	if (padbit == -1) {
 		padbit = 1;
@@ -526,75 +528,4 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& cmpt
 	}
 	);
 	return index;
-}
-
-void PjgEncoder::optimize_dqt(Segment& segment) {
-	auto data = segment.get_data();
-	int hpos = 4; // Skip marker and segment length data.
-	while (hpos < data.size()) {
-		const int i = bitops::LBITS(data[hpos], 4);
-		hpos++;
-		// table found
-		if (i == 1) { // get out for 16 bit precision
-			hpos += 128;
-			continue;
-		}
-		// do diff coding for 8 bit precision
-		for (int sub_pos = 63; sub_pos > 0; sub_pos--) {
-			data[hpos + sub_pos] -= data[hpos + sub_pos - 1];
-		}
-
-		hpos += 64;
-	}
-	segment.set_data(data);
-}
-
-void PjgEncoder::optimize_dht(Segment& segment) {
-	auto data = segment.get_data();
-	int hpos = 4; // Skip marker and segment length data.
-	while (hpos < data.size()) {
-		hpos++;
-		// table found - compare with each of the four standard tables		
-		for (int i = 0; i < 4; i++) {
-			int sub_pos;
-			for (sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				if (data[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
-					break;
-				}
-			}
-			// check if comparison ok
-			if (sub_pos != pjg::std_huff_lengths[i]) {
-				continue;
-			}
-
-			// if we get here, the table matches the standard table
-			// number 'i', so it can be replaced
-			data[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
-			data[hpos + 1] = i;
-			for (sub_pos = 2; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				data[hpos + sub_pos] = 0x00;
-			}
-			// everything done here, so leave
-			break;
-		}
-
-		int skip = 16; // Num bytes to skip.
-		for (int i = 0; i < 16; i++) {
-			skip += int(data[hpos + i]);
-		}
-		hpos += skip;
-	}
-	segment.set_data(data);
-}
-
-void PjgEncoder::optimize_header(std::vector<Segment>& segments) {
-	for (auto& segment : segments) {
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
-			this->optimize_dht(segment);
-		}
-		else if (type == Marker::kDQT) {
-			this->optimize_dqt(segment);
-		}
-	}
 }

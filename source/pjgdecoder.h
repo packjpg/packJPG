@@ -25,15 +25,6 @@ public:
 	std::uint8_t get_padbit();
 	std::vector<std::uint8_t> get_rst_err();
 private:
-	// Undoes DHT segment optimizations.
-	void deoptimize_dht(Segment& segment);
-
-	// Undoes DQT segment optimizations.
-	void deoptimize_dqt(Segment& segment);
-
-	// Undoes DHT and DQT (header) optimizations.
-	void deoptimize_header(std::vector<Segment>& segments);
-
 	// Decodes frequency scan order.
 	std::array<std::uint8_t, 64> zstscan();
 

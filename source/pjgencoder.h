@@ -16,15 +16,6 @@ public:
 	// Encodes image data as pjg.
 	void encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata);
 private:
-	// Optimizes DHT segments for compression.
-	void optimize_dht(Segment& segment);
-
-	// Optimizes DQT segments for compression.
-	void optimize_dqt(Segment& segment);
-
-	// Optimizes JFIF header for compression.
-	void optimize_header(std::vector<Segment>& segments);
-
 	// Encodes frequency scanorder.
 	std::array<std::uint8_t, 64> zstscan(const Component& cmp);
 

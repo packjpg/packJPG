@@ -110,6 +110,16 @@ public:
 	void set_data(std::vector<std::uint8_t>& data);
 
 	/*
+	 * Optimizes the segment (if it is a DHT or DQT segment) for PJG compression.
+	 */
+	void optimize();
+	/*
+	 * Un-optimizes the segment (if it is a DHT or DQT segment), such that the segment has data == unoptimize(optimize(data)).
+	 * Running undo_optimize on a non-optimized segment has undefined (but likely not good) effects.
+	 */
+	void undo_optimize();
+
+	/*
 	Returns an in-order vector of the segments contained in the header data,
 	starting at the given offset in the data.
 	*/
@@ -139,6 +149,15 @@ private:
 	Returns whether the given marker type has a length field associated with it.
 	*/
 	static bool has_length(Marker type);
+
+	void optimize_dqt();
+	void optimize_dht();
+
+	// Undoes DHT segment optimizations.
+	void undo_dht_optimization();
+
+	// Undoes DQT segment optimizations.
+	void undo_dqt_optimization();
 
 	Marker type_ = Marker::kINVALID; // The type of the segment.
 	std::size_t header_pos_ = 0; // The index of the header data where the segment starts.

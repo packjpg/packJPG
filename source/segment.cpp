@@ -1,4 +1,6 @@
 #include "segment.h"
+#include "pjpgtbl.h"
+#include "bitops.h"
 
 Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset) {
 	if (offset >= headerData.size() - 1) {
@@ -224,5 +226,116 @@ bool Segment::has_length(Marker type) {
 	default:
 		return true;
 
+	}
+}
+
+void Segment::optimize_dqt() {
+	std::size_t hpos = 4; // Skip marker and segment length data.
+	while (hpos < data_.size()) {
+		const int i = bitops::LBITS(data_[hpos], 4);
+		hpos++;
+		// table found
+		if (i == 1) { // get out for 16 bit precision
+			hpos += 128;
+			continue;
+		}
+		// do diff coding for 8 bit precision
+		for (int sub_pos = 63; sub_pos > 0; sub_pos--) {
+			data_[hpos + sub_pos] -= data_[hpos + sub_pos - 1];
+		}
+
+		hpos += 64;
+	}
+}
+
+void Segment::optimize_dht() {
+	std::size_t hpos = 4; // Skip marker and segment length data.
+	while (hpos < data_.size()) {
+		hpos++;
+		// table found - compare with each of the four standard tables		
+		for (int i = 0; i < 4; i++) {
+			int sub_pos;
+			for (sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
+				if (data_[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
+					break;
+				}
+			}
+			// check if comparison ok
+			if (sub_pos != pjg::std_huff_lengths[i]) {
+				continue;
+			}
+
+			// if we get here, the table matches the standard table
+			// number 'i', so it can be replaced
+			data_[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
+			data_[hpos + 1] = i;
+			for (sub_pos = 2; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
+				data_[hpos + sub_pos] = 0x00;
+			}
+			// everything done here, so leave
+			break;
+		}
+
+		int skip = 16; // Num bytes to skip.
+		for (int i = 0; i < 16; i++) {
+			skip += int(data_[hpos + i]);
+		}
+		hpos += skip;
+	}
+}
+
+void Segment::optimize() {
+	if (type_ == Marker::kDHT) {
+		this->optimize_dht();
+	} else if (type_ == Marker::kDQT) {
+		this->optimize_dqt();
+	}
+}
+
+void Segment::undo_dqt_optimization() {
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data_.size()) {
+		const int i = bitops::LBITS(data_[hpos], 4);
+		hpos++;
+		// table found
+		if (i == 1) { // get out for 16 bit precision
+			hpos += 128;
+			continue;
+		}
+		// undo diff coding for 8 bit precision
+		for (int sub_pos = 1; sub_pos < 64; sub_pos++) {
+			data_[hpos + sub_pos] += data_[hpos + sub_pos - 1];
+		}
+
+		hpos += 64;
+	}
+}
+
+void Segment::undo_dht_optimization() {
+	int hpos = 4; // Skip marker and segment length data.
+	while (hpos < data_.size()) {
+		hpos++;
+		// table found - check if modified
+		if (data_[hpos] > 2) {
+			// reinsert the standard table
+			const int i = data_[hpos + 1];
+			for (int sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
+				data_[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
+			}
+		}
+
+		int skip = 16; // Num bytes to skip.
+		for (int i = 0; i < 16; i++) {
+			skip += int(data_[hpos + i]);
+		}
+		hpos += skip;
+	}
+}
+
+void Segment::undo_optimize() {
+	if (type_ == Marker::kDHT) {
+		this->undo_dht_optimization();
+	} else if (type_ == Marker::kDQT) {
+		this->undo_dqt_optimization();
 	}
 }

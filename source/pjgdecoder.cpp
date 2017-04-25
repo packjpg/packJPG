@@ -48,7 +48,9 @@ void PjgDecoder::decode() {
 	}
 
 	// undo header optimizations
-	this->deoptimize_header(segments_);
+	for (auto& segment : segments_) {
+		segment.undo_optimize();
+	}
 	// parse header for image-info
 	try {
 		frame_info_ = jfif::get_frame_info(segments_);
@@ -529,60 +531,4 @@ std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	std::uint8_t bit = decoder_->decode(*model); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
-}
-
-void PjgDecoder::deoptimize_dqt(Segment& segment) {
-	auto data = segment.get_data();
-	int hpos = 4; // Skip marker and segment length data.
-	while (hpos < data.size()) {
-		const int i = bitops::LBITS(data[hpos], 4);
-		hpos++;
-		// table found
-		if (i == 1) { // get out for 16 bit precision
-			hpos += 128;
-			continue;
-		}
-		// undo diff coding for 8 bit precision
-		for (int sub_pos = 1; sub_pos < 64; sub_pos++) {
-			data[hpos + sub_pos] += data[hpos + sub_pos - 1];
-		}
-
-		hpos += 64;
-	}
-	segment.set_data(data);
-}
-
-void PjgDecoder::deoptimize_dht(Segment& segment) {
-	auto data = segment.get_data();
-	int hpos = 4; // Skip marker and segment length data.
-	while (hpos < data.size()) {
-		hpos++;
-		// table found - check if modified
-		if (data[hpos] > 2) {
-			// reinsert the standard table
-			const int i = data[hpos + 1];
-			for (int sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				data[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
-			}
-		}
-
-		int skip = 16; // Num bytes to skip.
-		for (int i = 0; i < 16; i++) {
-			skip += int(data[hpos + i]);
-		}
-		hpos += skip;
-	}
-	segment.set_data(data);
-}
-
-void PjgDecoder::deoptimize_header(std::vector<Segment>& segments) {
-	for (auto& segment : segments) {
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
-			this->deoptimize_dht(segment);
-		}
-		else if (type == Marker::kDQT) {
-			this->deoptimize_dqt(segment);
-		}
-	}
 }
