@@ -24,6 +24,7 @@ public:
 
 private:
 	void read_sos(Writer& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err);
+	std::vector<std::uint8_t> read_garbage_data();
 
 	Reader& jpg_input_reader_;
 

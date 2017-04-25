@@ -138,7 +138,7 @@ private:
 	/*
 	Returns whether the given marker type has a length field associated with it.
 	*/
-	bool has_length(Marker type) const;
+	static bool has_length(Marker type);
 
 	Marker type_ = Marker::kINVALID; // The type of the segment.
 	std::size_t header_pos_ = 0; // The index of the header data where the segment starts.

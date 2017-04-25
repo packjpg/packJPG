@@ -206,7 +206,7 @@ void Segment::set_data(std::vector<std::uint8_t>& data) {
 	}
 }
 
-bool Segment::has_length(Marker type) const {
+bool Segment::has_length(Marker type) {
 	switch (type) {
 	case Marker::kRST0:
 	case Marker::kRST1:

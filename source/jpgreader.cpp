@@ -7,6 +7,20 @@
 
 JpgReader::JpgReader(Reader& jpg_input_reader) : jpg_input_reader_(jpg_input_reader) {}
 
+std::vector<std::uint8_t> JpgReader::read_garbage_data() {
+	if (jpg_input_reader_.end_of_reader()) {
+		return std::vector<std::uint8_t>();
+	}
+
+	const auto garbage_amount = jpg_input_reader_.get_size() - jpg_input_reader_.num_bytes_read();
+	std::vector<std::uint8_t> garbage(garbage_amount);
+	if (jpg_input_reader_.read(garbage, garbage_amount) != garbage_amount) {
+		throw std::runtime_error("Unable to read in garbage data.");
+	}
+
+	return garbage;
+}
+
 void JpgReader::read() {
 	scan_count_ = 0;
 	// start headerwriter
@@ -71,20 +85,10 @@ void JpgReader::read() {
 	huffman_data_ = huffman_writer->get_data();
 
 	// store garbage after EOI if needed
-	std::uint8_t tmp;
-	bool garbage_avail = jpg_input_reader_.read_byte(&tmp);
-	if (garbage_avail) {
-
-		auto grbgw = std::make_unique<MemoryWriter>();
-		grbgw->write_byte(tmp);
-		while (true) {
-			std::size_t len = jpg_input_reader_.read(segment, segment.capacity());
-			if (len == 0) {
-				break;
-			}
-			grbgw->write(segment.data(), len);
-		}
-		garbage_data_ = grbgw->get_data();
+	try {
+		garbage_data_ = read_garbage_data();
+	} catch (const std::runtime_error&) {
+		throw;
 	}
 
 	// parse header for image info
