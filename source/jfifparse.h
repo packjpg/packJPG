@@ -25,7 +25,7 @@ namespace jfif {
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4);
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
 		reader->read(skip, 4);
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
@@ -75,7 +75,7 @@ namespace jfif {
 	 */
 	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const std::vector<std::uint8_t>& segment) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4);
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
 		reader->read(skip, 4);
 		while (!reader->end_of_reader()) {
 			std::uint8_t byte;
@@ -106,8 +106,7 @@ namespace jfif {
 						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
-			}
-			else { // 16-bit quantization table element precision.
+			} else { // 16-bit quantization table element precision.
 				for (std::size_t i = 0; i < qtable.size(); i++) {
 					std::uint8_t first;
 					std::uint8_t second;
@@ -130,13 +129,26 @@ namespace jfif {
 
 	// Helper function that parses DRI segments.
 	inline int parse_dri(const std::vector<std::uint8_t>& segment) {
-		int hpos = 4; // current position in segment, start after segment header
-		return pack(segment[hpos], segment[hpos + 1]);
+		auto reader = std::make_unique<MemoryReader>(segment);
+		if (reader->get_size() < 6) {
+			throw std::runtime_error("Insufficient bytes in DRI segment.");
+		}
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
+		reader->read(skip, 4);
+		try {
+			const auto first = reader->read_byte();
+			const auto second = reader->read_byte();
+			return pack(first, second);
+		} catch (const std::runtime_error&) {
+			throw;
+		}
 	}
 
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
 	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
-		int hpos = 4; // current position in segment, start after segment header
+		auto reader = std::make_unique<MemoryReader>(segment);
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
+		reader->read(skip, 4);
 		auto frame_info = std::make_unique<FrameInfo>();
 		// set JPEG coding type
 		if (type == Marker::kSOF2) {
@@ -144,41 +156,71 @@ namespace jfif {
 		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
 			frame_info->coding_process = JpegType::SEQUENTIAL;
 		} else {
-			throw std::runtime_error("Unsupported JPG coding type."); // TODO: switch case for each SOF type.
+			throw std::runtime_error("Unsupported JPG coding type.");
 		}
 
 		// check data precision, only 8 bit is allowed
-		int precision = segment[hpos];
+		int precision;
+		try {
+			precision = reader->read_byte();
+		} catch (std::runtime_error&) {
+			throw;
+		}
 		if (precision != 8) {
 			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
 		}
 
-		// image size, height & component count
-		frame_info->image_height = jfif::pack(segment[hpos + 1], segment[hpos + 2]);
-		if (frame_info->image_height == 0) {
-			throw std::runtime_error("Image height is zero in the frame header.");
+		try {
+			const auto first = reader->read_byte();
+			const auto second = reader->read_byte();
+			frame_info->image_height = jfif::pack(first, second);
+			if (frame_info->image_height == 0) {
+				throw std::runtime_error("Image height is zero in the frame header.");
+			}
+		} catch (const std::runtime_error&) {
+			throw;
 		}
 
-		frame_info->image_width = jfif::pack(segment[hpos + 3], segment[hpos + 4]);
-		if (frame_info->image_width == 0) {
-			throw std::runtime_error("Image width is zero in the frame header.");
+		try {
+			const auto first = reader->read_byte();
+			const auto second = reader->read_byte();
+			frame_info->image_width = jfif::pack(first, second);
+			if (frame_info->image_width == 0) {
+				throw std::runtime_error("Image width is zero in the frame header.");
+			}
+		} catch (const std::runtime_error&) {
+			throw;
 		}
 
-		int component_count = segment[hpos + 5];
-		if (component_count == 0) {
-			throw std::runtime_error("Zero component count in the frame header.");
-		} else if (component_count > 4) {
-			throw std::runtime_error("image has " + std::to_string(component_count) + " components, max 4 are supported");
+		int component_count;
+		try {
+			component_count = reader->read_byte();
+			if (component_count == 0) {
+				throw std::runtime_error("Zero component count in the frame header.");
+			} else if (component_count > 4) {
+				throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
+			}
+		} catch (const std::runtime_error&) {
+			throw;
 		}
 
 		frame_info->components.resize(component_count);
 
-		hpos += 6;
 		// components contained in image
 		for (auto& component : frame_info->components) {
-			component.jid = segment[hpos];
+			try {
+				component.jid = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 
-			std::uint8_t byte = segment[hpos + 1];
+			std::uint8_t byte;
+			try {
+				byte = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+
 			component.sfv = bitops::LBITS(byte, 4);
 			if (component.sfv == 0 || component.sfv > 4) {
 				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
@@ -189,16 +231,24 @@ namespace jfif {
 				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
 			}
 
-			const int quantization_table_index = segment[hpos + 2];
-			if (quantization_table_index < 0 || quantization_table_index > 3) {
-				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+			std::size_t quantization_table_index;
+			try {
+				quantization_table_index = reader->read_byte();
+				if (quantization_table_index > 3) {
+					throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+				}
+			} catch (const std::runtime_error&) {
+				throw;
 			}
 
 			component.qtable = qtables[quantization_table_index];
-			hpos += 3;
-
+			
 			component.mbs = component.sfv * component.sfh;
 
+		}
+
+		if (!reader->end_of_reader()) {
+			throw std::runtime_error("Too many bytes in SOF segment.");
 		}
 
 		int h_max = -1; // max horizontal sample factor
