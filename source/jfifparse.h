@@ -144,6 +144,48 @@ namespace jfif {
 		}
 	}
 
+	inline void parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components) {
+		for (auto& component : components) {
+			try {
+				component.jid = reader.read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+
+			std::uint8_t byte;
+			try {
+				byte = reader.read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+
+			component.sfv = bitops::LBITS(byte, 4);
+			if (component.sfv == 0 || component.sfv > 4) {
+				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
+			}
+
+			component.sfh = bitops::RBITS(byte, 4);
+			if (component.sfh == 0 || component.sfh > 4) {
+				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
+			}
+
+			int quantization_table_index;
+			try {
+				quantization_table_index = reader.read_byte();
+				if (quantization_table_index > 3) {
+					throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+				}
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+
+			component.qtable = qtables[quantization_table_index];
+
+			component.mbs = component.sfv * component.sfh;
+
+		}
+	}
+
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
 	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
 		auto reader = std::make_unique<MemoryReader>(segment);
@@ -206,45 +248,10 @@ namespace jfif {
 
 		frame_info->components.resize(component_count);
 
-		// components contained in image
-		for (auto& component : frame_info->components) {
-			try {
-				component.jid = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-
-			std::uint8_t byte;
-			try {
-				byte = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-
-			component.sfv = bitops::LBITS(byte, 4);
-			if (component.sfv == 0 || component.sfv > 4) {
-				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
-			}
-
-			component.sfh = bitops::RBITS(byte, 4);
-			if (component.sfh == 0 || component.sfh > 4) {
-				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
-			}
-
-			std::size_t quantization_table_index;
-			try {
-				quantization_table_index = reader->read_byte();
-				if (quantization_table_index > 3) {
-					throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
-				}
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-
-			component.qtable = qtables[quantization_table_index];
-			
-			component.mbs = component.sfv * component.sfh;
-
+		try {
+			parse_sof_component_info(qtables, *reader, frame_info->components);
+		} catch (const std::runtime_error&) {
+			throw;
 		}
 
 		if (!reader->end_of_reader()) {
