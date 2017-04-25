@@ -9,16 +9,17 @@ struct HuffCodes {
 	std::array<std::uint16_t, 256> clen{};
 	std::uint16_t max_eobrun = 0;
 
-	// Constructs Huffman codes from DHT data.
-	HuffCodes(const std::uint8_t* dht_clen, const std::uint8_t* dht_cval) {
+	HuffCodes(const std::vector<std::uint8_t>& data, std::size_t clen_index) {
 		int k = 0;
 		int code = 0;
 
+		const auto cval_index = clen_index + 16;
+
 		// symbol-value of code is its position in the table
 		for (int i = 0; i < 16; i++) {
-			for (int j = 0; j < static_cast<int>(dht_clen[i]); j++) {
-				clen[static_cast<int>(dht_cval[k])] = 1 + i;
-				cval[static_cast<int>(dht_cval[k])] = code;
+			for (int j = 0; j < static_cast<int>(data[clen_index + i]); j++) {
+				clen[static_cast<int>(data[cval_index + k])] = 1 + i;
+				cval[static_cast<int>(data[cval_index + k])] = code;
 
 				k++;
 				code++;
@@ -35,17 +36,15 @@ struct HuffCodes {
 		}
 	}
 
-	HuffCodes(const std::vector<std::uint8_t>& data, std::size_t clen_index) {
+	HuffCodes(const std::vector<std::uint8_t>& counts, const std::vector<std::uint8_t>& values) {
 		int k = 0;
 		int code = 0;
 
-		const auto cval_index = clen_index + 16;
-
 		// symbol-value of code is its position in the table
 		for (int i = 0; i < 16; i++) {
-			for (int j = 0; j < static_cast<int>(data[clen_index + i]); j++) {
-				clen[static_cast<int>(data[cval_index + k])] = 1 + i;
-				cval[static_cast<int>(data[cval_index + k])] = code;
+			for (int j = 0; j < static_cast<int>(counts[i]); j++) {
+				clen[static_cast<int>(values[k])] = 1 + i;
+				cval[static_cast<int>(values[k])] = code;
 
 				k++;
 				code++;

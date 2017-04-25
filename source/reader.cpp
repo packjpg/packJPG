@@ -107,6 +107,7 @@ std::size_t MemoryReader::read(std::vector<std::uint8_t>& into, std::size_t n, s
 	const auto write_start = std::next(std::begin(into), offset);
 	std::copy(cbyte_, end, write_start);
 	cbyte_ = end;
+	eof_ = cbyte_ == std::end(data_);
 	return num_to_read;
 }
 

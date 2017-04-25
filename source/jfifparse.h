@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -12,9 +13,9 @@
 #include "bitops.h"
 #include "huffcodes.h"
 #include "jpegtype.h"
+#include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"
-#include <numeric>
 
 namespace jfif {
 	constexpr int pack(std::uint8_t left, std::uint8_t right) {
@@ -23,10 +24,17 @@ namespace jfif {
 
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
-		std::size_t pos = 4; // Current position in segment, start after segment header.
+		auto reader = std::make_unique<MemoryReader>(segment);
+		std::vector<std::uint8_t> skip(4);
+		reader->read(skip, 4);
 		// build huffman trees & codes
-		while (pos < segment.size()) {
-			auto byte = segment[pos];
+		while (!reader->end_of_reader()) {
+			std::uint8_t byte;
+			try {
+				byte = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 			int table_class = bitops::LBITS(byte, 4);
 			if (table_class != 0 && table_class != 1) {
 				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
@@ -38,17 +46,26 @@ namespace jfif {
 				throw std::runtime_error("Invalid table destination identifier " + std::to_string(table_index) + " in DHT.");
 			}
 
-			pos++;
+			std::vector<std::uint8_t> counts(16);
+			const auto counts_num_read = reader->read(counts, counts.size());
+			if (counts_num_read != 16) {
+				throw std::runtime_error("Insufficient bytes to read counts in DHT segment.");
+			}
 
-			const auto count = std::accumulate(std::begin(segment) + pos, std::begin(segment) + pos + 16, std::size_t(16));
-			// build huffman codes & trees
-			hcodes[table_class][table_index] = std::make_unique<HuffCodes>(segment, pos);
+			const auto size = std::accumulate(std::begin(counts), std::end(counts), std::size_t(0));
+			if (size == 0) {
+				throw std::runtime_error("Table of zero length in DHT segment.");
+			} else if (size > 256) {
+				throw std::runtime_error("Overly long table in DHT segment.");
+			}
 
-			pos += count;
-		}
+			std::vector<std::uint8_t> values(size);
+			const auto length_read = reader->read(values, values.size());
+			if (length_read != size) {
+				throw std::runtime_error("Insufficient bytes to read table values in DHT segment.");
+			}
 
-		if (pos != segment.size()) {
-			throw std::range_error("size mismatch in dht marker");
+			hcodes[table_class][table_index] = std::make_unique<HuffCodes>(counts, values);
 		}
 	}
 
@@ -57,11 +74,18 @@ namespace jfif {
 	 * as one of the new quantization tables is overwritten. Throws a runtime_error exception if there is a problem parsing the segment.
 	 */
 	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const std::vector<std::uint8_t>& segment) {
-		std::size_t segment_pos = 4; // current position in segment, start after segment header
-		while (segment_pos < segment.size()) {
-			const std::uint8_t byte = segment[segment_pos];
+		auto reader = std::make_unique<MemoryReader>(segment);
+		std::vector<std::uint8_t> skip(4);
+		reader->read(skip, 4);
+		while (!reader->end_of_reader()) {
+			std::uint8_t byte;
+			try {
+				byte = reader->read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 			const int precision = bitops::LBITS(byte, 4);
-			if (precision < 0 || precision > 1) {
+			if (precision != 0 && precision != 1) {
 				throw std::runtime_error("Invalid quantization table element precision: " + std::to_string(precision));
 			}
 
@@ -69,33 +93,38 @@ namespace jfif {
 			if (index < 0 || index > 3) {
 				throw std::runtime_error("Invalid quantization table destination identifier: " + std::to_string(index));
 			}
-			segment_pos++;
 
 			std::array<std::uint16_t, 64> qtable{};
 			if (precision == 0) { // 8-bit quantization table element precision.
 				for (std::size_t i = 0; i < qtable.size(); i++) {
-					qtable[i] = static_cast<std::uint16_t>(segment[segment_pos + i]);
+					try {
+						qtable[i] = reader->read_byte();
+					} catch (const std::runtime_error&) {
+						throw;
+					}
 					if (qtable[i] == 0) {
 						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
-				segment_pos += 64;
 			}
 			else { // 16-bit quantization table element precision.
 				for (std::size_t i = 0; i < qtable.size(); i++) {
-					qtable[i] = pack(segment[segment_pos + (2 * i)], segment[segment_pos + (2 * i) + 1]);
+					std::uint8_t first;
+					std::uint8_t second;
+					try {
+						first = reader->read_byte();
+						second = reader->read_byte();
+					} catch (const std::runtime_error&) {
+						throw;
+					}
+
+					qtable[i] = pack(first, second);
 					if (qtable[i] == 0) {
 						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
-				segment_pos += 128;
 			}
 			qtables[index] = qtable;
-		}
-
-		if (segment_pos != segment.size()) {
-			// if we get here, something went wrong
-			throw std::runtime_error("Invalid length in DQT segment.");
 		}
 	}
 
