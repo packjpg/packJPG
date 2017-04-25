@@ -10,85 +10,65 @@ JpgReader::JpgReader(Reader& jpg_input_reader) : jpg_input_reader_(jpg_input_rea
 void JpgReader::read() {
 	scan_count_ = 0;
 	// start headerwriter
-	auto hdrw = std::make_unique<MemoryWriter>();
+	auto header_writer = std::make_unique<MemoryWriter>();
 
 	// start huffman writer
-	auto huffw = std::make_unique<MemoryWriter>();
+	auto huffman_writer = std::make_unique<MemoryWriter>();
 
 	// alloc memory for segment data first
 	std::vector<std::uint8_t> segment(1024);
 
-	// JPEG reader loop
 	Marker type = Marker::kINVALID;
 	while (true) {
 		if (type == Marker::kSOS) { // if last marker was sos
 			try {
-				read_sos(*huffw, segment, rst_err_);
+				read_sos(*huffman_writer, segment, rst_err_);
 			} catch (const std::runtime_error&) {
 				throw;
 			}
 		} else {
 			// read in next marker
 			if (jpg_input_reader_.read(segment, 2) != 2) {
-				break;
+				throw std::runtime_error("Unable to read segment marker.");
 			}
 			if (segment[0] != 0xFF) {
 				// ugly fix for incorrect marker segment sizes
 				throw std::runtime_error("size mismatch in marker segment FF");
-				/*error = true;
-				if (type == Marker::kCOM) { //  if last marker was COM try again
-				if (str_in->read(segment, 2) != 2) {
-				break;
-				}
-				if (segment[0] == 0xFF) {
-				errorlevel = 1;
-				}
-				}
-				if (errorlevel == 2) {
-				return false;
-				}*/
 			}
 		}
 
 		// read segment type
 		type = static_cast<Marker>(segment[1]); // TODO: add enum correctness checks?
 
-		// if EOI is encountered make a quick exit
+		// Done parsing the header if the EOI segment is encountered.
 		if (type == Marker::kEOI) {
-			// get pointer for header data & size
-			segments_ = Segment::parse_segments(hdrw->get_data());
-			// get pointer for huffman data & size
-			huffman_data_ = huffw->get_data();
-			// everything is done here now
 			break;
 		}
 
 		// read in next segments' length and check it
 		if (jpg_input_reader_.read(segment, 2, 2) != 2) {
-			break;
+			throw std::runtime_error("Unable to read segment length.");
 		}
-		uint32_t len = 2 + jfif::pack(segment[2], segment[3]); // Length of current marker segment.
-		if (len < 4) {
-			break;
+		std::size_t segment_length = 2 + jfif::pack(segment[2], segment[3]); // Length of current marker segment.
+		if (segment_length < 4) {
+			throw std::runtime_error("Invalid segment length: " + std::to_string(segment_length));
 		}
 
 		// realloc segment data if needed
-		if (segment.size() < len) {
-			segment.resize(len);
-		}
+		segment.resize(segment_length);
 
 		// read rest of segment, store back in header writer
-		if (jpg_input_reader_.read(segment, len - 4, 4) != static_cast<std::size_t>(len - 4)) {
-			break;
+		const auto payload_length = segment_length - 4;
+		if (jpg_input_reader_.read(segment, payload_length, 4) != payload_length) {
+			throw std::runtime_error("Unable to read entire payload of segment.");
 		}
-		hdrw->write(segment.data(), len);
+		header_writer->write(segment.data(), segment_length);
 	}
-	// JPEG reader loop end
 
-	// check if everything went OK
-	if (segments_.empty() || huffman_data_.empty()) {
-		throw std::runtime_error("unexpected end of data encountered");
-	}
+	// get pointer for header data & size
+	segments_ = Segment::parse_segments(header_writer->get_data());
+	// get pointer for huffman data & size
+	huffman_data_ = huffman_writer->get_data();
 
 	// store garbage after EOI if needed
 	std::uint8_t tmp;
