@@ -224,15 +224,15 @@ void Segment::optimize_dqt() {
 	while (hpos < data_.size()) {
 		const int precision = bitops::LBITS(data_[hpos], 4);
 		hpos++;
-		// table found
-		if (precision == 1) { // get out for 16 bit precision
+		if (precision == 1) {
+			// Skip 16-bit precision tables.
 			hpos += 128;
 			continue;
 		}
-		// do diff coding for 8 bit precision
-		for (int sub_pos = 63; sub_pos > 0; sub_pos--) {
-			data_[hpos + sub_pos] -= data_[hpos + sub_pos - 1];
-		}
+		// Difference code 8-bit precision tables (for better packjpg compression):
+		auto start_table = std::next(std::begin(data_), hpos);
+		auto end_table = std::next(start_table, 64);
+		std::adjacent_difference(start_table, end_table, start_table);
 
 		hpos += 64;
 	}
@@ -288,15 +288,15 @@ void Segment::undo_dqt_optimization() {
 	while (hpos < data_.size()) {
 		const int precision = bitops::LBITS(data_[hpos], 4);
 		hpos++;
-		// table found
-		if (precision == 1) { // get out for 16 bit precision
+		if (precision == 1) {
+			// Skip 16-bit precision tables, since they aren't optimized.
 			hpos += 128;
 			continue;
 		}
-		// undo diff coding for 8 bit precision
-		for (int sub_pos = 1; sub_pos < 64; sub_pos++) {
-			data_[hpos + sub_pos] += data_[hpos + sub_pos - 1];
-		}
+		//  Undo difference coding of 8-bit precision tables:
+		auto start_table = std::next(std::begin(data_), hpos);
+		auto end_table = std::next(start_table, 64);
+		std::partial_sum(start_table, end_table, start_table);
 
 		hpos += 64;
 	}
