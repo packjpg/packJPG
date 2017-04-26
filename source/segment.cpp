@@ -1,6 +1,9 @@
 #include "segment.h"
-#include "pjpgtbl.h"
+
+#include <numeric>
+
 #include "bitops.h"
+#include "pjpgtbl.h"
 
 Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset) {
 	if (offset >= headerData.size() - 1) {
@@ -219,10 +222,10 @@ bool Segment::has_length(Marker type) {
 void Segment::optimize_dqt() {
 	std::size_t hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
-		const int i = bitops::LBITS(data_[hpos], 4);
+		const int precision = bitops::LBITS(data_[hpos], 4);
 		hpos++;
 		// table found
-		if (i == 1) { // get out for 16 bit precision
+		if (precision == 1) { // get out for 16 bit precision
 			hpos += 128;
 			continue;
 		}
@@ -254,20 +257,21 @@ void Segment::optimize_dht() {
 
 			// if we get here, the table matches the standard table
 			// number 'i', so it can be replaced
-			data_[hpos + 0] = pjg::std_huff_lengths[i] - 16 - i;
+			data_[hpos] = pjg::std_huff_lengths[i] - 16 - i;
 			data_[hpos + 1] = i;
-			for (sub_pos = 2; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				data_[hpos + sub_pos] = 0x00;
-			}
+			auto start_table_data = std::next(std::begin(data_), hpos + 2);
+			auto end_table_data = std::next(std::begin(data_), hpos + pjg::std_huff_lengths[i]);
+			std::fill(start_table_data, end_table_data, std::uint8_t(0));
 			// everything done here, so leave
 			break;
 		}
 
-		int skip = 16; // Num bytes to skip.
-		for (int i = 0; i < 16; i++) {
-			skip += int(data_[hpos + i]);
-		}
-		hpos += skip;
+		auto start_table_counts = std::next(std::begin(data_), hpos);
+		auto end_table_counts = std::next(start_table_counts, 16);
+		std::size_t table_size = std::accumulate(start_table_counts,
+		                                         end_table_counts,
+		                                         std::size_t(16));
+		hpos += table_size;
 	}
 }
 
@@ -282,10 +286,10 @@ void Segment::optimize() {
 void Segment::undo_dqt_optimization() {
 	int hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
-		const int i = bitops::LBITS(data_[hpos], 4);
+		const int precision = bitops::LBITS(data_[hpos], 4);
 		hpos++;
 		// table found
-		if (i == 1) { // get out for 16 bit precision
+		if (precision == 1) { // get out for 16 bit precision
 			hpos += 128;
 			continue;
 		}
@@ -299,23 +303,22 @@ void Segment::undo_dqt_optimization() {
 }
 
 void Segment::undo_dht_optimization() {
-	int hpos = 4; // Skip marker and segment length data.
+	size_t hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
 		hpos++;
 		// table found - check if modified
 		if (data_[hpos] > 2) {
 			// reinsert the standard table
 			const int i = data_[hpos + 1];
-			for (int sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				data_[hpos + sub_pos] = pjg::std_huff_tables[i][sub_pos];
-			}
+			std::copy(pjg::std_huff_tables[i], pjg::std_huff_tables[i] + pjg::std_huff_lengths[i], std::begin(data_) + hpos);
 		}
 
-		int skip = 16; // Num bytes to skip.
-		for (int i = 0; i < 16; i++) {
-			skip += int(data_[hpos + i]);
-		}
-		hpos += skip;
+		auto start_table_counts = std::next(std::begin(data_), hpos);
+		auto end_table_counts = std::next(start_table_counts, 16);
+		std::size_t table_size = std::accumulate(start_table_counts,
+		                                         end_table_counts,
+		                                         std::size_t(16));
+		hpos += table_size;
 	}
 }
 
