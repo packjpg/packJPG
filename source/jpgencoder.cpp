@@ -109,13 +109,8 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							*hcodes[1][frame_info.components[cmp].huffac],
 							block);
 
-						// check for errors, proceed if no error encountered
-						if (eob < 0) {
-							status = CodingStatus::ERROR;
-						} else {
-							status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
-							dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
-						}
+						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
+						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 
 					}
 				} else if (scan_info.sah == 0) {
@@ -169,11 +164,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						                          *hcodes[1][frame_info.components[cmp].huffac],
 						                          block);
 
-						// check for errors, proceed if no error encountered
-						if (eob < 0)
-							status = CodingStatus::ERROR;
-						else
-							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+						status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 					}
 				} else if (scan_info.to == 0) {
 					if (scan_info.sah == 0) {
@@ -190,7 +181,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							                *hcodes[0][frame_info.components[cmp].huffdc],
 							                block);
 
-							// check for errors, increment dpos otherwise
+							// ncrement dpos
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 					} else {
@@ -203,7 +194,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							// encode dc correction bit
 							this->dc_prg_sa(*huffw, block);
 
-							// next mcupos if no error happened
+							// next mcupos
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 					}
@@ -222,11 +213,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							                          *hcodes[1][frame_info.components[cmp].huffac],
 							                          block, eobrun, scan_info.from, scan_info.to);
 
-							// check for errors, proceed if no error encountered
-							if (eob < 0)
-								status = CodingStatus::ERROR;
-							else
-								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 
 						// encode remaining eobrun
@@ -245,11 +232,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							                          *hcodes[1][frame_info.components[cmp].huffac],
 							                          block, eobrun, scan_info.from, scan_info.to);
 
-							// check for errors, proceed if no error encountered
-							if (eob < 0)
-								status = CodingStatus::ERROR;
-							else
-								status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
 
 						// encode remaining eobrun
@@ -265,10 +248,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 			huffw->pad();
 
 			// evaluate status
-			if (status == CodingStatus::ERROR) {
-				throw std::runtime_error("encode error in scan" + std::to_string(scan_count)
-					+ " / mcu" + std::to_string((scan_info.cmpc > 1) ? mcu : dpos));
-			} else if (status == CodingStatus::DONE) {
+			if (status == CodingStatus::DONE) {
 				scan_count++; // increment scan counter
 				break; // leave decoding loop, everything is done here
 			} else if (status == CodingStatus::RESTART) {
