@@ -220,7 +220,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							// encode block
 							int eob = this->ac_prg_fs(*huffw,
 							                          *hcodes[1][frame_info.components[cmp].huffac],
-							                          block, &eobrun, scan_info.from, scan_info.to);
+							                          block, eobrun, scan_info.from, scan_info.to);
 
 							// check for errors, proceed if no error encountered
 							if (eob < 0)
@@ -230,7 +230,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						}
 
 						// encode remaining eobrun
-						this->eobrun(*huffw, *hcodes[1][frame_info.components[cmp].huffac], &eobrun);
+						this->eobrun(*huffw, *hcodes[1][frame_info.components[cmp].huffac], eobrun);
 					} else {
 						// ---> progressive non interleaved AC encoding <---
 						// ---> succesive approximation later stage <---
@@ -243,7 +243,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 							// encode block
 							int eob = this->ac_prg_sa(*huffw, *storw,
 							                          *hcodes[1][frame_info.components[cmp].huffac],
-							                          block, &eobrun, scan_info.from, scan_info.to);
+							                          block, eobrun, scan_info.from, scan_info.to);
 
 							// check for errors, proceed if no error encountered
 							if (eob < 0)
@@ -253,7 +253,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						}
 
 						// encode remaining eobrun
-						this->eobrun(*huffw, *hcodes[1][frame_info.components[cmp].huffac], &eobrun);
+						this->eobrun(*huffw, *hcodes[1][frame_info.components[cmp].huffac], eobrun);
 
 						// encode remaining correction bits
 						this->crbits(*huffw, *storw);
@@ -405,13 +405,10 @@ void JpgEncoder::dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::
 	huffw.write(n, s);
 }
 
-int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
-	int bpos;
-	int hc;
-
+int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
 	// encode AC
 	std::uint8_t z = 0;
-	for (bpos = from; bpos <= to; bpos++) {
+	for (int bpos = from; bpos <= to; bpos++) {
 		// if nonzero is encountered
 		if (block[bpos] != 0) {
 			// encode eobrun
@@ -424,7 +421,7 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::a
 			// vli encode
 			std::uint8_t s = pjg::bitlen2048n(block[bpos]);
 			std::uint16_t n = envli(s, block[bpos]);
-			hc = ((z << 4) + s);
+			int hc = ((z << 4) + s);
 			// write to huffman writer
 			huffw.write(actbl.cval[hc], actbl.clen[hc]);
 			huffw.write(n, s);
@@ -437,9 +434,9 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::a
 
 	// check eob, increment eobrun if needed
 	if (z > 0) {
-		(*eobrun)++;
+		eobrun++;
 		// check eobrun, encode if needed
-		if ((*eobrun) == actbl.max_eobrun)
+		if (eobrun == actbl.max_eobrun)
 			this->eobrun(huffw, actbl, eobrun);
 		return 1 + to - z;
 	} else {
@@ -453,10 +450,9 @@ void JpgEncoder::dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>&
 }
 
 
-int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int* eobrun, int from, int to) {
+int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
 	int eob = from;
 	int bpos;
-	int hc;
 
 	// check if block contains any newly nonzero coefficients and find out position of eob
 	for (bpos = to; bpos >= from; bpos--) {
@@ -467,7 +463,7 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 	}
 
 	// encode eobrun if needed
-	if ((eob > from) && ((*eobrun) > 0)) {
+	if ((eob > from) && (eobrun > 0)) {
 		this->eobrun(huffw, actbl, eobrun);
 		this->crbits(huffw, storw);
 	}
@@ -489,7 +485,7 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 			// vli encode			
 			std::uint8_t s = pjg::bitlen2048n(block[bpos]);
 			std::uint16_t n = envli(s, block[bpos]);
-			hc = ((z << 4) + s);
+			int hc = (z << 4) + s;
 			// write to huffman writer
 			huffw.write(actbl.cval[hc], actbl.clen[hc]);
 			huffw.write(n, s);
@@ -513,9 +509,9 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 
 	// check eob, increment eobrun if needed
 	if (eob <= to) {
-		(*eobrun)++;
+		eobrun++;
 		// check eobrun, encode if needed
-		if ((*eobrun) == actbl.max_eobrun) {
+		if (eobrun == actbl.max_eobrun) {
 			this->eobrun(huffw, actbl, eobrun);
 			this->crbits(huffw, storw);
 		}
@@ -526,22 +522,21 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 }
 
 
-void JpgEncoder::eobrun(BitWriter& huffw, const HuffCodes& actbl, int* eobrun) {
-	int hc;
+void JpgEncoder::eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun) {
 
-	if ((*eobrun) > 0) {
-		while ((*eobrun) > actbl.max_eobrun) {
+	if (eobrun > 0) {
+		while (eobrun > actbl.max_eobrun) {
 			huffw.write(actbl.cval[0xE0], actbl.clen[0xE0]);
 			huffw.write(e_envli(14, 32767), 14);
-			(*eobrun) -= actbl.max_eobrun;
+			eobrun -= actbl.max_eobrun;
 		}
-		std::uint8_t s = bitlen((*eobrun));
+		std::uint8_t s = bitlen(eobrun);
 		s--;
-		std::uint16_t n = e_envli(s, (*eobrun));
-		hc = (s << 4);
+		std::uint16_t n = e_envli(s, eobrun);
+		int hc = s << 4;
 		huffw.write(actbl.cval[hc], actbl.clen[hc]);
 		huffw.write(n, s);
-		(*eobrun) = 0;
+		eobrun = 0;
 	}
 }
 
