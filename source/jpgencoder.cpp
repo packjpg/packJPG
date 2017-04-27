@@ -1,12 +1,9 @@
 #include "jpgencoder.h"
 
-#include "pjpgtbl.h"
 #include "codingstatus.h"
-#include <string>
 #include "jpg.h"
 #include "jfifparse.h"
-#include <algorithm>
-
+#include "pjpgtbl.h"
 
 JpgEncoder::JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& segments) :
 	jpg_output_writer_(jpg_output_writer),
