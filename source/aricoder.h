@@ -404,7 +404,7 @@ public:
 
 private:
 	void decode(const Symbol& s);
-	unsigned int decode_count(const Symbol& s);
+	std::uint32_t decode_count(const Symbol& s);
 
 	std::uint8_t read_bit();
 

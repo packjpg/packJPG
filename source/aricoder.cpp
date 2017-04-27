@@ -132,7 +132,7 @@ ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : sptr(stream) {
 
 ArithmeticDecoder::~ArithmeticDecoder() {}
 
-unsigned int ArithmeticDecoder::decode_count(const Symbol& s)
+std::uint32_t ArithmeticDecoder::decode_count(const Symbol& s)
 {
 	// update cstep, which is needed to remove the symbol from the stream later
 	cstep = ((chigh - clow) + 1) / s.scale;
@@ -148,9 +148,9 @@ void ArithmeticDecoder::decode(const Symbol& s)
 
 	// alread have steps updated from decoder_count
 	// update low count and high count
-	uint32_t ccode_local = ccode;
-	uint32_t clow_local = clow;
-	uint32_t chigh_local = clow_local + (cstep * s.high_count) - 1;
+	std::uint32_t ccode_local = ccode;
+	std::uint32_t clow_local = clow;
+	std::uint32_t chigh_local = clow_local + (cstep * s.high_count) - 1;
 	clow_local = clow_local + (cstep * s.low_count);
 
 	// e3 scaling is performed for speed and to avoid underflows
@@ -474,13 +474,11 @@ BinaryModel::~BinaryModel()
 	delete contexts[0];
 }
 
-void BinaryModel::update_model(int symbol)
-{
-	BinaryTable* context = contexts[max_order];
-
+void BinaryModel::update_model(int symbol) {
 	// only contexts, that were actually used to encode
 	// the symbol get their counts updated
-	if ((symbol >= 0) && (max_order >= 0)) {
+	if (symbol >= 0 && max_order >= 0) {
+		BinaryTable* context = contexts[max_order];
 		// update count for specific symbol & scale
 		context->counts[symbol]++;
 		context->scale++;
