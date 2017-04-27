@@ -26,15 +26,15 @@ ArithmeticEncoder::~ArithmeticEncoder() {
 	}
 }
 
-void ArithmeticEncoder::encode(const Symbol* s)
+void ArithmeticEncoder::encode(const Symbol& s)
 {
 	// Make local copies of clow_ and chigh_ for cache performance:
 	uint32_t clow_local = clow;
 	uint32_t chigh_local = chigh;
 	// update steps, low count, high count
-	cstep = (chigh_local - clow_local + 1) / s->scale;
-	chigh_local = clow_local + (cstep * s->high_count) - 1;
-	clow_local = clow_local + (cstep * s->low_count);
+	cstep = (chigh_local - clow_local + 1) / s.scale;
+	chigh_local = clow_local + (cstep * s.high_count) - 1;
+	clow_local = clow_local + (cstep * s.low_count);
 
 	// e3 scaling is performed for speed and to avoid underflows
 	// if both, low and high are either in the lower half or in the higher half
@@ -132,16 +132,16 @@ ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : sptr(stream) {
 
 ArithmeticDecoder::~ArithmeticDecoder() {}
 
-unsigned int ArithmeticDecoder::decode_count(const Symbol* s)
+unsigned int ArithmeticDecoder::decode_count(const Symbol& s)
 {
 	// update cstep, which is needed to remove the symbol from the stream later
-	cstep = ((chigh - clow) + 1) / s->scale;
+	cstep = ((chigh - clow) + 1) / s.scale;
 
 	// return counts, needed to decode the symbol from the statistical model
 	return (ccode - clow) / cstep;
 }
 
-void ArithmeticDecoder::decode(const Symbol* s)
+void ArithmeticDecoder::decode(const Symbol& s)
 {
 	// no actual decoding takes place, as this has to happen in the statistical model
 	// the symbol has to be removed from the stream, though
@@ -150,8 +150,8 @@ void ArithmeticDecoder::decode(const Symbol* s)
 	// update low count and high count
 	uint32_t ccode_local = ccode;
 	uint32_t clow_local = clow;
-	uint32_t chigh_local = clow_local + (cstep * s->high_count) - 1;
-	clow_local = clow_local + (cstep * s->low_count);
+	uint32_t chigh_local = clow_local + (cstep * s.high_count) - 1;
+	clow_local = clow_local + (cstep * s.low_count);
 
 	// e3 scaling is performed for speed and to avoid underflows
 	// if both, low and high are either in the lower half or in the higher half
@@ -324,38 +324,38 @@ void UniversalModel::exclude_symbols(int c)
 	}
 }
 
-int UniversalModel::convert_int_to_symbol(int c, Symbol* s)
+int UniversalModel::convert_int_to_symbol(int c, Symbol& s)
 {
 	// totalize table for the current context
 	UniversalTable* context = contexts[current_order];
-	totalize_table(context);
+	totalize_table(*context);
 
 	// finding the scale is easy
-	s->scale = totals[0];
+	s.scale = totals[0];
 
 	// check if that symbol exists in the current table. send escape otherwise
 	if (context->counts[c] > 0) {
 		// return high and low count for the current symbol
-		s->low_count = totals[c + 2];
-		s->high_count = totals[c + 1];
+		s.low_count = totals[c + 2];
+		s.high_count = totals[c + 1];
 		return 0;
 	}
 
 	// return high and low count for the escape symbol
-	s->low_count = totals[1];
-	s->high_count = totals[0];
+	s.low_count = totals[1];
+	s.high_count = totals[0];
 	current_order--;
 	return 1;
 }
 
-void UniversalModel::get_symbol_scale(Symbol* s)
+void UniversalModel::get_symbol_scale(Symbol& s)
 {
 	// Getting the scale is easy: totalize the table, and then use the accumulated count:
-	totalize_table(contexts[current_order]);
-	s->scale = totals[0];
+	totalize_table(*contexts[current_order]);
+	s.scale = totals[0];
 }
 
-int UniversalModel::convert_symbol_to_int(uint32_t count, Symbol* s)
+int UniversalModel::convert_symbol_to_int(uint32_t count, Symbol& s)
 {
 	// go through the totals table, search the symbol that matches the count
 	int c;
@@ -365,8 +365,8 @@ int UniversalModel::convert_symbol_to_int(uint32_t count, Symbol* s)
 		}
 	}
 	// set up the current symbol
-	s->low_count = totals[c]; // It is guaranteed that there exists such a symbol.
-	s->high_count = totals[c - 1]; // This is guaranteed to not go out of bounds since the search started at index 1 of totals.
+	s.low_count = totals[c]; // It is guaranteed that there exists such a symbol.
+	s.high_count = totals[c - 1]; // This is guaranteed to not go out of bounds since the search started at index 1 of totals.
 								   // send escape if escape symbol encountered
 	if (c == 1) {
 		current_order--;
@@ -377,9 +377,9 @@ int UniversalModel::convert_symbol_to_int(uint32_t count, Symbol* s)
 	return c - 2; // Since c is not one and is a positive number, this will be nonnegative.
 }
 
-void UniversalModel::totalize_table(UniversalTable* context)
+void UniversalModel::totalize_table(UniversalTable& context)
 {
-	const auto& counts = context->counts;
+	const auto& counts = context.counts;
 
 	// check counts
 	if (!counts.empty()) {	// if counts are already set
@@ -387,7 +387,7 @@ void UniversalModel::totalize_table(UniversalTable* context)
 		int local_symb = sb0_count;
 
 		// set the last symbol of the totals to zero
-		int i = context->max_symbol - 1;
+		int i = context.max_symbol - 1;
 		totals[i + 2] = 0;
 
 		// (re)set current total
@@ -420,7 +420,7 @@ void UniversalModel::totalize_table(UniversalTable* context)
 		else {
 			// esc_prob = 1;
 			esc_prob = sb0_count * (local_symb - sb0_count);
-			esc_prob /= (local_symb * context->max_count);
+			esc_prob /= (local_symb * context.max_count);
 			esc_prob++;
 		}
 		// include escape probability in totals table
@@ -428,7 +428,7 @@ void UniversalModel::totalize_table(UniversalTable* context)
 	}
 	else { // if counts are not already set
 		   // setup counts for current table
-		context->counts.resize(max_symbol);
+		context.counts.resize(max_symbol);
 		// set totals table -> only escape probability included
 		totals[0] = 1;
 		totals[1] = 0;
@@ -523,7 +523,7 @@ void BinaryModel::flush_model()
 	contexts[1]->recursive_flush();
 }
 
-int BinaryModel::convert_int_to_symbol(int c, Symbol* s)
+int BinaryModel::convert_int_to_symbol(int c, Symbol& s)
 {
 	BinaryTable* context = contexts[max_order];
 
@@ -531,22 +531,21 @@ int BinaryModel::convert_int_to_symbol(int c, Symbol* s)
 	context->create_counts_if_empty();
 
 	// finding the scale is easy
-	s->scale = context->scale;
+	s.scale = context->scale;
 
 	// return high and low count for current symbol
 	if (c == 0) { // if 0 is to be encoded
-		s->low_count = uint32_t(0);
-		s->high_count = context->counts[0];
-	}
-	else { // if 1 is to be encoded
-		s->low_count = context->counts[0];
-		s->high_count = context->scale;
+		s.low_count = uint32_t(0);
+		s.high_count = context->counts[0];
+	} else { // if 1 is to be encoded
+		s.low_count = context->counts[0];
+		s.high_count = context->scale;
 	}
 
 	return 1;
 }
 
-void BinaryModel::get_symbol_scale(Symbol* s)
+void BinaryModel::get_symbol_scale(Symbol& s)
 {
 	BinaryTable* context = contexts[max_order];
 
@@ -554,23 +553,22 @@ void BinaryModel::get_symbol_scale(Symbol* s)
 	context->create_counts_if_empty();
 
 	// getting the scale is easy
-	s->scale = context->scale;
+	s.scale = context->scale;
 }
 
-int BinaryModel::convert_symbol_to_int(uint32_t count, Symbol* s)
+int BinaryModel::convert_symbol_to_int(std::uint32_t count, Symbol& s)
 {
 	BinaryTable* context = contexts[max_order];
 	auto counts0 = context->counts[0];
 
 	// set up the current symbol
 	if (count < counts0) {
-		s->low_count = uint32_t(0);
-		s->high_count = counts0;
+		s.low_count = uint32_t(0);
+		s.high_count = counts0;
 		return 0;
-	}
-	else {
-		s->low_count = counts0;
-		s->high_count = s->scale;
+	} else {
+		s.low_count = counts0;
+		s.high_count = s.scale;
 		return 1;
 	}
 }

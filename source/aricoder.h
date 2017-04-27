@@ -7,18 +7,18 @@
 #include "reader.h"
 #include "writer.h"
 
-constexpr uint32_t CODER_USE_BITS = 31;
-constexpr uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
-constexpr uint32_t CODER_LIMIT025 = CODER_LIMIT100 / 4;
-constexpr uint32_t CODER_LIMIT050 = (CODER_LIMIT100 / 4) * 2;
-constexpr uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
-constexpr uint32_t CODER_MAXSCALE = CODER_LIMIT025 - 1;
-constexpr uint32_t ESCAPE_SYMBOL = CODER_LIMIT025;
+constexpr std::uint32_t CODER_USE_BITS = 31;
+constexpr std::uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
+constexpr std::uint32_t CODER_LIMIT025 = CODER_LIMIT100 / 4;
+constexpr std::uint32_t CODER_LIMIT050 = (CODER_LIMIT100 / 4) * 2;
+constexpr std::uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
+constexpr std::uint32_t CODER_MAXSCALE = CODER_LIMIT025 - 1;
+constexpr std::uint32_t ESCAPE_SYMBOL = CODER_LIMIT025;
 
 struct Symbol {
-	uint32_t low_count;
-	uint32_t high_count;
-	uint32_t scale;
+	std::uint32_t low_count;
+	std::uint32_t high_count;
+	std::uint32_t scale;
 };
 
 // The table type associated with BinaryModel, contains the information needed for one context.
@@ -28,7 +28,7 @@ struct BinaryTable {
 	// links to higher order contexts
 	std::vector<BinaryTable*> links;
 	// accumulated counts
-	uint32_t scale = uint32_t(0);
+	std::uint32_t scale = std::uint32_t(0);
 
 	// Deletes this and all tables linked by this table.
 	~BinaryTable() {
@@ -46,7 +46,7 @@ struct BinaryTable {
 			// setup counts for current table
 			counts.resize(2, std::uint16_t(1));
 			// set scale
-			scale = uint32_t(2);
+			scale = std::uint32_t(2);
 		}
 	}
 
@@ -212,19 +212,19 @@ public:
 	exists in the current context, and one otherwise.
 	This sets the Symbol low_count, high_count, and scale.
 	*/
-	int convert_int_to_symbol(int c, Symbol* s);
+	int convert_int_to_symbol(int c, Symbol& s);
 
 	/*
 	Returns the scale of the current context, used only in decoding.
 	*/
-	void get_symbol_scale(Symbol* s);
+	void get_symbol_scale(Symbol& s);
 
 	/*
 	* Converts a count to an int, called after get_symbol_scale.
 	* 1. Finds the symbol that matches the count,
 	* 2. Sets the low- and high-count for the symbol (it has to be removed from the stream).
 	*/
-	int convert_symbol_to_int(uint32_t count, Symbol* s);
+	int convert_symbol_to_int(uint32_t count, Symbol& s);
 
 private:
 	/*
@@ -236,7 +236,7 @@ private:
 	but as CODER_MAXSCALE is 2^29, this shouldn't be an issue, and so
 	is not explicitly checked.
 	*/
-	inline void totalize_table(UniversalTable* context);
+	inline void totalize_table(UniversalTable& context);
 
 	const int max_symbol;
 
@@ -285,17 +285,17 @@ public:
 	/*
 	* Converts an int to a symbol, used for encoding.
 	*/
-	int convert_int_to_symbol(int c, Symbol* s);
+	int convert_int_to_symbol(int c, Symbol& s);
 
 	/*
 	* Returns the scale (sum of counts) of the current context, used for decoding.
 	*/
-	void get_symbol_scale(Symbol* s);
+	void get_symbol_scale(Symbol& s);
 
 	/*
 	* Converts a count to an int, called after get_symbol_scale.
 	*/
-	int convert_symbol_to_int(uint32_t count, Symbol* s);
+	int convert_symbol_to_int(std::uint32_t count, Symbol& s);
 
 private:
 
@@ -313,8 +313,8 @@ public:
 		int esc;
 
 		do {
-			esc = model.convert_int_to_symbol(c, &s);
-			encode(&s);
+			esc = model.convert_int_to_symbol(c, s);
+			encode(s);
 		} while (esc);
 		model.update_model(c);
 	}
@@ -323,8 +323,8 @@ public:
 	void encode(BinaryModel& model, int c) {
 		Symbol s;
 
-		model.convert_int_to_symbol(c, &s);
-		encode(&s);
+		model.convert_int_to_symbol(c, s);
+		encode(s);
 		model.update_model(c);
 	}
 
@@ -337,7 +337,7 @@ public:
 
 private:
 	// Encodes the sybol.
-	void encode(const Symbol* s);
+	void encode(const Symbol& s);
 
 	template<std::uint8_t bit>
 	void write_bit() {
@@ -359,13 +359,13 @@ private:
 	// io variables:
 	Writer& sptr; // Pointer to iostream for writing.
 	std::uint8_t bbyte = 0;
-	std::uint8_t cbit = 0;
+	int cbit = 0;
 
 	// Arithmetic coding variables:
-	unsigned int clow = 0;
-	unsigned int chigh = CODER_LIMIT100 - 1;
-	unsigned int cstep = 0;
-	unsigned int nrbits = 0;
+	std::uint32_t clow = 0;
+	std::uint32_t chigh = CODER_LIMIT100 - 1;
+	std::uint32_t cstep = 0;
+	int nrbits = 0;
 };
 
 class ArithmeticDecoder {
@@ -376,14 +376,13 @@ public:
 	// Generic UniversalModel decoding function.
 	int decode(UniversalModel& model) {
 		Symbol s;
-		uint32_t count;
 		int c;
 
 		do {
-			model.get_symbol_scale(&s);
-			count = decode_count(&s);
-			c = model.convert_symbol_to_int(count, &s);
-			decode(&s);
+			model.get_symbol_scale(s);
+			std::uint32_t count = decode_count(s);
+			c = model.convert_symbol_to_int(count, s);
+			decode(s);
 		} while (c == ESCAPE_SYMBOL);
 		model.update_model(c);
 
@@ -391,35 +390,34 @@ public:
 	}
 
 	// Generic BinaryModel decoding function.
-	int decode(BinaryModel& model)
-	{
+	int decode(BinaryModel& model) {
 		Symbol s;
 
-		model.get_symbol_scale(&s);
-		uint32_t count = decode_count(&s);
-		int c = model.convert_symbol_to_int(count, &s);
-		decode(&s);
+		model.get_symbol_scale(s);
+		std::uint32_t count = decode_count(s);
+		int c = model.convert_symbol_to_int(count, s);
+		decode(s);
 		model.update_model(c);
 
 		return c;
 	}
 
 private:
-	void decode(const Symbol* s);
-	unsigned int decode_count(const Symbol* s);
+	void decode(const Symbol& s);
+	unsigned int decode_count(const Symbol& s);
 
 	std::uint8_t read_bit();
 
 	// io variables:
 	Reader& sptr; // Pointer to iostream for reading.
 	std::uint8_t bbyte = 0;
-	std::uint8_t cbit = 0;
+	int cbit = 0;
 
 	// Arithmetic coding variables:
-	unsigned int ccode = 0;
-	unsigned int clow = 0;
-	unsigned int chigh = CODER_LIMIT100 - 1;
-	unsigned int cstep = 0;
+	std::uint32_t ccode = 0;
+	std::uint32_t clow = 0;
+	std::uint32_t chigh = CODER_LIMIT100 - 1;
+	std::uint32_t cstep = 0;
 };
 
 #endif
