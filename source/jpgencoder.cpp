@@ -368,7 +368,7 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 	}
 	// write eob if needed
 	if (z > 0) {
-		huffw.write(actbl.cval[0x00], actbl.clen[0x00]);
+		huffw.write(actbl.cval[0], actbl.clen[0]);
 	}
 
 	return 64 - z;
@@ -504,7 +504,7 @@ void JpgEncoder::eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun) {
 	if (eobrun > 0) {
 		while (eobrun > actbl.max_eobrun) {
 			huffw.write(actbl.cval[0xE0], actbl.clen[0xE0]);
-			huffw.write(e_envli(14, 32767), 14);
+			huffw.write(std::uint16_t(e_envli(14, 32767)), 14);
 			eobrun -= actbl.max_eobrun;
 		}
 		std::uint8_t s = bitlen(eobrun);

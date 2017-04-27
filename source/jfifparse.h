@@ -35,12 +35,12 @@ namespace jfif {
 			} catch (const std::runtime_error&) {
 				throw;
 			}
-			int table_class = bitops::LBITS(byte, 4);
+			int table_class = bitops::left_nibble(byte);
 			if (table_class != 0 && table_class != 1) {
 				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
 			}
 
-			int table_index = bitops::RBITS(byte, 4);
+			int table_index = bitops::right_nibble(byte);
 
 			if (table_index > 3) {
 				throw std::runtime_error("Invalid table destination identifier " + std::to_string(table_index) + " in DHT.");
@@ -84,12 +84,12 @@ namespace jfif {
 			} catch (const std::runtime_error&) {
 				throw;
 			}
-			const int precision = bitops::LBITS(byte, 4);
+			const int precision = bitops::left_nibble(byte);
 			if (precision != 0 && precision != 1) {
 				throw std::runtime_error("Invalid quantization table element precision: " + std::to_string(precision));
 			}
 
-			const int index = bitops::RBITS(byte, 4);
+			const int index = bitops::right_nibble(byte);
 			if (index < 0 || index > 3) {
 				throw std::runtime_error("Invalid quantization table destination identifier: " + std::to_string(index));
 			}
@@ -159,12 +159,12 @@ namespace jfif {
 				throw;
 			}
 
-			component.sfv = bitops::LBITS(byte, 4);
+			component.sfv = bitops::left_nibble(byte);
 			if (component.sfv == 0 || component.sfv > 4) {
 				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
 			}
 
-			component.sfh = bitops::RBITS(byte, 4);
+			component.sfh = bitops::right_nibble(byte);
 			if (component.sfh == 0 || component.sfh > 4) {
 				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
 			}
@@ -415,8 +415,8 @@ namespace jfif {
 			} catch (const std::runtime_error&) {
 				throw;
 			}
-			component.huffdc = bitops::LBITS(byte, 4);
-			component.huffac = bitops::RBITS(byte, 4);
+			component.huffdc = bitops::left_nibble(byte);
+			component.huffac = bitops::right_nibble(byte);
 			if (component.huffdc > 3 || component.huffac > 3) {
 				throw std::range_error("huffman table number mismatch");
 			}
@@ -429,8 +429,8 @@ namespace jfif {
 			}
 
 			const auto byte = reader->read_byte();
-			scan_info.sah = bitops::LBITS(byte, 4);
-			scan_info.sal = bitops::RBITS(byte, 4);
+			scan_info.sah = bitops::left_nibble(byte);
+			scan_info.sal = bitops::right_nibble(byte);
 			if (scan_info.sah >= 12 || scan_info.sal >= 12) {
 				throw std::range_error("successive approximation parameter out of range");
 			}

@@ -5,6 +5,7 @@
 #include <vector>
 
 namespace bitops {
+
 template <class T>
 constexpr T RBITS(T val, int n) {
 	return val & (0xFF >> (8 - n));
@@ -14,6 +15,41 @@ template <class T>
 constexpr T LBITS(T val, int n) {
 	return val >> (8 - n);
 }
+
+constexpr std::uint8_t MBITS(std::uint8_t val, int l, int r) {
+	return bitops::RBITS(val, l) >> r;
+}
+
+/*
+* Applies an AND mask for the lowest 32 - n bits to val (where n is defined on 0 <= n <= 32).
+*/
+constexpr std::uint32_t RBITS32(std::uint32_t val, int n) {
+	return val & (0xFFFFFFFF >> (32 - n));
+}
+
+constexpr std::uint32_t MBITS32(std::uint32_t val, int l, int r) {
+	return RBITS32(val, l) >> r;
+}
+
+/*
+ * Applies an AND mask for the lowest 16 - n bits to val (where n is defined on 0 <= n <= 16).
+ */
+constexpr std::uint16_t RBITS16(std::uint16_t val, int n) {
+	return val & (0xFFFF >> (16 - n));
+}
+
+constexpr std::uint16_t MBITS16(std::uint16_t val, int l, int r) {
+	return RBITS16(val, l) >> r;
+}
+
+constexpr std::uint8_t left_nibble(std::uint8_t byte) {
+	return LBITS(byte, 4);
+}
+
+constexpr std::uint8_t right_nibble(std::uint8_t byte) {
+	return RBITS(byte, 4);
+}
+
 
 template <class T>
 constexpr int BITN(T val, int n) {
@@ -35,10 +71,6 @@ public:
 	bool overread() const;
 
 private:
-	static constexpr std::uint8_t MBITS(std::uint8_t val, int l, int r) {
-		return bitops::RBITS(val, l) >> r;
-	}
-
 	const std::vector<std::uint8_t> data;
 	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
 	int cbit = 8; // The position of the next bit in the current byte.
@@ -54,7 +86,7 @@ class BitWriter {
 public:
 	BitWriter(int size);
 	~BitWriter();
-	void write(unsigned int val, int nbits);
+	void write(std::uint16_t val, int num_bits);
 	void write_bit(std::uint8_t bit);
 	void set_fillbit(std::uint8_t fillbit);
 	void pad();
@@ -62,13 +94,6 @@ public:
 	int getpos() const;
 
 private:
-	static constexpr std::uint32_t RBITS32(std::uint32_t val, int n) {
-		return val & (0xFFFFFFFF >> (32 - n));
-	}
-
-	static constexpr std::uint32_t MBITS32(std::uint32_t val, int l, int r) {
-		return RBITS32(val, l) >> r;
-	}
 
 	std::uint8_t fillbit_ = 1;
 	std::vector<std::uint8_t> data;

@@ -41,7 +41,7 @@ unsigned int BitReader::read(int nbits) {
 	}
 
 	if (nbits > 0) {
-		retval |= (MBITS(*cbyte, cbit, (cbit - nbits)));
+		retval |= (bitops::MBITS(*cbyte, cbit, (cbit - nbits)));
 		cbit -= nbits;
 	}
 
@@ -99,27 +99,23 @@ BitWriter::BitWriter(int size) : data(std::max(size, 65536)) {}
 
 BitWriter::~BitWriter() {}
 
-/* -----------------------------------------------
-	writes n bits to abitwriter
-	----------------------------------------------- */
-
-void BitWriter::write(unsigned int val, int nbits) {
-	// test if pointer beyond flush treshold
+void BitWriter::write(std::uint16_t val, int num_bits) {
+	// Resize if necessary
 	if (cbyte > (data.size() - 5)) {
 		data.resize(data.size() * 2);
 	}
 
 	// write data
-	while (nbits >= cbit) {
-		data[cbyte] |= (MBITS32(val, nbits, (nbits - cbit)));
-		nbits -= cbit;
+	while (num_bits >= cbit) {
+		data[cbyte] |= (bitops::MBITS16(val, num_bits, (num_bits - cbit)));
+		num_bits -= cbit;
 		cbyte++;
 		cbit = 8;
 	}
 
-	if (nbits > 0) {
-		data[cbyte] |= ((RBITS32(val, nbits)) << (cbit - nbits));
-		cbit -= nbits;
+	if (num_bits > 0) {
+		data[cbyte] |= ((bitops::RBITS16(val, num_bits)) << (cbit - num_bits));
+		cbit -= num_bits;
 	}
 }
 
@@ -159,7 +155,7 @@ void BitWriter::set_fillbit(std::uint8_t fillbit) {
 
 void BitWriter::pad() {
 	while (cbit < 8) {
-		write(fillbit_, 1);
+		write_bit(fillbit_);
 	}
 }
 

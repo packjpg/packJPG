@@ -222,7 +222,7 @@ bool Segment::has_length(Marker type) {
 void Segment::optimize_dqt() {
 	std::size_t hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
-		const int precision = bitops::LBITS(data_[hpos], 4);
+		const int precision = bitops::left_nibble(data_[hpos]);
 		hpos++;
 		if (precision == 1) {
 			// Skip 16-bit precision tables.
@@ -286,7 +286,7 @@ void Segment::optimize() {
 void Segment::undo_dqt_optimization() {
 	int hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
-		const int precision = bitops::LBITS(data_[hpos], 4);
+		const int precision = bitops::left_nibble(data_[hpos]);
 		hpos++;
 		if (precision == 1) {
 			// Skip 16-bit precision tables, since they aren't optimized.
