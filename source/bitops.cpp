@@ -20,8 +20,8 @@ BitReader::~BitReader() {}
 	reads n bits from abitreader
 	----------------------------------------------- */
 
-unsigned int BitReader::read(int nbits) {
-	unsigned int retval = 0;
+std::uint32_t BitReader::read(int nbits) {
+	std::uint32_t retval = 0;
 
 	// safety check for eof
 	if (eof()) {
@@ -46,6 +46,35 @@ unsigned int BitReader::read(int nbits) {
 	}
 
 	return retval;
+}
+
+std::uint16_t BitReader::read_u16(int num_bits) {
+	// safety check for eof
+	if (eof()) {
+		overread_ = true;
+		return 0;
+	} else if (num_bits > 16) {
+		return 0; // throw an exception?
+	}
+
+	std::uint16_t val = 0;
+	while (num_bits >= cbit) {
+		num_bits -= cbit;
+		val |= (bitops::RBITS(*cbyte, cbit) << num_bits);
+		cbit = 8;
+		++cbyte;
+		if (cbyte == std::end(data)) {
+			eof_ = true;
+			return val;
+		}
+	}
+
+	if (num_bits > 0) {
+		val |= (bitops::MBITS(*cbyte, cbit, (cbit - num_bits)));
+		cbit -= num_bits;
+	}
+
+	return val;
 }
 
 std::uint8_t BitReader::read_bit() {
@@ -76,7 +105,7 @@ std::uint8_t BitReader::unpad(std::uint8_t fillbit) {
 	if ((cbit == 8) || eof()) {
 		return fillbit;
 	} else {
-		fillbit = read(1);
+		fillbit = read_bit();
 		if (cbit < 8) {
 			++cbyte;
 			cbit = 8;

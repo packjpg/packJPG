@@ -64,7 +64,8 @@ class BitReader {
 public:
 	BitReader(const std::vector<std::uint8_t>& bits);
 	~BitReader();
-	unsigned int read(int nbits);
+	std::uint32_t read(int nbits);
+	std::uint16_t read_u16(int nbits);
 	std::uint8_t read_bit();
 	std::uint8_t unpad(std::uint8_t fillbit);
 	bool eof() const;
