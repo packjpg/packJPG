@@ -8,43 +8,16 @@ struct HuffCodes {
 	std::array<std::uint16_t, 256> cval{};
 	std::array<std::uint16_t, 256> clen{};
 	std::uint16_t max_eobrun = 0;
-
-	HuffCodes(const std::vector<std::uint8_t>& data, std::size_t clen_index) {
-		int k = 0;
-		int code = 0;
-
-		const auto cval_index = clen_index + 16;
-
-		// symbol-value of code is its position in the table
-		for (int i = 0; i < 16; i++) {
-			for (int j = 0; j < static_cast<int>(data[clen_index + i]); j++) {
-				clen[static_cast<int>(data[cval_index + k])] = 1 + i;
-				cval[static_cast<int>(data[cval_index + k])] = code;
-
-				k++;
-				code++;
-			}
-			code = code << 1;
-		}
-
-		// find out eobrun max value
-		for (int i = 14; i >= 0; i--) {
-			if (clen[i << 4] > 0) {
-				max_eobrun = (2 << i) - 1;
-				break;
-			}
-		}
-	}
-
+	
 	HuffCodes(const std::vector<std::uint8_t>& counts, const std::vector<std::uint8_t>& values) {
 		int k = 0;
 		int code = 0;
 
 		// symbol-value of code is its position in the table
 		for (int i = 0; i < 16; i++) {
-			for (int j = 0; j < static_cast<int>(counts[i]); j++) {
-				clen[static_cast<int>(values[k])] = 1 + i;
-				cval[static_cast<int>(values[k])] = code;
+			for (std::uint8_t j = 0; j < counts[i]; j++) {
+				clen[values[k]] = 1 + i;
+				cval[values[k]] = code;
 
 				k++;
 				code++;
