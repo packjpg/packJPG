@@ -404,7 +404,7 @@ void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>&
 	}
 	int s = hc;
 	std::uint16_t n = huffr->read_u16(s);
-	block[0] = devli(s, n);
+	block[0] = static_cast<std::int16_t>(devli(s, n));
 }
 
 int JpgDecoder::ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun) {

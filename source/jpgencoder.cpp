@@ -206,9 +206,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 									fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
 
 							// encode block
-							int eob = this->ac_prg_fs(*huffw,
-							                          *hcodes[1][frame_info.components[cmp].huffac],
-							                          block, eobrun, scan_info.from, scan_info.to);
+							int eob = this->ac_prg_fs(*huffw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
@@ -225,9 +223,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 									fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
 
 							// encode block
-							int eob = this->ac_prg_sa(*huffw, *storw,
-							                          *hcodes[1][frame_info.components[cmp].huffac],
-							                          block, eobrun, scan_info.from, scan_info.to);
+							int eob = this->ac_prg_sa(*huffw, *storw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
@@ -382,10 +378,10 @@ void JpgEncoder::dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::
 	huffw.write_u16(n, s);
 }
 
-int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
+int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
 	// encode AC
 	std::uint8_t z = 0;
-	for (int bpos = from; bpos <= to; bpos++) {
+	for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
 		// if nonzero is encountered
 		if (block[bpos] != 0) {
 			// encode eobrun
@@ -413,12 +409,11 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::a
 	if (z > 0) {
 		eobrun++;
 		// check eobrun, encode if needed
-		if (eobrun == actbl.max_eobrun)
+		if (eobrun == actbl.max_eobrun) {
 			this->eobrun(huffw, actbl, eobrun);
-		return 1 + to - z;
-	} else {
-		return 1 + to;
+		}
 	}
+	return 1 + scan_info.to - z;
 }
 
 void JpgEncoder::dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>& block) {
@@ -427,12 +422,12 @@ void JpgEncoder::dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>&
 }
 
 
-int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
-	int eob = from;
+int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
+	int eob = scan_info.from;
 	int bpos;
 
 	// check if block contains any newly nonzero coefficients and find out position of eob
-	for (bpos = to; bpos >= from; bpos--) {
+	for (bpos = scan_info.to; bpos >= scan_info.from; bpos--) {
 		if ((block[bpos] == 1) || (block[bpos] == -1)) {
 			eob = bpos + 1;
 			break;
@@ -440,14 +435,14 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 	}
 
 	// encode eobrun if needed
-	if ((eob > from) && (eobrun > 0)) {
+	if ((eob > scan_info.from) && (eobrun > 0)) {
 		this->eobrun(huffw, actbl, eobrun);
 		this->crbits(huffw, storw);
 	}
 
 	// encode AC
 	std::uint8_t z = 0;
-	for (bpos = from; bpos < eob; bpos++) {
+	for (bpos = scan_info.from; bpos < eob; bpos++) {
 		// if zero is encountered
 		if (block[bpos] == 0) {
 			z++; // increment zero counter
@@ -477,7 +472,7 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 	}
 
 	// fast processing after eob
-	for (; bpos <= to; bpos++) {
+	for (; bpos <= scan_info.to; bpos++) {
 		if (block[bpos] != 0) { // store correction bits
 			std::uint8_t n = block[bpos] & 0x1;
 			storw.write_byte(n);
@@ -485,7 +480,7 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 	}
 
 	// check eob, increment eobrun if needed
-	if (eob <= to) {
+	if (eob <= scan_info.to) {
 		eobrun++;
 		// check eobrun, encode if needed
 		if (eobrun == actbl.max_eobrun) {

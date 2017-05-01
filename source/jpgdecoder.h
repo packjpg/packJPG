@@ -13,9 +13,6 @@
 #include "scaninfo.h"
 #include "segment.h"
 #include "frameinfo.h"
-#include <algorithm>
-#include <algorithm>
-#include <algorithm>
 
 class JpgDecoder {
 public:

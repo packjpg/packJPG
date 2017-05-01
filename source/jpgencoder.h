@@ -8,6 +8,7 @@
 
 #include "frameinfo.h"
 #include "huffcodes.h"
+#include "scaninfo.h"
 #include "segment.h"
 #include "writer.h"
 
@@ -25,13 +26,11 @@ private:
 	// Progressive DC encoding routine.
 	void dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
 	// Progressive AC encoding routine.
-	int ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block,
-	              int& eobrun, int from, int to);
+	int ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
 	// Progressive DC SA encoding routine.
 	void dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>& block);
 	// Progressive AC SA encoding routine.
-	int ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl,
-	              const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to);
+	int ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
 	// Run of EOB encoding routine.
 	void eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun);
 	// Correction bits encoding routine.
