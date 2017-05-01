@@ -25,7 +25,7 @@ public:
 			int node = 0;
 			// go through each code & store path
 			for (int j = codes.clen[i] - 1; j > 0; j--) {
-				if (bitops::BITN(codes.cval[i], j) == 1) {
+				if (bitops::bitn(codes.cval[i], j) == 1) {
 					if (r[node] == 0) {
 						r[node] = nextfree++;
 					}
@@ -39,7 +39,7 @@ public:
 			}
 			// last link is number of targetvalue + 256
 			if (codes.clen[i] > 0) {
-				if (bitops::BITN(codes.cval[i], 0) == 1) {
+				if (bitops::bitn(codes.cval[i], 0) == 1) {
 					r[node] = i + 256;
 				} else {
 					l[node] = i + 256;

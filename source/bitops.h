@@ -6,53 +6,44 @@
 
 namespace bitops {
 
-template <class T>
-constexpr T RBITS(T val, int n) {
-	return val & (0xFF >> (8 - n));
-}
-
-template <class T>
-constexpr T LBITS(T val, int n) {
-	return val >> (8 - n);
-}
-
-constexpr std::uint8_t MBITS(std::uint8_t val, int l, int r) {
-	return bitops::RBITS(val, l) >> r;
-}
-
 /*
-* Applies an AND mask for the lowest 32 - n bits to val (where n is defined on 0 <= n <= 32).
-*/
-constexpr std::uint32_t RBITS32(std::uint32_t val, int n) {
-	return val & (0xFFFFFFFF >> (32 - n));
-}
-
-constexpr std::uint32_t MBITS32(std::uint32_t val, int l, int r) {
-	return RBITS32(val, l) >> r;
-}
-
-/*
- * Applies an AND mask for the lowest 16 - n bits to val (where n is defined on 0 <= n <= 16).
+ * Where m is the number of bits in type T, applies an AND mask for the lowest m - n bits to val (where n is defined on 0 <= n <= m) (i.e. returns the n rightmost bits).
  */
-constexpr std::uint16_t RBITS16(std::uint16_t val, int n) {
-	return val & (0xFFFF >> (16 - n));
+template <class T>
+constexpr T rbits(T val, std::size_t n) {
+	return val & (std::numeric_limits<T>::max() >> (sizeof val * 8 - n));
 }
 
-constexpr std::uint16_t MBITS16(std::uint16_t val, int l, int r) {
-	return RBITS16(val, l) >> r;
+/*
+* Where m is the number of bits in type T and n is 0 <= n <= m, returns val right-shifted by m - n bits (i.e. the n leftmost bits).
+*/
+template <class T>
+constexpr T lbits(T val, std::size_t n) {
+	return val >> (sizeof val * 8 - n);
+}
+
+/*
+ * Equivalent to rbits(val, l) >> r. (in essence, returns the bits between l and r indices, right-shifted
+ * to the zero bit position). Assumes 0 <= l <= r <= sizeof val * 8.
+ */
+template <class T>
+constexpr T mbits(T val, std::size_t l, std::size_t r) {
+	return bitops::rbits(val, l) >> r;
 }
 
 constexpr std::uint8_t left_nibble(std::uint8_t byte) {
-	return LBITS(byte, 4);
+	return lbits(byte, 4);
 }
 
 constexpr std::uint8_t right_nibble(std::uint8_t byte) {
-	return RBITS(byte, 4);
+	return rbits(byte, 4);
 }
 
-
+/*
+ * Returns the nth bit in val, either 0 or 1.
+ */
 template <class T>
-constexpr std::uint8_t BITN(T val, int n) {
+constexpr std::uint8_t bitn(T val, std::size_t n) {
 	return (val >> n) & 0x1;
 }
 }
@@ -62,19 +53,18 @@ constexpr std::uint8_t BITN(T val, int n) {
 	----------------------------------------------- */
 class BitReader {
 public:
-	BitReader(const std::vector<std::uint8_t>& bits);
+	BitReader(const std::vector<std::uint8_t>& bytes);
 	~BitReader();
-	std::uint32_t read(int nbits);
-	std::uint16_t read_u16(int nbits);
+	std::uint16_t read_u16(std::size_t num_bits);
 	std::uint8_t read_bit();
 	std::uint8_t unpad(std::uint8_t fillbit);
 	bool eof() const;
 	bool overread() const;
 
 private:
-	const std::vector<std::uint8_t> data;
-	std::vector<std::uint8_t>::const_iterator cbyte; // The position in the data of the byte being read.
-	int cbit = 8; // The position of the next bit in the current byte.
+	const std::vector<std::uint8_t> data_;
+	std::vector<std::uint8_t>::const_iterator curr_byte_; // The position in the data of the byte being read.
+	std::size_t curr_bit_ = 8; // The position of the next bit in the current byte.
 	bool overread_ = false; // Tried to read more bits than available in the reader.
 	bool eof_ = false; // Read all the bits in the reader.
 };
@@ -85,21 +75,21 @@ private:
 	----------------------------------------------- */
 class BitWriter {
 public:
-	BitWriter(int size);
+	BitWriter(std::size_t size);
 	~BitWriter();
-	void write(std::uint16_t val, int num_bits);
+	void write_u16(std::uint16_t val, std::size_t num_bits);
 	void write_bit(std::uint8_t bit);
 	void set_fillbit(std::uint8_t fillbit);
 	void pad();
 	std::vector<std::uint8_t> get_data();
-	int getpos() const;
+	std::size_t getpos() const;
 
 private:
 
 	std::uint8_t fillbit_ = 1;
-	std::vector<std::uint8_t> data;
-	int cbyte = 0; // The position in the data of the byte being written.
-	int cbit = 8; // The position of the next bit in the current byte.
+	std::vector<std::uint8_t> data_;
+	std::size_t curr_byte_ = 0; // The position in the data of the byte being written.
+	std::size_t curr_bit_ = 8; // The position of the next bit in the current byte.
 };
 
 #endif

@@ -224,7 +224,7 @@ void PjgEncoder::dc(const Component& cmpt) {
 			for (int bp = clen - 2; bp >= 0; bp--) {
 				mod_res->shift_model(snum, bp); // shift in 2 contexts
 				// encode/get bit
-				const int bt = bitops::BITN(absv, bp);
+				const int bt = bitops::bitn(absv, bp);
 				encoder_->encode(*mod_res, bt);
 			}
 			// encode sign
@@ -324,7 +324,7 @@ void PjgEncoder::ac_high(Component& cmpt) {
 				for (int bp = clen - 2; bp >= 0; bp--) {
 					mod_res->shift_model(snum, bp); // shift in 2 contexts
 					// encode/get bit
-					const int bt = bitops::BITN(absv, bp);
+					const int bt = bitops::bitn(absv, bp);
 					encoder_->encode(*mod_res, bt);
 				}
 				// encode sign				
@@ -446,7 +446,7 @@ void PjgEncoder::ac_low(Component& cmpt) {
 				for (; bp >= thrs_bp; bp--) {
 					mod_top->shift_model(ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp); // shift in 3 contexts
 					// encode/get bit
-					const int bt = bitops::BITN(absv, bp);
+					const int bt = bitops::bitn(absv, bp);
 					encoder_->encode(*mod_top, bt);
 					// update context
 					ctx_res = ctx_res << 1;
@@ -456,7 +456,7 @@ void PjgEncoder::ac_low(Component& cmpt) {
 				for (; bp >= 0; bp--) {
 					mod_res->shift_model(zdstls[dpos], bp); // shift in 2 contexts
 					// encode/get bit
-					const int bt = bitops::BITN(absv, bp);
+					const int bt = bitops::bitn(absv, bp);
 					encoder_->encode(*mod_res, bt);
 				}
 				// encode sign

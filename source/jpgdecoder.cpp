@@ -420,8 +420,8 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& 
 		} catch (const std::runtime_error&) {
 			throw;
 		}
-		int l = bitops::LBITS(hc, 4);
-		int r = bitops::RBITS(hc, 4);
+		auto l = bitops::left_nibble(hc);
+		auto r = bitops::right_nibble(hc);
 		// analyse code
 		if ((l == 15) || (r > 0)) { // decode run/level combination
 			std::uint8_t z = l;

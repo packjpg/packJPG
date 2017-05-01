@@ -199,7 +199,7 @@ std::uint8_t ArithmeticDecoder::read_bit()
 	// decrement current bit position
 	cbit--;
 	// return bit at cbit position
-	return bitops::BITN(bbyte, cbit);
+	return bitops::bitn(bbyte, cbit);
 }
 
 UniversalModel::UniversalModel(int max_s, int max_c, int max_o, int c_lim) :

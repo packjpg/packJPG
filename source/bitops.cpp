@@ -10,45 +10,13 @@ reading and writing of arrays
 #include <vector>
 
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
-	data(bits),
-	cbyte(std::begin(data)),
+	data_(bits),
+	curr_byte_(std::begin(data_)),
 	eof_(bits.empty()) {}
 
 BitReader::~BitReader() {}
 
-/* -----------------------------------------------
-	reads n bits from abitreader
-	----------------------------------------------- */
-
-std::uint32_t BitReader::read(int nbits) {
-	std::uint32_t retval = 0;
-
-	// safety check for eof
-	if (eof()) {
-		overread_ = true;
-		return 0;
-	}
-
-	while (nbits >= cbit) {
-		nbits -= cbit;
-		retval |= (bitops::RBITS(*cbyte, cbit) << nbits);
-		cbit = 8;
-		++cbyte;
-		if (cbyte == std::end(data)) {
-			eof_ = true;
-			return retval;
-		}
-	}
-
-	if (nbits > 0) {
-		retval |= (bitops::MBITS(*cbyte, cbit, (cbit - nbits)));
-		cbit -= nbits;
-	}
-
-	return retval;
-}
-
-std::uint16_t BitReader::read_u16(int num_bits) {
+std::uint16_t BitReader::read_u16(std::size_t num_bits) {
 	// safety check for eof
 	if (eof()) {
 		overread_ = true;
@@ -58,20 +26,20 @@ std::uint16_t BitReader::read_u16(int num_bits) {
 	}
 
 	std::uint16_t val = 0;
-	while (num_bits >= cbit) {
-		num_bits -= cbit;
-		val |= (bitops::RBITS(*cbyte, cbit) << num_bits);
-		cbit = 8;
-		++cbyte;
-		if (cbyte == std::end(data)) {
+	while (num_bits >= curr_bit_) {
+		num_bits -= curr_bit_;
+		val |= (bitops::rbits(*curr_byte_, curr_bit_) << num_bits);
+		curr_bit_ = 8;
+		++curr_byte_;
+		if (curr_byte_ == std::end(data_)) {
 			eof_ = true;
 			return val;
 		}
 	}
 
 	if (num_bits > 0) {
-		val |= (bitops::MBITS(*cbyte, cbit, (cbit - num_bits)));
-		cbit -= num_bits;
+		val |= (bitops::mbits(*curr_byte_, curr_bit_, (curr_bit_ - num_bits)));
+		curr_bit_ -= num_bits;
 	}
 
 	return val;
@@ -85,13 +53,13 @@ std::uint8_t BitReader::read_bit() {
 	}
 
 	// read one bit
-	std::uint8_t bit = bitops::BITN(*cbyte, --cbit);
-	if (cbit == 0) {
-		++cbyte;
-		if (cbyte == std::end(data)) {
+	std::uint8_t bit = bitops::bitn(*curr_byte_, --curr_bit_);
+	if (curr_bit_ == 0) {
+		++curr_byte_;
+		if (curr_byte_ == std::end(data_)) {
 			eof_ = true;
 		}
-		cbit = 8;
+		curr_bit_ = 8;
 	}
 
 	return bit;
@@ -102,14 +70,14 @@ std::uint8_t BitReader::read_bit() {
 	----------------------------------------------- */
 
 std::uint8_t BitReader::unpad(std::uint8_t fillbit) {
-	if ((cbit == 8) || eof()) {
+	if ((curr_bit_ == 8) || eof()) {
 		return fillbit;
 	} else {
 		fillbit = read_bit();
-		if (cbit < 8) {
-			++cbyte;
-			cbit = 8;
-			eof_ = cbyte == std::end(data);
+		if (curr_bit_ < 8) {
+			++curr_byte_;
+			curr_bit_ = 8;
+			eof_ = curr_byte_ == std::end(data_);
 		}
 	}
 
@@ -124,27 +92,27 @@ bool BitReader::overread() const {
 	return overread_;
 }
 
-BitWriter::BitWriter(int size) : data(std::max(size, 65536)) {}
+BitWriter::BitWriter(std::size_t size) : data_(std::max(size, std::size_t(65536))) {}
 
 BitWriter::~BitWriter() {}
 
-void BitWriter::write(std::uint16_t val, int num_bits) {
+void BitWriter::write_u16(std::uint16_t val, std::size_t num_bits) {
 	// Resize if necessary
-	if (cbyte > (data.size() - 5)) {
-		data.resize(data.size() * 2);
+	if (curr_byte_ > (data_.size() - 5)) {
+		data_.resize(data_.size() * 2);
 	}
 
 	// write data
-	while (num_bits >= cbit) {
-		data[cbyte] |= (bitops::MBITS16(val, num_bits, (num_bits - cbit)));
-		num_bits -= cbit;
-		cbyte++;
-		cbit = 8;
+	while (num_bits >= curr_bit_) {
+		data_[curr_byte_] |= bitops::mbits(val, num_bits, num_bits - curr_bit_);
+		num_bits -= curr_bit_;
+		curr_byte_++;
+		curr_bit_ = 8;
 	}
 
 	if (num_bits > 0) {
-		data[cbyte] |= ((bitops::RBITS16(val, num_bits)) << (cbit - num_bits));
-		cbit -= num_bits;
+		data_[curr_byte_] |= bitops::rbits(val, num_bits) << (curr_bit_ - num_bits);
+		curr_bit_ -= num_bits;
 	}
 }
 
@@ -156,17 +124,17 @@ void BitWriter::write_bit(std::uint8_t bit) {
 
 	// write data
 	if (bit) {
-		data[cbyte] |= 0x1 << (--cbit);
+		curr_bit_--;
+		data_[curr_byte_] |= 0x1 << curr_bit_;
 	} else {
-		--cbit;
+		curr_bit_--;
 	}
-	if (cbit == 0) {
-		// test if pointer beyond flush treshold
-		cbyte++;
-		if (cbyte > (data.size() - 5)) {
-			data.resize(data.size() * 2);
+	if (curr_bit_ == 0) {
+		curr_byte_++;
+		if (curr_byte_ == data_.size()) {
+			data_.resize(data_.size() * 2);
 		}
-		cbit = 8;
+		curr_bit_ = 8;
 	}
 }
 
@@ -183,21 +151,21 @@ void BitWriter::set_fillbit(std::uint8_t fillbit) {
 	----------------------------------------------- */
 
 void BitWriter::pad() {
-	while (cbit < 8) {
+	while (curr_bit_ < 8) {
 		write_bit(fillbit_);
 	}
 }
 
 std::vector<std::uint8_t> BitWriter::get_data() {
 	pad(); // Pad the last bits of the data before returning it.
-	data.resize(cbyte);
-	return data;
+	data_.resize(curr_byte_);
+	return data_;
 }
 
 /* -----------------------------------------------
 	gets size of data array from abitwriter
 	----------------------------------------------- */
 
-int BitWriter::getpos() const {
-	return cbyte;
+std::size_t BitWriter::getpos() const {
+	return curr_byte_;
 }

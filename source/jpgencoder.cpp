@@ -133,7 +133,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 					// ---> succesive approximation later stage <---
 					while (status == CodingStatus::OKAY) {
 						// fetch bit from current bitplane
-						block[0] = bitops::BITN(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
+						block[0] = bitops::bitn(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
 
 						// encode dc correction bit
 						this->dc_prg_sa(*huffw, block);
@@ -186,7 +186,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
 							// fetch bit from current bitplane
-							block[0] = bitops::BITN(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
+							block[0] = bitops::bitn(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
 
 							// encode dc correction bit
 							this->dc_prg_sa(*huffw, block);
@@ -350,7 +350,7 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 		if (block[bpos] != 0) {
 			// write remaining zeroes
 			while (z >= 16) {
-				huffw.write(actbl.cval[0xF0], actbl.clen[0xF0]);
+				huffw.write_u16(actbl.cval[0xF0], actbl.clen[0xF0]);
 				z -= 16;
 			}
 			// vli encode
@@ -358,8 +358,8 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 			std::uint16_t n = envli(s, block[bpos]);
 			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw.write(actbl.cval[hc], actbl.clen[hc]);
-			huffw.write(n, s);
+			huffw.write_u16(actbl.cval[hc], actbl.clen[hc]);
+			huffw.write_u16(n, s);
 			// reset zeroes
 			z = 0;
 		} else { // increment zero counter
@@ -368,7 +368,7 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 	}
 	// write eob if needed
 	if (z > 0) {
-		huffw.write(actbl.cval[0], actbl.clen[0]);
+		huffw.write_u16(actbl.cval[0], actbl.clen[0]);
 	}
 
 	return 64 - z;
@@ -378,8 +378,8 @@ void JpgEncoder::dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::
 	// encode DC	
 	int s = pjg::bitlen2048n(block[0]);
 	std::uint16_t n = envli(s, block[0]);
-	huffw.write(dctbl.cval[s], dctbl.clen[s]);
-	huffw.write(n, s);
+	huffw.write_u16(dctbl.cval[s], dctbl.clen[s]);
+	huffw.write_u16(n, s);
 }
 
 int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
@@ -392,7 +392,7 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::a
 			this->eobrun(huffw, actbl, eobrun);
 			// write remaining zeroes
 			while (z >= 16) {
-				huffw.write(actbl.cval[0xF0], actbl.clen[0xF0]);
+				huffw.write_u16(actbl.cval[0xF0], actbl.clen[0xF0]);
 				z -= 16;
 			}
 			// vli encode
@@ -400,8 +400,8 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const std::a
 			std::uint16_t n = envli(s, block[bpos]);
 			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw.write(actbl.cval[hc], actbl.clen[hc]);
-			huffw.write(n, s);
+			huffw.write_u16(actbl.cval[hc], actbl.clen[hc]);
+			huffw.write_u16(n, s);
 			// reset zeroes
 			z = 0;
 		} else { // increment zero counter
@@ -452,7 +452,7 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 		if (block[bpos] == 0) {
 			z++; // increment zero counter
 			if (z == 16) { // write zeroes if needed
-				huffw.write(actbl.cval[0xF0], actbl.clen[0xF0]);
+				huffw.write_u16(actbl.cval[0xF0], actbl.clen[0xF0]);
 				this->crbits(huffw, storw);
 				z = 0;
 			}
@@ -464,8 +464,8 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 			std::uint16_t n = envli(s, block[bpos]);
 			int hc = (z << 4) + s;
 			// write to huffman writer
-			huffw.write(actbl.cval[hc], actbl.clen[hc]);
-			huffw.write(n, s);
+			huffw.write_u16(actbl.cval[hc], actbl.clen[hc]);
+			huffw.write_u16(n, s);
 			// write correction bits
 			this->crbits(huffw, storw);
 			// reset zeroes
@@ -503,16 +503,16 @@ void JpgEncoder::eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun) {
 
 	if (eobrun > 0) {
 		while (eobrun > actbl.max_eobrun) {
-			huffw.write(actbl.cval[0xE0], actbl.clen[0xE0]);
-			huffw.write(std::uint16_t(e_envli(14, 32767)), 14);
+			huffw.write_u16(actbl.cval[0xE0], actbl.clen[0xE0]);
+			huffw.write_u16(std::uint16_t(e_envli(14, 32767)), 14);
 			eobrun -= actbl.max_eobrun;
 		}
 		std::uint8_t s = bitlen(eobrun);
 		s--;
 		std::uint16_t n = e_envli(s, eobrun);
 		int hc = s << 4;
-		huffw.write(actbl.cval[hc], actbl.clen[hc]);
-		huffw.write(n, s);
+		huffw.write_u16(actbl.cval[hc], actbl.clen[hc]);
+		huffw.write_u16(n, s);
 		eobrun = 0;
 	}
 }
