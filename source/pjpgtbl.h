@@ -632,7 +632,7 @@ constexpr std::array<int, 4096> pbitlen_n2048_2047 =
 
 
 // Precalculated segmentation settings (the 0th setting corresponds to 1 segments):
-static constexpr std::uint8_t segm_tables[ 49 ][ 50 ] =
+constexpr std::uint8_t segm_tables[ 49 ][ 50 ] =
 {
 	{  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
 	   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, }, // s0

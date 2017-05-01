@@ -10,6 +10,7 @@
 #include "component.h"
 #include "frameinfo.h"
 #include "pjgcontext.h"
+#include "reader.h"
 #include "segment.h"
 
 class PjgDecoder {

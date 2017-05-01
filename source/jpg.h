@@ -1,8 +1,6 @@
 #ifndef JPG_H
 #define JPG_H
 
-#include <memory>
-
 #include "codingstatus.h"
 #include "component.h"
 #include "frameinfo.h"

@@ -1,8 +1,6 @@
 #ifndef FILEPROCESSOR_H
 #define FILEPROCESSOR_H
 
-#include <string>
-
 #include "controller.h"
 #include "filetype.h"
 #include "reader.h"

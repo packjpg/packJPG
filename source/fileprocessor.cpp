@@ -1,6 +1,7 @@
 #include "fileprocessor.h"
 
 #include <experimental/filesystem>
+#include <string>
 
 #include "programinfo.h"
 #include "jpgtopjgontroller.h"

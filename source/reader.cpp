@@ -1,13 +1,15 @@
 #include "reader.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <experimental/filesystem>
-#include "writer.h"
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
 #include <io.h>
 #endif
+
+#include "writer.h"
 
 FileReader::FileReader(const std::string& file_path) : file_path_(file_path) {
 	fptr_ = fopen(file_path.c_str(), "rb");

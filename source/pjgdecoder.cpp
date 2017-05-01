@@ -3,10 +3,9 @@
 #include <algorithm>
 #include <string>
 
-#include "bitops.h"
+#include "jfifparse.h"
 #include "programinfo.h"
 #include "writer.h"
-#include "jfifparse.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
