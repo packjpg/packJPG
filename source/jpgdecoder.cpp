@@ -4,7 +4,6 @@
 #include "jpg.h"
 #include "jfifparse.h"
 
-
 void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffdata) {
 	std::array<std::int16_t, 64> block; // store block for coeffs
 	int scan_count = 0; // Count of scans.
@@ -212,7 +211,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							if (eobrun == 0) {
 								// decode block
 								try {
-									eob = this->ac_prg_fs(*htrees[1][components[cmp].huffac], block, eobrun, scan_info.from, scan_info.to);
+									eob = this->ac_prg_fs(*htrees[1][components[cmp].huffac], scan_info, block, eobrun);
 								} catch (const std::runtime_error&) {
 									throw;
 								}
@@ -257,7 +256,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							if (eobrun == 0) {
 								// decode block (long routine)
 								try {
-									eob = this->ac_prg_sa(*htrees[1][components[cmp].huffac], block, eobrun, scan_info.from, scan_info.to);
+									eob = this->ac_prg_sa(*htrees[1][components[cmp].huffac], scan_info, block, eobrun);
 								} catch (std::runtime_error&) {
 									throw;
 								}
@@ -277,7 +276,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 								}
 							} else {
 								// decode block (short routine)
-								this->eobrun_sa(block, scan_info.from, scan_info.to);
+								this->eobrun_sa(scan_info, block);
 								eobrun--;
 							}
 
@@ -363,7 +362,7 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::a
 	}
 
 	// decode ac
-	for (int bpos = 1; bpos < 64;) {
+	for (std::size_t bpos = 1; bpos < block.size(); bpos++) {
 		// decode next
 		std::uint8_t hc;
 		try {
@@ -377,12 +376,11 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::a
 			std::uint8_t s = bitops::right_nibble(hc);
 			std::uint16_t n = huffr->read_u16(s);
 			if ((z + bpos) >= block.size()) {
-				throw std::runtime_error("Run is too long"); // run is to long
+				throw std::runtime_error("Run is too long.");
 			}
 			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
 			bpos += z;
 			block[bpos] = static_cast<std::int16_t>(devli(s, n)); // decode cvli
-			bpos++;
 		} else if (hc == 0) { // EOB
 			eob = bpos;
 			// while( bpos < 64 ) // fill remaining block with zeroes
@@ -409,10 +407,10 @@ void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>&
 	block[0] = devli(s, n);
 }
 
-int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
-	int eob = to + 1;
+int JpgDecoder::ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun) {
+	int eob = scan_info.to + 1;
 	// decode ac
-	for (int bpos = from; bpos <= to;) {
+	for (int bpos = scan_info.from; bpos <= scan_info.to;) {
 		// decode next
 		std::uint8_t hc;
 		try {
@@ -427,7 +425,7 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& 
 			std::uint8_t z = l;
 			std::uint8_t s = r;
 			std::uint16_t n = huffr->read_u16(s);
-			if ((z + bpos) > to) {
+			if ((z + bpos) > scan_info.to) {
 				throw std::runtime_error("Run is too long.");
 			}
 			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
@@ -455,13 +453,13 @@ void JpgDecoder::dc_prg_sa(std::array<std::int16_t, 64>& block) {
 	block[0] = huffr->read_bit();
 }
 
-int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to) {
+int JpgDecoder::ac_prg_sa(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun) {
 	signed char v;
-	int bpos = from;
-	int eob = to;
+	int bpos = scan_info.from;
+	int eob = scan_info.to;
 	// decode AC succesive approximation bits
 	if (eobrun == 0) {
-		while (bpos <= to) {
+		while (bpos <= scan_info.to) {
 			// decode next
 			std::uint8_t hc;
 			try {
@@ -496,7 +494,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& 
 						std::int16_t n = huffr->read_bit();
 						block[bpos] = (block[bpos] > 0) ? n : -n;
 					}
-					if (bpos++ >= to) {
+					if (bpos++ >= scan_info.to) {
 						throw std::runtime_error("bpos larger than to.");
 					}
 				}
@@ -512,7 +510,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& 
 
 	// read after eob correction bits
 	if (eobrun > 0) {
-		for (; bpos <= to; bpos++) {
+		for (; bpos <= scan_info.to; bpos++) {
 			if (block[bpos] != 0) {
 				std::int16_t n = huffr->read_bit();
 				block[bpos] = (block[bpos] > 0) ? n : -n;
@@ -524,9 +522,9 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& 
 	return eob;
 }
 
-void JpgDecoder::eobrun_sa(std::array<std::int16_t, 64>& block, int from, int to) {
+void JpgDecoder::eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 64>& block) {
 	// fast eobrun decoding routine for succesive approximation
-	for (int bpos = from; bpos <= to; bpos++) {
+	for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
 		if (block[bpos] != 0) {
 			std::int16_t n = huffr->read_bit();
 			block[bpos] = (block[bpos] > 0) ? n : -n;

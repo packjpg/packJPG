@@ -10,8 +10,12 @@
 #include "codingstatus.h"
 #include "huffcodes.h"
 #include "hufftree.h"
+#include "scaninfo.h"
 #include "segment.h"
 #include "frameinfo.h"
+#include <algorithm>
+#include <algorithm>
+#include <algorithm>
 
 class JpgDecoder {
 public:
@@ -19,7 +23,7 @@ public:
 	// JPEG decoding routine.
 	void decode(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffdata);
 	// Checks range of values, error if out of bounds.
-	void check_value_range(const std::vector<Component>& cmpts);
+	void check_value_range(const std::vector<Component>& components);
 
 	std::uint8_t get_padbit();
 
@@ -29,14 +33,13 @@ private:
 	// Progressive DC decoding routine.
 	void dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block);
 	// Progressive AC decoding routine.
-	int ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& block,
-	              int& eobrun, int from, int to);
+	int ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun);
 	// Progressive DC SA decoding routine.
 	void dc_prg_sa(std::array<std::int16_t, 64>& block);
 	// Progressive AC SA decoding routine.
-	int ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& block, int& eobrun, int from, int to);
+	int ac_prg_sa(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun);
 	// Run of EOB SA decoding routine.
-	void eobrun_sa(std::array<std::int16_t, 64>& block, int from, int to);
+	void eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 64>& block);
 
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun);
