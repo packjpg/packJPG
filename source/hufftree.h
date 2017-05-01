@@ -3,9 +3,9 @@
 
 #include <array>
 #include <cstdint>
-#include <memory>
 
 #include "bitops.h"
+#include "bitreader.h"
 #include "huffcodes.h"
 
 class HuffTree {
