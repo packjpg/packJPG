@@ -49,17 +49,18 @@ public:
 	}
 
 	// Returns next the next code (from the tree and the Huffman data).
-	int next_huffcode(BitReader& huffr) const {
-		int node = 0;
+	std::uint8_t next_huffcode(BitReader& huffr) const {
+		std::uint16_t node = 0;
 
 		while (node < 256) {
 			node = (huffr.read_bit() == 1) ?
 				       r[node] : l[node];
-			if (node == 0)
-				break;
+			if (node == 0) {
+				throw std::runtime_error("Invalid Huffman code.");
+			}
 		}
 
-		return node - 256;
+		return std::uint8_t(node - 256);
 	}
 };
 

@@ -365,26 +365,29 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::a
 	// decode ac
 	for (int bpos = 1; bpos < 64;) {
 		// decode next
-		int hc = actree.next_huffcode(*huffr);
+		std::uint8_t hc;
+		try {
+			hc = actree.next_huffcode(*huffr);
+		} catch (const std::runtime_error&) {
+			throw;
+		}
 		// analyse code
 		if (hc > 0) {
-			std::uint8_t z = bitops::LBITS(hc, 4);
-			std::uint8_t s = bitops::RBITS(hc, 4);
-			std::uint16_t n = huffr->read(s);
+			std::uint8_t z = bitops::left_nibble(hc);
+			std::uint8_t s = bitops::right_nibble(hc);
+			std::uint16_t n = huffr->read_u16(s);
 			if ((z + bpos) >= block.size()) {
 				throw std::runtime_error("Run is too long"); // run is to long
 			}
 			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
 			bpos += z;
-			block[bpos] = static_cast<short>(devli(s, n)); // decode cvli
+			block[bpos] = static_cast<std::int16_t>(devli(s, n)); // decode cvli
 			bpos++;
 		} else if (hc == 0) { // EOB
 			eob = bpos;
 			// while( bpos < 64 ) // fill remaining block with zeroes
 			//	block[ bpos++ ] = 0;
 			break;
-		} else {
-			throw std::runtime_error("Invalid Huffman code."); // return error
 		}
 	}
 
@@ -395,12 +398,14 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::a
 
 void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block) {
 	// decode dc
-	int hc = dctree.next_huffcode(*huffr);
-	if (hc < 0) {
-		throw std::runtime_error("Invalid Huffman code.");
+	std::uint8_t hc;
+	try {
+		hc = dctree.next_huffcode(*huffr);
+	} catch (const std::runtime_error&) {
+		throw;
 	}
 	int s = hc;
-	std::uint16_t n = huffr->read(s);
+	std::uint16_t n = huffr->read_u16(s);
 	block[0] = devli(s, n);
 }
 
@@ -409,9 +414,11 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& 
 	// decode ac
 	for (int bpos = from; bpos <= to;) {
 		// decode next
-		int hc = actree.next_huffcode(*huffr);
-		if (hc < 0) {
-			throw std::runtime_error("Invalid Huffman code.");
+		std::uint8_t hc;
+		try {
+			hc = actree.next_huffcode(*huffr);
+		} catch (const std::runtime_error&) {
+			throw;
 		}
 		int l = bitops::LBITS(hc, 4);
 		int r = bitops::RBITS(hc, 4);
@@ -419,18 +426,18 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, std::array<std::int16_t, 64>& 
 		if ((l == 15) || (r > 0)) { // decode run/level combination
 			std::uint8_t z = l;
 			std::uint8_t s = r;
-			std::uint16_t n = huffr->read(s);
+			std::uint16_t n = huffr->read_u16(s);
 			if ((z + bpos) > to) {
 				throw std::runtime_error("Run is too long.");
 			}
 			std::fill_n(std::begin(block) + bpos, z, std::int16_t(0));
 			bpos += z;
-			block[bpos] = static_cast<short>(devli(s, n)); // decode cvli
+			block[bpos] = static_cast<std::int16_t>(devli(s, n)); // decode cvli
 			bpos++;
 		} else { // decode eobrun
 			eob = bpos;
 			std::uint8_t s = l;
-			std::uint16_t n = huffr->read(s);
+			std::uint16_t n = huffr->read_u16(s);
 			eobrun = e_devli(s, n);
 			// while( bpos <= to ) // fill remaining block with zeroes
 			//	block[ bpos++ ] = 0;
@@ -456,11 +463,14 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& 
 	if (eobrun == 0) {
 		while (bpos <= to) {
 			// decode next
-			int hc = actree.next_huffcode(*huffr);
-			if (hc < 0)
-				throw std::runtime_error("Invalid Huffman code.");
-			int l = bitops::LBITS(hc, 4);
-			int r = bitops::RBITS(hc, 4);
+			std::uint8_t hc;
+			try {
+				hc = actree.next_huffcode(*huffr);
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+			auto l = bitops::left_nibble(hc);
+			auto r = bitops::right_nibble(hc);
 			// analyse code
 			if ((l == 15) || (r > 0)) { // decode run/level combination
 				signed char z = l;
@@ -493,7 +503,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, std::array<std::int16_t, 64>& 
 			} else { // decode eobrun
 				eob = bpos;
 				std::uint8_t s = l;
-				std::uint16_t n = huffr->read(s);
+				std::uint16_t n = huffr->read_u16(s);
 				eobrun = e_devli(s, n);
 				break;
 			}

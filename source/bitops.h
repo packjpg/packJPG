@@ -52,7 +52,7 @@ constexpr std::uint8_t right_nibble(std::uint8_t byte) {
 
 
 template <class T>
-constexpr int BITN(T val, int n) {
+constexpr std::uint8_t BITN(T val, int n) {
 	return (val >> n) & 0x1;
 }
 }
