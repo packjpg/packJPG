@@ -2,17 +2,14 @@
 #define JPGENCODER_H
 
 #include <cstdint>
-#include <memory>
 #include <vector>
 
-#include "bitops.h"
+#include "bitwriter.h"
+
 #include "frameinfo.h"
 #include "huffcodes.h"
 #include "segment.h"
 #include "writer.h"
-#include <algorithm>
-#include <algorithm>
-#include <algorithm>
 
 class JpgEncoder {
 public:

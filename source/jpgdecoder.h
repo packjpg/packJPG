@@ -4,15 +4,14 @@
 #include <memory>
 #include <vector>
 
+#include "bitreader.h"
+
 #include "component.h"
 #include "codingstatus.h"
 #include "huffcodes.h"
 #include "hufftree.h"
-#include "jpegtype.h"
 #include "segment.h"
 #include "frameinfo.h"
-#include <memory>
-#include <algorithm>
 
 class JpgDecoder {
 public:

@@ -2,7 +2,7 @@
 #define BITOPS_H
 
 #include <cstdint>
-#include <vector>
+#include <limits>
 
 namespace bitops {
 
@@ -47,49 +47,5 @@ constexpr std::uint8_t bitn(T val, std::size_t n) {
 	return (val >> n) & 0x1;
 }
 }
-
-/* -----------------------------------------------
-	class to read arrays bitwise
-	----------------------------------------------- */
-class BitReader {
-public:
-	BitReader(const std::vector<std::uint8_t>& bytes);
-	~BitReader();
-	std::uint16_t read_u16(std::size_t num_bits);
-	std::uint8_t read_bit();
-	std::uint8_t unpad(std::uint8_t fillbit);
-	bool eof() const;
-	bool overread() const;
-
-private:
-	const std::vector<std::uint8_t> data_;
-	std::vector<std::uint8_t>::const_iterator curr_byte_; // The position in the data of the byte being read.
-	std::size_t curr_bit_ = 8; // The position of the next bit in the current byte.
-	bool overread_ = false; // Tried to read more bits than available in the reader.
-	bool eof_ = false; // Read all the bits in the reader.
-};
-
-
-/* -----------------------------------------------
-	class to write arrays bitwise
-	----------------------------------------------- */
-class BitWriter {
-public:
-	BitWriter(std::size_t size);
-	~BitWriter();
-	void write_u16(std::uint16_t val, std::size_t num_bits);
-	void write_bit(std::uint8_t bit);
-	void set_fillbit(std::uint8_t fillbit);
-	void pad();
-	std::vector<std::uint8_t> get_data();
-	std::size_t getpos() const;
-
-private:
-
-	std::uint8_t fillbit_ = 1;
-	std::vector<std::uint8_t> data_;
-	std::size_t curr_byte_ = 0; // The position in the data of the byte being written.
-	std::size_t curr_bit_ = 8; // The position of the next bit in the current byte.
-};
 
 #endif
