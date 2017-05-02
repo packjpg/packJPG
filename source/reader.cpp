@@ -163,7 +163,10 @@ bool MemoryReader::end_of_reader() {
 
 StreamReader::StreamReader() {
 #if defined(_WIN32) || defined(WIN32)
-	_setmode(_fileno(stdin), _O_BINARY);
+	const int result = _setmode(_fileno(stdin), _O_BINARY);
+	if (result == -1) {
+		throw std::runtime_error("Unable to set mode for stdin");
+	}
 #endif
 	// read whole stream into memory buffer
 	auto writer = std::make_unique<MemoryWriter>();

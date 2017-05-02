@@ -722,16 +722,17 @@ static void process_ui(const std::string& input_file) {
 	// check input file and determine filetype
 
 	// open input stream, check for errors
-	if (pipe_on) {
-		input_reader = std::make_unique<StreamReader>();
-	} else {
-		try {
+	try {
+
+		if (pipe_on) {
+			input_reader = std::make_unique<StreamReader>();
+		} else {
 			input_reader = std::make_unique<FileReader>(input_file);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return;
 		}
+	} catch (const std::runtime_error& e) {
+		errormessage = e.what();
+		error = true;
+		return;
 	}
 
 	FileType type;
@@ -745,16 +746,16 @@ static void process_ui(const std::string& input_file) {
 
 	const auto output_file = get_output_destination(input_file, type);
 
-	if (pipe_on) {
-		output_writer = std::make_unique<StreamWriter>();
-	} else {
-		try {
+	try {
+		if (pipe_on) {
+			output_writer = std::make_unique<StreamWriter>();
+		} else {
 			output_writer = std::make_unique<FileWriter>(output_file);
-		} catch (const std::runtime_error& e) {
-			errormessage = e.what();
-			error = true;
-			return;
 		}
+	} catch (const std::runtime_error& e) {
+		errormessage = e.what();
+		error = true;
+		return;
 	}
 
 	// get specific action message
