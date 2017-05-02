@@ -2,6 +2,7 @@
 #define JPGENCODER_H
 
 #include <cstdint>
+#include <map>
 #include <vector>
 
 #include "bitwriter.h"
@@ -23,9 +24,9 @@ public:
 
 private:
 	// encoding for interleaved data.
-	CodingStatus encode_interleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_interleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// encoding for non interleaved data.
-	CodingStatus encode_noninterleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw);
+	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw);
 
 
 	// Sequential block encoding routine.

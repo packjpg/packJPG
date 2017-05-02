@@ -8,7 +8,7 @@ JpgEncoder::JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& se
 	jpg_output_writer_(jpg_output_writer),
 	segments_(segments) {}
 
-CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw) {
+CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw) {
 	// set last DCs for diff coding
 	std::array<int, 4> lastdc{}; // last dc for each component
 
@@ -29,8 +29,8 @@ CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const Scan
 
 			// encode block
 			this->block_seq(huffw,
-			                *hcodes[0][frame_info.components[cmp].huffac],
-			                *hcodes[1][frame_info.components[cmp].huffac],
+			                *dc_tables[frame_info.components[cmp].huffac],
+							*ac_tables[frame_info.components[cmp].huffac],
 			                block);
 
 			status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
@@ -46,7 +46,7 @@ CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const Scan
 				lastdc[cmp] = tmp;
 
 				// encode dc
-				this->dc_prg_fs(huffw, *hcodes[0][frame_info.components[cmp].huffdc], block);
+				this->dc_prg_fs(huffw, *dc_tables[frame_info.components[cmp].huffdc], block);
 
 				// Increment dpos
 				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
@@ -76,13 +76,13 @@ CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const Scan
 				}
 
 				// encode block
-				this->ac_prg_fs(huffw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
+				this->ac_prg_fs(huffw, *ac_tables[frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 			}
 
 			// encode remaining eobrun
-			this->eobrun(huffw, *hcodes[1][frame_info.components[cmp].huffac], eobrun);
+			this->eobrun(huffw, *ac_tables[frame_info.components[cmp].huffac], eobrun);
 		} else {
 			// ---> progressive non interleaved AC encoding <---
 			// ---> succesive approximation later stage <---
@@ -93,13 +93,13 @@ CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const Scan
 				}
 
 				// encode block
-				this->ac_prg_sa(huffw, storw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
+				this->ac_prg_sa(huffw, storw, *ac_tables[frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 			}
 
 			// encode remaining eobrun
-			this->eobrun(huffw, *hcodes[1][frame_info.components[cmp].huffac], eobrun);
+			this->eobrun(huffw, *ac_tables[frame_info.components[cmp].huffac], eobrun);
 
 			// encode remaining correction bits
 			this->crbits(huffw, storw);
@@ -108,7 +108,7 @@ CodingStatus JpgEncoder::encode_noninterleaved(FrameInfo& frame_info, const Scan
 	return status;
 }
 
-CodingStatus JpgEncoder::encode_interleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+CodingStatus JpgEncoder::encode_interleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	// set last DCs for diff coding
 	std::array<int, 4> lastdc{}; // last dc for each component
 	
@@ -127,8 +127,8 @@ CodingStatus JpgEncoder::encode_interleaved(FrameInfo& frame_info, const ScanInf
 
 			// encode block
 			this->block_seq(huffw,
-			                *hcodes[0][frame_info.components[cmp].huffac],
-			                *hcodes[1][frame_info.components[cmp].huffac],
+			                *dc_tables[frame_info.components[cmp].huffac],
+			                *ac_tables[frame_info.components[cmp].huffac],
 			                block);
 
 			status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
@@ -145,7 +145,7 @@ CodingStatus JpgEncoder::encode_interleaved(FrameInfo& frame_info, const ScanInf
 			lastdc[cmp] = tmp;
 
 			// encode dc
-			this->dc_prg_fs(huffw, *hcodes[0][frame_info.components[cmp].huffdc], block);
+			this->dc_prg_fs(huffw, *dc_tables[frame_info.components[cmp].huffdc], block);
 
 			// next mcupos
 			status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
@@ -184,77 +184,72 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 
 	// JPEG decompression loop
 	int rsti = 0; // Restart interval.
-	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
+	// Huffman codes:
+	std::map<int, std::unique_ptr<HuffCodes>> dc_tables;
+	std::map<int, std::unique_ptr<HuffCodes>> ac_tables;
 	for (const auto& segment : segments_) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
-		ScanInfo scan_info;
 		const Marker type = segment.get_type();
 		if (type == Marker::kDHT) {
 			try {
-				jfif::parse_dht(segment.get_data(), hcodes);
+				jfif::parse_dht(segment.get_data(), dc_tables, ac_tables);
 			} catch (const std::range_error&) {
 				throw;
 			}
 		} else if (type == Marker::kDRI) {
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
+			ScanInfo scan_info;
 			try {
 				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
-		} else {
-			continue;
-		}
 
-		// get out if last marker segment type was not SOS
-		if (type != Marker::kSOS) {
-			continue;
-		}
+			// (re)alloc scan positons array
+			scnp_.resize(scan_count + 2);
 
-		// (re)alloc scan positons array
-		scnp_.resize(scan_count + 2);
-
-		// (re)alloc restart marker positons array if needed
-		if (rsti > 0) {
-			int tmp = rstc + ((scan_info.cmpc > 1) ?
-				                  (frame_info.mcu_count / rsti) : (frame_info.components[scan_info.cmp[0]].bc / rsti));
-			rstp_.resize(tmp + 1);
-		}
-
-		// intial variables set for encoding
-		int cmp = scan_info.cmp[0];
-		int csc = 0;
-		int mcu = 0;
-		int sub = 0;
-		int dpos = 0;
-
-		// store scan position
-		scnp_[scan_count] = huffw->getpos();
-
-		// JPEG imagedata encoding routines
-		while (true) {
-			// (re)set rst wait counter
-			int rstw = rsti; // restart wait counter
-
-			CodingStatus status;
-			if (scan_info.cmpc > 1) {
-				status = encode_interleaved(frame_info, scan_info, hcodes, block, *huffw, rsti, cmp, dpos, rstw, csc, mcu, sub);
-			} else {
-				status = encode_noninterleaved(frame_info, scan_info, hcodes, block, *huffw, *storw, rsti, cmp, dpos, rstw);
+			// (re)alloc restart marker positons array if needed
+			if (rsti > 0) {
+				int tmp = rstc + ((scan_info.cmpc > 1) ?
+					                  (frame_info.mcu_count / rsti) : (frame_info.components[scan_info.cmp[0]].bc / rsti));
+				rstp_.resize(tmp + 1);
 			}
 
-			// pad huffman writer
-			huffw->pad();
+			// intial variables set for encoding
+			int cmp = scan_info.cmp[0];
+			int csc = 0;
+			int mcu = 0;
+			int sub = 0;
+			int dpos = 0;
 
-			// evaluate status
-			if (status == CodingStatus::DONE) {
-				scan_count++; // increment scan counter
-				break; // leave decoding loop, everything is done here
-			} else if (status == CodingStatus::RESTART) {
-				if (rsti > 0) {
-					// store rstp & stay in the loop
-					rstp_[rstc++] = huffw->getpos() - 1;
+			// store scan position
+			scnp_[scan_count] = huffw->getpos();
+
+			// JPEG imagedata encoding routines
+			while (true) {
+				// set rst wait counter
+				int rstw = rsti; // restart wait counter
+
+				CodingStatus status;
+				if (scan_info.cmpc > 1) {
+					status = encode_interleaved(frame_info, scan_info, dc_tables, ac_tables, block, *huffw, rsti, cmp, dpos, rstw, csc, mcu, sub);
+				} else {
+					status = encode_noninterleaved(frame_info, scan_info, dc_tables, ac_tables, block, *huffw, *storw, rsti, cmp, dpos, rstw);
+				}
+
+				// pad huffman writer
+				huffw->pad();
+
+				// evaluate status
+				if (status == CodingStatus::DONE) {
+					scan_count++; // increment scan counter
+					break; // leave decoding loop, everything is done here
+				} else if (status == CodingStatus::RESTART) {
+					if (rsti > 0) {
+						// store rstp & stay in the loop
+						rstp_[rstc++] = huffw->getpos() - 1;
+					}
 				}
 			}
 		}

@@ -15,6 +15,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 	int rsti = 0; // restart interval
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
+
 	for (const auto& segment : segments) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		ScanInfo scan_info;
@@ -344,7 +345,7 @@ std::uint8_t JpgDecoder::get_padbit() {
 void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees) {
 	for (std::size_t i = 0; i < hcodes.size(); i++) {
 		for (std::size_t j = 0; j < hcodes[i].size(); j++) {
-			if (hcodes[i][j]) {
+			if (hcodes[i][j] && !htrees[i][j]) {
 				htrees[i][j] = std::make_unique<HuffTree>(*hcodes[i][j]);
 			}
 		}

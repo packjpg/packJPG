@@ -23,6 +23,60 @@ namespace jfif {
 	}
 
 	// Builds Huffman trees and codes.
+	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
+		auto reader = std::make_unique<MemoryReader>(segment);
+		std::vector<std::uint8_t> skip(4); // Skip the segment header.
+		reader->read(skip, 4);
+		// build huffman trees & codes
+		while (!reader->end_of_reader()) {
+			std::uint8_t byte;
+			try {
+				byte = reader->read_byte();
+			}
+			catch (const std::runtime_error&) {
+				throw;
+			}
+			int table_class = bitops::left_nibble(byte);
+			if (table_class != 0 && table_class != 1) {
+				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
+			}
+
+			int table_index = bitops::right_nibble(byte);
+
+			if (table_index > 3) {
+				throw std::runtime_error("Invalid table destination identifier " + std::to_string(table_index) + " in DHT.");
+			}
+
+			std::vector<std::uint8_t> counts(16);
+			const auto counts_num_read = reader->read(counts, counts.size());
+			if (counts_num_read != 16) {
+				throw std::runtime_error("Insufficient bytes to read counts in DHT segment.");
+			}
+
+			const auto size = std::accumulate(std::begin(counts), std::end(counts), std::size_t(0));
+			if (size == 0) {
+				throw std::runtime_error("Table of zero length in DHT segment.");
+			}
+			else if (size > 256) {
+				throw std::runtime_error("Overly long table in DHT segment.");
+			}
+
+			std::vector<std::uint8_t> values(size);
+			const auto length_read = reader->read(values, values.size());
+			if (length_read != size) {
+				throw std::runtime_error("Insufficient bytes to read table values in DHT segment.");
+			}
+
+			auto table = std::make_unique<HuffCodes>(counts, values);
+			if (table_class == 0) {
+				dc_tables[table_index] = std::move(table);
+			} else {
+				ac_tables[table_index] = std::move(table);
+			}
+		}
+	}
+
+	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 		auto reader = std::make_unique<MemoryReader>(segment);
 		std::vector<std::uint8_t> skip(4); // Skip the segment header.
