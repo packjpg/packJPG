@@ -6,6 +6,7 @@
 
 #include "bitwriter.h"
 
+#include "codingstatus.h"
 #include "frameinfo.h"
 #include "huffcodes.h"
 #include "scaninfo.h"
@@ -21,6 +22,12 @@ public:
 	void merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
 
 private:
+	// encoding for interleaved data.
+	CodingStatus encode_interleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	// encoding for non interleaved data.
+	CodingStatus encode_noninterleaved(FrameInfo& frame_info, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw);
+
+
 	// Sequential block encoding routine.
 	void block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
 	// Progressive DC encoding routine.
