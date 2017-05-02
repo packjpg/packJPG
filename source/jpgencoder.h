@@ -22,15 +22,15 @@ public:
 
 private:
 	// Sequential block encoding routine.
-	int block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+	void block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
 	// Progressive DC encoding routine.
 	void dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
 	// Progressive AC encoding routine.
-	int ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
+	void ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
 	// Progressive DC SA encoding routine.
 	void dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>& block);
 	// Progressive AC SA encoding routine.
-	int ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
+	void ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
 	// Run of EOB encoding routine.
 	void eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun);
 	// Correction bits encoding routine.
@@ -58,12 +58,12 @@ private:
 
 	Writer& jpg_output_writer_;
 
-	const std::vector<Segment>& segments;
+	const std::vector<Segment>& segments_;
 
-	std::vector<std::uint8_t> huffman_data;
+	std::vector<std::uint8_t> huffman_data_;
 
-	std::vector<std::size_t> rstp; // restart markers positions in huffdata
-	std::vector<std::size_t> scnp; // scan start positions in huffdata
+	std::vector<std::size_t> rstp_; // restart markers positions in huffdata
+	std::vector<std::size_t> scnp_; // scan start positions in huffdata
 };
 
 #endif

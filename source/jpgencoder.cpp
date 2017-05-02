@@ -7,7 +7,7 @@
 
 JpgEncoder::JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& segments) :
 	jpg_output_writer_(jpg_output_writer),
-	segments(segments) {}
+	segments_(segments) {}
 
 void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 	std::array<std::int16_t, 64> block; // store block for coeffs
@@ -26,7 +26,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 	// JPEG decompression loop
 	int rsti = 0; // Restart interval.
 	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
-	for (const auto& segment : segments) {
+	for (const auto& segment : segments_) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		ScanInfo scan_info;
 		const Marker type = segment.get_type();
@@ -54,13 +54,13 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 		}
 
 		// (re)alloc scan positons array
-		scnp.resize(scan_count + 2);
+		scnp_.resize(scan_count + 2);
 
 		// (re)alloc restart marker positons array if needed
 		if (rsti > 0) {
 			int tmp = rstc + ((scan_info.cmpc > 1) ?
 				                  (frame_info.mcu_count / rsti) : (frame_info.components[scan_info.cmp[0]].bc / rsti));
-			rstp.resize(tmp + 1);
+			rstp_.resize(tmp + 1);
 		}
 
 		// intial variables set for encoding
@@ -71,7 +71,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 		int dpos = 0;
 
 		// store scan position
-		scnp[scan_count] = huffw->getpos();
+		scnp_[scan_count] = huffw->getpos();
 
 		// JPEG imagedata encoding routines
 		while (true) {
@@ -93,18 +93,19 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 					// ---> sequential interleaved encoding <---
 					while (status == CodingStatus::OKAY) {
 						// copy from colldata
-						for (int bpos = 0; bpos < 64; bpos++)
+						for (int bpos = 0; bpos < 64; bpos++) {
 							block[bpos] = frame_info.components[cmp].colldata[bpos][dpos];
+						}
 
 						// diff coding for dc
 						block[0] -= lastdc[cmp];
 						lastdc[cmp] = frame_info.components[cmp].colldata[0][dpos];
 
 						// encode block
-						int eob = this->block_seq(*huffw,
-							*hcodes[0][frame_info.components[cmp].huffac],
-							*hcodes[1][frame_info.components[cmp].huffac],
-							block);
+						this->block_seq(*huffw,
+						                *hcodes[0][frame_info.components[cmp].huffac],
+						                *hcodes[1][frame_info.components[cmp].huffac],
+						                block);
 
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -148,18 +149,19 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 					// ---> sequential non interleaved encoding <---
 					while (status == CodingStatus::OKAY) {
 						// copy from colldata
-						for (int bpos = 0; bpos < 64; bpos++)
+						for (int bpos = 0; bpos < 64; bpos++) {
 							block[bpos] = frame_info.components[cmp].colldata[bpos][dpos];
+						}
 
 						// diff coding for dc
 						block[0] -= lastdc[cmp];
 						lastdc[cmp] = frame_info.components[cmp].colldata[0][dpos];
 
 						// encode block
-						int eob = this->block_seq(*huffw,
-						                          *hcodes[0][frame_info.components[cmp].huffac],
-						                          *hcodes[1][frame_info.components[cmp].huffac],
-						                          block);
+						this->block_seq(*huffw,
+						                *hcodes[0][frame_info.components[cmp].huffac],
+						                *hcodes[1][frame_info.components[cmp].huffac],
+						                block);
 
 						status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 					}
@@ -201,12 +203,12 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 						// ---> succesive approximation first stage <---
 						while (status == CodingStatus::OKAY) {
 							// copy from colldata
-							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
-								block[bpos] =
-									fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
+								block[bpos] = fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
+							}
 
 							// encode block
-							int eob = this->ac_prg_fs(*huffw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
+							this->ac_prg_fs(*huffw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
@@ -223,7 +225,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 									fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
 
 							// encode block
-							int eob = this->ac_prg_sa(*huffw, *storw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
+							this->ac_prg_sa(*huffw, *storw, *hcodes[1][frame_info.components[cmp].huffac], scan_info, block, eobrun);
 
 							status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
 						}
@@ -246,18 +248,18 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 				break; // leave decoding loop, everything is done here
 			} else if (status == CodingStatus::RESTART) {
 				if (rsti > 0) // store rstp & stay in the loop
-					rstp[rstc++] = huffw->getpos() - 1;
+					rstp_[rstc++] = huffw->getpos() - 1;
 			}
 		}
 	}
 
 	// get data into huffdata
-	huffman_data = huffw->get_data();
+	huffman_data_ = huffw->get_data();
 
 	// store last scan & restart positions
-	scnp[scan_count] = huffman_data.size();
-	if (!rstp.empty()) {
-		rstp[rstc] = huffman_data.size();
+	scnp_[scan_count] = huffman_data_.size();
+	if (!rstp_.empty()) {
+		rstp_[rstc] = huffman_data_.size();
 	}
 }
 
@@ -271,7 +273,7 @@ void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vecto
 	jpg_output_writer_.write(SOI);
 
 	// JPEG writing loop
-	for (auto& segment : segments) {
+	for (auto& segment : segments_) {
 		// write segment data to file
 		jpg_output_writer_.write(segment.get_data());
 
@@ -285,16 +287,16 @@ void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vecto
 
 		// write & expand huffman coded image data
 		// ipos is the current position in image data.
-		for (auto ipos = scnp[scan - 1]; ipos < scnp[scan]; ipos++) {
+		for (auto ipos = scnp_[scan - 1]; ipos < scnp_[scan]; ipos++) {
 			// write current byte
-			jpg_output_writer_.write_byte(huffman_data[ipos]);
+			jpg_output_writer_.write_byte(huffman_data_[ipos]);
 			// check current byte, stuff if needed
-			if (huffman_data[ipos] == 0xFF) {
+			if (huffman_data_[ipos] == 0xFF) {
 				jpg_output_writer_.write_byte(std::uint8_t(0)); // 0xFF stuff value
 			}
 			// insert restart markers if needed
-			if (!rstp.empty()) {
-				if (ipos == rstp[rpos]) {
+			if (!rstp_.empty()) {
+				if (ipos == rstp_[rpos]) {
 					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
 					constexpr std::uint8_t mrk = 0xFF; // marker start
 					jpg_output_writer_.write_byte(mrk);
@@ -335,18 +337,18 @@ void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vecto
 	}
 }
 
-int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block) {
+void JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dc_table, const HuffCodes& ac_table, const std::array<std::int16_t, 64>& block) {
 	// encode DC
-	this->dc_prg_fs(huffw, dctbl, block);
+	this->dc_prg_fs(huffw, dc_table, block);
 
 	// encode AC
 	int z = 0;
-	for (int bpos = 1; bpos < 64; bpos++) {
+	for (std::size_t bpos = 1; bpos < block.size(); bpos++) {
 		// if nonzero is encountered
 		if (block[bpos] != 0) {
 			// write remaining zeroes
 			while (z >= 16) {
-				huffw.write_u16(actbl.cval[0xF0], actbl.clen[0xF0]);
+				huffw.write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
 				z -= 16;
 			}
 			// vli encode
@@ -354,7 +356,7 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 			std::uint16_t n = envli(s, block[bpos]);
 			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw.write_u16(actbl.cval[hc], actbl.clen[hc]);
+			huffw.write_u16(ac_table.cval[hc], ac_table.clen[hc]);
 			huffw.write_u16(n, s);
 			// reset zeroes
 			z = 0;
@@ -364,10 +366,8 @@ int JpgEncoder::block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCo
 	}
 	// write eob if needed
 	if (z > 0) {
-		huffw.write_u16(actbl.cval[0], actbl.clen[0]);
+		huffw.write_u16(ac_table.cval[0], ac_table.clen[0]);
 	}
-
-	return 64 - z;
 }
 
 void JpgEncoder::dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block) {
@@ -378,7 +378,7 @@ void JpgEncoder::dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::
 	huffw.write_u16(n, s);
 }
 
-int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
+void JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
 	// encode AC
 	std::uint8_t z = 0;
 	for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
@@ -413,7 +413,6 @@ int JpgEncoder::ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanIn
 			this->eobrun(huffw, actbl, eobrun);
 		}
 	}
-	return 1 + scan_info.to - z;
 }
 
 void JpgEncoder::dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>& block) {
@@ -422,7 +421,7 @@ void JpgEncoder::dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>&
 }
 
 
-int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
+void JpgEncoder::ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun) {
 	int eob = scan_info.from;
 	int bpos;
 
@@ -488,9 +487,6 @@ int JpgEncoder::ac_prg_sa(BitWriter& huffw, ::Writer& storw, const HuffCodes& ac
 			this->crbits(huffw, storw);
 		}
 	}
-
-	// return eob
-	return eob;
 }
 
 
