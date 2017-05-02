@@ -30,19 +30,19 @@ private:
 	std::array<std::uint8_t, 64> zstscan();
 
 	// Decodes number of nonzeroes (high).
-	void zdst_high(Component& cmpt);
+	void zdst_high(Component& component);
 
 	// Decodes number of nonzeroes (low).
-	void zdst_low(Component& cmpt);
+	void zdst_low(Component& component);
 
 	// Decodes DC coefficients.
-	void dc(Component& cmpt);
+	void dc(Component& component);
 
 	// Decodes high (7x7) AC coefficients.
-	void ac_high(Component& cmpt);
+	void ac_high(Component& component);
 
 	// Decodes first row/col AC coefficients.
-	void ac_low(Component& cmpt);
+	void ac_low(Component& component);
 
 	// Decodes generic 8-bit data.
 	std::vector<std::uint8_t> generic();

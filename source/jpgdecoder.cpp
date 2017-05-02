@@ -533,7 +533,7 @@ void JpgDecoder::eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 6
 	}
 }
 
-CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun) {
+CodingStatus JpgDecoder::skip_eobrun(const Component& component, int rsti, int& dpos, int& rstw, int& eobrun) {
 	if (eobrun > 0) {// error check for eobrun
 		// compare rst wait counter if needed
 		if (rsti > 0) {
@@ -545,15 +545,15 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int& dpos,
 		}
 
 		// fix for non interleaved mcu - horizontal
-		if (cmpt.bch != cmpt.nch) {
-			dpos += (((dpos % cmpt.bch) + eobrun) /
-				cmpt.nch) * (cmpt.bch - cmpt.nch);
+		if (component.bch != component.nch) {
+			dpos += (((dpos % component.bch) + eobrun) /
+				component.nch) * (component.bch - component.nch);
 		}
 
 		// fix for non interleaved mcu - vertical
-		if (cmpt.bcv != cmpt.ncv) {
-			if (dpos / cmpt.bch >= cmpt.ncv) {
-				dpos += (cmpt.bcv - cmpt.ncv) * cmpt.bch;
+		if (component.bcv != component.ncv) {
+			if (dpos / component.bch >= component.ncv) {
+				dpos += (component.bcv - component.ncv) * component.bch;
 			}
 		}
 
@@ -564,9 +564,9 @@ CodingStatus JpgDecoder::skip_eobrun(const Component& cmpt, int rsti, int& dpos,
 		eobrun = 0;
 
 		// check position
-		if (dpos == cmpt.bc) {
+		if (dpos == component.bc) {
 			return CodingStatus::DONE;
-		} else if (dpos > cmpt.bc) {
+		} else if (dpos > component.bc) {
 			throw std::runtime_error("dpos greater than block count");
 		} else if (rsti > 0) {
 			if (rstw == 0) {

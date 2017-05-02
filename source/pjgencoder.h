@@ -14,25 +14,25 @@ public:
 	PjgEncoder(Writer& encoding_output);
 
 	// Encodes image data as pjg.
-	void encode(std::uint8_t padbit, std::vector<Component>& cmpts, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata);
+	void encode(std::uint8_t padbit, std::vector<Component>& components, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata);
 private:
 	// Encodes frequency scanorder.
-	std::array<std::uint8_t, 64> zstscan(const Component& cmp);
+	std::array<std::uint8_t, 64> zstscan(const Component& component);
 
 	// Encodes # of non zeroes (high).
-	void zdst_high(const Component& cmpt);
+	void zdst_high(const Component& component);
 
 	// Encodes # of non zeroes (low).
-	void zdst_low(const Component& cmpt);
+	void zdst_low(const Component& component);
 
 	// Encodes DC coefficients.
-	void dc(const Component& cmpt);
+	void dc(const Component& component);
 
 	// Encodes high (7x7) AC coefficients.
-	void ac_high(Component& cmpt);
+	void ac_high(Component& component);
 
 	// Encodes first row/col AC coefficients.
-	void ac_low(Component& cmpt);
+	void ac_low(Component& component);
 
 	// Encodes all of the segments as generic 8-bit data
 	void generic(const std::vector<Segment>& segments);
@@ -44,7 +44,7 @@ private:
 	void bit(std::uint8_t bit);
 
 	// Get zero-sorted frequency scan vector.
-	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& cmpt);
+	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& component);
 
 	std::unique_ptr<ArithmeticEncoder> encoder_;
 	PjgContext context_;

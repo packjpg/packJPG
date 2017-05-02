@@ -21,8 +21,8 @@ struct PjgContext {
 	}
 
 	// Preparations for special average context.
-	static void aavrg_prepare(std::array<std::uint16_t*, 6>& abs_coeffs, std::uint16_t* abs_store, const Component& cmpt) {
-		int w = cmpt.bch;
+	static void aavrg_prepare(std::array<std::uint16_t*, 6>& abs_coeffs, std::uint16_t* abs_store, const Component& component) {
+		int w = component.bch;
 
 		// set up quick access arrays for all prediction positions
 		abs_coeffs[0] = abs_store + (0 + ((-2) * w)); // top-top

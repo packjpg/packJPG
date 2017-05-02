@@ -59,19 +59,19 @@ void PjgDecoder::decode() {
 	}
 
 	// decode actual components data
-	for (auto& cmpt : frame_info_->components) {
+	for (auto& component : frame_info_->components) {
 		// decode frequency scan ('zero-sort-scan')
-		cmpt.freqscan = this->zstscan(); // set zero sort scan as freqscan
-										 // decode zero-distribution-lists for higher (7x7) ACs
-		this->zdst_high(cmpt);
+		component.freqscan = this->zstscan(); // set zero sort scan as freqscan
+		// decode zero-distribution-lists for higher (7x7) ACs
+		this->zdst_high(component);
 		// decode coefficients for higher (7x7) ACs
-		this->ac_high(cmpt);
+		this->ac_high(component);
 		// decode zero-distribution-lists for lower ACs
-		this->zdst_low(cmpt);
+		this->zdst_low(component);
 		// decode coefficients for first row / collumn ACs
-		this->ac_low(cmpt);
+		this->ac_low(component);
 		// decode coefficients for DC
-		this->dc(cmpt);
+		this->dc(component);
 	}
 
 	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
@@ -155,12 +155,12 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	return zsrtscan;
 }
 
-void PjgDecoder::zdst_high(Component& cmpt) {
+void PjgDecoder::zdst_high(Component& component) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	auto& zdstls = cmpt.zdstdata;
-	const int w = cmpt.bch;
-	const int bc = cmpt.bc;
+	auto& zdstls = component.zdstdata;
+	const int w = component.bch;
+	const int bc = component.bc;
 
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++) {
@@ -175,17 +175,17 @@ void PjgDecoder::zdst_high(Component& cmpt) {
 	}
 }
 
-void PjgDecoder::zdst_low(Component& cmpt) {
+void PjgDecoder::zdst_low(Component& component) {
 	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
-	auto& zdstls_x = cmpt.zdstxlow;
-	auto& zdstls_y = cmpt.zdstylow;
+	auto& zdstls_x = component.zdstxlow;
+	auto& zdstls_y = component.zdstylow;
 
-	const auto& ctx_eobx = cmpt.eobxhigh;
-	const auto& ctx_eoby = cmpt.eobyhigh;
-	const auto& ctx_zdst = cmpt.zdstdata;
-	const int bc = cmpt.bc;
+	const auto& ctx_eobx = component.eobxhigh;
+	const auto& ctx_eoby = component.eobyhigh;
+	const auto& ctx_zdst = component.zdstdata;
+	const int bc = component.bc;
 
 	// arithmetic encode zero-distribution-list (first row)
 	for (int dpos = 0; dpos < bc; dpos++) {
@@ -201,35 +201,35 @@ void PjgDecoder::zdst_low(Component& cmpt) {
 	}
 }
 
-void PjgDecoder::dc(Component& cmpt) {
+void PjgDecoder::dc(Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
-	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
+	const std::uint8_t* segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	// get max absolute value/bit length
-	const int max_val = cmpt.max_v(0); // Max value.
+	const int max_val = component.max_v(0); // Max value.
 	const int max_len = pjg::bitlen1024p(max_val); // Max bitlength.
 
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(cmpt.segm_cnt, max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(component.segm_cnt, max_len + 1), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
 
 	// set width/height of each band
-	const int bc = cmpt.bc;
-	const int w = cmpt.bch;
+	const int bc = component.bc;
+	const int w = component.bch;
 
 	// allocate memory for absolute values storage
 	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
 
 	// set up context quick access array
-	context_.aavrg_prepare(c_absc, absv_store.data(), cmpt);
+	context_.aavrg_prepare(c_absc, absv_store.data(), component);
 
 	// locally store pointer to coefficients and zero distribution list
-	auto& coeffs = cmpt.colldata[0]; // Pointer to current coefficent data.
-	const auto& zdstls = cmpt.zdstdata; // Pointer to zero distribution list.
+	auto& coeffs = component.colldata[0]; // Pointer to current coefficent data.
+	const auto& zdstls = component.zdstdata; // Pointer to zero distribution list.
 
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++) {
@@ -275,42 +275,42 @@ void PjgDecoder::dc(Component& cmpt) {
 	}
 }
 
-void PjgDecoder::ac_high(Component& cmpt) {
+void PjgDecoder::ac_high(Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
-	const std::uint8_t* segm_tab = pjg::segm_tables[cmpt.segm_cnt - 1];
+	const std::uint8_t* segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(cmpt.segm_cnt, 16), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
+	auto mod_res = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
 	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
 
 	// set width/height of each band
-	const int bc = cmpt.bc;
-	const int w = cmpt.bch;
+	const int bc = component.bc;
+	const int w = component.bch;
 
 	// allocate memory for absolute values & signs storage
 	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
 	std::vector<std::uint8_t> sgn_store(bc); // sign storage for context	
-	auto zdstls = cmpt.zdstdata; // copy of zero distribution list
+	auto zdstls = component.zdstdata; // copy of zero distribution list
 
 	// set up quick access arrays for signs context
 	std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
 	std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 
 	// locally store pointer to eob x / eob y
-	auto& eob_x = cmpt.eobxhigh; // Pointer to x eobs.
-	auto& eob_y = cmpt.eobyhigh; // Pointer to y eobs.
+	auto& eob_x = component.eobxhigh; // Pointer to x eobs.
+	auto& eob_y = component.eobyhigh; // Pointer to y eobs.
 
 	// set up average context quick access arrays
-	context_.aavrg_prepare(c_absc, absv_store.data(), cmpt);
+	context_.aavrg_prepare(c_absc, absv_store.data(), component);
 
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++) {
 		// work through blocks in order of frequency scan
-		const int bpos = static_cast<int>(cmpt.freqscan[i]);
+		const int bpos = static_cast<int>(component.freqscan[i]);
 		const int b_x = pjg::unzigzag[bpos] % 8;
 		const int b_y = pjg::unzigzag[bpos] / 8;
 
@@ -322,10 +322,10 @@ void PjgDecoder::ac_high(Component& cmpt) {
 		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<std::uint8_t>(0));
 
 		// locally store pointer to coefficients
-		auto& coeffs = cmpt.colldata[bpos]; // Pointer to current coefficent data.
+		auto& coeffs = component.colldata[bpos]; // Pointer to current coefficent data.
 
 		// get max bit length
-		const int max_val = cmpt.max_v(bpos); // Max value.
+		const int max_val = component.max_v(bpos); // Max value.
 		const int max_len = pjg::bitlen1024p(max_val); // Max bitlength.
 
 		// arithmetic compression loop
@@ -392,20 +392,20 @@ void PjgDecoder::ac_high(Component& cmpt) {
 	}
 }
 
-void PjgDecoder::ac_low(Component& cmpt) {
+void PjgDecoder::ac_low(Component& component) {
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 
 	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(cmpt.segm_cnt, 11), 2);
+	auto mod_len = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
 	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, cmpt.nois_trs), 3);
+	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, component.nois_trs), 3);
 	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
 
 	// set width/height of each band
-	const int bc = cmpt.bc;
-	const int w = cmpt.bch;
+	const int bc = component.bc;
+	const int w = component.bch;
 
 	// work through each first row / first collumn band
 	for (int i = 2; i < 16; i++) {
@@ -415,32 +415,32 @@ void PjgDecoder::ac_low(Component& cmpt) {
 		const int bpos = static_cast<int>(pjg::zigzag[b_x + (8 * b_y)]);
 
 		// locally store pointer to band coefficients
-		auto& coeffs = cmpt.colldata[bpos]; // Pointer to current coefficent data.
+		auto& coeffs = component.colldata[bpos]; // Pointer to current coefficent data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		auto& zdstls = b_x == 0 ? cmpt.zdstylow : cmpt.zdstxlow; // Pointer to row/col # of non-zeroes.
+		auto& zdstls = b_x == 0 ? component.zdstylow : component.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {
-				coeffs_x[b_x] = cmpt.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();
-				coeffs_a[b_x] = cmpt.colldata[pjg::zigzag[b_x + (8 * b_y)]].data() - 1;
-				pred_cf[b_x] = dct::icos_base_8x8[b_x * 8] * cmpt.quant(pjg::zigzag[b_x + (8 * b_y)]);
+				coeffs_x[b_x] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();
+				coeffs_a[b_x] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data() - 1;
+				pred_cf[b_x] = dct::icos_base_8x8[b_x * 8] * component.quant(pjg::zigzag[b_x + (8 * b_y)]);
 			}
 			edge_c = &p_x;
 		} else { // if ( b_y == 0 )
 			for (; b_y < 8; b_y++) {
-				coeffs_x[b_y] = cmpt.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();
-				coeffs_a[b_y] = cmpt.colldata[pjg::zigzag[b_x + (8 * b_y)]].data() - w;
-				pred_cf[b_y] = dct::icos_base_8x8[b_y * 8] * cmpt.quant(pjg::zigzag[b_x + (8 * b_y)]);
+				coeffs_x[b_y] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();
+				coeffs_a[b_y] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data() - w;
+				pred_cf[b_y] = dct::icos_base_8x8[b_y * 8] * component.quant(pjg::zigzag[b_x + (8 * b_y)]);
 			}
 			edge_c = &p_y;
 		}
 
 		// get max bit length / other info
-		const int max_valp = cmpt.max_v(bpos); // Max value (positive).
+		const int max_valp = component.max_v(bpos); // Max value (positive).
 		const int max_valn = -max_valp; // Max value (negative).
 		const int max_len = pjg::bitlen1024p(max_valp); // Max bitlength.
-		const int thrs_bp = std::max(0, max_len - cmpt.nois_trs); // Residual threshold bitplane.
+		const int thrs_bp = std::max(0, max_len - component.nois_trs); // Residual threshold bitplane.
 
 		// arithmetic compression loop
 		for (int dpos = 0; dpos < bc; dpos++) {

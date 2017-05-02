@@ -138,7 +138,7 @@ StreamWriter::~StreamWriter() {
 #if defined(_WIN32) || defined(WIN32)
 	const int result = _setmode(_fileno(stdout), _O_BINARY);
 	if (result == -1) {
-		throw std::runtime_error("Unable to set mode for stdout");
+		return;
 	}
 #endif
 	const auto& data = writer_->get_data();

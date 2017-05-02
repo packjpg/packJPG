@@ -39,7 +39,7 @@ private:
 	void eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 64>& block);
 
 	// Skips the eobrun, calculates next position.
-	CodingStatus skip_eobrun(const Component& cmpt, int rsti, int& dpos, int& rstw, int& eobrun);
+	CodingStatus skip_eobrun(const Component& component, int rsti, int& dpos, int& rstw, int& eobrun);
 
 	void build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes,
 		std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees);
