@@ -26,7 +26,7 @@ private:
 	// encoding for interleaved data.
 	CodingStatus encode_interleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// encoding for non interleaved data.
-	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw);
+	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int cmp, int& dpos, int& rstw);
 
 
 	// Sequential block encoding routine.
@@ -63,6 +63,13 @@ private:
 		}
 		return length;
 	}
+
+	void copy_colldata_to_block_in_scan(const Component& component, const ScanInfo& scan_info, int dpos, std::array<std::int16_t, 64>& block);
+
+	void sequential_interleaved(const Component& component, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos);
+
+	void dc_successive_first_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos);
+	void dc_successive_later_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::array<std::int16_t, 64>& block, int dpos);
 
 	Writer& jpg_output_writer_;
 

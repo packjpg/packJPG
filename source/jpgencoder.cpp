@@ -8,61 +8,77 @@ JpgEncoder::JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& se
 	jpg_output_writer_(jpg_output_writer),
 	segments_(segments) {}
 
-CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int& cmp, int& dpos, int& rstw) {
+void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, const ScanInfo& scan_info, int dpos, std::array<std::int16_t, 64>& block) {
+	// copy from colldata
+	for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
+		block[bpos] = fdiv2(component.colldata[bpos][dpos], scan_info.sal);
+	}
+}
+
+void JpgEncoder::dc_successive_first_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos) {
+	// diff coding & bitshifting for dc 
+	const int tmp = component.colldata[0][dpos] >> scan_info.sal;
+	block[0] = tmp - lastdc[cmp];
+	lastdc[cmp] = tmp;
+
+	// encode dc
+	this->dc_prg_fs(huffw, *dc_tables[component.huffdc], block);
+}
+
+void JpgEncoder::dc_successive_later_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::array<std::int16_t, 64>& block, int dpos) {
+	// fetch bit from current bitplane
+	block[0] = bitops::bitn(component.colldata[0][dpos], scan_info.sal);
+
+	// encode dc correction bit
+	this->dc_prg_sa(huffw, block);
+}
+
+void JpgEncoder::sequential_interleaved(const Component& component, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos) {
+	for (std::size_t bpos = 0; bpos < block.size(); bpos++) {
+		block[bpos] = component.colldata[bpos][dpos];
+	}
+
+	// diff coding for dc
+	block[0] -= lastdc[cmp];
+	lastdc[cmp] = component.colldata[0][dpos];
+
+	// encode block
+	this->block_seq(huffw, *dc_tables[component.huffac], *ac_tables[component.huffac], block);
+}
+
+CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int cmp, int& dpos, int& rstw) {
 	// set last DCs for diff coding
 	std::array<int, 4> lastdc{}; // last dc for each component
 
 	int eobrun = 0; // run of eobs
 
 	CodingStatus status = CodingStatus::OKAY;
+	const auto& component = frame_info.components[cmp];
 	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential non interleaved encoding <---
 		while (status == CodingStatus::OKAY) {
-			// copy from colldata
-			for (std::size_t bpos = 0; bpos < block.size(); bpos++) {
-				block[bpos] = frame_info.components[cmp].colldata[bpos][dpos];
-			}
+			sequential_interleaved(component, huffw, dc_tables, ac_tables, lastdc, block, cmp, dpos);
 
-			// diff coding for dc
-			block[0] -= lastdc[cmp];
-			lastdc[cmp] = frame_info.components[cmp].colldata[0][dpos];
-
-			// encode block
-			this->block_seq(huffw,
-			                *dc_tables[frame_info.components[cmp].huffac],
-							*ac_tables[frame_info.components[cmp].huffac],
-			                block);
-
-			status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 		}
 	} else if (scan_info.to == 0) {
 		if (scan_info.sah == 0) {
 			// ---> progressive non interleaved DC encoding <---
 			// ---> succesive approximation first stage <---
 			while (status == CodingStatus::OKAY) {
-				// diff coding & bitshifting for dc 
-				int tmp = frame_info.components[cmp].colldata[0][dpos] >> scan_info.sal;
-				block[0] = tmp - lastdc[cmp];
-				lastdc[cmp] = tmp;
-
-				// encode dc
-				this->dc_prg_fs(huffw, *dc_tables[frame_info.components[cmp].huffdc], block);
+				dc_successive_first_stage(component, scan_info, huffw, dc_tables, lastdc, block, cmp, dpos);
 
 				// Increment dpos
-				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 			}
 		} else {
 			// ---> progressive non interleaved DC encoding <---
 			// ---> succesive approximation later stage <---
 			while (status == CodingStatus::OKAY) {
-				// fetch bit from current bitplane
-				block[0] = bitops::bitn(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
-
-				// encode dc correction bit
-				this->dc_prg_sa(huffw, block);
+				dc_successive_later_stage(component, scan_info, huffw, block, dpos);
 
 				// next mcupos
-				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 			}
 		}
 	} else {
@@ -70,36 +86,30 @@ CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, cons
 			// ---> progressive non interleaved AC encoding <---
 			// ---> succesive approximation first stage <---
 			while (status == CodingStatus::OKAY) {
-				// copy from colldata
-				for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
-					block[bpos] = fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
-				}
+				copy_colldata_to_block_in_scan(component, scan_info, dpos, block);
 
 				// encode block
-				this->ac_prg_fs(huffw, *ac_tables[frame_info.components[cmp].huffac], scan_info, block, eobrun);
+				this->ac_prg_fs(huffw, *ac_tables[component.huffac], scan_info, block, eobrun);
 
-				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 			}
 
 			// encode remaining eobrun
-			this->eobrun(huffw, *ac_tables[frame_info.components[cmp].huffac], eobrun);
+			this->eobrun(huffw, *ac_tables[component.huffac], eobrun);
 		} else {
 			// ---> progressive non interleaved AC encoding <---
 			// ---> succesive approximation later stage <---
 			while (status == CodingStatus::OKAY) {
-				// copy from colldata
-				for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
-					block[bpos] = fdiv2(frame_info.components[cmp].colldata[bpos][dpos], scan_info.sal);
-				}
+				copy_colldata_to_block_in_scan(component, scan_info, dpos, block);
 
 				// encode block
-				this->ac_prg_sa(huffw, storw, *ac_tables[frame_info.components[cmp].huffac], scan_info, block, eobrun);
+				this->ac_prg_sa(huffw, storw, *ac_tables[component.huffac], scan_info, block, eobrun);
 
-				status = jpg::next_mcuposn(frame_info.components[cmp], rsti, dpos, rstw);
+				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 			}
 
 			// encode remaining eobrun
-			this->eobrun(huffw, *ac_tables[frame_info.components[cmp].huffac], eobrun);
+			this->eobrun(huffw, *ac_tables[component.huffac], eobrun);
 
 			// encode remaining correction bits
 			this->crbits(huffw, storw);
@@ -116,20 +126,7 @@ CodingStatus JpgEncoder::encode_interleaved(const FrameInfo& frame_info, const S
 	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential interleaved encoding <---
 		while (status == CodingStatus::OKAY) {
-			// copy from colldata
-			for (std::size_t bpos = 0; bpos < block.size(); bpos++) {
-				block[bpos] = frame_info.components[cmp].colldata[bpos][dpos];
-			}
-
-			// diff coding for dc
-			block[0] -= lastdc[cmp];
-			lastdc[cmp] = frame_info.components[cmp].colldata[0][dpos];
-
-			// encode block
-			this->block_seq(huffw,
-			                *dc_tables[frame_info.components[cmp].huffac],
-			                *ac_tables[frame_info.components[cmp].huffac],
-			                block);
+			sequential_interleaved(frame_info.components[cmp], huffw, dc_tables, ac_tables, lastdc, block, cmp, dpos);
 
 			status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -139,13 +136,7 @@ CodingStatus JpgEncoder::encode_interleaved(const FrameInfo& frame_info, const S
 		// ---> progressive interleaved DC encoding <---
 		// ---> succesive approximation first stage <---
 		while (status == CodingStatus::OKAY) {
-			// diff coding & bitshifting for dc 
-			int tmp = frame_info.components[cmp].colldata[0][dpos] >> scan_info.sal;
-			block[0] = tmp - lastdc[cmp];
-			lastdc[cmp] = tmp;
-
-			// encode dc
-			this->dc_prg_fs(huffw, *dc_tables[frame_info.components[cmp].huffdc], block);
+			dc_successive_first_stage(frame_info.components[cmp], scan_info, huffw, dc_tables, lastdc, block, cmp, dpos);
 
 			// next mcupos
 			status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
@@ -155,11 +146,7 @@ CodingStatus JpgEncoder::encode_interleaved(const FrameInfo& frame_info, const S
 		// ---> progressive interleaved DC encoding <---
 		// ---> succesive approximation later stage <---
 		while (status == CodingStatus::OKAY) {
-			// fetch bit from current bitplane
-			block[0] = bitops::bitn(frame_info.components[cmp].colldata[0][dpos], scan_info.sal);
-
-			// encode dc correction bit
-			this->dc_prg_sa(huffw, block);
+			dc_successive_later_stage(frame_info.components[cmp], scan_info, huffw, block, dpos);
 
 			status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
