@@ -4,9 +4,18 @@
 #include "jfifparse.h"
 #include "pjpgtbl.h"
 
-JpgEncoder::JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& segments) :
+JpgEncoder::JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
 	jpg_output_writer_(jpg_output_writer),
-	segments_(segments) {}
+	frame_info_(frame_info),
+	segments_(segments) {
+
+	// open huffman coded image data in abitwriter
+	huffw_ = std::make_unique<BitWriter>(0); // bitwise writer for image data
+	huffw_->set_fillbit(padbit);
+
+	// init storage writer
+	storw_ = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
+}
 
 void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, int dpos) {
 	// copy from colldata
@@ -46,12 +55,12 @@ void JpgEncoder::sequential_interleaved(const Component& component, int cmp, int
 	this->block_seq(*dc_tables_[component.huffac], *ac_tables_[component.huffac]);
 }
 
-CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, int rsti, int cmp, int& dpos, int& rstw) {
+CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw) {
 	int eobrun = 0; // run of eobs
 
 	CodingStatus status = CodingStatus::OKAY;
-	const auto& component = frame_info.components[cmp];
-	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
+	const auto& component = frame_info_.components[cmp];
+	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential non interleaved encoding <---
 		while (status == CodingStatus::OKAY) {
 			sequential_interleaved(component, cmp, dpos);
@@ -115,48 +124,41 @@ CodingStatus JpgEncoder::encode_noninterleaved(const FrameInfo& frame_info, int 
 	return status;
 }
 
-CodingStatus JpgEncoder::encode_interleaved(const FrameInfo& frame_info, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	CodingStatus status = CodingStatus::OKAY;
-	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
+	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential interleaved encoding <---
 		while (status == CodingStatus::OKAY) {
-			sequential_interleaved(frame_info.components[cmp], cmp, dpos);
+			sequential_interleaved(frame_info_.components[cmp], cmp, dpos);
 
-			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 
 		}
 	} else if (scan_info_.sah == 0) {
 		// ---> progressive interleaved DC encoding <---
 		// ---> succesive approximation first stage <---
 		while (status == CodingStatus::OKAY) {
-			dc_successive_first_stage(frame_info.components[cmp], cmp, dpos);
+			dc_successive_first_stage(frame_info_.components[cmp], cmp, dpos);
 
 			// next mcupos
-			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 		}
 	} else {
 		// ---> progressive interleaved DC encoding <---
 		// ---> succesive approximation later stage <---
 		while (status == CodingStatus::OKAY) {
-			dc_successive_later_stage(frame_info.components[cmp], dpos);
+			dc_successive_later_stage(frame_info_.components[cmp], dpos);
 
-			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 		}
 	}
 	return status;
 }
 
-void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
-	// open huffman coded image data in abitwriter
-	huffw_ = std::make_unique<BitWriter>(0); // bitwise writer for image data
-	huffw_->set_fillbit(padbit);
-
-	// init storage writer
-	storw_ = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
-
+void JpgEncoder::recode() {
 	// preset count of scans and restarts
 	int scan_count = 0;
 	int rstc = 0; // count of restart markers
@@ -176,7 +178,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 			rsti = jfif::parse_dri(segment.get_data());
 		} else if (type == Marker::kSOS) {
 			try {
-				scan_info_ = jfif::get_scan_info(frame_info, segment.get_data());
+				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
@@ -187,7 +189,7 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 			// (re)alloc restart marker positons array if needed
 			if (rsti > 0) {
 				int tmp = rstc + ((scan_info_.cmpc > 1) ?
-					                  (frame_info.mcu_count / rsti) : (frame_info.components[scan_info_.cmp[0]].bc / rsti));
+					                  (frame_info_.mcu_count / rsti) : (frame_info_.components[scan_info_.cmp[0]].bc / rsti));
 				rstp_.resize(tmp + 1);
 			}
 
@@ -209,9 +211,9 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 				std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
 				CodingStatus status;
 				if (scan_info_.cmpc > 1) {
-					status = encode_interleaved(frame_info, rsti, cmp, dpos, rstw, csc, mcu, sub);
+					status = encode_interleaved(rsti, cmp, dpos, rstw, csc, mcu, sub);
 				} else {
-					status = encode_noninterleaved(frame_info, rsti, cmp, dpos, rstw);
+					status = encode_noninterleaved(rsti, cmp, dpos, rstw);
 				}
 
 				// pad huffman writer
@@ -231,7 +233,6 @@ void JpgEncoder::recode(FrameInfo& frame_info, std::uint8_t padbit) {
 		}
 	}
 
-	// get data into huffdata
 	huffman_data_ = huffw_->get_data();
 
 	// store last scan & restart positions

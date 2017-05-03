@@ -380,9 +380,9 @@ namespace encode {
 	std::unique_ptr<JpgEncoder> jpeg_encoder;
 	// JPEG encoding routine.
 	bool recode() {
-		jpeg_encoder = std::make_unique<JpgEncoder>(*output_writer, segments);
+		jpeg_encoder = std::make_unique<JpgEncoder>(*output_writer, *frame_info, segments, jpg::padbit);
 		try {
-			jpeg_encoder->recode(*frame_info, jpg::padbit);
+			jpeg_encoder->recode();
 		} catch (const std::exception& e) {
 			errormessage = e.what();
 			error = true;

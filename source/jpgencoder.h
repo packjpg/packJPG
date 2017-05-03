@@ -17,17 +17,17 @@
 
 class JpgEncoder {
 public:
-	JpgEncoder(Writer& jpg_output_writer, const std::vector<Segment>& segments);
+	JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
 	// JPEG encoding routine.
-	void recode(FrameInfo& frame_info, std::uint8_t padbit);
+	void recode();
 	// Merges header & image data to jpeg.
 	void merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
 
 private:
 	// encoding for interleaved data.
-	CodingStatus encode_interleaved(const FrameInfo& frame_info, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// encoding for non interleaved data.
-	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, int rsti, int cmp, int& dpos, int& rstw);
+	CodingStatus encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw);
 
 	// Sequential block encoding routine.
 	void block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table);
@@ -72,6 +72,8 @@ private:
 	void dc_successive_later_stage(const Component& component, int dpos);
 
 	Writer& jpg_output_writer_;
+
+	FrameInfo& frame_info_;
 
 	std::unique_ptr<BitWriter> huffw_; // Bitwise writer for image data.
 	std::unique_ptr<Writer> storw_; // Bytewise writer for storage of correction bits.
