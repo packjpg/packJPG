@@ -172,7 +172,7 @@ void PjgEncoder::dc(const Component& component) {
 
 
 	// decide segmentation setting
-	const std::uint8_t* segm_tab = pjg::segm_tables[component.segm_cnt - 1];
+	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	// get max absolute value/bit length
 	const int max_val = component.max_v(0); // Max value.
@@ -245,7 +245,7 @@ void PjgEncoder::ac_high(Component& component) {
 	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
-	const std::uint8_t* segm_tab = pjg::segm_tables[component.segm_cnt - 1];
+	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	// init models for bitlenghts and -patterns
 	auto mod_len = std::make_unique<UniversalModel>(11, std::max(11, component.segm_cnt), 2);
