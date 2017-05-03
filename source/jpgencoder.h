@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "bitwriter.h"
@@ -24,25 +25,24 @@ public:
 
 private:
 	// encoding for interleaved data.
-	CodingStatus encode_interleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_interleaved(const FrameInfo& frame_info, int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// encoding for non interleaved data.
-	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, const ScanInfo& scan_info, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<std::int16_t, 64>& block, BitWriter& huffw, MemoryWriter& storw, int rsti, int cmp, int& dpos, int& rstw);
-
+	CodingStatus encode_noninterleaved(const FrameInfo& frame_info, int rsti, int cmp, int& dpos, int& rstw);
 
 	// Sequential block encoding routine.
-	void block_seq(BitWriter& huffw, const HuffCodes& dctbl, const HuffCodes& actbl, const std::array<std::int16_t, 64>& block);
+	void block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table);
 	// Progressive DC encoding routine.
-	void dc_prg_fs(BitWriter& huffw, const HuffCodes& dctbl, const std::array<std::int16_t, 64>& block);
+	void dc_prg_fs(const HuffCodes& dc_table);
 	// Progressive AC encoding routine.
-	void ac_prg_fs(BitWriter& huffw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
+	void ac_prg_fs(const HuffCodes& ac_table, int& eobrun);
 	// Progressive DC SA encoding routine.
-	void dc_prg_sa(BitWriter& huffw, const std::array<std::int16_t, 64>& block);
+	void dc_prg_sa();
 	// Progressive AC SA encoding routine.
-	void ac_prg_sa(BitWriter& huffw, Writer& storw, const HuffCodes& actbl, const ScanInfo& scan_info, const std::array<std::int16_t, 64>& block, int& eobrun);
+	void ac_prg_sa(const HuffCodes& ac_table, int& eobrun);
 	// Run of EOB encoding routine.
-	void eobrun(BitWriter& huffw, const HuffCodes& actbl, int& eobrun);
+	void eobrun(const HuffCodes& ac_table, int& eobrun);
 	// Correction bits encoding routine.
-	void crbits(BitWriter& huffw, Writer& storw);
+	void crbits();
 
 	static constexpr std::int16_t fdiv2(std::int16_t v, int p) {
 		return (v < 0) ? -((-v) >> p) : (v >> p);
@@ -64,14 +64,24 @@ private:
 		return length;
 	}
 
-	void copy_colldata_to_block_in_scan(const Component& component, const ScanInfo& scan_info, int dpos, std::array<std::int16_t, 64>& block);
+	void copy_colldata_to_block_in_scan(const Component& component, int dpos);
 
-	void sequential_interleaved(const Component& component, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos);
+	void sequential_interleaved(const Component& component, int cmp, int dpos);
 
-	void dc_successive_first_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::array<int, 4>& lastdc, std::array<std::int16_t, 64>& block, int cmp, int dpos);
-	void dc_successive_later_stage(const Component& component, const ScanInfo& scan_info, BitWriter& huffw, std::array<std::int16_t, 64>& block, int dpos);
+	void dc_successive_first_stage(const Component& component, int cmp, int dpos);
+	void dc_successive_later_stage(const Component& component, int dpos);
 
 	Writer& jpg_output_writer_;
+
+	std::unique_ptr<BitWriter> huffw_; // Bitwise writer for image data.
+	std::unique_ptr<Writer> storw_; // Bytewise writer for storage of correction bits.
+	std::array<std::int16_t, 64> block_{};  // Store block for coefficientss.
+	ScanInfo scan_info_;
+
+	std::map<int, std::unique_ptr<HuffCodes>> dc_tables_;
+	std::map<int, std::unique_ptr<HuffCodes>> ac_tables_;
+
+	std::array<int, 4> lastdc_;  // last dc for each component (used for diff coding)
 
 	const std::vector<Segment>& segments_;
 
