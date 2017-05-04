@@ -55,17 +55,17 @@ private:
 	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
 	void decode_success_approx_later_stage(Component& component, int dpos);
 
-	std::array<int, 4> lastdc{}; // last dc for each component
-	std::array<std::int16_t, 64> block{}; // store block for coeffs
-	ScanInfo scan_info;
+	std::array<int, 4> lastdc_{}; // last dc for each component
+	std::array<std::int16_t, 64> block_{}; // store block for coeffs
+	ScanInfo scan_info_;
 
-	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
-	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
+	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes_; // huffman codes
+	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees_; // huffman decoding trees
 
-	bool padbit_set = false;
-	std::uint8_t padbit = -1;
+	bool padbit_set_ = false;
+	std::uint8_t padbit_ = -1;
 
-	std::unique_ptr<BitReader> huffr; // bitwise reader for image data
+	std::unique_ptr<BitReader> huffman_reader_; // bitwise reader for image data
 };
 
 #endif
