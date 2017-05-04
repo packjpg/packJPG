@@ -53,6 +53,8 @@ private:
 		return n + (1 << s);
 	}
 
+	void check_huffman_tables_available(int scans_finished);
+	void decode_scan(int restart_interval);
 	CodingStatus decode_interleaved_data(int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
 	CodingStatus decode_noninterleaved_data(int rsti, int cmp, int& dpos);
 

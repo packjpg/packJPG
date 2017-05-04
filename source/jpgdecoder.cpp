@@ -10,84 +10,32 @@ JpgDecoder::JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segmen
 }
 
 void JpgDecoder::decode() {
-	int scan = 0; // Count of scans.
-
-	// JPEG decompression loop
-	int restart_interval = 0; // restart interval
+	int scans_decoded = 0; // The number of SOS segments decoded so far.
+	int restart_interval = 0;
 
 	for (const auto& segment : segments_) {
-		// seek till start-of-scan, parse only DHT, DRI and SOS
-		switch (segment.get_type()) {
-		case Marker::kDHT:
-			try {
+		try {
+			switch (segment.get_type()) {
+			case Marker::kDHT:
 				jfif::parse_dht(segment.get_data(), hcodes_);
-			} catch (const std::range_error&) {
-				throw;
-			}
-			build_trees();
-			continue;
-		case Marker::kDRI:
-			try {
+				build_trees();
+				continue;
+			case Marker::kDRI:
 				restart_interval = jfif::parse_dri(segment.get_data());
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-			continue;
-		case Marker::kSOS:
-			try {
+				continue;
+			case Marker::kSOS:
 				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
-			} catch (std::runtime_error&) {
-				throw;
+				break;
+			default:
+				continue;
 			}
-			break;
-		default:
-			continue;
+
+			check_huffman_tables_available(scans_decoded);
+			decode_scan(restart_interval);
+		} catch (const std::runtime_error&) {
+			throw;
 		}
-
-		// check if huffman tables are available
-		for (int csc = 0; csc < scan_info_.cmpc; csc++) {
-			const auto& component = frame_info_.components[scan_info_.cmp[csc]];
-			if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
-				(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
-				throw std::runtime_error("Huffman table missing in scan " + std::to_string(scan));
-			}
-		}
-
-
-		// intial variables set for decoding
-		int cmp = scan_info_.cmp[0];
-		int csc = 0;
-		int mcu = 0;
-		int sub = 0;
-		int dpos = 0;
-
-		// JPEG imagedata decoding routines
-		CodingStatus status = CodingStatus::OKAY;
-		while (status != CodingStatus::DONE) {
-			// set last DCs for diff coding
-			std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
-
-			try {
-				if (scan_info_.cmpc > 1) {
-					status = decode_interleaved_data(restart_interval, cmp, dpos, mcu, csc, sub);
-				} else {
-					status = decode_noninterleaved_data(restart_interval, cmp, dpos);
-				}
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-
-			// unpad huffman reader / check padbit
-			if (padbit_set_) {
-				if (padbit_ != huffman_reader_->unpad(padbit_)) {
-					throw std::runtime_error("Inconsistent use of padbits.");
-				}
-			} else {
-				padbit_ = huffman_reader_->unpad(padbit_);
-				padbit_set_ = padbit_ == 0 || padbit_ == 1;
-			}
-		}
-		scan++;
+		scans_decoded++;
 	}
 
 	if (huffman_reader_->overread()) {
@@ -99,6 +47,53 @@ void JpgDecoder::decode() {
 	}
 }
 
+void JpgDecoder::check_huffman_tables_available(int scans_finished) {
+	// check if huffman tables are available
+	for (int csc = 0; csc < scan_info_.cmpc; csc++) {
+		const auto& component = frame_info_.components[scan_info_.cmp[csc]];
+		if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
+			(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
+			throw std::runtime_error("Huffman table missing in scan " + std::to_string(scans_finished));
+		}
+	}
+}
+
+void JpgDecoder::decode_scan(int restart_interval) {
+	// intial variables set for decoding
+	int cmp = scan_info_.cmp[0];
+	int csc = 0;
+	int mcu = 0;
+	int sub = 0;
+	int dpos = 0;
+
+	// JPEG imagedata decoding routines
+	CodingStatus status = CodingStatus::OKAY;
+	while (status != CodingStatus::DONE) {
+		// set last DCs for diff coding
+		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
+
+		try {
+			if (scan_info_.cmpc > 1) {
+				status = decode_interleaved_data(restart_interval, cmp, dpos, mcu, csc, sub);
+			} else {
+				status = decode_noninterleaved_data(restart_interval, cmp, dpos);
+			}
+		} catch (const std::runtime_error&) {
+			throw;
+		}
+
+		// unpad huffman reader / check padbit
+		if (padbit_set_) {
+			if (padbit_ != huffman_reader_->unpad(padbit_)) {
+				throw std::runtime_error("Inconsistent use of padbits.");
+			}
+		} else {
+			padbit_ = huffman_reader_->unpad(padbit_);
+			padbit_set_ = padbit_ == 0 || padbit_ == 1;
+		}
+	}
+}
+
 CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos) {
 	int rstw = rsti; // restart wait counter
 
@@ -107,7 +102,11 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential non interleaved decoding <---
 		while (status == CodingStatus::OKAY) {
-			this->decode_sequential_block(component, cmp, dpos);
+			try {
+				this->decode_sequential_block(component, cmp, dpos);
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 
 			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 		}
@@ -116,7 +115,11 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 			// ---> progressive non interleaved DC decoding <---
 			// ---> succesive approximation first stage <---
 			while (status == CodingStatus::OKAY) {
-				decode_successive_approx_first_stage(component, cmp, dpos);
+				try {
+					decode_successive_approx_first_stage(component, cmp, dpos);
+				} catch (const std::runtime_error&) {
+					throw;
+				}
 
 				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 			}
@@ -207,7 +210,11 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential interleaved decoding <---
 		while (status == CodingStatus::OKAY) {
-			this->decode_sequential_block(components[cmp], cmp, dpos);
+			try {
+				this->decode_sequential_block(components[cmp], cmp, dpos);
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
@@ -216,7 +223,11 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		// ---> progressive interleaved DC decoding <---
 		// ---> succesive approximation first stage <---
 		while (status == CodingStatus::OKAY) {
-			decode_successive_approx_first_stage(components[cmp], cmp, dpos);
+			try {
+				decode_successive_approx_first_stage(components[cmp], cmp, dpos);
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
