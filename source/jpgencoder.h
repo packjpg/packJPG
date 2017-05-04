@@ -71,7 +71,9 @@ private:
 	void dc_successive_first_stage(const Component& component, int cmp, int dpos);
 	void dc_successive_later_stage(const Component& component, int dpos);
 
-	Writer& jpg_output_writer_;
+	void write_scan_huffman_data(int scan, int& rpos, std::vector<std::uint8_t>& rst_err);
+
+	Writer& output_writer_;
 
 	FrameInfo& frame_info_;
 

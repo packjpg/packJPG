@@ -5,7 +5,7 @@
 #include "pjpgtbl.h"
 
 JpgEncoder::JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
-	jpg_output_writer_(jpg_output_writer),
+	output_writer_(jpg_output_writer),
 	frame_info_(frame_info),
 	segments_(segments) {
 
@@ -245,75 +245,71 @@ void JpgEncoder::recode() {
 	}
 }
 
-void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err) {
-	int rpos = 0; // current restart marker position
-	int scan = 1; // number of current scan	
+void JpgEncoder::write_scan_huffman_data(int scan, int& restart_pos, std::vector<std::uint8_t>& rst_err) {
+	int corrected_pos = 0; // in-scan corrected rst marker position
 
-	// write SOI
+	// write & expand huffman coded image data
+	// ipos is the current position in image data.
+	for (auto ipos = scnp_[scan]; ipos < scnp_[scan + 1]; ipos++) {
+		// write current byte
+		output_writer_.write_byte(huffman_data_[ipos]);
+		// check current byte, stuff if needed
+		if (huffman_data_[ipos] == 0xFF) {
+			output_writer_.write_byte(std::uint8_t(0)); // 0xFF stuff value
+		}
+		// insert restart markers if needed
+		if (!rstp_.empty()) {
+			if (ipos == rstp_[restart_pos]) {
+				const std::uint8_t restart_marker = 0xD0 + (corrected_pos % 8);
+				constexpr std::uint8_t mrk = 0xFF; // marker start
+				output_writer_.write_byte(mrk);
+				output_writer_.write_byte(restart_marker);
+				restart_pos++;
+				corrected_pos++;
+			}
+		}
+	}
+	// insert false rst markers at end if needed
+	if (!rst_err.empty()) {
+		while (rst_err[scan] > 0) {
+			const std::uint8_t rst = 0xD0 + (corrected_pos % 8); // Restart marker
+			constexpr std::uint8_t mrk = 0xFF; // marker start
+			output_writer_.write_byte(mrk);
+			output_writer_.write_byte(rst);
+			corrected_pos++;
+			rst_err[scan]--;
+		}
+	}
+}
+
+void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err) {
+	int restart_pos = 0; // current restart marker position
+	int scan = 0; // number of current scan	
+
 	constexpr std::array<std::uint8_t, 2> SOI{0xFF, 0xD8};
-	jpg_output_writer_.write(SOI);
+	output_writer_.write(SOI);
 
 	// JPEG writing loop
-	for (auto& segment : segments_) {
-		// write segment data to file
-		jpg_output_writer_.write(segment.get_data());
+	for (const auto& segment : segments_) {
+		output_writer_.write(segment.get_data());
 
-		// get out if last marker segment type was not SOS
 		if (segment.get_type() != Marker::kSOS) {
 			continue;
 		}
 
-		// (re)set corrected rst pos
-		std::uint32_t cpos = 0; // in scan corrected rst marker position
+		write_scan_huffman_data(scan, restart_pos, rst_err);
 
-		// write & expand huffman coded image data
-		// ipos is the current position in image data.
-		for (auto ipos = scnp_[scan - 1]; ipos < scnp_[scan]; ipos++) {
-			// write current byte
-			jpg_output_writer_.write_byte(huffman_data_[ipos]);
-			// check current byte, stuff if needed
-			if (huffman_data_[ipos] == 0xFF) {
-				jpg_output_writer_.write_byte(std::uint8_t(0)); // 0xFF stuff value
-			}
-			// insert restart markers if needed
-			if (!rstp_.empty()) {
-				if (ipos == rstp_[rpos]) {
-					const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
-					constexpr std::uint8_t mrk = 0xFF; // marker start
-					jpg_output_writer_.write_byte(mrk);
-					jpg_output_writer_.write_byte(rst);
-					rpos++;
-					cpos++;
-				}
-			}
-		}
-		// insert false rst markers at end if needed
-		if (!rst_err.empty()) {
-			while (rst_err[scan - 1] > 0) {
-				const std::uint8_t rst = 0xD0 + (cpos % 8); // Restart marker
-				constexpr std::uint8_t mrk = 0xFF; // marker start
-				jpg_output_writer_.write_byte(mrk);
-				jpg_output_writer_.write_byte(rst);
-				cpos++;
-				rst_err[scan - 1]--;
-			}
-		}
-
-		// proceed with next scan
 		scan++;
 	}
 
-	// write EOI
-	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9}; // EOI segment
-	jpg_output_writer_.write(EOI);
+	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9};
+	output_writer_.write(EOI);
 
-	// write garbage if needed
 	if (!garbage_data.empty()) {
-		jpg_output_writer_.write(garbage_data);
+		output_writer_.write(garbage_data);
 	}
 
-	// errormessage if write error
-	if (jpg_output_writer_.error()) {
+	if (output_writer_.error()) {
 		throw std::runtime_error("write error, possibly drive is full");
 	}
 }
