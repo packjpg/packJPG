@@ -44,7 +44,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 
 		// check if huffman tables are available
 		for (int csc = 0; csc < scan_info_.cmpc; csc++) {
-			auto& component = components[scan_info_.cmp[csc]];
+			const auto& component = components[scan_info_.cmp[csc]];
 			if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
 				(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
 				throw std::runtime_error("huffman table missing in scan%i" + std::to_string(scan_count));
@@ -62,167 +62,17 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 		// JPEG imagedata decoding routines
 		CodingStatus status = CodingStatus::OKAY;
 		while (status != CodingStatus::DONE) {
-			// (re)set status
-			status = CodingStatus::OKAY;
-
-			// (re)set last DCs for diff coding
+			// set last DCs for diff coding
 			std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
 
-			// (re)set eobrun
-			int eobrun = 0; // run of eobs
-			int peobrun = 0; // previous eobrun
-
-			// (re)set rst wait counter
-			int rstw = rsti; // restart wait counter
-
-			// decoding for interleaved data
-			if (scan_info_.cmpc > 1) {
-				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
-					// ---> sequential interleaved decoding <---
-					while (status == CodingStatus::OKAY) {
-						this->decode_sequential_block(components[cmp], cmp, dpos);
-
-						status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
-					}
-				} else if (scan_info_.sah == 0) {
-					// ---> progressive interleaved DC decoding <---
-					// ---> succesive approximation first stage <---
-					while (status == CodingStatus::OKAY) {
-						decode_successive_approx_first_stage(components[cmp], cmp, dpos);
-
-						status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
-					}
+			try {
+				if (scan_info_.cmpc > 1) {
+					status = decode_interleaved_data(frame_info, components, rsti, cmp, dpos, mcu, csc, sub);
 				} else {
-					// ---> progressive interleaved DC decoding <---
-					// ---> succesive approximation later stage <---					
-					while (status == CodingStatus::OKAY) {
-						decode_success_approx_later_stage(components[cmp], dpos);
-
-						status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
-					}
+					status = decode_noninterleaved_data(frame_info, components, rsti, cmp, dpos);
 				}
-			} else { // decoding for non interleaved data
-				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
-					// ---> sequential non interleaved decoding <---
-					while (status == CodingStatus::OKAY) {
-						this->decode_sequential_block(components[cmp], cmp, dpos);
-
-						status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
-					}
-				} else if (scan_info_.to == 0) {
-					if (scan_info_.sah == 0) {
-						// ---> progressive non interleaved DC decoding <---
-						// ---> succesive approximation first stage <---
-						while (status == CodingStatus::OKAY) {
-							decode_successive_approx_first_stage(components[cmp], cmp, dpos);
-
-							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
-						}
-					} else {
-						// ---> progressive non interleaved DC decoding <---
-						// ---> succesive approximation later stage <---
-						while (status == CodingStatus::OKAY) {
-							decode_success_approx_later_stage(components[cmp], dpos);
-
-							// increment dpos
-							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
-						}
-					}
-				} else {
-					if (scan_info_.sah == 0) {
-						// ---> progressive non interleaved AC decoding <---
-						// ---> succesive approximation first stage <---
-						while (status == CodingStatus::OKAY) {
-							if (eobrun == 0) {
-								// decode block
-								int eob;
-								try {
-									eob = this->ac_prg_fs(*htrees_[1][components[cmp].huffac], eobrun);
-								} catch (const std::runtime_error&) {
-									throw;
-								}
-
-								if (eobrun > 0) {
-									// check for non optimal coding
-									if ((eob == scan_info_.from) && (peobrun > 0) &&
-										(peobrun < hcodes_[1][components[cmp].huffac]->max_eobrun - 1)) {
-										throw std::runtime_error("reconstruction of inefficient coding not supported");
-									}
-									peobrun = eobrun;
-									eobrun--;
-								} else {
-									peobrun = 0;
-								}
-
-								// copy to colldata
-								for (int bpos = scan_info_.from; bpos < eob; bpos++) {
-									components[cmp].colldata[bpos][dpos] = block_[bpos] << scan_info_.sal;
-								}
-							} else {
-								eobrun--;
-							}
-
-							// check for errors
-							try {
-								status = this->skip_eobrun(components[cmp], rsti, dpos, rstw, eobrun);
-							} catch (const std::runtime_error&) {
-								throw;
-							}
-
-							// proceed only if no error encountered
-							if (status == CodingStatus::OKAY) {
-								status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
-							}
-						}
-					} else {
-						// ---> progressive non interleaved AC decoding <---
-						// ---> succesive approximation later stage <---
-						while (status == CodingStatus::OKAY) {
-							// copy from colldata
-							for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
-								block_[bpos] = components[cmp].colldata[bpos][dpos];
-							}
-
-							if (eobrun == 0) {
-								// decode block (long routine)
-								int eob;
-								try {
-									eob = this->ac_prg_sa(*htrees_[1][components[cmp].huffac], eobrun);
-								} catch (std::runtime_error&) {
-									throw;
-								}
-
-								if (eobrun > 0) {
-									// check for non optimal coding
-									if ((eob == scan_info_.from) && (peobrun > 0) &&
-										(peobrun < hcodes_[1][components[cmp].huffac]->max_eobrun - 1)) {
-										throw std::runtime_error("reconstruction of inefficient coding not supported");
-									}
-
-									// store eobrun
-									peobrun = eobrun;
-									eobrun--;
-								} else {
-									peobrun = 0;
-								}
-							} else {
-								// decode block (short routine)
-								this->eobrun_sa();
-								eobrun--;
-							}
-
-							// copy back to colldata
-							for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
-								components[cmp].colldata[bpos][dpos] += block_[bpos] << scan_info_.sal;
-							}
-
-							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
-						}
-					}
-				}
+			} catch (const std::runtime_error&) {
+				throw;
 			}
 
 			// unpad huffman reader / check padbit
@@ -247,8 +97,166 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 	if (!huffman_reader_->eof()) {
 		throw std::runtime_error("surplus data found after coded image data");
 	}
+}
 
-	huffman_reader_ = nullptr;
+CodingStatus JpgDecoder::decode_noninterleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos) {
+	int eobrun = 0; // run of eobs
+	int peobrun = 0; // previous eobrun
+	int rstw = rsti; // restart wait counter
+
+	CodingStatus status = CodingStatus::OKAY;
+	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
+		// ---> sequential non interleaved decoding <---
+		while (status == CodingStatus::OKAY) {
+			this->decode_sequential_block(components[cmp], cmp, dpos);
+
+			status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
+		}
+	} else if (scan_info_.to == 0) {
+		if (scan_info_.sah == 0) {
+			// ---> progressive non interleaved DC decoding <---
+			// ---> succesive approximation first stage <---
+			while (status == CodingStatus::OKAY) {
+				decode_successive_approx_first_stage(components[cmp], cmp, dpos);
+
+				status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
+			}
+		} else {
+			// ---> progressive non interleaved DC decoding <---
+			// ---> succesive approximation later stage <---
+			while (status == CodingStatus::OKAY) {
+				decode_success_approx_later_stage(components[cmp], dpos);
+
+				// increment dpos
+				status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
+			}
+		}
+	} else {
+		if (scan_info_.sah == 0) {
+			// ---> progressive non interleaved AC decoding <---
+			// ---> succesive approximation first stage <---
+			while (status == CodingStatus::OKAY) {
+				if (eobrun == 0) {
+					// decode block
+					int eob;
+					try {
+						eob = this->ac_prg_fs(*htrees_[1][components[cmp].huffac], eobrun);
+					} catch (const std::runtime_error&) {
+						throw;
+					}
+
+					if (eobrun > 0) {
+						// check for non optimal coding
+						if ((eob == scan_info_.from) && (peobrun > 0) &&
+							(peobrun < hcodes_[1][components[cmp].huffac]->max_eobrun - 1)) {
+							throw std::runtime_error("reconstruction of inefficient coding not supported");
+						}
+						peobrun = eobrun;
+						eobrun--;
+					} else {
+						peobrun = 0;
+					}
+
+					// copy to colldata
+					for (int bpos = scan_info_.from; bpos < eob; bpos++) {
+						components[cmp].colldata[bpos][dpos] = block_[bpos] << scan_info_.sal;
+					}
+				} else {
+					eobrun--;
+				}
+
+				// check for errors
+				try {
+					status = this->skip_eobrun(components[cmp], rsti, dpos, rstw, eobrun);
+				} catch (const std::runtime_error&) {
+					throw;
+				}
+
+				// proceed only if no error encountered
+				if (status == CodingStatus::OKAY) {
+					status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
+				}
+			}
+		} else {
+			// ---> progressive non interleaved AC decoding <---
+			// ---> succesive approximation later stage <---
+			while (status == CodingStatus::OKAY) {
+				// copy from colldata
+				for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
+					block_[bpos] = components[cmp].colldata[bpos][dpos];
+				}
+
+				if (eobrun == 0) {
+					// decode block (long routine)
+					int eob;
+					try {
+						eob = this->ac_prg_sa(*htrees_[1][components[cmp].huffac], eobrun);
+					} catch (std::runtime_error&) {
+						throw;
+					}
+
+					if (eobrun > 0) {
+						// check for non optimal coding
+						if ((eob == scan_info_.from) && (peobrun > 0) &&
+							(peobrun < hcodes_[1][components[cmp].huffac]->max_eobrun - 1)) {
+							throw std::runtime_error("reconstruction of inefficient coding not supported");
+						}
+
+						// store eobrun
+						peobrun = eobrun;
+						eobrun--;
+					} else {
+						peobrun = 0;
+					}
+				} else {
+					// decode block (short routine)
+					this->eobrun_sa();
+					eobrun--;
+				}
+
+				// copy back to colldata
+				for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
+					components[cmp].colldata[bpos][dpos] += block_[bpos] << scan_info_.sal;
+				}
+
+				status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
+			}
+		}
+	}
+	return status;
+}
+
+CodingStatus JpgDecoder::decode_interleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub) {
+	int rstw = rsti; // restart wait counter
+	CodingStatus status = CodingStatus::OKAY;
+	if (frame_info.coding_process == JpegType::SEQUENTIAL) {
+		// ---> sequential interleaved decoding <---
+		while (status == CodingStatus::OKAY) {
+			this->decode_sequential_block(components[cmp], cmp, dpos);
+
+			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+		}
+	} else if (scan_info_.sah == 0) {
+		// ---> progressive interleaved DC decoding <---
+		// ---> succesive approximation first stage <---
+		while (status == CodingStatus::OKAY) {
+			decode_successive_approx_first_stage(components[cmp], cmp, dpos);
+
+			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+		}
+	} else {
+		// ---> progressive interleaved DC decoding <---
+		// ---> succesive approximation later stage <---					
+		while (status == CodingStatus::OKAY) {
+			decode_success_approx_later_stage(components[cmp], dpos);
+
+			status = jpg::increment_counts(frame_info, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
+		}
+	}
+	return status;
 }
 
 void JpgDecoder::decode_successive_approx_first_stage(Component& component, int cmp, int dpos) {

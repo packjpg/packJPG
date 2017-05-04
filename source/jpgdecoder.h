@@ -51,6 +51,9 @@ private:
 		return n + (1 << s);
 	}
 
+	CodingStatus decode_interleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
+	CodingStatus decode_noninterleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos);
+
 	void decode_sequential_block(Component& component, int cmp, int dpos);
 	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
 	void decode_success_approx_later_stage(Component& component, int dpos);
