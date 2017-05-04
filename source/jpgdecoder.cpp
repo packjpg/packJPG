@@ -5,7 +5,6 @@
 #include "jfifparse.h"
 
 void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffdata) {
-	std::array<std::int16_t, 64> block; // store block for coeffs
 	int scan_count = 0; // Count of scans.
 	// open huffman coded image data for input in abitreader
 	huffr = std::make_unique<BitReader>(huffdata); // bitwise reader for image data
@@ -13,12 +12,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 
 	// JPEG decompression loop
 	int rsti = 0; // restart interval
-	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
-	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
 
 	for (const auto& segment : segments) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
-		ScanInfo scan_info;
 		switch (segment.get_type()) {
 		case Marker::kDHT:
 			try {
@@ -26,7 +22,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 			} catch (const std::range_error&) {
 				throw;
 			}
-			build_trees(hcodes, htrees);
+			build_trees();
 			continue;
 		case Marker::kDRI:
 			try {
@@ -67,11 +63,10 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 		CodingStatus status = CodingStatus::OKAY;
 		while (status != CodingStatus::DONE) {
 			// (re)set status
-			int eob;
 			status = CodingStatus::OKAY;
 
 			// (re)set last DCs for diff coding
-			std::array<int, 4> lastdc{}; // last dc for each component
+			std::fill(std::begin(lastdc), std::end(lastdc), 0);
 
 			// (re)set eobrun
 			int eobrun = 0; // run of eobs
@@ -85,7 +80,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
-						this->decode_sequential_block(components[cmp], htrees, block, lastdc, cmp, dpos, eob);
+						this->decode_sequential_block(components[cmp], cmp, dpos);
 
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -94,7 +89,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while (status == CodingStatus::OKAY) {
-						decode_successive_approx_first_stage(components[cmp], scan_info, htrees, block, lastdc, cmp, dpos);
+						decode_successive_approx_first_stage(components[cmp], cmp, dpos);
 
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -103,7 +98,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation later stage <---					
 					while (status == CodingStatus::OKAY) {
-						decode_success_approx_later_stage(components[cmp], scan_info, block, dpos);
+						decode_success_approx_later_stage(components[cmp], dpos);
 
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -113,7 +108,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential non interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
-						this->decode_sequential_block(components[cmp], htrees, block, lastdc, cmp, dpos, eob);
+						this->decode_sequential_block(components[cmp], cmp, dpos);
 
 						status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
 					}
@@ -122,7 +117,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while (status == CodingStatus::OKAY) {
-							decode_successive_approx_first_stage(components[cmp], scan_info, htrees, block, lastdc, cmp, dpos);
+							decode_successive_approx_first_stage(components[cmp], cmp, dpos);
 
 							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
 						}
@@ -130,7 +125,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
-							decode_success_approx_later_stage(components[cmp], scan_info, block, dpos);
+							decode_success_approx_later_stage(components[cmp], dpos);
 
 							// increment dpos
 							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
@@ -143,8 +138,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						while (status == CodingStatus::OKAY) {
 							if (eobrun == 0) {
 								// decode block
+								int eob;
 								try {
-									eob = this->ac_prg_fs(*htrees[1][components[cmp].huffac], scan_info, block, eobrun);
+									eob = this->ac_prg_fs(*htrees[1][components[cmp].huffac], eobrun);
 								} catch (const std::runtime_error&) {
 									throw;
 								}
@@ -192,8 +188,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 
 							if (eobrun == 0) {
 								// decode block (long routine)
+								int eob;
 								try {
-									eob = this->ac_prg_sa(*htrees[1][components[cmp].huffac], scan_info, block, eobrun);
+									eob = this->ac_prg_sa(*htrees[1][components[cmp].huffac], eobrun);
 								} catch (std::runtime_error&) {
 									throw;
 								}
@@ -213,7 +210,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 								}
 							} else {
 								// decode block (short routine)
-								this->eobrun_sa(scan_info, block);
+								this->eobrun_sa();
 								eobrun--;
 							}
 
@@ -254,9 +251,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 	huffr = nullptr;
 }
 
-void JpgDecoder::decode_successive_approx_first_stage(Component& component, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos) {
+void JpgDecoder::decode_successive_approx_first_stage(Component& component, int cmp, int dpos) {
 	try {
-		this->dc_prg_fs(*htrees[0][component.huffdc], block);
+		this->dc_prg_fs(*htrees[0][component.huffdc]);
 	} catch (const std::runtime_error&) {
 		throw;
 	}
@@ -269,18 +266,19 @@ void JpgDecoder::decode_successive_approx_first_stage(Component& component, cons
 	component.colldata[0][dpos] <<= scan_info.sal;
 }
 
-void JpgDecoder::decode_success_approx_later_stage(Component& component, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int dpos) {
+void JpgDecoder::decode_success_approx_later_stage(Component& component, int dpos) {
 	// decode next bit
-	this->dc_prg_sa(block);
+	this->dc_prg_sa();
 
 	// shift in next bit
 	component.colldata[0][dpos] += block[0] << scan_info.sal;
 }
 
-void JpgDecoder::decode_sequential_block(Component& component, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos, int& eob) {
+void JpgDecoder::decode_sequential_block(Component& component, int cmp, int dpos) {
 	// decode block
+	int eob;
 	try {
-		eob = this->block_seq(*htrees[0][component.huffdc], *htrees[1][component.huffdc], block);
+		eob = this->block_seq(*htrees[0][component.huffdc], *htrees[1][component.huffdc]);
 	} catch (const std::runtime_error&) {
 		throw;
 	}
@@ -323,7 +321,7 @@ std::uint8_t JpgDecoder::get_padbit() {
 	return padbit;
 }
 
-void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees) {
+void JpgDecoder::build_trees() {
 	for (std::size_t i = 0; i < hcodes.size(); i++) {
 		for (std::size_t j = 0; j < hcodes[i].size(); j++) {
 			if (hcodes[i][j]) {
@@ -334,11 +332,11 @@ void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCod
 }
 
 
-int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::array<std::int16_t, 64>& block) {
+int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree) {
 	int eob = 64;
 	// decode dc
 	try {
-		this->dc_prg_fs(dctree, block);
+		this->dc_prg_fs(dctree);
 	} catch (const std::runtime_error&) {
 		throw;
 	}
@@ -376,7 +374,7 @@ int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree, std::a
 	return eob;
 }
 
-void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block) {
+void JpgDecoder::dc_prg_fs(const HuffTree& dctree) {
 	// decode dc
 	std::uint8_t hc;
 	try {
@@ -389,7 +387,7 @@ void JpgDecoder::dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>&
 	block[0] = static_cast<std::int16_t>(devli(s, n));
 }
 
-int JpgDecoder::ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun) {
+int JpgDecoder::ac_prg_fs(const HuffTree& actree, int& eobrun) {
 	int eob = scan_info.to + 1;
 	// decode ac
 	for (int bpos = scan_info.from; bpos <= scan_info.to;) {
@@ -430,12 +428,12 @@ int JpgDecoder::ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std
 	return eob;
 }
 
-void JpgDecoder::dc_prg_sa(std::array<std::int16_t, 64>& block) {
+void JpgDecoder::dc_prg_sa() {
 	// decode next bit of dc coefficient
 	block[0] = huffr->read_bit();
 }
 
-int JpgDecoder::ac_prg_sa(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun) {
+int JpgDecoder::ac_prg_sa(const HuffTree& actree, int& eobrun) {
 	signed char v;
 	int bpos = scan_info.from;
 	int eob = scan_info.to;
@@ -504,7 +502,7 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, const ScanInfo& scan_info, std
 	return eob;
 }
 
-void JpgDecoder::eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 64>& block) {
+void JpgDecoder::eobrun_sa() {
 	// fast eobrun decoding routine for succesive approximation
 	for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
 		if (block[bpos] != 0) {

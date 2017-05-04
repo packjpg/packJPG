@@ -26,23 +26,22 @@ public:
 
 private:
 	// Sequential block decoding routine.
-	int block_seq(const HuffTree& dctree, const HuffTree& actree, std::array<std::int16_t, 64>& block);
+	int block_seq(const HuffTree& dctree, const HuffTree& actree);
 	// Progressive DC decoding routine.
-	void dc_prg_fs(const HuffTree& dctree, std::array<std::int16_t, 64>& block);
+	void dc_prg_fs(const HuffTree& dctree);
 	// Progressive AC decoding routine.
-	int ac_prg_fs(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun);
+	int ac_prg_fs(const HuffTree& actree, int& eobrun);
 	// Progressive DC SA decoding routine.
-	void dc_prg_sa(std::array<std::int16_t, 64>& block);
+	void dc_prg_sa();
 	// Progressive AC SA decoding routine.
-	int ac_prg_sa(const HuffTree& actree, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int& eobrun);
+	int ac_prg_sa(const HuffTree& actree, int& eobrun);
 	// Run of EOB SA decoding routine.
-	void eobrun_sa(const ScanInfo& scan_info, std::array<std::int16_t, 64>& block);
+	void eobrun_sa();
 
 	// Skips the eobrun, calculates next position.
 	CodingStatus skip_eobrun(const Component& component, int rsti, int& dpos, int& rstw, int& eobrun);
 
-	void build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes,
-		std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees);
+	void build_trees();
 
 	static constexpr int devli(int s, int n) {
 		return (n >= 1 << (s - 1)) ? n : n + 1 - (1 << s);
@@ -52,9 +51,16 @@ private:
 		return n + (1 << s);
 	}
 
-	void decode_sequential_block(Component& component, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos, int& eob);
-	void decode_successive_approx_first_stage(Component& component, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos);
-	void decode_success_approx_later_stage(Component& component, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int dpos);
+	void decode_sequential_block(Component& component, int cmp, int dpos);
+	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
+	void decode_success_approx_later_stage(Component& component, int dpos);
+
+	std::array<int, 4> lastdc{}; // last dc for each component
+	std::array<std::int16_t, 64> block{}; // store block for coeffs
+	ScanInfo scan_info;
+
+	std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2> hcodes; // huffman codes
+	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees; // huffman decoding trees
 
 	bool padbit_set = false;
 	std::uint8_t padbit = -1;
