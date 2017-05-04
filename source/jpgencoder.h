@@ -77,7 +77,7 @@ private:
 
 	FrameInfo& frame_info_;
 
-	std::unique_ptr<BitWriter> huffw_; // Bitwise writer for image data.
+	std::unique_ptr<BitWriter> huffman_writer_; // Bitwise writer for image data.
 	std::unique_ptr<Writer> storw_; // Bytewise writer for storage of correction bits.
 	std::array<std::int16_t, 64> block_{};  // Store block for coefficientss.
 	ScanInfo scan_info_;
@@ -91,8 +91,8 @@ private:
 
 	std::vector<std::uint8_t> huffman_data_;
 
-	std::vector<std::size_t> rstp_; // restart markers positions in huffdata
-	std::vector<std::size_t> scnp_; // scan start positions in huffdata
+	std::vector<std::size_t> restart_marker_pos_; // restart markers positions in huffdata
+	std::vector<std::size_t> scan_pos_; // scan start positions in huffdata
 };
 
 #endif

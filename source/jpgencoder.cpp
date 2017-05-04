@@ -10,7 +10,7 @@ JpgEncoder::JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const s
 	segments_(segments) {
 
 	// open huffman coded image data in abitwriter
-	huffw_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
+	huffman_writer_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
 	
 	// init storage writer
 	storw_ = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
@@ -190,13 +190,13 @@ void JpgEncoder::recode() {
 		}
 
 		// (re)alloc scan positons array
-		scnp_.resize(scan_count + 2);
+		scan_pos_.resize(scan_count + 2);
 
 		// (re)alloc restart marker positons array if needed
 		if (restart_interval > 0) {
 			int tmp = restart_markers + ((scan_info_.cmpc > 1) ?
 				                  (frame_info_.mcu_count / restart_interval) : (frame_info_.components[scan_info_.cmp[0]].bc / restart_interval));
-			rstp_.resize(tmp + 1);
+			restart_marker_pos_.resize(tmp + 1);
 		}
 
 		// intial variables set for encoding
@@ -207,7 +207,7 @@ void JpgEncoder::recode() {
 		int dpos = 0;
 
 		// store scan position
-		scnp_[scan_count] = huffw_->getpos();
+		scan_pos_[scan_count] = huffman_writer_->getpos();
 
 		// JPEG imagedata encoding routines
 		CodingStatus status = CodingStatus::OKAY;
@@ -222,13 +222,12 @@ void JpgEncoder::recode() {
 				status = encode_noninterleaved(restart_interval, cmp, dpos, rstw);
 			}
 
-			// pad huffman writer
-			huffw_->pad();
+			huffman_writer_->pad();
 
 			if (status == CodingStatus::RESTART) {
 				if (restart_interval > 0) {
 					// store rstp & stay in the loop
-					rstp_[restart_markers] = huffw_->getpos() - 1;
+					restart_marker_pos_[restart_markers] = huffman_writer_->getpos() - 1;
 					restart_markers++;
 				}
 			}
@@ -236,12 +235,12 @@ void JpgEncoder::recode() {
 		scan_count++;
 	}
 
-	huffman_data_ = huffw_->get_data();
+	huffman_data_ = huffman_writer_->get_data();
 
 	// store last scan & restart positions
-	scnp_[scan_count] = huffman_data_.size();
-	if (!rstp_.empty()) {
-		rstp_[restart_markers] = huffman_data_.size();
+	scan_pos_[scan_count] = huffman_data_.size();
+	if (!restart_marker_pos_.empty()) {
+		restart_marker_pos_[restart_markers] = huffman_data_.size();
 	}
 }
 
@@ -250,7 +249,7 @@ void JpgEncoder::write_scan_huffman_data(int scan, int& restart_pos, std::vector
 
 	// write & expand huffman coded image data
 	// ipos is the current position in image data.
-	for (auto ipos = scnp_[scan]; ipos < scnp_[scan + 1]; ipos++) {
+	for (auto ipos = scan_pos_[scan]; ipos < scan_pos_[scan + 1]; ipos++) {
 		// write current byte
 		output_writer_.write_byte(huffman_data_[ipos]);
 		// check current byte, stuff if needed
@@ -258,8 +257,8 @@ void JpgEncoder::write_scan_huffman_data(int scan, int& restart_pos, std::vector
 			output_writer_.write_byte(std::uint8_t(0)); // 0xFF stuff value
 		}
 		// insert restart markers if needed
-		if (!rstp_.empty()) {
-			if (ipos == rstp_[restart_pos]) {
+		if (!restart_marker_pos_.empty()) {
+			if (ipos == restart_marker_pos_[restart_pos]) {
 				const std::uint8_t restart_marker = 0xD0 + (corrected_pos % 8);
 				constexpr std::uint8_t mrk = 0xFF; // marker start
 				output_writer_.write_byte(mrk);
@@ -293,13 +292,10 @@ void JpgEncoder::merge(const std::vector<std::uint8_t>& garbage_data, std::vecto
 	for (const auto& segment : segments_) {
 		output_writer_.write(segment.get_data());
 
-		if (segment.get_type() != Marker::kSOS) {
-			continue;
+		if (segment.get_type() == Marker::kSOS) {
+			write_scan_huffman_data(scan, restart_pos, rst_err);
+			scan++;
 		}
-
-		write_scan_huffman_data(scan, restart_pos, rst_err);
-
-		scan++;
 	}
 
 	constexpr std::array<std::uint8_t, 2> EOI{0xFF, 0xD9};
@@ -325,7 +321,7 @@ void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table)
 		if (block_[bpos] != 0) {
 			// write remaining zeroes
 			while (z >= 16) {
-				huffw_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
+				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
 				z -= 16;
 			}
 			// vli encode
@@ -333,8 +329,8 @@ void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table)
 			std::uint16_t n = envli(s, block_[bpos]);
 			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffw_->write_u16(n, s);
+			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
+			huffman_writer_->write_u16(n, s);
 			// reset zeroes
 			z = 0;
 		} else { // increment zero counter
@@ -343,7 +339,7 @@ void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table)
 	}
 	// write eob if needed
 	if (z > 0) {
-		huffw_->write_u16(ac_table.cval[0], ac_table.clen[0]);
+		huffman_writer_->write_u16(ac_table.cval[0], ac_table.clen[0]);
 	}
 }
 
@@ -351,8 +347,8 @@ void JpgEncoder::dc_prg_fs(const HuffCodes& dc_table) {
 	// encode DC	
 	int s = pjg::bitlen2048n(block_[0]);
 	std::uint16_t n = envli(s, block_[0]);
-	huffw_->write_u16(dc_table.cval[s], dc_table.clen[s]);
-	huffw_->write_u16(n, s);
+	huffman_writer_->write_u16(dc_table.cval[s], dc_table.clen[s]);
+	huffman_writer_->write_u16(n, s);
 }
 
 void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
@@ -365,7 +361,7 @@ void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
 			this->eobrun(ac_table, eobrun);
 			// write remaining zeroes
 			while (z >= 16) {
-				huffw_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
+				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
 				z -= 16;
 			}
 			// vli encode
@@ -373,8 +369,8 @@ void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
 			std::uint16_t n = envli(s, block_[bpos]);
 			int hc = ((z << 4) + s);
 			// write to huffman writer
-			huffw_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffw_->write_u16(n, s);
+			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
+			huffman_writer_->write_u16(n, s);
 			// reset zeroes
 			z = 0;
 		} else { // increment zero counter
@@ -394,7 +390,7 @@ void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
 
 void JpgEncoder::dc_prg_sa() {
 	// enocode next bit of dc coefficient
-	huffw_->write_bit(block_[0]);
+	huffman_writer_->write_bit(block_[0]);
 }
 
 void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
@@ -422,7 +418,7 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 		if (block_[bpos] == 0) {
 			z++; // increment zero counter
 			if (z == 16) { // write zeroes if needed
-				huffw_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
+				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
 				this->crbits();
 				z = 0;
 			}
@@ -434,8 +430,8 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 			std::uint16_t n = envli(s, block_[bpos]);
 			int hc = (z << 4) + s;
 			// write to huffman writer
-			huffw_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffw_->write_u16(n, s);
+			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
+			huffman_writer_->write_u16(n, s);
 			// write correction bits
 			this->crbits();
 			// reset zeroes
@@ -468,16 +464,16 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 void JpgEncoder::eobrun(const HuffCodes& ac_table, int& eobrun) {
 	if (eobrun > 0) {
 		while (eobrun > ac_table.max_eobrun) {
-			huffw_->write_u16(ac_table.cval[0xE0], ac_table.clen[0xE0]);
-			huffw_->write_u16(std::uint16_t(e_envli(14, 32767)), 14);
+			huffman_writer_->write_u16(ac_table.cval[0xE0], ac_table.clen[0xE0]);
+			huffman_writer_->write_u16(std::uint16_t(e_envli(14, 32767)), 14);
 			eobrun -= ac_table.max_eobrun;
 		}
 		std::uint8_t s = bitlen(eobrun);
 		s--;
 		std::uint16_t n = e_envli(s, eobrun);
 		int hc = s << 4;
-		huffw_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-		huffw_->write_u16(n, s);
+		huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
+		huffman_writer_->write_u16(n, s);
 		eobrun = 0;
 	}
 }
@@ -487,7 +483,7 @@ void JpgEncoder::crbits() {
 
 	// write bits to huffwriter
 	for (std::uint8_t bit : data) {
-		huffw_->write_bit(bit);
+		huffman_writer_->write_bit(bit);
 	}
 
 	// reset writer, discard data
