@@ -22,21 +22,13 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 }
 
 void JpgReader::read() {
-	scan_count_ = 0;
-	// start headerwriter
-	auto header_writer = std::make_unique<MemoryWriter>();
-
-	// start huffman writer
-	auto huffman_writer = std::make_unique<MemoryWriter>();
-
-	// alloc memory for segment data first
 	std::vector<std::uint8_t> segment(1024);
 
 	Marker type = Marker::kINVALID;
 	while (true) {
 		if (type == Marker::kSOS) { // if last marker was sos
 			try {
-				read_sos(*huffman_writer, segment, rst_err_);
+				read_sos(segment);
 			} catch (const std::runtime_error&) {
 				throw;
 			}
@@ -68,7 +60,6 @@ void JpgReader::read() {
 			throw std::runtime_error("Invalid segment length: " + std::to_string(segment_length));
 		}
 
-		// realloc segment data if needed
 		segment.resize(segment_length);
 
 		// read rest of segment, store back in header writer
@@ -76,31 +67,22 @@ void JpgReader::read() {
 		if (jpg_input_reader_.read(segment, payload_length, 4) != payload_length) {
 			throw std::runtime_error("Unable to read entire payload of segment.");
 		}
-		header_writer->write(segment.data(), segment_length);
+		header_writer_->write(segment.data(), segment_length);
 	}
 
-	// get pointer for header data & size
-	segments_ = Segment::parse_segments(header_writer->get_data());
-	// get pointer for huffman data & size
-	huffman_data_ = huffman_writer->get_data();
-
-	// store garbage after EOI if needed
+	segments_ = Segment::parse_segments(header_writer_->get_data());
+	huffman_data_ = huffman_writer_->get_data();
+	
 	try {
 		garbage_data_ = read_garbage_data();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
-
-	// parse header for image info
-	try {
 		frame_info_ = jfif::get_frame_info(segments_);
-	} catch (const std::exception&) {
+	} catch (const std::runtime_error&) {
 		throw;
 	}
 }
 
 
-void JpgReader::read_sos(Writer& huffw, std::vector<std::uint8_t>& segment, std::vector<std::uint8_t>& rst_err) {
+void JpgReader::read_sos(std::vector<std::uint8_t>& segment) {
 	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
@@ -112,7 +94,7 @@ void JpgReader::read_sos(Writer& huffw, std::vector<std::uint8_t>& segment, std:
 		if (byte != 0xFF) {
 			crst = 0;
 			while (byte != 0xFF) {
-				huffw.write_byte(byte);
+				huffman_writer_->write_byte(byte);
 				byte = jpg_input_reader_.read_byte();
 			}
 		}
@@ -123,7 +105,7 @@ void JpgReader::read_sos(Writer& huffw, std::vector<std::uint8_t>& segment, std:
 			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF
-				huffw.write_byte(0xFF);
+				huffman_writer_->write_byte(0xFF);
 			} else if (byte == 0xD0 + (cpos % 8)) { // restart marker
 				// increment rst counters
 				cpos++;
@@ -131,18 +113,18 @@ void JpgReader::read_sos(Writer& huffw, std::vector<std::uint8_t>& segment, std:
 			} else { // in all other cases leave it to the header parser routines
 				// store number of wrongly set rst markers
 				if (crst > 0) {
-					if (rst_err.empty()) {
-						rst_err.resize(scan_count_ + 1);
+					if (rst_err_.empty()) {
+						rst_err_.resize(scan_count_ + 1);
 					}
 				}
-				if (!rst_err.empty()) {
+				if (!rst_err_.empty()) {
 					// realloc and set only if needed
-					rst_err.resize(scan_count_ + 1);
+					rst_err_.resize(scan_count_ + 1);
 					if (crst > 255) {
 						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
 						// crst = 255;
 					}
-					rst_err[scan_count_] = crst;
+					rst_err_[scan_count_] = crst;
 				}
 				// end of current scan
 				scan_count_++;

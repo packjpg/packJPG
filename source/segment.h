@@ -122,11 +122,11 @@ public:
 		// Parse the segments:
 		while (std::distance(header_pos, std::end(header_data)) > 0) {
 			Segment segment(header_data, std::distance(std::begin(header_data), header_pos));
-			segments.push_back(segment);
-			std::advance(header_pos, segment.get_size());
 			if (segment.get_type() == Marker::kEOI) {
 				break; // Last segment encountered, don't read any more.
 			}
+			segments.push_back(segment);
+			std::advance(header_pos, segment.get_size());
 		}
 
 		return segments;
