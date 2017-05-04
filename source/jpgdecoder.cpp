@@ -19,28 +19,30 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 	for (const auto& segment : segments) {
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		ScanInfo scan_info;
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
+		switch (segment.get_type()) {
+		case Marker::kDHT:
 			try {
 				jfif::parse_dht(segment.get_data(), hcodes);
 			} catch (const std::range_error&) {
 				throw;
 			}
 			build_trees(hcodes, htrees);
-		} else if (type == Marker::kDRI) {
-			rsti = jfif::parse_dri(segment.get_data());
-		} else if (type == Marker::kSOS) {
+			continue;
+		case Marker::kDRI:
+			try {
+				rsti = jfif::parse_dri(segment.get_data());
+			} catch (const std::runtime_error&) {
+				throw;
+			}
+			continue;
+		case Marker::kSOS:
 			try {
 				scan_info = jfif::get_scan_info(frame_info, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
-		} else {
-			continue;
-		}
-
-		// get out if last marker segment type was not SOS
-		if (type != Marker::kSOS) {
+			break;
+		default:
 			continue;
 		}
 
@@ -100,8 +102,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						lastdc[cmp] = block[0];
 
 						// copy to colldata
-						for (int bpos = 0; bpos < eob; bpos++)
+						for (int bpos = 0; bpos < eob; bpos++) {
 							components[cmp].colldata[bpos][dpos] = block[bpos];
+						}
 
 						// check for errors, proceed if no error encountered
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
@@ -163,8 +166,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						lastdc[cmp] = block[0];
 
 						// copy to colldata
-						for (int bpos = 0; bpos < eob; bpos++)
+						for (int bpos = 0; bpos < eob; bpos++) {
 							components[cmp].colldata[bpos][dpos] = block[bpos];
+						}
 
 						// check for errors, proceed if no error encountered
 						status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
@@ -225,14 +229,17 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 									}
 									peobrun = eobrun;
 									eobrun--;
-								} else
+								} else {
 									peobrun = 0;
+								}
 
 								// copy to colldata
-								for (int bpos = scan_info.from; bpos < eob; bpos++)
+								for (int bpos = scan_info.from; bpos < eob; bpos++) {
 									components[cmp].colldata[bpos][dpos] = block[bpos] << scan_info.sal;
-							} else
+								}
+							} else {
 								eobrun--;
+							}
 
 							// check for errors
 							try {
@@ -251,8 +258,9 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
 							// copy from colldata
-							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
 								block[bpos] = components[cmp].colldata[bpos][dpos];
+							}
 
 							if (eobrun == 0) {
 								// decode block (long routine)
@@ -282,10 +290,10 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 							}
 
 							// copy back to colldata
-							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++)
+							for (int bpos = scan_info.from; bpos <= scan_info.to; bpos++) {
 								components[cmp].colldata[bpos][dpos] += block[bpos] << scan_info.sal;
+							}
 
-							// proceed only if no error encountered
 							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
 						}
 					}
@@ -296,7 +304,6 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 			if (padbit_set) {
 				if (padbit != huffr->unpad(padbit)) {
 					throw std::runtime_error("inconsistent use of padbits");
-					//jpg::padbit = 1;
 				}
 			} else {
 				padbit = huffr->unpad(padbit);
