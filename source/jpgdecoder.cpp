@@ -345,7 +345,7 @@ std::uint8_t JpgDecoder::get_padbit() {
 void JpgDecoder::build_trees(const std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes, std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees) {
 	for (std::size_t i = 0; i < hcodes.size(); i++) {
 		for (std::size_t j = 0; j < hcodes[i].size(); j++) {
-			if (hcodes[i][j] && !htrees[i][j]) {
+			if (hcodes[i][j]) {
 				htrees[i][j] = std::make_unique<HuffTree>(*hcodes[i][j]);
 			}
 		}
