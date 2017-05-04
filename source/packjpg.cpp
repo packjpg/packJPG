@@ -431,9 +431,9 @@ namespace decode {
 	}
 	// JPEG decoding routine.
 	bool decode() {
-		jpeg_decoder = std::make_unique<JpgDecoder>();
+		jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
 		try {
-			jpeg_decoder->decode(*frame_info, segments, huffman_data);
+			jpeg_decoder->decode();
 			jpg::padbit = jpeg_decoder->get_padbit();
 		} catch (const std::exception& e) {
 			errormessage = e.what();

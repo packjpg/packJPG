@@ -38,9 +38,9 @@ void JpgToPjgController::execute() {
 
 	std::uint8_t padbit;
 
-	std::unique_ptr<JpgDecoder> jpeg_decoder = std::make_unique<JpgDecoder>();
+	std::unique_ptr<JpgDecoder> jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
 	try {
-		jpeg_decoder->decode(*frame_info, segments, huffman_data);
+		jpeg_decoder->decode();
 		padbit = jpeg_decoder->get_padbit();
 		jpeg_decoder->check_value_range(frame_info->components);
 	} catch (const std::exception&) {

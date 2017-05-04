@@ -17,12 +17,14 @@
 class JpgDecoder {
 public:
 
-	// JPEG decoding routine.
-	void decode(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffdata);
-	// Checks range of values, error if out of bounds.
-	void check_value_range(const std::vector<Component>& components);
+	JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data);
 
-	std::uint8_t get_padbit();
+	// JPEG decoding routine.
+	void decode();
+	// Checks range of values, error if out of bounds.
+	void check_value_range(const std::vector<Component>& components) const;
+
+	std::uint8_t get_padbit() const;
 
 private:
 	// Sequential block decoding routine.
@@ -51,12 +53,15 @@ private:
 		return n + (1 << s);
 	}
 
-	CodingStatus decode_interleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
-	CodingStatus decode_noninterleaved_data(const FrameInfo& frame_info, std::vector<Component>& components, int rsti, int& cmp, int& dpos);
+	CodingStatus decode_interleaved_data(int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
+	CodingStatus decode_noninterleaved_data(int rsti, int cmp, int& dpos);
 
 	void decode_sequential_block(Component& component, int cmp, int dpos);
 	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
 	void decode_success_approx_later_stage(Component& component, int dpos);
+
+	FrameInfo& frame_info_;
+	const std::vector<Segment>& segments_;
 
 	std::array<int, 4> lastdc_{}; // last dc for each component
 	std::array<std::int16_t, 64> block_{}; // store block for coeffs
