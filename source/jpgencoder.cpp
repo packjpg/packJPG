@@ -163,8 +163,7 @@ void JpgEncoder::recode() {
 	int restart_interval = 0; // Restart interval.
 
 	for (const auto& segment : segments_) {
-		const Marker segment_type = segment.get_type();
-		switch (segment_type) {
+		switch (segment.get_type()) {
 		case Marker::kDHT:
 			try {
 				jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
@@ -173,7 +172,11 @@ void JpgEncoder::recode() {
 			}
 			continue;
 		case Marker::kDRI:
-			restart_interval = jfif::parse_dri(segment.get_data());
+			try {
+				restart_interval = jfif::parse_dri(segment.get_data());
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 			continue;
 		case Marker::kSOS:
 			try {
@@ -225,7 +228,8 @@ void JpgEncoder::recode() {
 			if (status == CodingStatus::RESTART) {
 				if (restart_interval > 0) {
 					// store rstp & stay in the loop
-					rstp_[restart_markers++] = huffw_->getpos() - 1;
+					rstp_[restart_markers] = huffw_->getpos() - 1;
+					restart_markers++;
 				}
 			}
 		}
