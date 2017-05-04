@@ -32,6 +32,16 @@ public:
 	virtual bool read_byte(std::uint8_t* to) = 0;
 
 	/*
+	 * Skips the minimum of the n and the number of unread bytes left in the reader.
+	 */
+	virtual void skip(std::size_t n) = 0;
+
+	/*
+	 * Moves the reader back by the minimum of n and the number of bytes already read in the reader.
+	 */
+	virtual void rewind_bytes(std::size_t n) = 0;
+
+	/*
 	* Resets the number of bytes read to zero.
 	*/
 	virtual void rewind() = 0;
@@ -68,7 +78,10 @@ public:
 	std::uint8_t read_byte() override;
 	bool read_byte(std::uint8_t* to) override;
 
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
 	void rewind() override;
+
 	std::size_t num_bytes_read() override;
 	std::size_t get_size() override;
 	std::vector<std::uint8_t> get_data() override;
@@ -92,7 +105,10 @@ public:
 	std::uint8_t read_byte() override;
 	bool read_byte(std::uint8_t* to) override;
 
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
 	void rewind() override;
+
 	std::size_t num_bytes_read() override;
 	std::size_t get_size() override;
 	std::vector<std::uint8_t> get_data() override;
@@ -116,7 +132,10 @@ public:
 	std::uint8_t read_byte() override;
 	bool read_byte(std::uint8_t* to) override;
 
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
 	void rewind() override;
+
 	std::size_t num_bytes_read() override;
 	std::size_t get_size() override;
 	std::vector<std::uint8_t> get_data() override;

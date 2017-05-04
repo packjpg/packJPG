@@ -4,13 +4,76 @@
 
 #include "bitops.h"
 #include "pjpgtbl.h"
+#include "jfifparse.h"
+
+Segment::Segment(Reader& reader) {
+	std::array<std::uint8_t, 2> segment_marker{};
+	auto num_read_marker = reader.read(segment_marker.data(), 2);
+	if(num_read_marker != 2) {
+		throw std::runtime_error("Unable to read segment marker.");
+	}
+
+	if (std::get<0>(segment_marker) != 0xFF) {
+		throw std::runtime_error("First byte of segment is not 0xFF");
+	}
+	auto type = Marker(std::get<1>(segment_marker));
+	set_type(type);
+
+	data_.resize(2);
+	std::copy(std::begin(segment_marker), std::end(segment_marker), std::begin(data_));
+	if (!has_length(type)) {
+		return;
+	}
+
+	std::array<std::uint8_t, 2> segment_length{};
+	auto num_read_length = reader.read(segment_length.data(), 2);
+	if (num_read_length != 2) {
+		throw std::runtime_error("Unable to read segment length.");
+	}
+
+	std::size_t segment_size = 2 + jfif::pack(std::get<0>(segment_length), std::get<1>(segment_length));
+	data_.resize(segment_size);
+	std::copy(std::begin(segment_length), std::end(segment_length), std::begin(data_) + 2);
+	// read rest of segment, store back in header writer
+	const auto payload_size = segment_size - 4;
+	if (reader.read(data_, payload_size, 4) != payload_size) {
+		throw std::runtime_error("Unable to read entire segment payload.");
+	}
+}
 
 Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset) {
 	if (offset >= headerData.size() - 1) {
 		return; // If there aren't at least two bytes to read the segment type, nothing to read.
 	}
 	auto type = Marker(headerData[offset + 1]);
+	set_type(type);
 
+	// Read in the length of the data if the marker has a length field:
+	int size; // The number of bytes in the segment.
+	if (has_length(type_)) {
+		size = 2 + (int(headerData[offset + 2]) << 8) + int(headerData[offset + 3]);
+	} else {
+		size = 2;
+	}
+	const auto start = std::next(std::begin(headerData), offset);
+	const auto end = std::next(start, size);
+	data_ = std::vector<std::uint8_t>(start, end);
+
+}
+
+Marker Segment::get_type() const {
+	return type_;
+}
+
+std::size_t Segment::get_size() const {
+	return data_.size();
+}
+
+std::vector<std::uint8_t> Segment::get_data() const {
+	return data_;
+}
+
+void Segment::set_type(Marker type) {
 	// Handle invalid enums:
 	switch (type) {
 	case Marker::kSOF0:
@@ -172,30 +235,6 @@ Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset
 	default:
 		type_ = Marker::kINVALID;
 	}
-
-	// Read in the length of the data if the marker has a length field:
-	int size; // The number of bytes in the segment.
-	if (has_length(type_)) {
-		size = 2 + (int(headerData[offset + 2]) << 8) + int(headerData[offset + 3]);
-	} else {
-		size = 2;
-	}
-	const auto start = std::next(std::begin(headerData), offset);
-	const auto end = std::next(start, size);
-	data_ = std::vector<std::uint8_t>(start, end);
-
-}
-
-Marker Segment::get_type() const {
-	return type_;
-}
-
-std::size_t Segment::get_size() const {
-	return data_.size();
-}
-
-std::vector<std::uint8_t> Segment::get_data() const {
-	return data_;
 }
 
 bool Segment::has_length(Marker type) {

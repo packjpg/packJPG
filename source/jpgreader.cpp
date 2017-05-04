@@ -22,55 +22,26 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 }
 
 void JpgReader::read() {
-	std::vector<std::uint8_t> segment(1024);
+	while (!jpg_input_reader_.end_of_reader()) {
+		try {
+			Segment segment(jpg_input_reader_);
+			if (segment.get_type() == Marker::kEOI) {
+				break;
+			}
 
-	Marker type = Marker::kINVALID;
-	while (true) {
-		if (type == Marker::kSOS) { // if last marker was sos
-			try {
-				read_sos(segment);
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-		} else {
-			// read in next marker
-			if (jpg_input_reader_.read(segment, 2) != 2) {
-				throw std::runtime_error("Unable to read segment marker.");
-			}
-			if (segment[0] != 0xFF) {
-				// ugly fix for incorrect marker segment sizes
-				throw std::runtime_error("size mismatch in marker segment FF");
+			segments_.push_back(segment);
+
+			if (segment.get_type() == Marker::kSOS) {
+				// Read the compressed data.
+				read_sos();
+				scans_processed_++;
 			}
 		}
-
-		// read segment type
-		type = static_cast<Marker>(segment[1]); // TODO: add enum correctness checks?
-
-		// Done parsing the header if the EOI segment is encountered.
-		if (type == Marker::kEOI) {
-			break;
+		catch (const std::runtime_error&) {
+			throw;
 		}
-
-		// read in next segments' length and check it
-		if (jpg_input_reader_.read(segment, 2, 2) != 2) {
-			throw std::runtime_error("Unable to read segment length.");
-		}
-		std::size_t segment_length = 2 + jfif::pack(segment[2], segment[3]); // Length of current marker segment.
-		if (segment_length < 4) {
-			throw std::runtime_error("Invalid segment length: " + std::to_string(segment_length));
-		}
-
-		segment.resize(segment_length);
-
-		// read rest of segment, store back in header writer
-		const auto payload_length = segment_length - 4;
-		if (jpg_input_reader_.read(segment, payload_length, 4) != payload_length) {
-			throw std::runtime_error("Unable to read entire payload of segment.");
-		}
-		header_writer_->write(segment.data(), segment_length);
 	}
 
-	segments_ = Segment::parse_segments(header_writer_->get_data());
 	huffman_data_ = huffman_writer_->get_data();
 	
 	try {
@@ -82,7 +53,7 @@ void JpgReader::read() {
 }
 
 
-void JpgReader::read_sos(std::vector<std::uint8_t>& segment) {
+void JpgReader::read_sos() {
 	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
@@ -114,23 +85,18 @@ void JpgReader::read_sos(std::vector<std::uint8_t>& segment) {
 				// store number of wrongly set rst markers
 				if (crst > 0) {
 					if (rst_err_.empty()) {
-						rst_err_.resize(scan_count_ + 1);
+						rst_err_.resize(scans_processed_ + 1);
 					}
 				}
 				if (!rst_err_.empty()) {
 					// realloc and set only if needed
-					rst_err_.resize(scan_count_ + 1);
+					rst_err_.resize(scans_processed_ + 1);
 					if (crst > 255) {
 						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
-						// crst = 255;
 					}
-					rst_err_[scan_count_] = crst;
+					rst_err_[scans_processed_] = crst;
 				}
-				// end of current scan
-				scan_count_++;
-				// on with the header parser routines
-				segment[0] = 0xFF;
-				segment[1] = byte;
+				jpg_input_reader_.rewind_bytes(2); // Start of the next segment: unread these.
 				break;
 			}
 		} else {

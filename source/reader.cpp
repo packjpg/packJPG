@@ -50,8 +50,16 @@ bool FileReader::read_byte(std::uint8_t* to) {
 	return val != EOF;
 }
 
+void FileReader::skip(std::size_t n) {
+	std::fseek(fptr_, n, SEEK_CUR);
+}
+
+void FileReader::rewind_bytes(std::size_t n) {
+	std::fseek(fptr_, -static_cast<long>(n), SEEK_CUR);
+}
+
 void FileReader::rewind() {
-	fseek(fptr_, 0, SEEK_SET);
+	std::rewind(fptr_);
 }
 
 std::size_t FileReader::num_bytes_read() {
@@ -136,6 +144,17 @@ bool MemoryReader::read_byte(std::uint8_t* byte) {
 	}
 }
 
+void MemoryReader::skip(std::size_t n) {
+	auto num_to_skip = std::min(n, std::size_t(std::distance(cbyte_, std::end(data_))));
+	cbyte_ += num_to_skip;
+}
+
+void MemoryReader::rewind_bytes(std::size_t n) {
+	auto num_to_rewind = std::min(n, std::size_t(std::distance(std::begin(data_), cbyte_)));
+	auto new_pos = std::distance(std::begin(data_), cbyte_) - num_to_rewind;
+	cbyte_ = std::next(std::begin(data_), new_pos);
+}
+
 void MemoryReader::rewind() {
 	cbyte_ = std::begin(data_);
 	eof_ = cbyte_ == std::end(data_);
@@ -201,6 +220,14 @@ std::uint8_t StreamReader::read_byte() {
 
 bool StreamReader::read_byte(std::uint8_t* to) {
 	return reader_->read_byte(to);
+}
+
+void StreamReader::skip(std::size_t n) {
+	reader_->skip(n);
+}
+
+void StreamReader::rewind_bytes(std::size_t n) {
+	reader_->rewind_bytes(n);
 }
 
 void StreamReader::rewind() {

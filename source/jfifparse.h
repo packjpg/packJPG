@@ -1,6 +1,7 @@
 #ifndef JFIFPARSE_H
 #define JFIFPARSE_H
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -11,6 +12,8 @@
 #include <vector>
 
 #include "bitops.h"
+#include "component.h"
+#include "frameinfo.h"
 #include "huffcodes.h"
 #include "jpegtype.h"
 #include "reader.h"
@@ -25,8 +28,7 @@ namespace jfif {
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
 			std::uint8_t byte;
@@ -79,8 +81,7 @@ namespace jfif {
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
 			std::uint8_t byte;
@@ -129,8 +130,7 @@ namespace jfif {
 	 */
 	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const std::vector<std::uint8_t>& segment) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		while (!reader->end_of_reader()) {
 			std::uint8_t byte;
 			try {
@@ -243,8 +243,7 @@ namespace jfif {
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
 	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		auto frame_info = std::make_unique<FrameInfo>();
 		// set JPEG coding type
 		if (type == Marker::kSOF2) {

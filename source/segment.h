@@ -2,6 +2,7 @@
 #define SEGMENT_H
 #include <cstdint>
 #include <vector>
+#include "reader.h"
 
 enum class Marker {
 	kSOF0 = 0xC0, // Baseline DCT (Huffman coding).
@@ -80,6 +81,13 @@ enum class Marker {
 
 class Segment {
 public:
+	/*
+	 * Reads the next segment in from the reader. If the next bytes in the reader aren't a segment,
+	 * there are insufficient bytes in the reader for the segment, or the segment is otherwise invalid,
+	 * a runtime_error exception is thrown.
+	 */
+	Segment(Reader& reader);
+
 	/* Reads the information for the segment in the provided header data that starts at
 	the given index.
 	*/
@@ -133,6 +141,8 @@ public:
 	}
 
 private:
+	void set_type(Marker type);
+
 	/*
 	Returns whether the given marker type has a length field associated with it.
 	*/

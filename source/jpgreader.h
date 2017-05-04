@@ -23,15 +23,15 @@ public:
 	std::vector<std::uint8_t> get_rst_err();
 
 private:
-	void read_sos(std::vector<std::uint8_t>& segment);
+
+	void read_sos();
 	std::vector<std::uint8_t> read_garbage_data();
 
 	Reader& jpg_input_reader_;
 
-	std::unique_ptr<Writer> header_writer_ = std::make_unique<MemoryWriter>();
 	std::unique_ptr<Writer> huffman_writer_ = std::make_unique<MemoryWriter>();
 
-	int scan_count_ = 0; // Count of scans.
+	int scans_processed_ = 0; // Count of scans.
 
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
