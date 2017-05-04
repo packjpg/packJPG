@@ -227,11 +227,9 @@ void JpgEncoder::recode() {
 					// store rstp & stay in the loop
 					rstp_[restart_markers++] = huffw_->getpos() - 1;
 				}
-			} else if (status == CodingStatus::DONE) {
-				scan_count++; // increment scan counter
 			}
 		}
-
+		scan_count++;
 	}
 
 	huffman_data_ = huffw_->get_data();
