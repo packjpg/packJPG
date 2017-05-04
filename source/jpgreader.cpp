@@ -5,51 +5,50 @@
 #include "jfifparse.h"
 #include "segment.h"
 
-JpgReader::JpgReader(Reader& jpg_input_reader) : jpg_input_reader_(jpg_input_reader) {}
+JpgReader::JpgReader(Reader& reader) : reader_(reader) {}
+
+std::vector<Segment> JpgReader::parse_segments() {
+	std::vector<Segment> segments;
+	while (!reader_.end_of_reader()) {
+		Segment segment(reader_);
+		if (segment.get_type() == Marker::kEOI) {
+			break;
+		}
+
+		segments.push_back(segment);
+
+		if (segment.get_type() == Marker::kSOS) {
+			// Read the compressed data:
+			read_sos();
+			scans_processed_++;
+		}
+	}
+	return segments;
+}
 
 std::vector<std::uint8_t> JpgReader::read_garbage_data() {
-	if (jpg_input_reader_.end_of_reader()) {
+	if (reader_.end_of_reader()) {
 		return std::vector<std::uint8_t>();
 	}
 
-	const auto garbage_amount = jpg_input_reader_.get_size() - jpg_input_reader_.num_bytes_read();
+	const auto garbage_amount = reader_.get_size() - reader_.num_bytes_read();
 	std::vector<std::uint8_t> garbage(garbage_amount);
-	if (jpg_input_reader_.read(garbage, garbage_amount) != garbage_amount) {
-		throw std::runtime_error("Unable to read in garbage data.");
+	if (reader_.read(garbage, garbage_amount) != garbage_amount) {
+		throw std::runtime_error("Unable to read garbage data.");
 	}
 
 	return garbage;
 }
 
 void JpgReader::read() {
-	while (!jpg_input_reader_.end_of_reader()) {
-		try {
-			Segment segment(jpg_input_reader_);
-			if (segment.get_type() == Marker::kEOI) {
-				break;
-			}
-
-			segments_.push_back(segment);
-
-			if (segment.get_type() == Marker::kSOS) {
-				// Read the compressed data.
-				read_sos();
-				scans_processed_++;
-			}
-		}
-		catch (const std::runtime_error&) {
-			throw;
-		}
-	}
-
-	huffman_data_ = huffman_writer_->get_data();
-	
 	try {
+		segments_ = parse_segments();
 		garbage_data_ = read_garbage_data();
 		frame_info_ = jfif::get_frame_info(segments_);
 	} catch (const std::runtime_error&) {
 		throw;
 	}
+	huffman_data_ = huffman_writer_->get_data();
 }
 
 
@@ -59,20 +58,20 @@ void JpgReader::read_sos() {
 	std::uint32_t crst = 0; // current rst marker counter
 	while (true) {
 		// read byte from imagedata
-		std::uint8_t byte = jpg_input_reader_.read_byte();
+		std::uint8_t byte = reader_.read_byte();
 
 		// non-0xFF loop
 		if (byte != 0xFF) {
 			crst = 0;
 			while (byte != 0xFF) {
 				huffman_writer_->write_byte(byte);
-				byte = jpg_input_reader_.read_byte();
+				byte = reader_.read_byte();
 			}
 		}
 
 		// treatment of 0xFF
 		if (byte == 0xFF) {
-			byte = jpg_input_reader_.read_byte();
+			byte = reader_.read_byte();
 			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF
@@ -96,7 +95,7 @@ void JpgReader::read_sos() {
 					}
 					rst_err_[scans_processed_] = crst;
 				}
-				jpg_input_reader_.rewind_bytes(2); // Start of the next segment: unread these.
+				reader_.rewind_bytes(2); // Start of the next segment: unread these.
 				break;
 			}
 		} else {

@@ -12,7 +12,7 @@
 
 class JpgReader {
 public:
-	JpgReader(Reader& jpg_input_reader);
+	JpgReader(Reader& reader);
 	// Read in header and image data.
 	void read();
 
@@ -25,9 +25,10 @@ public:
 private:
 
 	void read_sos();
+	std::vector<Segment> parse_segments();
 	std::vector<std::uint8_t> read_garbage_data();
 
-	Reader& jpg_input_reader_;
+	Reader& reader_;
 
 	std::unique_ptr<Writer> huffman_writer_ = std::make_unique<MemoryWriter>();
 
