@@ -10,9 +10,8 @@ JpgEncoder::JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const s
 	segments_(segments) {
 
 	// open huffman coded image data in abitwriter
-	huffw_ = std::make_unique<BitWriter>(0); // bitwise writer for image data
-	huffw_->set_fillbit(padbit);
-
+	huffw_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
+	
 	// init storage writer
 	storw_ = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
 }
@@ -159,78 +158,80 @@ CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& 
 }
 
 void JpgEncoder::recode() {
-	// preset count of scans and restarts
 	int scan_count = 0;
-	int rstc = 0; // count of restart markers
+	int restart_markers = 0; // Count of restart markers.
+	int restart_interval = 0; // Restart interval.
 
-	// JPEG decompression loop
-	int rsti = 0; // Restart interval.
 	for (const auto& segment : segments_) {
-		// seek till start-of-scan, parse only DHT, DRI and SOS
-		const Marker type = segment.get_type();
-		if (type == Marker::kDHT) {
+		const Marker segment_type = segment.get_type();
+		switch (segment_type) {
+		case Marker::kDHT:
 			try {
 				jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
 			} catch (const std::range_error&) {
 				throw;
 			}
-		} else if (type == Marker::kDRI) {
-			rsti = jfif::parse_dri(segment.get_data());
-		} else if (type == Marker::kSOS) {
+			continue;
+		case Marker::kDRI:
+			restart_interval = jfif::parse_dri(segment.get_data());
+			continue;
+		case Marker::kSOS:
 			try {
 				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
 			} catch (std::runtime_error&) {
 				throw;
 			}
+			break;
+		default:
+			continue; // Ignore other segment types.
+		}
 
-			// (re)alloc scan positons array
-			scnp_.resize(scan_count + 2);
+		// (re)alloc scan positons array
+		scnp_.resize(scan_count + 2);
 
-			// (re)alloc restart marker positons array if needed
-			if (rsti > 0) {
-				int tmp = rstc + ((scan_info_.cmpc > 1) ?
-					                  (frame_info_.mcu_count / rsti) : (frame_info_.components[scan_info_.cmp[0]].bc / rsti));
-				rstp_.resize(tmp + 1);
+		// (re)alloc restart marker positons array if needed
+		if (restart_interval > 0) {
+			int tmp = restart_markers + ((scan_info_.cmpc > 1) ?
+				                  (frame_info_.mcu_count / restart_interval) : (frame_info_.components[scan_info_.cmp[0]].bc / restart_interval));
+			rstp_.resize(tmp + 1);
+		}
+
+		// intial variables set for encoding
+		int cmp = scan_info_.cmp[0];
+		int csc = 0;
+		int mcu = 0;
+		int sub = 0;
+		int dpos = 0;
+
+		// store scan position
+		scnp_[scan_count] = huffw_->getpos();
+
+		// JPEG imagedata encoding routines
+		CodingStatus status = CodingStatus::OKAY;
+		while (status != CodingStatus::DONE) {
+			// set rst wait counter
+			int rstw = restart_interval; // restart wait counter
+
+			std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
+			if (scan_info_.cmpc > 1) {
+				status = encode_interleaved(restart_interval, cmp, dpos, rstw, csc, mcu, sub);
+			} else {
+				status = encode_noninterleaved(restart_interval, cmp, dpos, rstw);
 			}
 
-			// intial variables set for encoding
-			int cmp = scan_info_.cmp[0];
-			int csc = 0;
-			int mcu = 0;
-			int sub = 0;
-			int dpos = 0;
+			// pad huffman writer
+			huffw_->pad();
 
-			// store scan position
-			scnp_[scan_count] = huffw_->getpos();
-
-			// JPEG imagedata encoding routines
-			while (true) {
-				// set rst wait counter
-				int rstw = rsti; // restart wait counter
-
-				std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
-				CodingStatus status;
-				if (scan_info_.cmpc > 1) {
-					status = encode_interleaved(rsti, cmp, dpos, rstw, csc, mcu, sub);
-				} else {
-					status = encode_noninterleaved(rsti, cmp, dpos, rstw);
+			if (status == CodingStatus::RESTART) {
+				if (restart_interval > 0) {
+					// store rstp & stay in the loop
+					rstp_[restart_markers++] = huffw_->getpos() - 1;
 				}
-
-				// pad huffman writer
-				huffw_->pad();
-
-				// evaluate status
-				if (status == CodingStatus::DONE) {
-					scan_count++; // increment scan counter
-					break; // leave decoding loop, everything is done here
-				} else if (status == CodingStatus::RESTART) {
-					if (rsti > 0) {
-						// store rstp & stay in the loop
-						rstp_[rstc++] = huffw_->getpos() - 1;
-					}
-				}
+			} else if (status == CodingStatus::DONE) {
+				scan_count++; // increment scan counter
 			}
 		}
+
 	}
 
 	huffman_data_ = huffw_->get_data();
@@ -238,7 +239,7 @@ void JpgEncoder::recode() {
 	// store last scan & restart positions
 	scnp_[scan_count] = huffman_data_.size();
 	if (!rstp_.empty()) {
-		rstp_[rstc] = huffman_data_.size();
+		rstp_[restart_markers] = huffman_data_.size();
 	}
 }
 

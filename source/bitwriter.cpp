@@ -1,10 +1,8 @@
 #include "bitwriter.h"
 
-#include <algorithm>
-
 #include "bitops.h"
 
-BitWriter::BitWriter(std::size_t size) : data_(std::max(size, std::size_t(65536))) {
+BitWriter::BitWriter(std::uint8_t fillbit) : data_(65536), fillbit_(fillbit) {
 }
 
 BitWriter::~BitWriter() {
@@ -51,14 +49,6 @@ void BitWriter::write_bit(std::uint8_t bit) {
 		curr_bit_ = 8;
 	}
 }
-
-/* -----------------------------------------------
-Sets the fillbit for padding data.
------------------------------------------------ */
-void BitWriter::set_fillbit(std::uint8_t fillbit) {
-	fillbit_ = fillbit;
-}
-
 
 /* -----------------------------------------------
 pads data using fillbit
