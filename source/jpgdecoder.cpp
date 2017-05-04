@@ -85,28 +85,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
-						// decode block
-						try {
-							eob = this->block_seq(*htrees[0][components[cmp].huffdc], *htrees[1][components[cmp].huffdc], block);
-						} catch (const std::runtime_error&) {
-							throw;
-						}
+						this->decode_sequential_block(components[cmp], htrees, block, lastdc, cmp, dpos, eob);
 
-						// check for non optimal coding
-						if ((eob > 1) && (block[eob - 1] == 0)) {
-							throw std::runtime_error("reconstruction of inefficient coding not supported");
-						}
-
-						// fix dc
-						block[0] += lastdc[cmp];
-						lastdc[cmp] = block[0];
-
-						// copy to colldata
-						for (int bpos = 0; bpos < eob; bpos++) {
-							components[cmp].colldata[bpos][dpos] = block[bpos];
-						}
-
-						// check for errors, proceed if no error encountered
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
@@ -114,20 +94,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation first stage <---
 					while (status == CodingStatus::OKAY) {
-						try {
-							this->dc_prg_fs(*htrees[0][components[cmp].huffdc], block);
-						} catch (const std::runtime_error&) {
-							throw;
-						}
+						decode_successive_approx_first_stage(components[cmp], scan_info, htrees, block, lastdc, cmp, dpos);
 
-						// fix dc for diff coding
-						components[cmp].colldata[0][dpos] = block[0] + lastdc[cmp];
-						lastdc[cmp] = components[cmp].colldata[0][dpos];
-
-						// bitshift for succesive approximation
-						components[cmp].colldata[0][dpos] <<= scan_info.sal;
-
-						// next mcupos if no error happened
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
 					}
@@ -135,11 +103,7 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 					// ---> progressive interleaved DC decoding <---
 					// ---> succesive approximation later stage <---					
 					while (status == CodingStatus::OKAY) {
-						// decode next bit
-						this->dc_prg_sa(block);
-
-						// shift in next bit
-						components[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
+						decode_success_approx_later_stage(components[cmp], scan_info, block, dpos);
 
 						status = jpg::increment_counts(frame_info, scan_info, rsti, mcu, cmp, csc, sub, rstw);
 						dpos = jpg::next_mcupos(frame_info, mcu, cmp, sub);
@@ -149,28 +113,8 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 				if (frame_info.coding_process == JpegType::SEQUENTIAL) {
 					// ---> sequential non interleaved decoding <---
 					while (status == CodingStatus::OKAY) {
-						// decode block
-						try {
-							eob = this->block_seq(*htrees[0][components[cmp].huffdc], *htrees[1][components[cmp].huffdc], block);
-						} catch (const std::runtime_error&) {
-							throw;
-						}
+						this->decode_sequential_block(components[cmp], htrees, block, lastdc, cmp, dpos, eob);
 
-						// check for non optimal coding
-						if ((eob > 1) && (block[eob - 1] == 0)) {
-							throw std::runtime_error("reconstruction of inefficient coding not supported");
-						}
-
-						// fix dc
-						block[0] += lastdc[cmp];
-						lastdc[cmp] = block[0];
-
-						// copy to colldata
-						for (int bpos = 0; bpos < eob; bpos++) {
-							components[cmp].colldata[bpos][dpos] = block[bpos];
-						}
-
-						// check for errors, proceed if no error encountered
 						status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
 					}
 				} else if (scan_info.to == 0) {
@@ -178,31 +122,15 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation first stage <---
 						while (status == CodingStatus::OKAY) {
-							try {
-								this->dc_prg_fs(*htrees[0][components[cmp].huffdc], block);
-							} catch (const std::runtime_error&) {
-								throw;
-							}
+							decode_successive_approx_first_stage(components[cmp], scan_info, htrees, block, lastdc, cmp, dpos);
 
-							// fix dc for diff coding
-							components[cmp].colldata[0][dpos] = block[0] + lastdc[cmp];
-							lastdc[cmp] = components[cmp].colldata[0][dpos];
-
-							// bitshift for succesive approximation
-							components[cmp].colldata[0][dpos] <<= scan_info.sal;
-
-							// check for errors, increment dpos otherwise
 							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
 						}
 					} else {
 						// ---> progressive non interleaved DC decoding <---
 						// ---> succesive approximation later stage <---
 						while (status == CodingStatus::OKAY) {
-							// decode next bit
-							this->dc_prg_sa(block);
-
-							// shift in next bit
-							components[cmp].colldata[0][dpos] += block[0] << scan_info.sal;
+							decode_success_approx_later_stage(components[cmp], scan_info, block, dpos);
 
 							// increment dpos
 							status = jpg::next_mcuposn(components[cmp], rsti, dpos, rstw);
@@ -324,6 +252,52 @@ void JpgDecoder::decode(FrameInfo& frame_info, const std::vector<Segment>& segme
 	}
 
 	huffr = nullptr;
+}
+
+void JpgDecoder::decode_successive_approx_first_stage(Component& component, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos) {
+	try {
+		this->dc_prg_fs(*htrees[0][component.huffdc], block);
+	} catch (const std::runtime_error&) {
+		throw;
+	}
+
+	// fix dc for diff coding
+	component.colldata[0][dpos] = block[0] + lastdc[cmp];
+	lastdc[cmp] = component.colldata[0][dpos];
+
+	// bitshift for succesive approximation
+	component.colldata[0][dpos] <<= scan_info.sal;
+}
+
+void JpgDecoder::decode_success_approx_later_stage(Component& component, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int dpos) {
+	// decode next bit
+	this->dc_prg_sa(block);
+
+	// shift in next bit
+	component.colldata[0][dpos] += block[0] << scan_info.sal;
+}
+
+void JpgDecoder::decode_sequential_block(Component& component, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos, int& eob) {
+	// decode block
+	try {
+		eob = this->block_seq(*htrees[0][component.huffdc], *htrees[1][component.huffdc], block);
+	} catch (const std::runtime_error&) {
+		throw;
+	}
+
+	// check for non optimal coding
+	if ((eob > 1) && (block[eob - 1] == 0)) {
+		throw std::runtime_error("reconstruction of inefficient coding not supported");
+	}
+
+	// fix dc
+	block[0] += lastdc[cmp];
+	lastdc[cmp] = block[0];
+
+	// copy to colldata
+	for (int bpos = 0; bpos < eob; bpos++) {
+		component.colldata[bpos][dpos] = block[bpos];
+	}
 }
 
 

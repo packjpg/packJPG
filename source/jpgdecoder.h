@@ -52,6 +52,10 @@ private:
 		return n + (1 << s);
 	}
 
+	void decode_sequential_block(Component& component, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos, int& eob);
+	void decode_successive_approx_first_stage(Component& component, const ScanInfo& scan_info, const std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2>& htrees, std::array<std::int16_t, 64>& block, std::array<int, 4>& lastdc, int cmp, int dpos);
+	void decode_success_approx_later_stage(Component& component, const ScanInfo& scan_info, std::array<std::int16_t, 64>& block, int dpos);
+
 	bool padbit_set = false;
 	std::uint8_t padbit = -1;
 
