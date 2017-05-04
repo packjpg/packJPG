@@ -100,8 +100,6 @@ void JpgDecoder::decode() {
 }
 
 CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos) {
-	int eobrun = 0; // run of eobs
-	int peobrun = 0; // previous eobrun
 	int rstw = rsti; // restart wait counter
 
 	CodingStatus status = CodingStatus::OKAY;
@@ -133,6 +131,8 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 			}
 		}
 	} else {
+		int eobrun = 0; // run of eobs
+		int peobrun = 0; // previous eobrun
 		if (scan_info_.sah == 0) {
 			// ---> progressive non interleaved AC decoding <---
 			// ---> succesive approximation first stage <---
@@ -142,20 +142,9 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 					int eob;
 					try {
 						eob = this->ac_prg_fs(*htrees_[1][component.huffac], eobrun);
+						check_eobrun(component, eob, eobrun, peobrun);
 					} catch (const std::runtime_error&) {
 						throw;
-					}
-
-					if (eobrun > 0) {
-						// check for non optimal coding
-						if ((eob == scan_info_.from) && (peobrun > 0) &&
-							(peobrun < hcodes_[1][component.huffac]->max_eobrun - 1)) {
-							throw std::runtime_error("reconstruction of inefficient coding not supported");
-						}
-						peobrun = eobrun;
-						eobrun--;
-					} else {
-						peobrun = 0;
 					}
 
 					// copy to colldata
@@ -187,25 +176,11 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 
 				if (eobrun == 0) {
 					// decode block (long routine)
-					int eob;
 					try {
-						eob = this->ac_prg_sa(*htrees_[1][component.huffac], eobrun);
+						const int eob = this->ac_prg_sa(*htrees_[1][component.huffac], eobrun);
+						check_eobrun(component, eob, eobrun, peobrun);
 					} catch (std::runtime_error&) {
 						throw;
-					}
-
-					if (eobrun > 0) {
-						// check for non optimal coding
-						if ((eob == scan_info_.from) && (peobrun > 0) &&
-							(peobrun < hcodes_[1][component.huffac]->max_eobrun - 1)) {
-							throw std::runtime_error("reconstruction of inefficient coding not supported");
-						}
-
-						// store eobrun
-						peobrun = eobrun;
-						eobrun--;
-					} else {
-						peobrun = 0;
 					}
 				} else {
 					// decode block (short routine)
@@ -257,6 +232,22 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		}
 	}
 	return status;
+}
+
+void JpgDecoder::check_eobrun(const Component& component, int eob, int& eobrun, int& peobrun) {
+	if (eobrun > 0) {
+		// check for non optimal coding
+		if ((eob == scan_info_.from) && (peobrun > 0) &&
+			(peobrun < hcodes_[1][component.huffac]->max_eobrun - 1)) {
+			throw std::runtime_error("Reconstruction of inefficient coding not supported.");
+		}
+
+		// store eobrun
+		peobrun = eobrun;
+		eobrun--;
+	} else {
+		peobrun = 0;
+	}
 }
 
 void JpgDecoder::decode_successive_approx_first_stage(Component& component, int cmp, int dpos) {

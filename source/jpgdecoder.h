@@ -56,6 +56,7 @@ private:
 	CodingStatus decode_interleaved_data(int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
 	CodingStatus decode_noninterleaved_data(int rsti, int cmp, int& dpos);
 
+	void check_eobrun(const Component& component, int eob, int& eobrun, int& peobrun);
 	void decode_sequential_block(Component& component, int cmp, int dpos);
 	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
 	void decode_success_approx_later_stage(Component& component, int dpos);
