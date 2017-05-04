@@ -158,89 +158,82 @@ CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& 
 }
 
 void JpgEncoder::recode() {
-	int scan_count = 0;
-	int restart_markers = 0; // Count of restart markers.
-	int restart_interval = 0; // Restart interval.
+	int scans_encoded = 0;
+	int restart_marker_count = 0;
+	int restart_interval = 0;
 
 	for (const auto& segment : segments_) {
-		switch (segment.get_type()) {
-		case Marker::kDHT:
-			try {
+		try {
+			switch (segment.get_type()) {
+			case Marker::kDHT:
 				jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
-			} catch (const std::range_error&) {
-				throw;
-			}
-			continue;
-		case Marker::kDRI:
-			try {
+				continue;
+			case Marker::kDRI:
 				restart_interval = jfif::parse_dri(segment.get_data());
-			} catch (const std::runtime_error&) {
-				throw;
-			}
-			continue;
-		case Marker::kSOS:
-			try {
+				continue;
+			case Marker::kSOS:
 				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
-			} catch (std::runtime_error&) {
-				throw;
-			}
-			break;
-		default:
-			continue; // Ignore other segment types.
-		}
-
-		// (re)alloc scan positons array
-		scan_pos_.resize(scan_count + 2);
-
-		// (re)alloc restart marker positons array if needed
-		if (restart_interval > 0) {
-			int tmp = restart_markers + ((scan_info_.cmpc > 1) ?
-				                  (frame_info_.mcu_count / restart_interval) : (frame_info_.components[scan_info_.cmp[0]].bc / restart_interval));
-			restart_marker_pos_.resize(tmp + 1);
-		}
-
-		// intial variables set for encoding
-		int cmp = scan_info_.cmp[0];
-		int csc = 0;
-		int mcu = 0;
-		int sub = 0;
-		int dpos = 0;
-
-		// store scan position
-		scan_pos_[scan_count] = huffman_writer_->getpos();
-
-		// JPEG imagedata encoding routines
-		CodingStatus status = CodingStatus::OKAY;
-		while (status != CodingStatus::DONE) {
-			// set rst wait counter
-			int rstw = restart_interval; // restart wait counter
-
-			std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
-			if (scan_info_.cmpc > 1) {
-				status = encode_interleaved(restart_interval, cmp, dpos, rstw, csc, mcu, sub);
-			} else {
-				status = encode_noninterleaved(restart_interval, cmp, dpos, rstw);
+				break;
+			default:
+				continue; // Ignore other segment types.
 			}
 
-			huffman_writer_->pad();
-
-			if (status == CodingStatus::RESTART) {
-				if (restart_interval > 0) {
-					// store rstp & stay in the loop
-					restart_marker_pos_[restart_markers] = huffman_writer_->getpos() - 1;
-					restart_markers++;
-				}
+			if (restart_interval > 0) {
+				int tmp = restart_marker_count + (scan_info_.cmpc > 1 ?
+					                             frame_info_.mcu_count / restart_interval
+					                             : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
+				restart_marker_pos_.resize(tmp + 1);
 			}
+
+			scan_pos_.resize(scans_encoded + 2);
+			encode_scan(restart_interval, restart_marker_count);
+			scans_encoded++;
+			scan_pos_[scans_encoded] = huffman_writer_->get_bytes_written(); // store scan position
+		} catch (const std::runtime_error&) {
+			throw;
 		}
-		scan_count++;
 	}
 
 	huffman_data_ = huffman_writer_->get_data();
 
 	// store last scan & restart positions
-	scan_pos_[scan_count] = huffman_data_.size();
 	if (!restart_marker_pos_.empty()) {
-		restart_marker_pos_[restart_markers] = huffman_data_.size();
+		restart_marker_pos_[restart_marker_count] = huffman_data_.size();
+	}
+}
+
+void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
+	// intial variables set for encoding
+	int cmp = scan_info_.cmp[0];
+	int csc = 0;
+	int mcu = 0;
+	int sub = 0;
+	int dpos = 0;
+
+	CodingStatus status = CodingStatus::OKAY;
+	while (status != CodingStatus::DONE) {
+		int restart_wait_counter = restart_interval;
+
+		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
+		try {
+			if (scan_info_.cmpc > 1) {
+				status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
+			} else {
+				status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
+			}
+		} catch (const std::runtime_error&) {
+			throw;
+		}
+
+		huffman_writer_->pad();
+
+		if (status == CodingStatus::RESTART) {
+			if (restart_interval > 0) {
+				// store rstp & stay in the loop
+				restart_marker_pos_[restart_markers] = huffman_writer_->get_bytes_written() - 1;
+				restart_markers++;
+			}
+		}
 	}
 }
 

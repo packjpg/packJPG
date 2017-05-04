@@ -70,6 +70,6 @@ std::vector<std::uint8_t> BitWriter::get_data() {
 gets size of data array from abitwriter
 ----------------------------------------------- */
 
-std::size_t BitWriter::getpos() const {
+std::size_t BitWriter::get_bytes_written() const {
 	return curr_byte_;
 }

@@ -64,6 +64,8 @@ private:
 		return length;
 	}
 
+	void encode_scan(int restart_interval, int& restart_markers);
+
 	void copy_colldata_to_block_in_scan(const Component& component, int dpos);
 
 	void sequential_interleaved(const Component& component, int cmp, int dpos);
