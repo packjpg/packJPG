@@ -354,9 +354,11 @@ namespace jfif {
 		// also decide automatic settings here
 		for (auto& component : frame_info->components) {
 			int i;
-			for (i = 0;
-			     pjg::conf_sets[i][component.sid] > static_cast<std::size_t>(component.bc);
-			     i++);
+			for (i = 0; pjg::conf_sets[i][component.sid] > static_cast<std::size_t>(component.bc); i++) {
+				if (pjg::conf_sets[i][component.sid] <= static_cast<std::size_t>(component.bc)) {
+					break; // This is guaranteed to happen, since the last array of conf_sets is filled with zeroes.
+				}
+			}
 			component.segm_cnt = pjg::conf_segm;
 			component.nois_trs = pjg::conf_ntrs[i][component.sid];
 		}
@@ -447,14 +449,18 @@ namespace jfif {
 			throw;
 		}
 		for (int i = 0; i < scan_info.cmpc; i++) {
-			int jpeg_id;
+			int jpg_id;
 			try {
-				jpeg_id = reader->read_byte();
+				jpg_id = reader->read_byte();
 			} catch (const std::runtime_error&) {
 				throw;
 			}
 			int cmp;
-			for (cmp = 0; (jpeg_id != frame_info.components[cmp].jid) && (cmp < frame_info.components.size()); cmp++);
+			for (cmp = 0; cmp < frame_info.components.size(); cmp++) {
+				if (jpg_id == frame_info.components[cmp].jid) {
+					break;
+				}
+			}
 			if (cmp == frame_info.components.size()) {
 				throw std::range_error("component id mismatch in start-of-scan");
 			}

@@ -132,7 +132,10 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 			// remaining list is identical to scan
 			// fill the scan & make a quick exit				
 			for (tpos = 0; i < 64; i++) {
-				while (freqlist[++tpos] == 0);
+				tpos++;
+				while (freqlist[tpos] == 0 && tpos < freqlist.size()) {
+					tpos++;
+				}
 				zsrtscan[i] = freqlist[tpos];
 			}
 			break;

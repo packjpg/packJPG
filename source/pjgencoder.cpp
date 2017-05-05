@@ -91,7 +91,10 @@ std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& component) {
 		int c;
 		for (c = i; c < 64; c++) {
 			// search next val != 0 in list
-			for (tpos++; freqlist[tpos] == 0; tpos++);
+			tpos++;
+			while (freqlist[tpos] == 0 && tpos < freqlist.size()) {
+				tpos++;
+			}
 			// get out if not a match
 			if (freqlist[tpos] != zero_sorted_scan[c]) {
 				break;
