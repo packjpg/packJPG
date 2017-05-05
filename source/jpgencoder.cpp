@@ -9,11 +9,7 @@ JpgEncoder::JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const s
 	frame_info_(frame_info),
 	segments_(segments) {
 
-	// open huffman coded image data in abitwriter
 	huffman_writer_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
-	
-	// init storage writer
-	storw_ = std::make_unique<MemoryWriter>(); // bytewise writer for storage of correction bits
 }
 
 void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, int dpos) {
@@ -117,7 +113,7 @@ CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int
 			this->eobrun(*ac_tables_[component.huffac], eobrun);
 
 			// encode remaining correction bits
-			this->crbits();
+			this->write_correction_bits();
 		}
 	}
 	return status;
@@ -401,7 +397,7 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 	// encode eobrun if needed
 	if ((eob > scan_info_.from) && (eobrun > 0)) {
 		this->eobrun(ac_table, eobrun);
-		this->crbits();
+		this->write_correction_bits();
 	}
 
 	// encode AC
@@ -412,7 +408,7 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 			z++; // increment zero counter
 			if (z == 16) { // write zeroes if needed
 				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
-				this->crbits();
+				this->write_correction_bits();
 				z = 0;
 			}
 		}
@@ -426,20 +422,20 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
 			huffman_writer_->write_u16(n, s);
 			// write correction bits
-			this->crbits();
+			this->write_correction_bits();
 			// reset zeroes
 			z = 0;
 		} else { // store correction bits
-			std::uint8_t n = block_[bpos] & 0x1;
-			storw_->write_byte(n);
+			std::uint8_t bit = block_[bpos] & 0x1;
+			correction_bits_.emplace_back(bit);
 		}
 	}
 
 	// fast processing after eob
 	for (; bpos <= scan_info_.to; bpos++) {
 		if (block_[bpos] != 0) { // store correction bits
-			std::uint8_t n = block_[bpos] & 0x1;
-			storw_->write_byte(n);
+			std::uint8_t bit = block_[bpos] & 0x1;
+			correction_bits_.emplace_back(bit);
 		}
 	}
 
@@ -449,7 +445,7 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 		// check eobrun, encode if needed
 		if (eobrun == ac_table.max_eobrun) {
 			this->eobrun(ac_table, eobrun);
-			this->crbits();
+			this->write_correction_bits();
 		}
 	}
 }
@@ -471,14 +467,10 @@ void JpgEncoder::eobrun(const HuffCodes& ac_table, int& eobrun) {
 	}
 }
 
-void JpgEncoder::crbits() {
-	const auto& data = storw_->get_data();
-
-	// write bits to huffwriter
-	for (std::uint8_t bit : data) {
+void JpgEncoder::write_correction_bits() {
+	for (std::uint8_t bit : correction_bits_) {
 		huffman_writer_->write_bit(bit);
 	}
 
-	// reset writer, discard data
-	storw_->rewind();
+	correction_bits_.clear();
 }

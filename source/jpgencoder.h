@@ -42,7 +42,7 @@ private:
 	// Run of EOB encoding routine.
 	void eobrun(const HuffCodes& ac_table, int& eobrun);
 	// Correction bits encoding routine.
-	void crbits();
+	void write_correction_bits();
 
 	static constexpr std::int16_t fdiv2(std::int16_t v, int p) {
 		return (v < 0) ? -((-v) >> p) : (v >> p);
@@ -80,7 +80,7 @@ private:
 	FrameInfo& frame_info_;
 
 	std::unique_ptr<BitWriter> huffman_writer_; // Bitwise writer for image data.
-	std::unique_ptr<Writer> storw_; // Bytewise writer for storage of correction bits.
+	std::vector<std::uint8_t> correction_bits_; // Store for correction bits.
 	std::array<std::int16_t, 64> block_{};  // Store block for coefficientss.
 	ScanInfo scan_info_;
 
