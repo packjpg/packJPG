@@ -13,15 +13,16 @@
 #include "huffcodes.h"
 #include "scaninfo.h"
 #include "segment.h"
-#include "writer.h"
 
 class JpgEncoder {
 public:
-	JpgEncoder(Writer& jpg_output_writer, FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
+	JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
 	// JPEG encoding routine.
 	void recode();
-	// Merges header & image data to jpeg.
-	void merge(const std::vector<std::uint8_t>& garbage_data, std::vector<std::uint8_t>& rst_err);
+
+	std::vector<std::uint8_t> get_huffman_data();
+	std::vector<std::size_t> get_restart_marker_pos();
+	std::vector<std::size_t> get_scan_pos();
 
 private:
 	// encoding for interleaved data.
@@ -72,10 +73,6 @@ private:
 
 	void dc_successive_first_stage(const Component& component, int cmp, int dpos);
 	void dc_successive_later_stage(const Component& component, int dpos);
-
-	void write_scan_huffman_data(int scan, int& rpos, std::vector<std::uint8_t>& rst_err);
-
-	Writer& output_writer_;
 
 	FrameInfo& frame_info_;
 

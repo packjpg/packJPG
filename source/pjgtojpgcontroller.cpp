@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "jpgencoder.h"
+#include "jpgwriter.h"
 #include "pjgdecoder.h"
 
 PjgToJpgController::PjgToJpgController(Reader& pjg_input, Writer& jpg_output) :
@@ -38,12 +39,24 @@ void PjgToJpgController::execute() {
 		component.unpredict_dc();
 	}
 
-	std::unique_ptr<JpgEncoder> jpeg_encoder = std::make_unique<JpgEncoder>(jpg_output_, *frame_info, segments, padbit);
+	auto jpeg_encoder = std::make_unique<JpgEncoder>(*frame_info, segments, padbit);
 
 	try {
 		jpeg_encoder->recode();
-		jpeg_encoder->merge(garbage_data, rst_err);
 	} catch (const std::exception&) {
+		throw;
+	}
+
+	auto jpeg_writer = std::make_unique<JpgWriter>(jpg_output_,
+	                                               segments,
+	                                               jpeg_encoder->get_huffman_data(),
+	                                               garbage_data,
+	                                               jpeg_encoder->get_restart_marker_pos(),
+	                                               rst_err,
+	                                               jpeg_encoder->get_scan_pos());
+	try {
+		jpeg_writer->write();
+	} catch(const std::runtime_error&) {
 		throw;
 	}
 

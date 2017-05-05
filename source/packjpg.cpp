@@ -279,6 +279,7 @@ packJPG by Matthias Stirner, 01/2016
 #include "frameinfo.h"
 #include "jpgdecoder.h"
 #include "jpgencoder.h"
+#include "jpgwriter.h"
 #include "jpgreader.h"
 #include "pjgdecoder.h"
 #include "pjgencoder.h"
@@ -380,7 +381,7 @@ namespace encode {
 	std::unique_ptr<JpgEncoder> jpeg_encoder;
 	// JPEG encoding routine.
 	bool recode() {
-		jpeg_encoder = std::make_unique<JpgEncoder>(*output_writer, *frame_info, segments, jpg::padbit);
+		jpeg_encoder = std::make_unique<JpgEncoder>(*frame_info, segments, jpg::padbit);
 		try {
 			jpeg_encoder->recode();
 		} catch (const std::exception& e) {
@@ -392,9 +393,16 @@ namespace encode {
 	}
 	// Merges header & image data to jpeg.
 	bool merge() {
+		auto jpeg_writer = std::make_unique<JpgWriter>(*output_writer,
+		                                               segments,
+		                                               jpeg_encoder->get_huffman_data(),
+		                                               garbage_data,
+		                                               jpeg_encoder->get_restart_marker_pos(),
+		                                               jpg::rst_err,
+		                                               jpeg_encoder->get_scan_pos());
 		try {
-			jpeg_encoder->merge(garbage_data, jpg::rst_err);
-		} catch (const std::exception& e) {
+			jpeg_writer->write();
+		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
