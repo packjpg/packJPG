@@ -3,7 +3,6 @@
 #include <string>
 
 #include "jfifparse.h"
-#include "segment.h"
 
 JpgReader::JpgReader(Reader& reader) : reader_(reader) {}
 
@@ -12,7 +11,7 @@ std::vector<Segment> JpgReader::parse_segments() {
 	while (!reader_.end_of_reader()) {
 		Segment segment(reader_);
 		if (segment.get_type() == Marker::kEOI) {
-			break;
+			break; // Don't read garbage data (data occurring after EOI) here.
 		}
 
 		segments.push_back(segment);
@@ -48,59 +47,64 @@ void JpgReader::read() {
 	} catch (const std::runtime_error&) {
 		throw;
 	}
-	huffman_data_ = huffman_writer_->get_data();
 }
 
 
 void JpgReader::read_sos() {
-	// switch to huffman data reading mode
 	int cpos = 0; // rst marker counter
 	std::uint32_t crst = 0; // current rst marker counter
-	while (true) {
-		// read byte from imagedata
-		std::uint8_t byte = reader_.read_byte();
+	while (!reader_.end_of_reader()) {
+		std::uint8_t byte;
+		try {
+			byte = reader_.read_byte();
+		} catch (const std::runtime_error&) {
+			throw;
+		}
 
-		// non-0xFF loop
 		if (byte != 0xFF) {
 			crst = 0;
 			while (byte != 0xFF) {
-				huffman_writer_->write_byte(byte);
-				byte = reader_.read_byte();
+				huffman_data_.emplace_back(byte);
+				try {
+					byte = reader_.read_byte();
+				} catch (const std::runtime_error&) {
+					throw;
+				}
 			}
 		}
 
-		// treatment of 0xFF
 		if (byte == 0xFF) {
-			byte = reader_.read_byte();
+			try {
+				byte = reader_.read_byte();
+			} catch (const std::runtime_error&) {
+				throw;
+			}
 			if (byte == 0x00) {
 				crst = 0;
 				// no zeroes needed -> ignore 0x00. write 0xFF
-				huffman_writer_->write_byte(0xFF);
+				huffman_data_.emplace_back(0xFF);
 			} else if (byte == 0xD0 + (cpos % 8)) { // restart marker
 				// increment rst counters
 				cpos++;
 				crst++;
-			} else { // in all other cases leave it to the header parser routines
-				// store number of wrongly set rst markers
+			} else {
+				// Otherwise it's the start of another segment.
 				if (crst > 0) {
+					// Store number of wrongly set restart markers.
 					if (rst_err_.empty()) {
 						rst_err_.resize(scans_processed_ + 1);
 					}
 				}
 				if (!rst_err_.empty()) {
-					// realloc and set only if needed
 					rst_err_.resize(scans_processed_ + 1);
 					if (crst > 255) {
 						throw std::runtime_error("Severe false use of RST markers (" + std::to_string(crst) + ")");
 					}
 					rst_err_[scans_processed_] = crst;
 				}
-				reader_.rewind_bytes(2); // Start of the next segment: unread these.
+				reader_.rewind_bytes(2); // Unread the start of the enxt segment.
 				break;
 			}
-		} else {
-			// otherwise this means end-of-file, so break out
-			break;
 		}
 	}
 }

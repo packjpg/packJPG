@@ -8,7 +8,6 @@
 #include "frameinfo.h"
 #include "reader.h"
 #include "segment.h"
-#include "writer.h"
 
 class JpgReader {
 public:
@@ -29,9 +28,7 @@ private:
 	std::vector<std::uint8_t> read_garbage_data();
 
 	Reader& reader_;
-
-	std::unique_ptr<Writer> huffman_writer_ = std::make_unique<MemoryWriter>();
-
+	
 	int scans_processed_ = 0; // Count of scans.
 
 	std::unique_ptr<FrameInfo> frame_info_;
