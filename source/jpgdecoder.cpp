@@ -286,7 +286,7 @@ void JpgDecoder::decode_success_approx_later_stage(Component& component, int dpo
 
 void JpgDecoder::decode_sequential_block(Component& component, int cmp, int dpos) {
 	// decode block
-	int eob;
+	std::size_t eob;
 	try {
 		eob = this->block_seq(*htrees_[0][component.huffdc], *htrees_[1][component.huffdc]);
 	} catch (const std::runtime_error&) {
@@ -342,8 +342,8 @@ void JpgDecoder::build_trees() {
 }
 
 
-int JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree) {
-	int eob = 64;
+std::size_t JpgDecoder::block_seq(const HuffTree& dctree, const HuffTree& actree) {
+	std::size_t eob = 64;
 	// decode dc
 	try {
 		this->dc_prg_fs(dctree);

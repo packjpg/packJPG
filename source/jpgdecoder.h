@@ -28,7 +28,7 @@ public:
 
 private:
 	// Sequential block decoding routine.
-	int block_seq(const HuffTree& dctree, const HuffTree& actree);
+	std::size_t block_seq(const HuffTree& dctree, const HuffTree& actree);
 	// Progressive DC decoding routine.
 	void dc_prg_fs(const HuffTree& dctree);
 	// Progressive AC decoding routine.
