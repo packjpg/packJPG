@@ -62,7 +62,7 @@ void JpgWriter::write() {
 	for (const auto& segment : segments_) {
 		writer_.write(segment.get_data());
 
-		if (segment.get_type() == Marker::kSOS) {
+		if (segment.get_type() == Marker::SOS) {
 			write_scan_huffman_data(restart_pos, scans_processed);
 			scans_processed++;
 		}

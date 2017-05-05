@@ -245,9 +245,9 @@ namespace jfif {
 		reader->skip(4); // Skip the segment header.
 		auto frame_info = std::make_unique<FrameInfo>();
 		// set JPEG coding type
-		if (type == Marker::kSOF2) {
+		if (type == Marker::SOF2) {
 			frame_info->coding_process = JpegType::PROGRESSIVE;
-		} else if (type == Marker::kSOF0 || type == Marker::kSOF1) {
+		} else if (type == Marker::SOF0 || type == Marker::SOF1) {
 			frame_info->coding_process = JpegType::SEQUENTIAL;
 		} else {
 			throw std::runtime_error("Unsupported JPG coding type.");
@@ -374,7 +374,7 @@ namespace jfif {
 		// Get the quantization tables:
 		std::map<int, std::array<std::uint16_t, 64>> qtables;
 		for (auto& segment : segments) {
-			if (segment.get_type() == Marker::kDQT) {
+			if (segment.get_type() == Marker::DQT) {
 				try {
 					parse_dqt(qtables, segment.get_data());
 				} catch (std::runtime_error&) {
@@ -386,45 +386,45 @@ namespace jfif {
 		// Find and parse the SOF segment:
 		for (auto& segment : segments) {
 			switch (segment.get_type()) {
-			case Marker::kSOF0:
+			case Marker::SOF0:
 				// coding process: baseline DCT
-			case Marker::kSOF1:
+			case Marker::SOF1:
 				// coding process: extended sequential DCT
-			case Marker::kSOF2:
+			case Marker::SOF2:
 				// coding process: progressive DCT
 				try {
 					return parse_sof(segment.get_type(), segment.get_data(), qtables);
 				} catch (const std::runtime_error&) {
 					throw;
 				}
-			case Marker::kSOF3:
+			case Marker::SOF3:
 				// coding process: lossless sequential
 				throw std::runtime_error("sof3 marker found, image is coded lossless");
-			case Marker::kSOF5:
+			case Marker::SOF5:
 				// coding process: differential sequential DCT
 				throw std::runtime_error("sof5 marker found, image is coded diff. sequential");
-			case Marker::kSOF6:
+			case Marker::SOF6:
 				// coding process: differential progressive DCT
 				throw std::runtime_error("sof6 marker found, image is coded diff. progressive");
-			case Marker::kSOF7:
+			case Marker::SOF7:
 				// coding process: differential lossless
 				throw std::runtime_error("sof7 marker found, image is coded diff. lossless");
-			case Marker::kSOF9:
+			case Marker::SOF9:
 				// coding process: arithmetic extended sequential DCT
 				throw std::runtime_error("sof9 marker found, image is coded arithm. sequential");
-			case Marker::kSOF10:
+			case Marker::SOF10:
 				// coding process: arithmetic extended sequential DCT
 				throw std::runtime_error("sof10 marker found, image is coded arithm. progressive");
-			case Marker::kSOF11:
+			case Marker::SOF11:
 				// coding process: arithmetic extended sequential DCT
 				throw std::runtime_error("sof11 marker found, image is coded arithm. lossless");
-			case Marker::kSOF13:
+			case Marker::SOF13:
 				// coding process: arithmetic differntial sequential DCT
 				throw std::runtime_error("sof13 marker found, image is coded arithm. diff. sequential");
-			case Marker::kSOF14:
+			case Marker::SOF14:
 				// coding process: arithmetic differential progressive DCT
 				throw std::runtime_error("sof14 marker found, image is coded arithm. diff. progressive");
-			case Marker::kSOF15:
+			case Marker::SOF15:
 				// coding process: arithmetic differntial lossless
 				throw std::runtime_error("sof15 marker found, image is coded arithm. diff. lossless");
 			default:

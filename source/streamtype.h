@@ -2,9 +2,9 @@
 #define STREAMTYPE_H
 
 enum class StreamType {
-	kFile = 0,
-	kMemory = 1,
-	kStream = 2
+	FILE = 0,
+	MEMORY = 1,
+	STREAM = 2
 };
 
 #endif

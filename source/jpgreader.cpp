@@ -10,13 +10,13 @@ std::vector<Segment> JpgReader::parse_segments() {
 	std::vector<Segment> segments;
 	while (!reader_.end_of_reader()) {
 		Segment segment(reader_);
-		if (segment.get_type() == Marker::kEOI) {
+		if (segment.get_type() == Marker::EOI) {
 			break; // Don't read garbage data (data occurring after EOI) here.
 		}
 
 		segments.push_back(segment);
 
-		if (segment.get_type() == Marker::kSOS) {
+		if (segment.get_type() == Marker::SOS) {
 			// Read the compressed data:
 			read_sos();
 			scans_processed_++;

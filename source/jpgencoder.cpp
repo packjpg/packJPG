@@ -160,13 +160,13 @@ void JpgEncoder::recode() {
 	for (const auto& segment : segments_) {
 		try {
 			switch (segment.get_type()) {
-			case Marker::kDHT:
+			case Marker::DHT:
 				jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
 				continue;
-			case Marker::kDRI:
+			case Marker::DRI:
 				restart_interval = jfif::parse_dri(segment.get_data());
 				continue;
-			case Marker::kSOS:
+			case Marker::SOS:
 				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
 				break;
 			default:

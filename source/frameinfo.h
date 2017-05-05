@@ -5,7 +5,7 @@
 #include "jpegtype.h"
 
 struct FrameInfo {
-	JpegType coding_process = JpegType::UNKNOWN;
+	JpegType coding_process;
 
 	int image_height = 0;
 	int image_width = 0;

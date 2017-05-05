@@ -1,5 +1,6 @@
 #include "segment.h"
 
+#include <array>
 #include <numeric>
 
 #include "bitops.h"
@@ -16,12 +17,11 @@ Segment::Segment(Reader& reader) {
 	if (std::get<0>(segment_marker) != 0xFF) {
 		throw std::runtime_error("First byte of segment is not 0xFF");
 	}
-	auto type = Marker(std::get<1>(segment_marker));
-	set_type(type);
+	type_ = Marker(std::get<1>(segment_marker)); // TODO: invalid value check.
 
 	data_.resize(2);
 	std::copy(std::begin(segment_marker), std::end(segment_marker), std::begin(data_));
-	if (!has_length(type)) {
+	if (!has_length(type_)) {
 		return;
 	}
 
@@ -45,8 +45,7 @@ Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset
 	if (offset >= headerData.size() - 1) {
 		return; // If there aren't at least two bytes to read the segment type, nothing to read.
 	}
-	auto type = Marker(headerData[offset + 1]);
-	set_type(type);
+	type_ = Marker(headerData[offset + 1]); // TODO: invalid value check.
 
 	// Read in the length of the data if the marker has a length field:
 	int size; // The number of bytes in the segment.
@@ -73,184 +72,20 @@ std::vector<std::uint8_t> Segment::get_data() const {
 	return data_;
 }
 
-void Segment::set_type(Marker type) {
-	// Handle invalid enums:
-	switch (type) {
-	case Marker::kSOF0:
-		type_ = Marker::kSOF0;
-		break;
-	case Marker::kSOF1:
-		type_ = Marker::kSOF1;
-		break;
-	case Marker::kSOF2:
-		type_ = Marker::kSOF2;
-		break;
-	case Marker::kSOF3:
-		type_ = Marker::kSOF3;
-		break;
-	case Marker::kDHT:
-		type_ = Marker::kDHT;
-		break;
-	case Marker::kSOF5:
-		type_ = Marker::kSOF5;
-		break;
-	case Marker::kSOF6:
-		type_ = Marker::kSOF6;
-		break;
-	case Marker::kSOF7:
-		type_ = Marker::kSOF7;
-		break;
-	case Marker::kJPG:
-		type_ = Marker::kJPG;
-		break;
-	case Marker::kSOF9:
-		type_ = Marker::kSOF9;
-		break;
-	case Marker::kSOF10:
-		type_ = Marker::kSOF10;
-		break;
-	case Marker::kSOF11:
-		type_ = Marker::kSOF11;
-		break;
-	case Marker::kDAC:
-		type_ = Marker::kDAC;
-		break;
-	case Marker::kSOF13:
-		type_ = Marker::kSOF13;
-		break;
-	case Marker::kSOF14:
-		type_ = Marker::kSOF14;
-		break;
-	case Marker::kSOF15:
-		type_ = Marker::kSOF15;
-		break;
-	case Marker::kRST0:
-		type_ = Marker::kRST0;
-		break;
-	case Marker::kRST1:
-		type_ = Marker::kRST1;
-		break;
-	case Marker::kRST2:
-		type_ = Marker::kRST2;
-		break;
-	case Marker::kRST3:
-		type_ = Marker::kRST3;
-		break;
-	case Marker::kRST4:
-		type_ = Marker::kRST4;
-		break;
-	case Marker::kRST5:
-		type_ = Marker::kRST5;
-		break;
-	case Marker::kRST6:
-		type_ = Marker::kRST6;
-		break;
-	case Marker::kRST7:
-		type_ = Marker::kRST7;
-		break;
-	case Marker::kSOI:
-		type_ = Marker::kSOI;
-		break;
-	case Marker::kEOI:
-		type_ = Marker::kEOI;
-		break;
-	case Marker::kSOS:
-		type_ = Marker::kSOS;
-		break;
-	case Marker::kDQT:
-		type_ = Marker::kDQT;
-		break;
-	case Marker::kDNL:
-		type_ = Marker::kDNL;
-		break;
-	case Marker::kDRI:
-		type_ = Marker::kDRI;
-		break;
-	case Marker::kDHP:
-		type_ = Marker::kDHP;
-		break;
-	case Marker::kEXP:
-		type_ = Marker::kEXP;
-		break;
-	case Marker::kAPP0:
-		type_ = Marker::kAPP0;
-		break;
-	case Marker::kAPP1:
-		type_ = Marker::kAPP1;
-		break;
-	case Marker::kAPP2:
-		type_ = Marker::kAPP2;
-		break;
-	case Marker::kAPP3:
-		type_ = Marker::kAPP3;
-		break;
-	case Marker::kAPP4:
-		type_ = Marker::kAPP4;
-		break;
-	case Marker::kAPP5:
-		type_ = Marker::kAPP5;
-		break;
-	case Marker::kAPP6:
-		type_ = Marker::kAPP6;
-		break;
-	case Marker::kAPP7:
-		type_ = Marker::kAPP7;
-		break;
-	case Marker::kAPP8:
-		type_ = Marker::kAPP8;
-		break;
-	case Marker::kAPP9:
-		type_ = Marker::kAPP9;
-		break;
-	case Marker::kAPP10:
-		type_ = Marker::kAPP10;
-		break;
-	case Marker::kAPP11:
-		type_ = Marker::kAPP11;
-		break;
-	case Marker::kAPP12:
-		type_ = Marker::kAPP12;
-		break;
-	case Marker::kAPP13:
-		type_ = Marker::kAPP13;
-		break;
-	case Marker::kAPP14:
-		type_ = Marker::kAPP14;
-		break;
-	case Marker::kAPP15:
-		type_ = Marker::kAPP15;
-		break;
-	case Marker::kJPG0:
-		type_ = Marker::kJPG0;
-		break;
-	case Marker::kJPG13:
-		type_ = Marker::kJPG13;
-		break;
-	case Marker::kCOM:
-		type_ = Marker::kCOM;
-		break;
-	case Marker::kTEM:
-		type_ = Marker::kTEM;
-		break;
-	default:
-		type_ = Marker::kINVALID;
-	}
-}
-
 bool Segment::has_length(Marker type) {
 	switch (type) {
-	case Marker::kRST0:
-	case Marker::kRST1:
-	case Marker::kRST2:
-	case Marker::kRST3:
-	case Marker::kRST4:
-	case Marker::kRST5:
-	case Marker::kRST6:
-	case Marker::kRST7:
-	case Marker::kSOI:
-	case Marker::kEOI:
-	case Marker::kTEM:
-	case Marker::kINVALID:
+	case Marker::RST0:
+	case Marker::RST1:
+	case Marker::RST2:
+	case Marker::RST3:
+	case Marker::RST4:
+	case Marker::RST5:
+	case Marker::RST6:
+	case Marker::RST7:
+	case Marker::SOI:
+	case Marker::EOI:
+	case Marker::TEM:
+	case Marker::INVALID:
 		return false;
 	default:
 		return true;
@@ -315,15 +150,15 @@ void Segment::optimize_dht() {
 }
 
 void Segment::optimize() {
-	if (type_ == Marker::kDHT) {
+	if (type_ == Marker::DHT) {
 		this->optimize_dht();
-	} else if (type_ == Marker::kDQT) {
+	} else if (type_ == Marker::DQT) {
 		this->optimize_dqt();
 	}
 }
 
 void Segment::undo_dqt_optimization() {
-	int hpos = 4; // Skip marker and segment length data.
+	std::size_t hpos = 4; // Skip marker and segment length data.
 	while (hpos < data_.size()) {
 		const int precision = bitops::left_nibble(data_[hpos]);
 		hpos++;
@@ -362,9 +197,9 @@ void Segment::undo_dht_optimization() {
 }
 
 void Segment::undo_optimize() {
-	if (type_ == Marker::kDHT) {
+	if (type_ == Marker::DHT) {
 		this->undo_dht_optimization();
-	} else if (type_ == Marker::kDQT) {
+	} else if (type_ == Marker::DQT) {
 		this->undo_dqt_optimization();
 	}
 }
