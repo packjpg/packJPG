@@ -94,58 +94,53 @@ bool Segment::has_length(Marker type) {
 }
 
 void Segment::optimize_dqt() {
-	std::size_t hpos = 4; // Skip marker and segment length data.
-	while (hpos < data_.size()) {
-		const int precision = bitops::left_nibble(data_[hpos]);
-		hpos++;
+	std::size_t segment_pos = 4; // Skip marker and segment length data.
+	while (segment_pos < data_.size()) {
+		const int precision = bitops::left_nibble(data_[segment_pos]);
+		segment_pos++;
 		if (precision == 1) {
 			// Skip 16-bit precision tables.
-			hpos += 128;
+			segment_pos += 128;
 			continue;
 		}
 		// Difference code 8-bit precision tables (for better packjpg compression):
-		auto start_table = std::next(std::begin(data_), hpos);
+		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
 		std::adjacent_difference(start_table, end_table, start_table);
 
-		hpos += 64;
+		segment_pos += 64;
 	}
 }
 
 void Segment::optimize_dht() {
-	std::size_t hpos = 4; // Skip marker and segment length data.
-	while (hpos < data_.size()) {
-		hpos++;
-		// table found - compare with each of the four standard tables		
-		for (int i = 0; i < 4; i++) {
-			int sub_pos;
-			for (sub_pos = 0; sub_pos < pjg::std_huff_lengths[i]; sub_pos++) {
-				if (data_[hpos + sub_pos] != pjg::std_huff_tables[i][sub_pos]) {
-					break;
-				}
-			}
-			// check if comparison ok
-			if (sub_pos != pjg::std_huff_lengths[i]) {
+	std::size_t segment_pos = 4; // Skip marker and segment length data.
+	while (segment_pos < data_.size()) {
+		segment_pos++;
+		 // Replace a standard jpg table with zeroes if one is found:
+		for (std::size_t table_id = 0; table_id < pjg::standard_huffman_tables.size(); table_id++) {
+			const auto& standard_table = pjg::standard_huffman_tables[table_id];
+			bool tables_match = std::equal(std::begin(standard_table),
+			                               std::end(standard_table),
+			                               std::begin(data_) + segment_pos);
+			if (!tables_match) {
 				continue;
 			}
 
-			// if we get here, the table matches the standard table
-			// number 'i', so it can be replaced
-			data_[hpos] = pjg::std_huff_lengths[i] - 16 - i;
-			data_[hpos + 1] = i;
-			auto start_table_data = std::next(std::begin(data_), hpos + 2);
-			auto end_table_data = std::next(std::begin(data_), hpos + pjg::std_huff_lengths[i]);
+			data_[segment_pos] = standard_table.size() - 16 - table_id;
+			data_[segment_pos + 1] = table_id;
+
+			auto start_table_data = std::next(std::begin(data_), segment_pos + 2);
+			auto end_table_data = std::next(std::begin(data_), segment_pos + standard_table.size());
 			std::fill(start_table_data, end_table_data, std::uint8_t(0));
-			// everything done here, so leave
 			break;
 		}
 
-		auto start_table_counts = std::next(std::begin(data_), hpos);
+		auto start_table_counts = std::next(std::begin(data_), segment_pos);
 		auto end_table_counts = std::next(start_table_counts, 16);
 		std::size_t table_size = std::accumulate(start_table_counts,
 		                                         end_table_counts,
 		                                         std::size_t(16));
-		hpos += table_size;
+		segment_pos += table_size;
 	}
 }
 
@@ -158,41 +153,42 @@ void Segment::optimize() {
 }
 
 void Segment::undo_dqt_optimization() {
-	std::size_t hpos = 4; // Skip marker and segment length data.
-	while (hpos < data_.size()) {
-		const int precision = bitops::left_nibble(data_[hpos]);
-		hpos++;
+	std::size_t segment_pos = 4; // Skip marker and segment length data.
+	while (segment_pos < data_.size()) {
+		const int precision = bitops::left_nibble(data_[segment_pos]);
+		segment_pos++;
 		if (precision == 1) {
 			// Skip 16-bit precision tables, since they aren't optimized.
-			hpos += 128;
+			segment_pos += 128;
 			continue;
 		}
 		//  Undo difference coding of 8-bit precision tables:
-		auto start_table = std::next(std::begin(data_), hpos);
+		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
 		std::partial_sum(start_table, end_table, start_table);
 
-		hpos += 64;
+		segment_pos += 64;
 	}
 }
 
 void Segment::undo_dht_optimization() {
-	size_t hpos = 4; // Skip marker and segment length data.
-	while (hpos < data_.size()) {
-		hpos++;
+	size_t segment_pos = 4; // Skip marker and segment length data.
+	while (segment_pos < data_.size()) {
+		segment_pos++;
 		// table found - check if modified
-		if (data_[hpos] > 2) {
+		if (data_[segment_pos] > 2) {
 			// reinsert the standard table
-			const int i = data_[hpos + 1];
-			std::copy(pjg::std_huff_tables[i], pjg::std_huff_tables[i] + pjg::std_huff_lengths[i], std::begin(data_) + hpos);
+			const int i = data_[segment_pos + 1];
+			const auto& standard_table = pjg::standard_huffman_tables[i];
+			std::copy(std::begin(standard_table), std::end(standard_table), std::begin(data_) + segment_pos);
 		}
 
-		auto start_table_counts = std::next(std::begin(data_), hpos);
+		auto start_table_counts = std::next(std::begin(data_), segment_pos);
 		auto end_table_counts = std::next(start_table_counts, 16);
 		std::size_t table_size = std::accumulate(start_table_counts,
 		                                         end_table_counts,
 		                                         std::size_t(16));
-		hpos += table_size;
+		segment_pos += table_size;
 	}
 }
 
