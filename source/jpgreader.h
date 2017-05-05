@@ -23,13 +23,18 @@ public:
 
 private:
 
+	// Reads the compressed image data that follows an SOS segment payload.
 	void read_sos();
+
+	// Returns the JPG segments (with the compressed SOS data separate in huffman_data_), sans SOI and EOI segments.
 	std::vector<Segment> parse_segments();
+
+	// Returns the bytes that follow the EOI segment.
 	std::vector<std::uint8_t> read_garbage_data();
 
 	Reader& reader_;
 	
-	int scans_processed_ = 0; // Count of scans.
+	int scans_processed_ = 0;
 
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;

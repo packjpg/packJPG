@@ -187,8 +187,7 @@ namespace jfif {
 		if (reader->get_size() < 6) {
 			throw std::runtime_error("Insufficient bytes in DRI segment.");
 		}
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		try {
 			const auto first = reader->read_byte();
 			const auto second = reader->read_byte();
@@ -437,8 +436,7 @@ namespace jfif {
 	// Helper function that parses SOS segments.
 	inline ScanInfo get_scan_info(FrameInfo& frame_info, const std::vector<std::uint8_t>& segment) {
 		auto reader = std::make_unique<MemoryReader>(segment);
-		std::vector<std::uint8_t> skip(4); // Skip the segment header.
-		reader->read(skip, 4);
+		reader->skip(4); // Skip the segment header.
 		ScanInfo scan_info;
 		try {
 			scan_info.cmpc = reader->read_byte();
