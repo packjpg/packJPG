@@ -50,10 +50,8 @@ private:
 class MemoryWriter : public Writer {
 public:
 	MemoryWriter();
-	MemoryWriter(std::size_t initial_capacity);
 
-	~MemoryWriter() {
-	}
+	~MemoryWriter() {}
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
 	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
@@ -68,8 +66,6 @@ public:
 
 private:
 	std::vector<std::uint8_t> data_;
-	std::size_t curr_byte_ = 0;
-
 };
 
 class StreamWriter : public Writer {

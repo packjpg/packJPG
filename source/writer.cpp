@@ -68,62 +68,39 @@ bool FileWriter::error() {
 	return fptr_ == nullptr || ferror(fptr_);
 }
 
-MemoryWriter::MemoryWriter() : data_(65536) {
-}
-
-MemoryWriter::MemoryWriter(std::size_t initial_capacity)
-	: data_(std::max(initial_capacity, static_cast<std::size_t>(65536))) {
-}
+MemoryWriter::MemoryWriter() {}
 
 std::size_t MemoryWriter::write(const std::uint8_t* from, std::size_t n) {
-	// make sure that pointer doesn't get beyond flush threshold
-	while (curr_byte_ + n >= data_.size()) {
-		data_.resize(data_.size() * 2);
-	}
-
-	std::copy(from, from + n, std::next(std::begin(data_), curr_byte_));
-	curr_byte_ += n;
+	data_.insert(std::end(data_), from, from + n);
 	return n;
 }
 
 std::size_t MemoryWriter::write(const std::vector<std::uint8_t>& bytes) {
-	while (curr_byte_ + bytes.size() >= data_.size()) {
-		data_.resize(data_.size() * 2);
-	}
-
-	const auto curr = std::next(std::begin(data_), curr_byte_);
-	std::copy(std::begin(bytes), std::end(bytes), curr);
-
-	curr_byte_ += bytes.size();
-
+	data_.insert(std::end(data_), std::begin(bytes), std::end(bytes));
 	return bytes.size();
 }
 
 std::size_t MemoryWriter::write(const std::array<std::uint8_t, 2>& bytes) {
-	return write(bytes.data(), 2);
+	data_.insert(std::end(data_), std::begin(bytes), std::end(bytes));
+	return bytes.size();
 }
 
 bool MemoryWriter::write_byte(std::uint8_t byte) {
-	if (curr_byte_ == data_.size()) {
-		data_.resize(data_.size() * 2);
-	}
-
-	data_[curr_byte_] = byte;
-	curr_byte_++;
+	data_.emplace_back(byte);
 	return true;
 }
 
 std::vector<std::uint8_t> MemoryWriter::get_data() {
-	std::vector<std::uint8_t> copy(data_.begin(), data_.begin() + curr_byte_);
-	return copy;
+	return data_;
 }
 
 void MemoryWriter::rewind() {
-	curr_byte_ = 0;
+	data_.resize(0);
+	//curr_byte_ = 0;
 }
 
 std::size_t MemoryWriter::num_bytes_written() {
-	return curr_byte_;
+	return data_.size();
 }
 
 bool MemoryWriter::error() {
