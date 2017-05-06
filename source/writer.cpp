@@ -96,7 +96,6 @@ std::vector<std::uint8_t> MemoryWriter::get_data() {
 
 void MemoryWriter::rewind() {
 	data_.resize(0);
-	//curr_byte_ = 0;
 }
 
 std::size_t MemoryWriter::num_bytes_written() {
