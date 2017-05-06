@@ -121,6 +121,30 @@ private:
 	bool eof_ = false;
 };
 
+class MemoryFileReader : public Reader {
+public:
+	MemoryFileReader(const std::string& file_path);
+	~MemoryFileReader();
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
+	void rewind() override;
+
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	std::unique_ptr<MemoryReader> reader_;
+};
+
 class StreamReader : public Reader {
 public:
 	StreamReader();

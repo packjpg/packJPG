@@ -180,6 +180,72 @@ bool MemoryReader::end_of_reader() {
 	return eof_;
 }
 
+MemoryFileReader::MemoryFileReader(const std::string& file_path) {
+	auto file_stream = std::fopen(file_path.c_str(), "rb");
+	if (file_stream == nullptr) {
+		throw std::runtime_error("Unable to open " + file_path);
+	}
+	auto file_size = std::experimental::filesystem::file_size(file_path);
+	std::vector<std::uint8_t> data(file_size);
+	std::fread(data.data(), sizeof data[0], file_size, file_stream);
+	std::fclose(file_stream);
+	reader_ = std::make_unique<MemoryReader>(data);
+}
+
+MemoryFileReader::~MemoryFileReader() {}
+
+std::size_t MemoryFileReader::read(std::uint8_t* to, std::size_t num_to_read) {
+	return reader_->read(to, num_to_read);
+}
+
+std::size_t MemoryFileReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+	return reader_->read(into, num_to_read, offset);
+}
+
+std::uint8_t MemoryFileReader::read_byte() {
+	try {
+		return reader_->read_byte();
+	} catch (const std::runtime_error&) {
+		throw;
+	}
+}
+
+bool MemoryFileReader::read_byte(std::uint8_t* to) {
+	return reader_->read_byte(to);
+}
+
+void MemoryFileReader::skip(std::size_t n) {
+	return reader_->skip(n);
+}
+
+void MemoryFileReader::rewind_bytes(std::size_t n) {
+	return reader_->rewind_bytes(n);
+}
+
+void MemoryFileReader::rewind() {
+	reader_->rewind();
+}
+
+std::size_t MemoryFileReader::num_bytes_read() {
+	return reader_->num_bytes_read();
+}
+
+std::size_t MemoryFileReader::get_size() {
+	return reader_->get_size();
+}
+
+std::vector<std::uint8_t> MemoryFileReader::get_data() {
+	return reader_->get_data();
+}
+
+bool MemoryFileReader::error() {
+	return reader_->error();
+}
+
+bool MemoryFileReader::end_of_reader() {
+	return reader_->end_of_reader();
+}
+
 StreamReader::StreamReader() {
 #if defined(_WIN32) || defined(WIN32)
 	const int result = _setmode(_fileno(stdin), _O_BINARY);
