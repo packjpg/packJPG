@@ -329,9 +329,7 @@ private:
 
 	// io variables:
 	std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
-	Writer& writer_; // Pointer to iostream for writing.
-	//std::uint8_t curr_byte_ = 0;
-	//int curr_bit_ = 0;
+	Writer& writer_; // Reference for final batch write of encoded bits on finalization.
 
 	// Arithmetic coding variables:
 	std::uint32_t clow_ = 0;
