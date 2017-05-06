@@ -64,6 +64,8 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 		this->generic(garbage_data);
 	}
 
+	encoder_->finalize();
+
 	// errormessage if write error
 	if (encoder_->error()) {
 		throw std::runtime_error("write error, possibly drive is full");

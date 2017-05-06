@@ -81,7 +81,7 @@ struct UniversalTable {
 	// links to higher order contexts
 	std::vector<UniversalTable*> links;
 	// speedup info
-	std::uint16_t max_count = std::uint16_t(0);
+	std::uint16_t max_symbol_count = std::uint16_t(0);
 	std::uint16_t max_symbol = std::uint16_t(0);
 
 	// Deletes this and all tables linked by this table.
@@ -106,7 +106,7 @@ struct UniversalTable {
 		}
 
 		// also rescale tables max count
-		max_count >>= 1;
+		max_symbol_count >>= 1;
 
 		// seek for new last symbol
 		for (i = lst_symbol - 1; i >= 0; i--) {
@@ -133,10 +133,10 @@ struct UniversalTable {
 // An abstract statistical model for arithmetic coding.
 class Model {
 public:
-	Model(int max_c, int max_o, int c_lim) :
-		max_context(max_c),
-		max_order(max_o + 1),
-		max_count(c_lim) {
+	Model(int max_context, int max_order, int max_symbol_count) :
+		max_context_(max_context),
+		max_order_(max_order + 1),
+		max_symbol_count_(max_symbol_count) {
 
 	}
 	virtual ~Model() {}
@@ -154,19 +154,19 @@ public:
 	}
 
 protected:
-	const int max_context;
-	const int max_order;
-	const int max_count;
+	const int max_context_;
+	const int max_order_;
+	const int max_symbol_count_;
 };
 
 /*
 A universal statistical model for arithmetic coding.
 
 Boundaries of this model:
-Maximum number of symbols (max_s): [1, 1024]
-Maximum number of contexts (max_c): [1, 1024]
-Maximum order (max_o): [-1, 4]
-Maximum count for a symbol (c_lim): [2, 4096]
+Maximum number of symbols (max_symbol): [1, 1024]
+Maximum number of contexts (max_context): [1, 1024]
+Maximum order (max_order): [-1, 4]
+Maximum count for a symbol (max_symbol_count): [2, 4096]
 
 WARNING: this can be memory intensive, so don't overdo it
 
@@ -176,7 +176,7 @@ class UniversalModel : public Model
 {
 public:
 
-	UniversalModel(int max_s, int max_c, int max_o, int c_lim = 255);
+	UniversalModel(int max_symbol, int max_context, int max_order, int max_symbol_count = 255);
 	~UniversalModel();
 
 	/*
@@ -238,14 +238,14 @@ private:
 	*/
 	inline void totalize_table(UniversalTable& context);
 
-	const int max_symbol;
+	const int max_symbol_;
 
-	int current_order;
-	int sb0_count;
+	int current_order_;
+	int num_symbols_;
 
-	std::vector<uint32_t> totals;
-	bool* scoreboard;
-	std::vector<UniversalTable*> contexts;
+	std::vector<uint32_t> totals_;
+	bool* scoreboard_;
+	std::vector<UniversalTable*> contexts_;
 };
 
 
@@ -299,7 +299,7 @@ public:
 
 private:
 
-	std::vector<BinaryTable*> contexts;
+	std::vector<BinaryTable*> contexts_;
 };
 
 class ArithmeticEncoder {
@@ -307,33 +307,20 @@ public:
 	ArithmeticEncoder(Writer& stream);
 	~ArithmeticEncoder();
 
-	// Generic UniversalModel encoding function.
-	void encode(UniversalModel& model, int c) {
-		Symbol s;
-		int esc;
+	void encode(UniversalModel& model, int c);
 
-		do {
-			esc = model.convert_int_to_symbol(c, s);
-			encode(s);
-		} while (esc);
-		model.update_model(c);
-	}
+	void encode(BinaryModel& model, int c);
 
-	// Generic BinaryModel encoding function.
-	void encode(BinaryModel& model, int c) {
-		Symbol s;
-
-		model.convert_int_to_symbol(c, s);
-		encode(s);
-		model.update_model(c);
-	}
+	/*
+	 * Called when done writing to the ArithmeticEncoder. If this has not been called when the object is deleted,
+	 * it will be called in the object's destructor.
+	 */
+	void finalize();
 
 	/*
 	 * Returns whether an error occurred in the writer backing the encoder.
 	 */
-	bool error() const {
-		return sptr.error();
-	}
+	bool error() const;
 
 private:
 	// Encodes the sybol.
@@ -342,14 +329,14 @@ private:
 	template<std::uint8_t bit>
 	void write_bit() {
 		// add bit at last position
-		bbyte = (bbyte << 1) | bit;
+		curr_byte_ = (curr_byte_ << 1) | bit;
 		// increment bit position
-		cbit++;
+		curr_bit_++;
 
 		// write bit if done
-		if (cbit == 8) {
-			sptr.write_byte(bbyte);
-			cbit = 0;
+		if (curr_bit_ == 8) {
+			writer_.write_byte(curr_byte_);
+			curr_bit_ = 0;
 		}
 	}
 
@@ -357,15 +344,17 @@ private:
 	void writeNrbitsAsOne();
 
 	// io variables:
-	Writer& sptr; // Pointer to iostream for writing.
-	std::uint8_t bbyte = 0;
-	int cbit = 0;
+	Writer& writer_; // Pointer to iostream for writing.
+	std::uint8_t curr_byte_ = 0;
+	int curr_bit_ = 0;
 
 	// Arithmetic coding variables:
-	std::uint32_t clow = 0;
-	std::uint32_t chigh = CODER_LIMIT100 - 1;
-	std::uint32_t cstep = 0;
-	int nrbits = 0;
+	std::uint32_t clow_ = 0;
+	std::uint32_t chigh_ = CODER_LIMIT100 - 1;
+	std::uint32_t cstep_ = 0;
+	int nrbits_ = 0;
+
+	bool finalized_ = false; // Has the encoder been finalized (via a call to finalize())?
 };
 
 class ArithmeticDecoder {
@@ -373,34 +362,9 @@ public:
 	ArithmeticDecoder(Reader& stream);
 	~ArithmeticDecoder();
 
-	// Generic UniversalModel decoding function.
-	int decode(UniversalModel& model) {
-		Symbol s;
-		int c;
+	int decode(UniversalModel& model);
 
-		do {
-			model.get_symbol_scale(s);
-			std::uint32_t count = decode_count(s);
-			c = model.convert_symbol_to_int(count, s);
-			decode(s);
-		} while (c == ESCAPE_SYMBOL);
-		model.update_model(c);
-
-		return c;
-	}
-
-	// Generic BinaryModel decoding function.
-	int decode(BinaryModel& model) {
-		Symbol s;
-
-		model.get_symbol_scale(s);
-		std::uint32_t count = decode_count(s);
-		int c = model.convert_symbol_to_int(count, s);
-		decode(s);
-		model.update_model(c);
-
-		return c;
-	}
+	int decode(BinaryModel& model);
 
 private:
 	void decode(const Symbol& s);
@@ -409,15 +373,15 @@ private:
 	std::uint8_t read_bit();
 
 	// io variables:
-	Reader& sptr; // Pointer to iostream for reading.
-	std::uint8_t bbyte = 0;
-	int cbit = 0;
+	Reader& reader_; // Pointer to iostream for reading.
+	std::uint8_t curr_byte_ = 0;
+	int curr_bit_ = 0;
 
 	// Arithmetic coding variables:
-	std::uint32_t ccode = 0;
-	std::uint32_t clow = 0;
-	std::uint32_t chigh = CODER_LIMIT100 - 1;
-	std::uint32_t cstep = 0;
+	std::uint32_t ccode_ = 0;
+	std::uint32_t clow_ = 0;
+	std::uint32_t chigh_ = CODER_LIMIT100 - 1;
+	std::uint32_t cstep_ = 0;
 };
 
 #endif
