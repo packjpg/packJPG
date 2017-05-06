@@ -14,6 +14,8 @@ public:
 	std::vector<std::uint8_t> get_data();
 	std::size_t get_bytes_written() const;
 
+	void write_n_zeroes(std::size_t n);
+	void write_n_ones(std::size_t n);
 private:
 
 	std::uint8_t fillbit_;

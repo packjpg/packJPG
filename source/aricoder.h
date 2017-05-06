@@ -6,6 +6,7 @@
 #include <vector>
 #include "reader.h"
 #include "writer.h"
+#include "arithmeticbitwriter.h"
 
 constexpr std::uint32_t CODER_USE_BITS = 31;
 constexpr std::uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
@@ -326,27 +327,11 @@ private:
 	// Encodes the sybol.
 	void encode(const Symbol& s);
 
-	template<std::uint8_t bit>
-	void write_bit() {
-		// add bit at last position
-		curr_byte_ = (curr_byte_ << 1) | bit;
-		// increment bit position
-		curr_bit_++;
-
-		// write bit if done
-		if (curr_bit_ == 8) {
-			writer_.write_byte(curr_byte_);
-			curr_bit_ = 0;
-		}
-	}
-
-	void writeNrbitsAsZero();
-	void writeNrbitsAsOne();
-
 	// io variables:
+	std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
 	Writer& writer_; // Pointer to iostream for writing.
-	std::uint8_t curr_byte_ = 0;
-	int curr_bit_ = 0;
+	//std::uint8_t curr_byte_ = 0;
+	//int curr_bit_ = 0;
 
 	// Arithmetic coding variables:
 	std::uint32_t clow_ = 0;

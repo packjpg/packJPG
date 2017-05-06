@@ -73,3 +73,52 @@ gets size of data array from abitwriter
 std::size_t BitWriter::get_bytes_written() const {
 	return curr_byte_;
 }
+
+void BitWriter::write_n_zeroes(std::size_t n) {
+	if (curr_byte_ > (data_.size() - 5)) {
+		data_.resize(data_.size() * 2);
+	}
+
+	if (n >= curr_bit_) {
+		n -= curr_bit_;
+		data_[curr_byte_] <<= curr_bit_;
+		curr_byte_++;
+		curr_bit_ = 8;
+	}
+
+	while (n >= 8) {
+		curr_byte_++;
+		n -= 8;
+	}
+
+	if (n == 0) {
+		return;
+	}
+
+	data_[curr_byte_] <<= n;
+	curr_bit_ -= n;
+}
+
+void BitWriter::write_n_ones(std::size_t n) {
+	constexpr std::uint8_t all_ones = std::numeric_limits<std::uint8_t>::max();
+	if (n >= curr_bit_) {
+		n -= curr_bit_;
+		data_[curr_byte_] <<= curr_bit_;
+		data_[curr_byte_] |= all_ones >> (8 - curr_bit_);
+		curr_byte_++;
+		curr_bit_ = 8;
+	}
+
+	while (n >= 8) {
+		data_[curr_byte_] = all_ones;
+		n -= 8;
+		curr_byte_++;
+	}
+
+	if (n == 0) {
+		return;
+	}
+	
+	data_[curr_byte_] = (data_[curr_byte_] << n) | (all_ones >> (8 - n));
+	curr_bit_ -= n;
+}
