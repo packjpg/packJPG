@@ -262,25 +262,6 @@ void JpgDecoder::decode_sequential_block(Component& component, int cmp, int dpos
 	}
 }
 
-
-void JpgDecoder::check_value_range(const std::vector<Component>& components) const {
-	// out of range should never happen with unmodified JPEGs
-	for (const auto& component : components) {
-		for (std::size_t freq = 0; freq < component.colldata.size(); freq++) {
-			const auto& coefficients = component.colldata[freq];
-			const auto absmax = component.max_v(freq);
-			for (auto value : coefficients) {
-				if (std::abs(value) > absmax) {
-					throw std::range_error("value out of range error: cmp id: " + std::to_string(component.jid)
-						+ ", frq " + std::to_string(freq)
-						+ ", val " + std::to_string(value)
-						+ ", max " + std::to_string(absmax));
-				}
-			}
-		}
-	}
-}
-
 std::uint8_t JpgDecoder::get_padbit() const {
 	return padbit_;
 }

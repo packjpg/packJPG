@@ -1,6 +1,7 @@
 #include "jpgtopjgontroller.h"
 
 #include <cstdint>
+#include <string>
 
 #include "jpgreader.h"
 #include "jpgdecoder.h"
@@ -28,7 +29,7 @@ void JpgToPjgController::execute() {
 	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
 	try {
 		jpeg_decoder->decode();
-		jpeg_decoder->check_value_range(frame_info->components);
+		this->check_value_range(frame_info->components);
 	} catch (const std::runtime_error&) {
 		throw;
 	}
@@ -50,5 +51,22 @@ void JpgToPjgController::execute() {
 		                    garbage_data);
 	} catch (const std::runtime_error&) {
 		throw;
+	}
+}
+
+void JpgToPjgController::check_value_range(const std::vector<Component>& components) const {
+	for (const auto& component : components) {
+		for (std::size_t freq = 0; freq < component.colldata.size(); freq++) {
+			const auto& coefficients = component.colldata[freq];
+			const auto absmax = component.max_v(freq);
+			for (auto value : coefficients) {
+				if (std::abs(value) > absmax) {
+					throw std::range_error("value out of range error: cmp id: " + std::to_string(component.jid)
+						+ ", frq " + std::to_string(freq)
+						+ ", val " + std::to_string(value)
+						+ ", max " + std::to_string(absmax));
+				}
+			}
+		}
 	}
 }

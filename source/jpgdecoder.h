@@ -21,8 +21,6 @@ public:
 
 	// JPEG decoding routine.
 	void decode();
-	// Checks range of values, error if out of bounds.
-	void check_value_range(const std::vector<Component>& components) const;
 
 	std::uint8_t get_padbit() const;
 

@@ -3,6 +3,7 @@
 
 #include "controller.h"
 
+#include "component.h"
 #include "reader.h"
 #include "writer.h"
 
@@ -14,6 +15,12 @@ public:
 	void execute() override;
 
 private:
+	/*
+	 * Checks the range of values, throwing a std::runtime_error exception if a value is out of range.
+	 * Out of range should never happen for unmodified JPEG files.
+	 */
+	void check_value_range(const std::vector<Component>& components) const;
+
 	Reader& jpg_input_;
 	Writer& pjg_output_;
 };
