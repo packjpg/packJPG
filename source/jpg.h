@@ -51,35 +51,44 @@ inline int next_mcupos(const FrameInfo& frame_info, int mcu, int cmp, int sub) {
 	return dpos;
 }
 
-// Calculates next position (non interleaved).
-inline CodingStatus next_mcuposn(const Component& component, int rsti, int& dpos, int& rstw) {
-	// increment position
-	dpos++;
+// Calculates the next position (noninterleaved).
+inline int calc_next_pos_noninterleaved(const Component& component, int curr_pos) {
+	int next_pos = curr_pos + 1;
 
 	// fix for non interleaved mcu - horizontal
 	if (component.bch != component.nch) {
-		if (dpos % component.bch == component.nch) {
-			dpos += (component.bch - component.nch);
+		if (next_pos % component.bch == component.nch) {
+			next_pos += (component.bch - component.nch);
 		}
 	}
 
 	// fix for non interleaved mcu - vertical
 	if (component.bcv != component.ncv) {
-		if (dpos / component.bch == component.ncv) {
-			dpos = component.bc;
+		if (next_pos / component.bch == component.ncv) {
+			next_pos = component.bc;
 		}
 	}
+	return next_pos;
+}
 
+inline CodingStatus determine_status_noninterleaved(const Component& component, int rsti, int dpos, int& rstw) {
 	// check position
 	if (dpos >= component.bc) {
 		return CodingStatus::DONE;
 	} else if (rsti > 0) {
-		if (--rstw == 0) {
+		rstw--;
+		if (rstw == 0) {
 			return CodingStatus::RESTART;
 		}
 	}
 
 	return CodingStatus::OKAY;
+}
+
+// Calculates next position (non interleaved).
+inline CodingStatus next_mcuposn(const Component& component, int rsti, int& dpos, int& rstw) {
+	dpos = calc_next_pos_noninterleaved(component, dpos);
+	return determine_status_noninterleaved(component, rsti, dpos, rstw);
 }
 }
 

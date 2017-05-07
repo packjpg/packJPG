@@ -419,7 +419,6 @@ int JpgDecoder::ac_prg_sa(const HuffTree& actree, int& eobrun) {
 		}
 	}
 
-	// return eob
 	return eob;
 }
 
