@@ -31,13 +31,7 @@ namespace jfif {
 		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
-			std::uint8_t byte;
-			try {
-				byte = reader->read_byte();
-			}
-			catch (const std::runtime_error&) {
-				throw;
-			}
+			const auto byte = reader->read_byte();
 			int table_class = bitops::left_nibble(byte);
 			if (table_class != 0 && table_class != 1) {
 				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
@@ -84,12 +78,7 @@ namespace jfif {
 		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
-			std::uint8_t byte;
-			try {
-				byte = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			const auto byte = reader->read_byte();
 			int table_class = bitops::left_nibble(byte);
 			if (table_class != 0 && table_class != 1) {
 				throw std::runtime_error("Invalid table class " + std::to_string(table_class) + " in DHT.");
@@ -132,12 +121,7 @@ namespace jfif {
 		auto reader = std::make_unique<MemoryReader>(segment);
 		reader->skip(4); // Skip the segment header.
 		while (!reader->end_of_reader()) {
-			std::uint8_t byte;
-			try {
-				byte = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			const auto byte = reader->read_byte();
 			const int precision = bitops::left_nibble(byte);
 			if (precision != 0 && precision != 1) {
 				throw std::runtime_error("Invalid quantization table element precision: " + std::to_string(precision));
@@ -151,25 +135,15 @@ namespace jfif {
 			std::array<std::uint16_t, 64> qtable{};
 			if (precision == 0) { // 8-bit quantization table element precision.
 				for (std::size_t i = 0; i < qtable.size(); i++) {
-					try {
-						qtable[i] = reader->read_byte();
-					} catch (const std::runtime_error&) {
-						throw;
-					}
+					qtable[i] = reader->read_byte();
 					if (qtable[i] == 0) {
 						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
 				}
 			} else { // 16-bit quantization table element precision.
 				for (std::size_t i = 0; i < qtable.size(); i++) {
-					std::uint8_t first;
-					std::uint8_t second;
-					try {
-						first = reader->read_byte();
-						second = reader->read_byte();
-					} catch (const std::runtime_error&) {
-						throw;
-					}
+					const auto first = reader->read_byte();
+					const auto second = reader->read_byte();
 
 					qtable[i] = pack(first, second);
 					if (qtable[i] == 0) {
@@ -188,29 +162,16 @@ namespace jfif {
 			throw std::runtime_error("Insufficient bytes in DRI segment.");
 		}
 		reader->skip(4); // Skip the segment header.
-		try {
-			const auto first = reader->read_byte();
-			const auto second = reader->read_byte();
-			return pack(first, second);
-		} catch (const std::runtime_error&) {
-			throw;
-		}
+		const auto first = reader->read_byte();
+		const auto second = reader->read_byte();
+		return pack(first, second);
 	}
 
 	inline void parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components) {
 		for (auto& component : components) {
-			try {
-				component.jid = reader.read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			component.jid = reader.read_byte();
 
-			std::uint8_t byte;
-			try {
-				byte = reader.read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			const auto byte = reader.read_byte();
 
 			component.sfv = bitops::left_nibble(byte);
 			if (component.sfv == 0 || component.sfv > 4) {
@@ -222,14 +183,9 @@ namespace jfif {
 				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
 			}
 
-			int quantization_table_index;
-			try {
-				quantization_table_index = reader.read_byte();
-				if (quantization_table_index > 3) {
-					throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
-				}
-			} catch (const std::runtime_error&) {
-				throw;
+			int quantization_table_index = reader.read_byte();
+			if (quantization_table_index > 3) {
+				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
 			}
 
 			component.qtable = qtables[quantization_table_index];
@@ -254,57 +210,35 @@ namespace jfif {
 		}
 
 		// check data precision, only 8 bit is allowed
-		int precision;
-		try {
-			precision = reader->read_byte();
-		} catch (std::runtime_error&) {
-			throw;
-		}
+		const int precision = reader->read_byte();
 		if (precision != 8) {
 			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
 		}
 
-		try {
-			const auto first = reader->read_byte();
-			const auto second = reader->read_byte();
-			frame_info->image_height = jfif::pack(first, second);
-			if (frame_info->image_height == 0) {
-				throw std::runtime_error("Image height is zero in the frame header.");
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		auto first = reader->read_byte();
+		auto second = reader->read_byte();
+		frame_info->image_height = jfif::pack(first, second);
+		if (frame_info->image_height == 0) {
+			throw std::runtime_error("Image height is zero in the frame header.");
 		}
 
-		try {
-			const auto first = reader->read_byte();
-			const auto second = reader->read_byte();
-			frame_info->image_width = jfif::pack(first, second);
-			if (frame_info->image_width == 0) {
-				throw std::runtime_error("Image width is zero in the frame header.");
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		first = reader->read_byte();
+		second = reader->read_byte();
+		frame_info->image_width = jfif::pack(first, second);
+		if (frame_info->image_width == 0) {
+			throw std::runtime_error("Image width is zero in the frame header.");
 		}
 
-		int component_count;
-		try {
-			component_count = reader->read_byte();
-			if (component_count == 0) {
-				throw std::runtime_error("Zero component count in the frame header.");
-			} else if (component_count > 4) {
-				throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		const int component_count = reader->read_byte();
+		if (component_count == 0) {
+			throw std::runtime_error("Zero component count in the frame header.");
+		} else if (component_count > 4) {
+			throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
 		}
 
 		frame_info->components.resize(component_count);
 
-		try {
-			parse_sof_component_info(qtables, *reader, frame_info->components);
-		} catch (const std::runtime_error&) {
-			throw;
-		}
+		parse_sof_component_info(qtables, *reader, frame_info->components);
 
 		if (!reader->end_of_reader()) {
 			throw std::runtime_error("Too many bytes in SOF segment.");
@@ -375,11 +309,7 @@ namespace jfif {
 		std::map<int, std::array<std::uint16_t, 64>> qtables;
 		for (auto& segment : segments) {
 			if (segment.get_type() == Marker::DQT) {
-				try {
-					parse_dqt(qtables, segment.get_data());
-				} catch (std::runtime_error&) {
-					throw;
-				}
+				parse_dqt(qtables, segment.get_data());
 			}
 		}
 
@@ -392,11 +322,7 @@ namespace jfif {
 				// coding process: extended sequential DCT
 			case Marker::SOF2:
 				// coding process: progressive DCT
-				try {
-					return parse_sof(segment.get_type(), segment.get_data(), qtables);
-				} catch (const std::runtime_error&) {
-					throw;
-				}
+				return parse_sof(segment.get_type(), segment.get_data(), qtables);
 			case Marker::SOF3:
 				// coding process: lossless sequential
 				throw std::runtime_error("sof3 marker found, image is coded lossless");
@@ -440,21 +366,12 @@ namespace jfif {
 		auto reader = std::make_unique<MemoryReader>(segment);
 		reader->skip(4); // Skip the segment header.
 		ScanInfo scan_info;
-		try {
-			scan_info.cmpc = reader->read_byte();
-			if (scan_info.cmpc > frame_info.components.size()) {
-				throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		scan_info.cmpc = reader->read_byte();
+		if (scan_info.cmpc > frame_info.components.size()) {
+			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
 		}
 		for (int i = 0; i < scan_info.cmpc; i++) {
-			int jpg_id;
-			try {
-				jpg_id = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			const int jpg_id = reader->read_byte();
 			int cmp;
 			for (cmp = 0; cmp < frame_info.components.size(); cmp++) {
 				if (jpg_id == frame_info.components[cmp].jid) {
@@ -466,33 +383,24 @@ namespace jfif {
 			}
 			auto& component = frame_info.components[cmp];
 			scan_info.cmp[i] = cmp;
-			std::uint8_t byte;
-			try {
-				byte = reader->read_byte();
-			} catch (const std::runtime_error&) {
-				throw;
-			}
+			const auto byte = reader->read_byte();
 			component.huffdc = bitops::left_nibble(byte);
 			component.huffac = bitops::right_nibble(byte);
 			if (component.huffdc > 3 || component.huffac > 3) {
 				throw std::range_error("huffman table number mismatch");
 			}
 		}
-		try {
-			scan_info.from = reader->read_byte();
-			scan_info.to = reader->read_byte();
-			if (scan_info.from > scan_info.to || scan_info.from > 63 || scan_info.to > 63) {
-				throw std::range_error("spectral selection parameter out of range");
-			}
+		scan_info.from = reader->read_byte();
+		scan_info.to = reader->read_byte();
+		if (scan_info.from > scan_info.to || scan_info.from > 63 || scan_info.to > 63) {
+			throw std::range_error("spectral selection parameter out of range");
+		}
 
-			const auto byte = reader->read_byte();
-			scan_info.sah = bitops::left_nibble(byte);
-			scan_info.sal = bitops::right_nibble(byte);
-			if (scan_info.sah >= 12 || scan_info.sal >= 12) {
-				throw std::range_error("successive approximation parameter out of range");
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		const auto byte = reader->read_byte();
+		scan_info.sah = bitops::left_nibble(byte);
+		scan_info.sal = bitops::right_nibble(byte);
+		if (scan_info.sah >= 12 || scan_info.sal >= 12) {
+			throw std::range_error("successive approximation parameter out of range");
 		}
 
 		return scan_info;

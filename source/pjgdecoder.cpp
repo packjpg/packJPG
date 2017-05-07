@@ -10,12 +10,7 @@
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
 	while (true) {
-		std::uint8_t hcode;
-		try {
-			hcode = decoding_stream.read_byte();
-		} catch (const std::runtime_error&) {
-			throw;
-		}
+		const auto hcode = decoding_stream.read_byte();
 		if (hcode >= 0x14) {
 			// compare version number
 			if (hcode != program_info::appversion) {
@@ -51,12 +46,7 @@ void PjgDecoder::decode() {
 		segment.undo_optimize();
 	}
 	// parse header for image-info
-	try {
-		frame_info_ = jfif::get_frame_info(segments_);
-	}
-	catch (const std::runtime_error&) {
-		throw;
-	}
+	frame_info_ = jfif::get_frame_info(segments_);
 
 	// decode actual components data
 	for (auto& component : frame_info_->components) {

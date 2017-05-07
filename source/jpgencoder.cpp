@@ -158,35 +158,31 @@ void JpgEncoder::encode() {
 	int restart_interval = 0;
 
 	for (const auto& segment : segments_) {
-		try {
-			switch (segment.get_type()) {
-			case Marker::DHT:
-				jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
-				continue;
-			case Marker::DRI:
-				restart_interval = jfif::parse_dri(segment.get_data());
-				continue;
-			case Marker::SOS:
-				scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
-				break;
-			default:
-				continue; // Ignore other segment types.
-			}
-
-			if (restart_interval > 0) {
-				int tmp = restart_marker_count + (scan_info_.cmpc > 1 ?
-					                             frame_info_.mcu_count / restart_interval
-					                             : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
-				restart_marker_pos_.resize(tmp + 1);
-			}
-
-			scan_pos_.resize(scans_encoded + 2);
-			encode_scan(restart_interval, restart_marker_count);
-			scans_encoded++;
-			scan_pos_[scans_encoded] = huffman_writer_->get_bytes_written(); // store scan position
-		} catch (const std::runtime_error&) {
-			throw;
+		switch (segment.get_type()) {
+		case Marker::DHT:
+			jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
+			continue;
+		case Marker::DRI:
+			restart_interval = jfif::parse_dri(segment.get_data());
+			continue;
+		case Marker::SOS:
+			scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
+			break;
+		default:
+			continue; // Ignore other segment types.
 		}
+
+		if (restart_interval > 0) {
+			int tmp = restart_marker_count + (scan_info_.cmpc > 1 ?
+				                                  frame_info_.mcu_count / restart_interval
+				                                  : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
+			restart_marker_pos_.resize(tmp + 1);
+		}
+
+		scan_pos_.resize(scans_encoded + 2);
+		encode_scan(restart_interval, restart_marker_count);
+		scans_encoded++;
+		scan_pos_[scans_encoded] = huffman_writer_->get_bytes_written(); // store scan position
 	}
 
 	huffman_data_ = huffman_writer_->get_data();
@@ -222,14 +218,10 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 		int restart_wait_counter = restart_interval;
 
 		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
-		try {
-			if (scan_info_.cmpc > 1) {
-				status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
-			} else {
-				status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
-			}
-		} catch (const std::runtime_error&) {
-			throw;
+		if (scan_info_.cmpc > 1) {
+			status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
+		} else {
+			status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
 		}
 
 		huffman_writer_->pad();

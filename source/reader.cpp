@@ -203,11 +203,7 @@ std::size_t MemoryFileReader::read(std::vector<std::uint8_t>& into, std::size_t 
 }
 
 std::uint8_t MemoryFileReader::read_byte() {
-	try {
-		return reader_->read_byte();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	return reader_->read_byte();
 }
 
 bool MemoryFileReader::read_byte(std::uint8_t* to) {
@@ -277,11 +273,7 @@ std::size_t StreamReader::read(std::vector<std::uint8_t>& into, std::size_t num_
 }
 
 std::uint8_t StreamReader::read_byte() {
-	try {
-		return reader_->read_byte();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	return reader_->read_byte();
 }
 
 bool StreamReader::read_byte(std::uint8_t* to) {

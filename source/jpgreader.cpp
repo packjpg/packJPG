@@ -40,13 +40,9 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 }
 
 void JpgReader::read() {
-	try {
-		segments_ = parse_segments();
-		garbage_data_ = read_garbage_data();
-		frame_info_ = jfif::get_frame_info(segments_);
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	segments_ = parse_segments();
+	garbage_data_ = read_garbage_data();
+	frame_info_ = jfif::get_frame_info(segments_);
 }
 
 
@@ -54,30 +50,17 @@ void JpgReader::read_sos() {
 	int restart_marker_counter = 0;
 	int curr_restart_marker_counter = 0;
 	while (!reader_.end_of_reader()) {
-		std::uint8_t byte;
-		try {
-			byte = reader_.read_byte();
-		} catch (const std::runtime_error&) {
-			throw;
-		}
+		auto byte = reader_.read_byte();
 
 		if (byte != 0xFF) {
 			curr_restart_marker_counter = 0;
 			while (byte != 0xFF) {
 				huffman_data_.emplace_back(byte);
-				try {
-					byte = reader_.read_byte();
-				} catch (const std::runtime_error&) {
-					throw;
-				}
+				byte = reader_.read_byte();
 			}
 		}
 
-		try {
-			byte = reader_.read_byte();
-		} catch (const std::runtime_error&) {
-			throw;
-		}
+		byte = reader_.read_byte();
 		if (byte == 0x00) {
 			curr_restart_marker_counter = 0;
 			// no zeroes needed -> ignore 0x00. write 0xFF
