@@ -22,8 +22,11 @@
 
 namespace jfif {
 	// Builds Huffman trees and codes.
-	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline void parse_dht(const Segment& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
+		if (segment.get_type() != Marker::DHT) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DHT parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
@@ -69,8 +72,11 @@ namespace jfif {
 	}
 
 	// Builds Huffman trees and codes.
-	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline void parse_dht(const Segment& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
+		if (segment.get_type() != Marker::DHT) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DHT parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		// build huffman trees & codes
 		while (!reader->end_of_reader()) {
@@ -113,8 +119,11 @@ namespace jfif {
 	 * Reads quantization tables from a dqt segment into the supplied map. Any existing quantization table in the map with the same index
 	 * as one of the new quantization tables is overwritten. Throws a runtime_error exception if there is a problem parsing the segment.
 	 */
-	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const std::vector<std::uint8_t>& segment) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline void parse_dqt(std::map<int, std::array<std::uint16_t, 64>>& qtables, const Segment& segment) {
+		if (segment.get_type() != Marker::DQT) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DQT parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		while (!reader->end_of_reader()) {
 			const auto byte = reader->read_byte();
@@ -152,8 +161,11 @@ namespace jfif {
 	}
 
 	// Helper function that parses DRI segments.
-	inline int parse_dri(const std::vector<std::uint8_t>& segment) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline int parse_dri(const Segment& segment) {
+		if (segment.get_type() != Marker::DRI) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DRI parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		if (reader->get_size() < 6) {
 			throw std::runtime_error("Insufficient bytes in DRI segment.");
 		}
@@ -192,8 +204,11 @@ namespace jfif {
 	}
 
 	// Helper function that parses SOF0/SOF1/SOF2 segments.
-	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const std::vector<std::uint8_t>& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline std::unique_ptr<FrameInfo> parse_sof(Marker type, const Segment& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
+		if (segment.get_type() != Marker::SOF0 && segment.get_type() != Marker::SOF1 && segment.get_type() != Marker::SOF2) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the SOF parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		auto frame_info = std::make_unique<FrameInfo>();
 		// set JPEG coding type
@@ -305,7 +320,7 @@ namespace jfif {
 		std::map<int, std::array<std::uint16_t, 64>> qtables;
 		for (auto& segment : segments) {
 			if (segment.get_type() == Marker::DQT) {
-				parse_dqt(qtables, segment.get_data());
+				parse_dqt(qtables, segment);
 			}
 		}
 
@@ -318,7 +333,7 @@ namespace jfif {
 				// coding process: extended sequential DCT
 			case Marker::SOF2:
 				// coding process: progressive DCT
-				return parse_sof(segment.get_type(), segment.get_data(), qtables);
+				return parse_sof(segment.get_type(), segment, qtables);
 			case Marker::SOF3:
 				// coding process: lossless sequential
 				throw std::runtime_error("sof3 marker found, image is coded lossless");
@@ -358,8 +373,11 @@ namespace jfif {
 	}
 
 	// Helper function that parses SOS segments.
-	inline ScanInfo get_scan_info(FrameInfo& frame_info, const std::vector<std::uint8_t>& segment) {
-		auto reader = std::make_unique<MemoryReader>(segment);
+	inline ScanInfo get_scan_info(FrameInfo& frame_info, const Segment& segment) {
+		if (segment.get_type() != Marker::SOS) {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the SOS parser.");
+		}
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		ScanInfo scan_info;
 		scan_info.cmpc = reader->read_byte();

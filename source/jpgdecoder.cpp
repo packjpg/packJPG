@@ -16,14 +16,14 @@ void JpgDecoder::decode() {
 	for (const auto& segment : segments_) {
 		switch (segment.get_type()) {
 		case Marker::DHT:
-			jfif::parse_dht(segment.get_data(), hcodes_);
+			jfif::parse_dht(segment, hcodes_);
 			build_trees();
 			continue;
 		case Marker::DRI:
-			restart_interval = jfif::parse_dri(segment.get_data());
+			restart_interval = jfif::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
+			scan_info_ = jfif::get_scan_info(frame_info_, segment);
 			break;
 		default:
 			continue;

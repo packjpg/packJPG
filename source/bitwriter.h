@@ -12,7 +12,7 @@ public:
 	void write_bit(std::uint8_t bit);
 	void pad();
 	std::vector<std::uint8_t> get_data();
-	std::size_t get_bytes_written() const;
+	std::size_t num_bytes_written() const;
 private:
 
 	std::uint8_t fillbit_;

@@ -153,20 +153,20 @@ CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& 
 }
 
 void JpgEncoder::encode() {
-	int scans_encoded = 0;
 	int restart_marker_count = 0;
 	int restart_interval = 0;
+	scan_pos_ = { 0 };
 
 	for (const auto& segment : segments_) {
 		switch (segment.get_type()) {
 		case Marker::DHT:
-			jfif::parse_dht(segment.get_data(), dc_tables_, ac_tables_);
+			jfif::parse_dht(segment, dc_tables_, ac_tables_);
 			continue;
 		case Marker::DRI:
-			restart_interval = jfif::parse_dri(segment.get_data());
+			restart_interval = jfif::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = jfif::get_scan_info(frame_info_, segment.get_data());
+			scan_info_ = jfif::get_scan_info(frame_info_, segment);
 			break;
 		default:
 			continue; // Ignore other segment types.
@@ -179,10 +179,8 @@ void JpgEncoder::encode() {
 			restart_marker_pos_.resize(tmp + 1);
 		}
 
-		scan_pos_.resize(scans_encoded + 2);
 		encode_scan(restart_interval, restart_marker_count);
-		scans_encoded++;
-		scan_pos_[scans_encoded] = huffman_writer_->get_bytes_written(); // store scan position
+		scan_pos_.emplace_back(huffman_writer_->num_bytes_written()); // Store scan position.
 	}
 
 	huffman_data_ = huffman_writer_->get_data();
@@ -193,15 +191,15 @@ void JpgEncoder::encode() {
 	}
 }
 
-std::vector<std::uint8_t> JpgEncoder::get_huffman_data() {
+std::vector<std::uint8_t> JpgEncoder::get_huffman_data() const {
 	return huffman_data_;
 }
 
-std::vector<std::size_t> JpgEncoder::get_restart_marker_pos() {
+std::vector<std::size_t> JpgEncoder::get_restart_marker_pos() const {
 	return restart_marker_pos_;
 }
 
-std::vector<std::size_t> JpgEncoder::get_scan_pos() {
+std::vector<std::size_t> JpgEncoder::get_scan_pos() const {
 	return scan_pos_;
 }
 
@@ -229,7 +227,7 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 		if (status == CodingStatus::RESTART) {
 			if (restart_interval > 0) {
 				// store rstp & stay in the loop
-				restart_marker_pos_[restart_markers] = huffman_writer_->get_bytes_written() - 1;
+				restart_marker_pos_[restart_markers] = huffman_writer_->num_bytes_written() - 1;
 				restart_markers++;
 			}
 		}

@@ -20,9 +20,9 @@ public:
 	// JPEG encoding routine.
 	void encode();
 
-	std::vector<std::uint8_t> get_huffman_data();
-	std::vector<std::size_t> get_restart_marker_pos();
-	std::vector<std::size_t> get_scan_pos();
+	std::vector<std::uint8_t> get_huffman_data() const;
+	std::vector<std::size_t> get_restart_marker_pos() const;
+	std::vector<std::size_t> get_scan_pos() const;
 
 private:
 	// encoding for interleaved data.
