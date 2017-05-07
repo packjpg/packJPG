@@ -11,42 +11,87 @@ JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segmen
 	huffman_writer_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
 }
 
-void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, int dpos) {
-	// copy from colldata
-	for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
-		block_[bpos] = fdiv2(component.colldata[bpos][dpos], scan_info_.sal);
+std::vector<std::uint8_t> JpgEncoder::get_huffman_data() const {
+	return huffman_data_;
+}
+
+std::vector<std::size_t> JpgEncoder::get_restart_marker_pos() const {
+	return restart_marker_pos_;
+}
+
+std::vector<std::size_t> JpgEncoder::get_scan_pos() const {
+	return scan_pos_;
+}
+
+void JpgEncoder::encode() {
+	int restart_marker_count = 0;
+	int restart_interval = 0;
+	scan_pos_ = { 0 };
+
+	for (const auto& segment : segments_) {
+		switch (segment.get_type()) {
+		case Marker::DHT:
+			jfif::parse_dht(segment, dc_tables_, ac_tables_);
+			continue;
+		case Marker::DRI:
+			restart_interval = jfif::parse_dri(segment);
+			continue;
+		case Marker::SOS:
+			scan_info_ = jfif::get_scan_info(frame_info_, segment);
+			break;
+		default:
+			continue; // Ignore other segment types.
+		}
+
+		if (restart_interval > 0) {
+			int tmp = restart_marker_count + (scan_info_.cmpc > 1 ?
+				                                  frame_info_.mcu_count / restart_interval
+				                                  : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
+			restart_marker_pos_.resize(tmp + 1);
+		}
+
+		encode_scan(restart_interval, restart_marker_count);
+		scan_pos_.emplace_back(huffman_writer_->num_bytes_written()); // Store scan position.
+	}
+
+	huffman_data_ = huffman_writer_->get_data();
+
+	// store last scan & restart positions
+	if (!restart_marker_pos_.empty()) {
+		restart_marker_pos_[restart_marker_count] = huffman_data_.size();
 	}
 }
 
-void JpgEncoder::dc_successive_first_stage(const Component& component, int cmp, int dpos) {
-	// diff coding & bitshifting for dc 
-	const int tmp = component.colldata[0][dpos] >> scan_info_.sal;
-	block_[0] = tmp - lastdc_[cmp];
-	lastdc_[cmp] = tmp;
+void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
+	// intial variables set for encoding
+	int cmp = scan_info_.cmp[0];
+	int csc = 0;
+	int mcu = 0;
+	int sub = 0;
+	int dpos = 0;
 
-	// encode dc
-	this->dc_prg_fs(*dc_tables_[component.huffdc]);
-}
+	CodingStatus status = CodingStatus::OKAY;
+	while (status != CodingStatus::DONE) {
+		int restart_wait_counter = restart_interval;
 
-void JpgEncoder::dc_successive_later_stage(const Component& component, int dpos) {
-	// fetch bit from current bitplane
-	block_[0] = bitops::bitn(component.colldata[0][dpos], scan_info_.sal);
+		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
+		if (scan_info_.cmpc > 1) {
+			status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
+		}
+		else {
+			status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
+		}
 
-	// encode dc correction bit
-	this->dc_prg_sa();
-}
+		huffman_writer_->pad();
 
-void JpgEncoder::sequential_interleaved(const Component& component, int cmp, int dpos) {
-	for (std::size_t bpos = 0; bpos < block_.size(); bpos++) {
-		block_[bpos] = component.colldata[bpos][dpos];
+		if (status == CodingStatus::RESTART) {
+			if (restart_interval > 0) {
+				// store rstp & stay in the loop
+				restart_marker_pos_[restart_markers] = huffman_writer_->num_bytes_written() - 1;
+				restart_markers++;
+			}
+		}
 	}
-
-	// diff coding for dc
-	block_[0] -= lastdc_[cmp];
-	lastdc_[cmp] = component.colldata[0][dpos];
-
-	// encode block
-	this->block_seq(*dc_tables_[component.huffac], *ac_tables_[component.huffac]);
 }
 
 CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw) {
@@ -152,86 +197,24 @@ CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& 
 	return status;
 }
 
-void JpgEncoder::encode() {
-	int restart_marker_count = 0;
-	int restart_interval = 0;
-	scan_pos_ = { 0 };
-
-	for (const auto& segment : segments_) {
-		switch (segment.get_type()) {
-		case Marker::DHT:
-			jfif::parse_dht(segment, dc_tables_, ac_tables_);
-			continue;
-		case Marker::DRI:
-			restart_interval = jfif::parse_dri(segment);
-			continue;
-		case Marker::SOS:
-			scan_info_ = jfif::get_scan_info(frame_info_, segment);
-			break;
-		default:
-			continue; // Ignore other segment types.
-		}
-
-		if (restart_interval > 0) {
-			int tmp = restart_marker_count + (scan_info_.cmpc > 1 ?
-				                                  frame_info_.mcu_count / restart_interval
-				                                  : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
-			restart_marker_pos_.resize(tmp + 1);
-		}
-
-		encode_scan(restart_interval, restart_marker_count);
-		scan_pos_.emplace_back(huffman_writer_->num_bytes_written()); // Store scan position.
-	}
-
-	huffman_data_ = huffman_writer_->get_data();
-
-	// store last scan & restart positions
-	if (!restart_marker_pos_.empty()) {
-		restart_marker_pos_[restart_marker_count] = huffman_data_.size();
+void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, int dpos) {
+	// copy from colldata
+	for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
+		block_[bpos] = fdiv2(component.colldata[bpos][dpos], scan_info_.sal);
 	}
 }
 
-std::vector<std::uint8_t> JpgEncoder::get_huffman_data() const {
-	return huffman_data_;
-}
-
-std::vector<std::size_t> JpgEncoder::get_restart_marker_pos() const {
-	return restart_marker_pos_;
-}
-
-std::vector<std::size_t> JpgEncoder::get_scan_pos() const {
-	return scan_pos_;
-}
-
-void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
-	// intial variables set for encoding
-	int cmp = scan_info_.cmp[0];
-	int csc = 0;
-	int mcu = 0;
-	int sub = 0;
-	int dpos = 0;
-
-	CodingStatus status = CodingStatus::OKAY;
-	while (status != CodingStatus::DONE) {
-		int restart_wait_counter = restart_interval;
-
-		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
-		if (scan_info_.cmpc > 1) {
-			status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
-		} else {
-			status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
-		}
-
-		huffman_writer_->pad();
-
-		if (status == CodingStatus::RESTART) {
-			if (restart_interval > 0) {
-				// store rstp & stay in the loop
-				restart_marker_pos_[restart_markers] = huffman_writer_->num_bytes_written() - 1;
-				restart_markers++;
-			}
-		}
+void JpgEncoder::sequential_interleaved(const Component& component, int cmp, int dpos) {
+	for (std::size_t bpos = 0; bpos < block_.size(); bpos++) {
+		block_[bpos] = component.colldata[bpos][dpos];
 	}
+
+	// diff coding for dc
+	block_[0] -= lastdc_[cmp];
+	lastdc_[cmp] = component.colldata[0][dpos];
+
+	// encode block
+	this->block_seq(*dc_tables_[component.huffac], *ac_tables_[component.huffac]);
 }
 
 void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table) {
@@ -267,12 +250,35 @@ void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table)
 	}
 }
 
+void JpgEncoder::dc_successive_first_stage(const Component& component, int cmp, int dpos) {
+	// diff coding & bitshifting for dc 
+	const int tmp = component.colldata[0][dpos] >> scan_info_.sal;
+	block_[0] = tmp - lastdc_[cmp];
+	lastdc_[cmp] = tmp;
+
+	// encode dc
+	this->dc_prg_fs(*dc_tables_[component.huffdc]);
+}
+
 void JpgEncoder::dc_prg_fs(const HuffCodes& dc_table) {
 	// encode DC	
 	int s = pjg::bitlen2048n(block_[0]);
 	std::uint16_t n = envli(s, block_[0]);
 	huffman_writer_->write_u16(dc_table.cval[s], dc_table.clen[s]);
 	huffman_writer_->write_u16(n, s);
+}
+
+void JpgEncoder::dc_successive_later_stage(const Component& component, int dpos) {
+	// fetch bit from current bitplane
+	block_[0] = bitops::bitn(component.colldata[0][dpos], scan_info_.sal);
+
+	// encode dc correction bit
+	this->dc_prg_sa();
+}
+
+void JpgEncoder::dc_prg_sa() {
+	// enocode next bit of dc coefficient
+	huffman_writer_->write_bit(block_[0]);
 }
 
 void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
@@ -310,11 +316,6 @@ void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
 			this->eobrun(ac_table, eobrun);
 		}
 	}
-}
-
-void JpgEncoder::dc_prg_sa() {
-	// enocode next bit of dc coefficient
-	huffman_writer_->write_bit(block_[0]);
 }
 
 void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
