@@ -5,7 +5,6 @@
 
 #include "bitops.h"
 #include "pjpgtbl.h"
-#include "jfifparse.h"
 
 Segment::Segment(Reader& reader) {
 	std::array<std::uint8_t, 2> segment_marker{};
@@ -31,7 +30,7 @@ Segment::Segment(Reader& reader) {
 		throw std::runtime_error("Unable to read segment length.");
 	}
 
-	std::size_t segment_size = 2 + jfif::pack(std::get<0>(segment_length), std::get<1>(segment_length));
+	std::size_t segment_size = 2 + bitops::pack(std::get<0>(segment_length), std::get<1>(segment_length));
 	data_.resize(segment_size);
 	std::copy(std::begin(segment_length), std::end(segment_length), std::begin(data_) + 2);
 	// read rest of segment, store back in header writer

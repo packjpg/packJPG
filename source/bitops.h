@@ -6,6 +6,10 @@
 
 namespace bitops {
 
+constexpr std::uint16_t pack(std::uint8_t left, std::uint8_t right) {
+	return std::uint16_t(std::uint16_t(left) << 8) + std::uint16_t(right);
+}
+
 /*
  * Where m is the number of bits in type T, applies an AND mask for the lowest m - n bits to val (where n is defined on 0 <= n <= m) (i.e. returns the n rightmost bits).
  */

@@ -21,10 +21,6 @@
 #include "segment.h"
 
 namespace jfif {
-	constexpr int pack(std::uint8_t left, std::uint8_t right) {
-		return (int(left) << 8) + int(right);
-	}
-
 	// Builds Huffman trees and codes.
 	inline void parse_dht(const std::vector<std::uint8_t>& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
 		auto reader = std::make_unique<MemoryReader>(segment);
@@ -145,7 +141,7 @@ namespace jfif {
 					const auto first = reader->read_byte();
 					const auto second = reader->read_byte();
 
-					qtable[i] = pack(first, second);
+					qtable[i] = bitops::pack(first, second);
 					if (qtable[i] == 0) {
 						throw std::runtime_error("Quantization table contains an element with a zero value.");
 					}
@@ -164,7 +160,7 @@ namespace jfif {
 		reader->skip(4); // Skip the segment header.
 		const auto first = reader->read_byte();
 		const auto second = reader->read_byte();
-		return pack(first, second);
+		return bitops::pack(first, second);
 	}
 
 	inline void parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components) {
@@ -217,14 +213,14 @@ namespace jfif {
 
 		auto first = reader->read_byte();
 		auto second = reader->read_byte();
-		frame_info->image_height = jfif::pack(first, second);
+		frame_info->image_height = bitops::pack(first, second);
 		if (frame_info->image_height == 0) {
 			throw std::runtime_error("Image height is zero in the frame header.");
 		}
 
 		first = reader->read_byte();
 		second = reader->read_byte();
-		frame_info->image_width = jfif::pack(first, second);
+		frame_info->image_width = bitops::pack(first, second);
 		if (frame_info->image_width == 0) {
 			throw std::runtime_error("Image width is zero in the frame header.");
 		}
