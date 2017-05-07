@@ -18,7 +18,7 @@ class JpgEncoder {
 public:
 	JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
 	// JPEG encoding routine.
-	void recode();
+	void encode();
 
 	std::vector<std::uint8_t> get_huffman_data();
 	std::vector<std::size_t> get_restart_marker_pos();

@@ -383,8 +383,8 @@ namespace encode {
 	bool recode() {
 		jpeg_encoder = std::make_unique<JpgEncoder>(*frame_info, segments, jpg::padbit);
 		try {
-			jpeg_encoder->recode();
-		} catch (const std::exception& e) {
+			jpeg_encoder->encode();
+		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
@@ -428,7 +428,7 @@ namespace decode {
 			huffman_data = reader->get_huffman_data();
 			jpg::rst_err = reader->get_rst_err();
 			garbage_data = reader->get_garbage_data();
-		} catch (const std::exception& e) {
+		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
@@ -443,7 +443,7 @@ namespace decode {
 		try {
 			jpeg_decoder->decode();
 			jpg::padbit = jpeg_decoder->get_padbit();
-		} catch (const std::exception& e) {
+		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
@@ -454,7 +454,7 @@ namespace decode {
 	bool check_value_range() {
 		try {
 			jpeg_decoder->check_value_range(frame_info->components);
-		} catch (const std::exception& e) {
+		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
 			return false;
@@ -475,7 +475,7 @@ namespace pjg {
 			try {
 				auto pjg_encoder = std::make_unique<PjgEncoder>(*output_writer);
 				pjg_encoder->encode(jpg::padbit, frame_info->components, segments, jpg::rst_err, garbage_data);
-			} catch (const std::exception& e) {
+			} catch (const std::runtime_error& e) {
 				errormessage = e.what();
 				error = true;
 				return false;
@@ -498,7 +498,7 @@ namespace pjg {
 				jpg::padbit = pjg_decoder->get_padbit();
 				jpg::rst_err = pjg_decoder->get_rst_err();
 				garbage_data = pjg_decoder->get_garbage_data();
-			} catch (const std::exception& e) {
+			} catch (const std::runtime_error& e) {
 				errormessage = e.what();
 				error = true;
 				return false;

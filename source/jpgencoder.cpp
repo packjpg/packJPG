@@ -152,7 +152,7 @@ CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& 
 	return status;
 }
 
-void JpgEncoder::recode() {
+void JpgEncoder::encode() {
 	int scans_encoded = 0;
 	int restart_marker_count = 0;
 	int restart_interval = 0;

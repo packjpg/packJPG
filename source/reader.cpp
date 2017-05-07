@@ -279,7 +279,7 @@ std::size_t StreamReader::read(std::vector<std::uint8_t>& into, std::size_t num_
 std::uint8_t StreamReader::read_byte() {
 	try {
 		return reader_->read_byte();
-	} catch (const std::exception&) {
+	} catch (const std::runtime_error&) {
 		throw;
 	}
 }

@@ -54,7 +54,7 @@ void PjgDecoder::decode() {
 	try {
 		frame_info_ = jfif::get_frame_info(segments_);
 	}
-	catch (const std::exception&) {
+	catch (const std::runtime_error&) {
 		throw;
 	}
 

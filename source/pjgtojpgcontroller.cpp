@@ -6,16 +6,12 @@
 #include "jpgwriter.h"
 #include "pjgdecoder.h"
 
-PjgToJpgController::PjgToJpgController(Reader& pjg_input, Writer& jpg_output) :
-	pjg_input_(pjg_input),
-	jpg_output_(jpg_output)
-	{}
+PjgToJpgController::PjgToJpgController(Reader& pjg_input, Writer& jpg_output)
+	: pjg_input_(pjg_input), jpg_output_(jpg_output) {}
 
-PjgToJpgController::~PjgToJpgController() {
-}
+PjgToJpgController::~PjgToJpgController() {}
 
 void PjgToJpgController::execute() {
-	//pjgfilesize = pjg_input_->get_size();
 	std::unique_ptr<FrameInfo> frame_info;
 	std::vector<Segment> segments;
 	std::vector<std::uint8_t> garbage_data;
@@ -30,7 +26,7 @@ void PjgToJpgController::execute() {
 		padbit = pjg_decoder->get_padbit();
 		rst_err = pjg_decoder->get_rst_err();
 		garbage_data = pjg_decoder->get_garbage_data();
-	} catch (const std::exception&) {
+	} catch (const std::runtime_error&) {
 		throw;
 	}
 
@@ -42,8 +38,8 @@ void PjgToJpgController::execute() {
 	auto jpeg_encoder = std::make_unique<JpgEncoder>(*frame_info, segments, padbit);
 
 	try {
-		jpeg_encoder->recode();
-	} catch (const std::exception&) {
+		jpeg_encoder->encode();
+	} catch (const std::runtime_error&) {
 		throw;
 	}
 
@@ -56,11 +52,7 @@ void PjgToJpgController::execute() {
 	                                               jpeg_encoder->get_scan_pos());
 	try {
 		jpeg_writer->write();
-	} catch(const std::runtime_error&) {
+	} catch (const std::runtime_error&) {
 		throw;
 	}
-
-	// get filesize
-	//jpgfilesize = jpg_output_->num_bytes_written();
-
 }
