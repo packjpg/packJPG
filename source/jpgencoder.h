@@ -30,6 +30,14 @@ private:
 	// encoding for non interleaved data.
 	CodingStatus encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw);
 
+	CodingStatus encode_sequential_noninterleaved(const Component& component, int cmp, int rsti, int& dpos, int& rstw);
+	CodingStatus encode_progressive_noninterleaved_dc(const Component& component, int cmp, int rsti, int& dpos, int& rstw);
+	CodingStatus encode_progressive_noninterleaved_ac(const Component& component, int rsti, int& dpos, int& rstw);
+
+	CodingStatus encode_sequential_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	// Progressive interleaved DC encoding.
+	CodingStatus encode_progressive_interleaved_dc(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+
 	// Sequential block encoding routine.
 	void block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table);
 	// Progressive DC encoding routine.
@@ -69,10 +77,12 @@ private:
 
 	void copy_colldata_to_block_in_scan(const Component& component, int dpos);
 
-	void sequential_interleaved(const Component& component, int cmp, int dpos);
+	void encode_sequential(const Component& component, int cmp, int dpos);
 
-	void dc_successive_first_stage(const Component& component, int cmp, int dpos);
-	void dc_successive_later_stage(const Component& component, int dpos);
+	// DC successive approximation first stage.
+	void dc_succ_approx_first_stage(const Component& component, int cmp, int dpos);
+	// DC successive approximation later stage.
+	void dc_succ_approx_later_stage(const Component& component, int dpos);
 
 	FrameInfo& frame_info_;
 

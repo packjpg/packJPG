@@ -8,7 +8,7 @@ JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segmen
 	frame_info_(frame_info),
 	segments_(segments) {
 
-	huffman_writer_ = std::make_unique<BitWriter>(padbit); // bitwise writer for image data
+	huffman_writer_ = std::make_unique<BitWriter>(padbit);
 }
 
 std::vector<std::uint8_t> JpgEncoder::get_huffman_data() const {
@@ -56,7 +56,7 @@ void JpgEncoder::encode() {
 
 	huffman_data_ = huffman_writer_->get_data();
 
-	// store last scan & restart positions
+	// store last restart position
 	if (!restart_marker_pos_.empty()) {
 		restart_marker_pos_[restart_marker_count] = huffman_data_.size();
 	}
@@ -95,104 +95,116 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 }
 
 CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw) {
-	int eobrun = 0; // run of eobs
-
-	CodingStatus status = CodingStatus::OKAY;
 	const auto& component = frame_info_.components[cmp];
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
-		// ---> sequential non interleaved encoding <---
-		while (status == CodingStatus::OKAY) {
-			sequential_interleaved(component, cmp, dpos);
+		return this->encode_sequential_noninterleaved(component, cmp, rsti, dpos, rstw);
+	} else if (scan_info_.to == 0) {
+		return this->encode_progressive_noninterleaved_dc(component, cmp, rsti, dpos, rstw);
+	} else {
+		return this->encode_progressive_noninterleaved_ac(component, rsti, dpos, rstw);
+	}
+}
 
+CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
+		return encode_sequential_interleaved(rsti, cmp, dpos, rstw, csc, mcu, sub);
+	} else {
+		return encode_progressive_interleaved_dc(rsti, cmp, dpos, rstw, csc, mcu, sub);
+	}
+}
+
+CodingStatus JpgEncoder::encode_sequential_noninterleaved(const Component& component, int cmp, int rsti, int& dpos, int& rstw) {
+	auto status = CodingStatus::OKAY;
+	while (status == CodingStatus::OKAY) {
+		encode_sequential(component, cmp, dpos);
+
+		status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+	}
+	return status;
+}
+
+CodingStatus JpgEncoder::encode_progressive_noninterleaved_dc(const Component& component, int cmp, int rsti, int& dpos, int& rstw) {
+	auto status = CodingStatus::OKAY;
+	if (scan_info_.sah == 0) {
+		while (status == CodingStatus::OKAY) {
+			this->dc_succ_approx_first_stage(component, cmp, dpos);
 			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 		}
-	} else if (scan_info_.to == 0) {
-		if (scan_info_.sah == 0) {
-			// ---> progressive non interleaved DC encoding <---
-			// ---> succesive approximation first stage <---
-			while (status == CodingStatus::OKAY) {
-				dc_successive_first_stage(component, cmp, dpos);
-
-				// Increment dpos
-				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
-			}
-		} else {
-			// ---> progressive non interleaved DC encoding <---
-			// ---> succesive approximation later stage <---
-			while (status == CodingStatus::OKAY) {
-				dc_successive_later_stage(component, dpos);
-
-				// next mcupos
-				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
-			}
-		}
 	} else {
-		if (scan_info_.sah == 0) {
-			// ---> progressive non interleaved AC encoding <---
-			// ---> succesive approximation first stage <---
-			while (status == CodingStatus::OKAY) {
-				copy_colldata_to_block_in_scan(component, dpos);
-
-				// encode block
-				this->ac_prg_fs(*ac_tables_[component.huffac], eobrun);
-
-				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
-			}
-
-			// encode remaining eobrun
-			this->eobrun(*ac_tables_[component.huffac], eobrun);
-		} else {
-			// ---> progressive non interleaved AC encoding <---
-			// ---> succesive approximation later stage <---
-			while (status == CodingStatus::OKAY) {
-				copy_colldata_to_block_in_scan(component, dpos);
-
-				// encode block
-				this->ac_prg_sa(*ac_tables_[component.huffac], eobrun);
-
-				status = jpg::next_mcuposn(component, rsti, dpos, rstw);
-			}
-
-			// encode remaining eobrun
-			this->eobrun(*ac_tables_[component.huffac], eobrun);
-
-			// encode remaining correction bits
-			this->write_correction_bits();
+		while (status == CodingStatus::OKAY) {
+			dc_succ_approx_later_stage(component, dpos);
+			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 		}
 	}
 	return status;
 }
 
-CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
-	CodingStatus status = CodingStatus::OKAY;
-	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
-		// ---> sequential interleaved encoding <---
+CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& component, int rsti, int& dpos, int& rstw) {
+	int eobrun = 0; // run of eobs
+	auto status = CodingStatus::OKAY;
+	auto ac_table = *ac_tables_[component.huffac];
+	if (scan_info_.sah == 0) {
+		// successive approximation first stage
 		while (status == CodingStatus::OKAY) {
-			sequential_interleaved(frame_info_.components[cmp], cmp, dpos);
+			copy_colldata_to_block_in_scan(component, dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
+			// encode block
+			this->ac_prg_fs(ac_table, eobrun);
 
+			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
 		}
-	} else if (scan_info_.sah == 0) {
-		// ---> progressive interleaved DC encoding <---
-		// ---> succesive approximation first stage <---
+
+		// encode remaining eobrun
+		this->eobrun(ac_table, eobrun);
+	} else {
+		// successive approximation later stage
 		while (status == CodingStatus::OKAY) {
-			dc_successive_first_stage(frame_info_.components[cmp], cmp, dpos);
+			copy_colldata_to_block_in_scan(component, dpos);
+
+			// encode block
+			this->ac_prg_sa(ac_table, eobrun);
+
+			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+		}
+
+		// encode remaining eobrun
+		this->eobrun(ac_table, eobrun);
+
+		// encode remaining correction bits
+		this->write_correction_bits();
+	}
+	return status;
+}
+
+CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+	auto status = CodingStatus::OKAY;
+	if (scan_info_.sah == 0) {
+		while (status == CodingStatus::OKAY) {
+			dc_succ_approx_first_stage(frame_info_.components[cmp], cmp, dpos);
 
 			// next mcupos
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 		}
 	} else {
-		// ---> progressive interleaved DC encoding <---
-		// ---> succesive approximation later stage <---
 		while (status == CodingStatus::OKAY) {
-			dc_successive_later_stage(frame_info_.components[cmp], dpos);
+			dc_succ_approx_later_stage(frame_info_.components[cmp], dpos);
 
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 		}
+	}
+	return status;
+}
+
+CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+	auto status = CodingStatus::OKAY;
+	while (status == CodingStatus::OKAY) {
+		encode_sequential(frame_info_.components[cmp], cmp, dpos);
+
+		status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+		dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
+
 	}
 	return status;
 }
@@ -204,7 +216,7 @@ void JpgEncoder::copy_colldata_to_block_in_scan(const Component& component, int 
 	}
 }
 
-void JpgEncoder::sequential_interleaved(const Component& component, int cmp, int dpos) {
+void JpgEncoder::encode_sequential(const Component& component, int cmp, int dpos) {
 	for (std::size_t bpos = 0; bpos < block_.size(); bpos++) {
 		block_[bpos] = component.colldata[bpos][dpos];
 	}
@@ -250,7 +262,7 @@ void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table)
 	}
 }
 
-void JpgEncoder::dc_successive_first_stage(const Component& component, int cmp, int dpos) {
+void JpgEncoder::dc_succ_approx_first_stage(const Component& component, int cmp, int dpos) {
 	// diff coding & bitshifting for dc 
 	const int tmp = component.colldata[0][dpos] >> scan_info_.sal;
 	block_[0] = tmp - lastdc_[cmp];
@@ -268,7 +280,7 @@ void JpgEncoder::dc_prg_fs(const HuffCodes& dc_table) {
 	huffman_writer_->write_u16(n, s);
 }
 
-void JpgEncoder::dc_successive_later_stage(const Component& component, int dpos) {
+void JpgEncoder::dc_succ_approx_later_stage(const Component& component, int dpos) {
 	// fetch bit from current bitplane
 	block_[0] = bitops::bitn(component.colldata[0][dpos], scan_info_.sal);
 
