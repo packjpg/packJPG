@@ -8,14 +8,10 @@
 #include "pjgtojpgcontroller.h"
 
 FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose) : overwrite_(overwrite), verify_reversible_(verify), verbose_(verbose) {
-	try {
-		input_ = std::make_unique<MemoryFileReader>(input_file);
-		file_type_ = get_file_type();
-		const auto output_file = determine_output_destination(input_file, file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext);
-		output_ = std::make_unique<FileWriter>(output_file);
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	input_ = std::make_unique<MemoryFileReader>(input_file);
+	file_type_ = get_file_type();
+	const auto output_file = determine_output_destination(input_file, file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext);
+	output_ = std::make_unique<FileWriter>(output_file);
 
 	if (file_type_ == FileType::JPG) {
 		controller_ = std::make_unique<JpgToPjgController>(*input_, *output_);
@@ -25,13 +21,9 @@ FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool
 }
 
 FileProcessor::FileProcessor(bool verify, bool verbose) : verify_reversible_(verify), verbose_(verbose) {
-	try {
-		input_ = std::make_unique<StreamReader>();
-		file_type_ = get_file_type();
-		output_ = std::make_unique<StreamWriter>();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	input_ = std::make_unique<StreamReader>();
+	file_type_ = get_file_type();
+	output_ = std::make_unique<StreamWriter>();
 
 	if (file_type_ == FileType::JPG) {
 		controller_ = std::make_unique<JpgToPjgController>(*input_, *output_);
@@ -47,11 +39,7 @@ void FileProcessor::execute() {
 		executed_ = true;
 	}
 
-	try {
-		controller_->execute();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	controller_->execute();
 
 	if (!verify_reversible_) {
 		return;
@@ -68,15 +56,11 @@ void FileProcessor::execute() {
 		reversed_controller = std::make_unique<JpgToPjgController>(*output_as_input, *verification_output);
 	}
 
-	try {
-		reversed_controller->execute();
-		verify_reversible(*verification_output);
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	reversed_controller->execute();
+	verify_reversible(*verification_output);
 }
 
-std::size_t FileProcessor::get_jpg_size() {
+std::size_t FileProcessor::get_jpg_size() const {
 	if (file_type_ == FileType::JPG) {
 		return input_->get_size();
 	} else {
@@ -84,7 +68,7 @@ std::size_t FileProcessor::get_jpg_size() {
 	}
 }
 
-std::size_t FileProcessor::get_pjg_size() {
+std::size_t FileProcessor::get_pjg_size() const {
 	if (file_type_ == FileType::JPG) {
 		return output_->num_bytes_written();
 	} else {
@@ -122,8 +106,8 @@ void FileProcessor::verify_reversible(Writer& verification_output) const {
 	const auto& input_data = input_->get_data();
 	const auto& verification_data = verification_output.get_data();
 	if (input_data.size() != verification_data.size()) {
-		throw std::runtime_error("Expected size: " + std::to_string(input_data.size())
-			+ ", Verification size: " + std::to_string(verification_data.size()));
+		throw std::runtime_error("Expected (input) file size: " + std::to_string(input_data.size())
+			+ ", Verification file size: " + std::to_string(verification_data.size()));
 	}
 
 	const auto result = std::mismatch(std::begin(input_data),
@@ -132,7 +116,8 @@ void FileProcessor::verify_reversible(Writer& verification_output) const {
 	                                  std::end(verification_data));
 	if (result.first != std::end(input_data) || result.second != std::end(verification_data)) {
 		const auto first_diff = std::distance(std::begin(input_data), result.first);
-		throw std::runtime_error("Difference found at byte position " + std::to_string(first_diff));
+		throw std::runtime_error("First difference between expected (input) and verification file found at byte position "
+			+ std::to_string(first_diff));
 	}
 }
 

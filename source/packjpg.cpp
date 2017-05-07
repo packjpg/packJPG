@@ -450,10 +450,28 @@ namespace decode {
 		}
 		return true;
 	}
+
+	void check_value_range(const std::vector<Component>& components) {
+		for (const auto& component : components) {
+			for (std::size_t freq = 0; freq < component.colldata.size(); freq++) {
+				const auto& coefficients = component.colldata[freq];
+				const auto absmax = component.max_v(freq);
+				for (auto value : coefficients) {
+					if (std::abs(value) > absmax) {
+						throw std::range_error("value out of range error: cmp id: " + std::to_string(component.jid)
+							+ ", frq " + std::to_string(freq)
+							+ ", val " + std::to_string(value)
+							+ ", max " + std::to_string(absmax));
+					}
+				}
+			}
+		}
+	}
+
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
 		try {
-			jpeg_decoder->check_value_range(frame_info->components);
+			check_value_range(frame_info->components);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;

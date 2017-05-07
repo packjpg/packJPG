@@ -19,8 +19,8 @@ public:
 
 	void execute();
 
-	std::size_t get_jpg_size();
-	std::size_t get_pjg_size();
+	std::size_t get_jpg_size() const;
+	std::size_t get_pjg_size() const;
 
 private:
 	/*
