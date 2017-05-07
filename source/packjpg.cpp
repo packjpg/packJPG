@@ -451,7 +451,7 @@ namespace decode {
 		return true;
 	}
 
-	void check_value_range(const std::vector<Component>& components) {
+	void check_value_range_temp(const std::vector<Component>& components) {
 		for (const auto& component : components) {
 			for (std::size_t freq = 0; freq < component.colldata.size(); freq++) {
 				const auto& coefficients = component.colldata[freq];
@@ -471,7 +471,7 @@ namespace decode {
 	// Checks range of values, error if out of bounds.
 	bool check_value_range() {
 		try {
-			check_value_range(frame_info->components);
+			check_value_range_temp(frame_info->components);
 		} catch (const std::runtime_error& e) {
 			errormessage = e.what();
 			error = true;
