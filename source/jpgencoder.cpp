@@ -182,7 +182,6 @@ CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, i
 		while (status == CodingStatus::OKAY) {
 			dc_succ_approx_first_stage(frame_info_.components[cmp], cmp, dpos);
 
-			// next mcupos
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
 		}
@@ -202,9 +201,8 @@ CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& 
 	while (status == CodingStatus::OKAY) {
 		encode_sequential(frame_info_.components[cmp], cmp, dpos);
 
-		status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+		status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu,  cmp, csc, sub, rstw);
 		dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
-
 	}
 	return status;
 }

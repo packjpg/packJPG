@@ -14,12 +14,7 @@ JpgToPjgController::~JpgToPjgController() {}
 
 void JpgToPjgController::execute() {
 	auto reader = std::make_unique<JpgReader>(jpg_input_);
-	try {
-		reader->read();
-	} catch (const std::runtime_error&) {
-		throw;
-	}
-
+	reader->read();
 	auto frame_info = reader->get_frame_info();
 	auto segments = reader->get_segments();
 	const auto& huffman_data = reader->get_huffman_data();
@@ -27,12 +22,9 @@ void JpgToPjgController::execute() {
 	const auto& garbage_data = reader->get_garbage_data();
 
 	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
-	try {
-		jpeg_decoder->decode();
-		this->check_value_range(frame_info->components);
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	jpeg_decoder->decode();
+
+	this->check_value_range(frame_info->components);
 
 	const auto padbit = jpeg_decoder->get_padbit();
 
@@ -42,16 +34,13 @@ void JpgToPjgController::execute() {
 		component.calc_zdst_lists();
 	}
 
-	try {
-		auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);
-		pjg_encoder->encode(padbit,
-		                    frame_info->components,
-		                    segments,
-		                    rst_err,
-		                    garbage_data);
-	} catch (const std::runtime_error&) {
-		throw;
-	}
+	auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);
+	pjg_encoder->encode(padbit,
+	                    frame_info->components,
+	                    segments,
+	                    rst_err,
+	                    garbage_data);
+
 }
 
 void JpgToPjgController::check_value_range(const std::vector<Component>& components) const {
