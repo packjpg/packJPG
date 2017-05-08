@@ -20,6 +20,17 @@ namespace program_info {
 
 	const std::string pjg_ext = "pjg";
 	const std::string jpg_ext = "jpg";
+
+	inline void display_program_info(FILE* output_stream) {
+		fprintf(output_stream, "\n--> %s v%i.%i%s (%s) by %s <--\n",
+		        program_info::apptitle.c_str(),
+		        program_info::appversion / 10,
+		        program_info::appversion % 10,
+		        program_info::subversion.c_str(),
+		        program_info::versiondate.c_str(),
+		        program_info::author.c_str());
+		fprintf(output_stream, "Copyright %s\nAll rights reserved\n\n", program_info::copyright.c_str());
+	}
 }
 
 #endif
