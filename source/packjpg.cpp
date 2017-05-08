@@ -2864,7 +2864,7 @@ INTERN bool recode_jpeg( void )
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
+							&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
 							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
 							block );
 						
@@ -2923,7 +2923,7 @@ INTERN bool recode_jpeg( void )
 						
 						// encode block
 						eob = jpg_encode_block_seq( huffw,
-							&(hcodes[ 0 ][ cmpnfo[cmp].huffac ]),
+							&(hcodes[ 0 ][ cmpnfo[cmp].huffdc ]),
 							&(hcodes[ 1 ][ cmpnfo[cmp].huffac ]),
 							block );
 						
