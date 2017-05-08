@@ -224,7 +224,7 @@ void JpgEncoder::encode_sequential(const Component& component, int cmp, int dpos
 	lastdc_[cmp] = component.colldata[0][dpos];
 
 	// encode block
-	this->block_seq(*dc_tables_[component.huffac], *ac_tables_[component.huffac]);
+	this->block_seq(*dc_tables_[component.huffdc], *ac_tables_[component.huffac]);
 }
 
 void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table) {
