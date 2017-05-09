@@ -22,6 +22,12 @@ public:
 	std::size_t get_jpg_size() const;
 	std::size_t get_pjg_size() const;
 
+	/*
+	 * Attempts to delete the file created for output, returning whether the file was successfully removed from the filesystem.
+	 * Does nothing and returns true if the output destination was stdout or execute() has not been run.
+	 */
+	bool delete_output();
+
 private:
 	/*
 	 * Returns the file type, either JPG or PJG. Throws a runtime error if
@@ -39,10 +45,12 @@ private:
 
 	std::unique_ptr<Controller> controller_;
 
-	std::unique_ptr<Reader> input_;
-	std::unique_ptr<Writer> output_;
+	std::unique_ptr<Reader> input_reader_;
+	std::unique_ptr<Writer> output_writer_;
 
 	FileType file_type_;
+	std::string output_destination_;
+	bool output_dest_is_stdout_ = false;
 };
 
 #endif

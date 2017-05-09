@@ -351,6 +351,10 @@ int main(int argc, char** argv) {
 		} catch (const std::runtime_error& e) {
 			const auto name = filename == "-" ? "stdin" : filename;
 			fprintf(options->info_stream, "\nError processing %s: %s\n", name.c_str(), e.what());
+			bool successfully_deleted = processor->delete_output();
+			if (successfully_deleted) {
+				fprintf(options->info_stream, "Unable to delete the output of processing %s\n", name.c_str());
+			}
 			errors++;
 		}
 	}
