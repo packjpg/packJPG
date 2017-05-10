@@ -1,8 +1,8 @@
 #include "reader.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <experimental/filesystem>
+#include <fstream>
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
@@ -10,82 +10,6 @@
 #endif
 
 #include "writer.h"
-
-FileReader::FileReader(const std::string& file_path) : file_path_(file_path) {
-	fptr_ = fopen(file_path.c_str(), "rb");
-	if (fptr_ != nullptr) {
-		file_buffer_.reserve(32768);
-		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.capacity());
-	} else {
-		throw std::runtime_error("Unable to open " + file_path);
-	}
-}
-
-FileReader::~FileReader() {
-	if (fptr_ != nullptr) {
-		fclose(fptr_);
-	}
-}
-
-std::size_t FileReader::read(std::uint8_t* to, std::size_t num_to_read) {
-	return fread(to, sizeof to[0], num_to_read, fptr_);
-}
-
-std::size_t FileReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
-	return read(into.data() + offset, num_to_read);
-}
-
-std::uint8_t FileReader::read_byte() {
-	const int val = fgetc(fptr_);
-	if (val != EOF) {
-		return static_cast<std::uint8_t>(val);
-	} else {
-		throw std::runtime_error("No bytes left in " + file_path_ + " to read!");
-	}
-}
-
-bool FileReader::read_byte(std::uint8_t* to) {
-	const int val = fgetc(fptr_);
-	*to = val;
-	return val != EOF;
-}
-
-void FileReader::skip(std::size_t n) {
-	std::fseek(fptr_, n, SEEK_CUR);
-}
-
-void FileReader::rewind_bytes(std::size_t n) {
-	std::fseek(fptr_, -static_cast<long>(n), SEEK_CUR);
-}
-
-void FileReader::rewind() {
-	std::rewind(fptr_);
-}
-
-std::size_t FileReader::num_bytes_read() {
-	return ftell(fptr_);
-}
-
-std::size_t FileReader::get_size() {
-	return std::experimental::filesystem::file_size(file_path_);
-}
-
-std::vector<std::uint8_t> FileReader::get_data() {
-	auto position = num_bytes_read();
-	std::vector<std::uint8_t> data_copy(get_size());
-	fseek(fptr_, 0, SEEK_SET);
-	fread(data_copy.data(), sizeof data_copy[0], data_copy.capacity(), fptr_);
-	fseek(fptr_, position, SEEK_SET);
-	return data_copy;
-}
-
-bool FileReader::error() {
-	return fptr_ == nullptr || ferror(fptr_) != 0;
-}
-
-bool FileReader::end_of_reader() {
-	return feof(fptr_) != 0;
-}
 
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
 	data_(bytes),
@@ -180,65 +104,68 @@ bool MemoryReader::end_of_reader() {
 	return eof_;
 }
 
-MemoryFileReader::MemoryFileReader(const std::string& file_path) {
-	auto file_stream = std::fopen(file_path.c_str(), "rb");
-	if (file_stream == nullptr) {
-		throw std::runtime_error("Unable to open " + file_path);
+FileReader::FileReader(const std::string& file_path) {
+	if (std::ifstream is{ file_path, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		std::vector<std::uint8_t> data(size);
+		is.seekg(0);
+		if (is.read(reinterpret_cast<char*>(data.data()), size)) {
+			reader_ = std::make_unique<MemoryReader>(data);
+		} else {
+			throw std::runtime_error("MemoryFileReader: unable to read bytes from file.");
+		}
+	} else {
+		throw std::runtime_error("MemoryFileReadera: unable to open read stream for file.");
 	}
-	auto file_size = std::experimental::filesystem::file_size(file_path);
-	std::vector<std::uint8_t> data(file_size);
-	std::fread(data.data(), sizeof data[0], file_size, file_stream);
-	std::fclose(file_stream);
-	reader_ = std::make_unique<MemoryReader>(data);
 }
 
-MemoryFileReader::~MemoryFileReader() {}
+FileReader::~FileReader() {}
 
-std::size_t MemoryFileReader::read(std::uint8_t* to, std::size_t num_to_read) {
+std::size_t FileReader::read(std::uint8_t* to, std::size_t num_to_read) {
 	return reader_->read(to, num_to_read);
 }
 
-std::size_t MemoryFileReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+std::size_t FileReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
 	return reader_->read(into, num_to_read, offset);
 }
 
-std::uint8_t MemoryFileReader::read_byte() {
+std::uint8_t FileReader::read_byte() {
 	return reader_->read_byte();
 }
 
-bool MemoryFileReader::read_byte(std::uint8_t* to) {
+bool FileReader::read_byte(std::uint8_t* to) {
 	return reader_->read_byte(to);
 }
 
-void MemoryFileReader::skip(std::size_t n) {
+void FileReader::skip(std::size_t n) {
 	return reader_->skip(n);
 }
 
-void MemoryFileReader::rewind_bytes(std::size_t n) {
+void FileReader::rewind_bytes(std::size_t n) {
 	return reader_->rewind_bytes(n);
 }
 
-void MemoryFileReader::rewind() {
+void FileReader::rewind() {
 	reader_->rewind();
 }
 
-std::size_t MemoryFileReader::num_bytes_read() {
+std::size_t FileReader::num_bytes_read() {
 	return reader_->num_bytes_read();
 }
 
-std::size_t MemoryFileReader::get_size() {
+std::size_t FileReader::get_size() {
 	return reader_->get_size();
 }
 
-std::vector<std::uint8_t> MemoryFileReader::get_data() {
+std::vector<std::uint8_t> FileReader::get_data() {
 	return reader_->get_data();
 }
 
-bool MemoryFileReader::error() {
+bool FileReader::error() {
 	return reader_->error();
 }
 
-bool MemoryFileReader::end_of_reader() {
+bool FileReader::end_of_reader() {
 	return reader_->end_of_reader();
 }
 

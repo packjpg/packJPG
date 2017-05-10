@@ -8,7 +8,7 @@
 #include "pjgtojpgcontroller.h"
 
 FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose) : overwrite_(overwrite), verify_reversible_(verify), verbose_(verbose) {
-	input_ = std::make_unique<MemoryFileReader>(input_file);
+	input_ = std::make_unique<FileReader>(input_file);
 	file_type_ = get_file_type();
 	const auto output_file = determine_output_destination(input_file, file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext);
 	output_ = std::make_unique<FileWriter>(output_file);

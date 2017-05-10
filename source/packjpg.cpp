@@ -753,7 +753,7 @@ static void process_ui(const std::string& input_file) {
 		if (pipe_on) {
 			input_reader = std::make_unique<StreamReader>();
 		} else {
-			input_reader = std::make_unique<MemoryFileReader>(input_file);
+			input_reader = std::make_unique<FileReader>(input_file);
 		}
 	} catch (const std::runtime_error& e) {
 		errormessage = e.what();

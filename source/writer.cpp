@@ -1,7 +1,7 @@
 #include "writer.h"
 
-#include <algorithm>
 #include <experimental/filesystem>
+#include <fstream>
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
@@ -9,7 +9,7 @@
 #endif
 
 FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
-	fptr_ = fopen(file_path.c_str(), "wb");
+	fptr_ = std::fopen(file_path.c_str(), "wb");
 	if (fptr_ != nullptr) {
 		file_buffer_.reserve(32768);
 		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.capacity());
@@ -21,13 +21,13 @@ FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
 
 FileWriter::~FileWriter() {
 	if (fptr_ != nullptr) {
-		fflush(fptr_);
-		fclose(fptr_);
+		std::fflush(fptr_);
+		std::fclose(fptr_);
 	}
 }
 
 std::size_t FileWriter::write(const std::uint8_t* from, std::size_t n) {
-	return fwrite(from, sizeof from[0], n, fptr_);
+	return std::fwrite(from, sizeof from[0], n, fptr_);
 }
 
 std::size_t FileWriter::write(const std::vector<std::uint8_t>& bytes) {
@@ -39,33 +39,36 @@ std::size_t FileWriter::write(const std::array<std::uint8_t, 2>& bytes) {
 }
 
 bool FileWriter::write_byte(std::uint8_t byte) {
-	return fputc(byte, fptr_) == byte;
+	return std::fputc(byte, fptr_) == byte;
 }
 
 std::vector<std::uint8_t> FileWriter::get_data() {
-	fflush(fptr_);
-	auto file_reader = fopen(file_path_.c_str(), "rb");
-	if (file_reader == nullptr) {
-		return std::vector<std::uint8_t>();
+	std::fflush(fptr_);
+	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		std::vector<std::uint8_t> data_copy(size);
+		is.seekg(0);
+		if (is.read(reinterpret_cast<char*>(data_copy.data()), size)) {
+			return data_copy;
+		} else {
+			throw std::runtime_error("FileWriter::get_data: unable to read bytes from file.");
+		}
+	} else {
+		throw std::runtime_error("FileWriter::get_data: unable to open read stream for file.");
 	}
-	std::vector<std::uint8_t> data_copy(num_bytes_written());
-	fseek(file_reader, 0, SEEK_SET);
-	std::fread(data_copy.data(), sizeof(uint8_t), data_copy.size(), file_reader);
-	fclose(file_reader);
-	return data_copy;
 }
 
 void FileWriter::rewind() {
-	fseek(fptr_, 0, SEEK_SET);
+	std::fseek(fptr_, 0, SEEK_SET);
 }
 
 std::size_t FileWriter::num_bytes_written() {
-	fflush(fptr_);
+	std::fflush(fptr_);
 	return std::experimental::filesystem::file_size(file_path_);
 }
 
 bool FileWriter::error() {
-	return fptr_ == nullptr || ferror(fptr_);
+	return fptr_ == nullptr || std::ferror(fptr_);
 }
 
 MemoryWriter::MemoryWriter() {}
