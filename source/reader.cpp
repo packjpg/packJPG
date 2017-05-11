@@ -9,8 +9,6 @@
 #include <io.h>
 #endif
 
-#include "writer.h"
-
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
 	data_(bytes),
 	cbyte_(std::begin(data_)) {
@@ -170,18 +168,17 @@ StreamReader::StreamReader() {
 	}
 #endif
 	// read whole stream into memory buffer
-	auto writer = std::make_unique<MemoryWriter>();
+	std::vector<std::uint8_t> stream_data;
 	constexpr auto buffer_capacity = 1024 * 1024;
 	std::vector<std::uint8_t> buffer(buffer_capacity);
 
-	auto bytes_read = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+	auto bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 	while (bytes_read > 0) {
-		writer->write(buffer.data(), bytes_read);
-		bytes_read = fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+		stream_data.insert(std::end(stream_data), std::begin(buffer), std::begin(buffer) + bytes_read);
+		bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
 	}
-	const auto bytes = writer->get_data();
 
-	reader_ = std::make_unique<MemoryReader>(bytes);
+	reader_ = std::make_unique<MemoryReader>(stream_data);
 }
 
 std::size_t StreamReader::read(std::uint8_t* to, std::size_t num_to_read) {
