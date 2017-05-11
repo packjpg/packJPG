@@ -92,7 +92,6 @@ public:
 private:
 	const std::vector<std::uint8_t> data_;
 	std::vector<std::uint8_t>::const_iterator cbyte_; // The position in the data of the byte being read.
-	bool eof_ = false;
 };
 
 class FileReader : public Reader {

@@ -13,8 +13,7 @@
 
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
 	data_(bytes),
-	cbyte_(std::begin(data_)),
-	eof_(bytes.empty()) {
+	cbyte_(std::begin(data_)) {
 }
 
 std::size_t MemoryReader::read(std::uint8_t* to, std::size_t num_to_read) {
@@ -26,7 +25,6 @@ std::size_t MemoryReader::read(std::uint8_t* to, std::size_t num_to_read) {
 	auto end = std::next(cbyte_, numRead);
 	std::copy(cbyte_, end, to);
 	cbyte_ = end;
-	eof_ = cbyte_ == std::end(data_);
 	return numRead;
 }
 
@@ -41,29 +39,25 @@ std::size_t MemoryReader::read(std::vector<std::uint8_t>& into, std::size_t n, s
 	const auto write_start = std::next(std::begin(into), offset);
 	std::copy(cbyte_, end, write_start);
 	cbyte_ = end;
-	eof_ = cbyte_ == std::end(data_);
 	return num_to_read;
 }
 
 std::uint8_t MemoryReader::read_byte() {
-	if (cbyte_ == std::end(data_)) {
+	if (end_of_reader()) {
 		throw std::runtime_error("No bytes left to read");
 	} else {
 		std::uint8_t the_byte = *cbyte_;
 		++cbyte_;
-		eof_ = cbyte_ == std::end(data_);
 		return the_byte;
 	}
 }
 
 bool MemoryReader::read_byte(std::uint8_t* byte) {
-	if (cbyte_ == std::end(data_)) {
-		eof_ = true;
+	if (end_of_reader()) {
 		return false;
 	} else {
 		*byte = *cbyte_;
 		++cbyte_;
-		eof_ = cbyte_ == std::end(data_);
 		return true;
 	}
 }
@@ -81,7 +75,6 @@ void MemoryReader::rewind_bytes(std::size_t n) {
 
 void MemoryReader::rewind() {
 	cbyte_ = std::begin(data_);
-	eof_ = cbyte_ == std::end(data_);
 }
 
 std::size_t MemoryReader::num_bytes_read() {
@@ -101,7 +94,7 @@ bool MemoryReader::error() {
 }
 
 bool MemoryReader::end_of_reader() {
-	return eof_;
+	return cbyte_ == std::end(data_);
 }
 
 FileReader::FileReader(const std::string& file_path) {
