@@ -16,6 +16,7 @@
 #include "frameinfo.h"
 #include "huffcodes.h"
 #include "jpegtype.h"
+#include "pjpgtbl.h"
 #include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"

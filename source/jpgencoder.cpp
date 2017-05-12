@@ -118,7 +118,7 @@ CodingStatus JpgEncoder::encode_sequential_noninterleaved(const Component& compo
 	while (status == CodingStatus::OKAY) {
 		encode_sequential(component, cmp, dpos);
 
-		status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+		status = component.next_mcuposn(rsti, dpos, rstw);
 	}
 	return status;
 }
@@ -128,12 +128,12 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_dc(const Component& c
 	if (scan_info_.sah == 0) {
 		while (status == CodingStatus::OKAY) {
 			this->dc_succ_approx_first_stage(component, cmp, dpos);
-			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+			status = component.next_mcuposn(rsti, dpos, rstw);
 		}
 	} else {
 		while (status == CodingStatus::OKAY) {
 			dc_succ_approx_later_stage(component, dpos);
-			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+			status = component.next_mcuposn(rsti, dpos, rstw);
 		}
 	}
 	return status;
@@ -151,7 +151,7 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& c
 			// encode block
 			this->ac_prg_fs(ac_table, eobrun);
 
-			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+			status = component.next_mcuposn(rsti, dpos, rstw);
 		}
 
 		// encode remaining eobrun
@@ -164,7 +164,7 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& c
 			// encode block
 			this->ac_prg_sa(ac_table, eobrun);
 
-			status = jpg::next_mcuposn(component, rsti, dpos, rstw);
+			status = component.next_mcuposn(rsti, dpos, rstw);
 		}
 
 		// encode remaining eobrun
@@ -183,14 +183,14 @@ CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, i
 			dc_succ_approx_first_stage(frame_info_.components[cmp], cmp, dpos);
 
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
+			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	} else {
 		while (status == CodingStatus::OKAY) {
 			dc_succ_approx_later_stage(frame_info_.components[cmp], dpos);
 
 			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
+			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	}
 	return status;
@@ -202,7 +202,7 @@ CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& 
 		encode_sequential(frame_info_.components[cmp], cmp, dpos);
 
 		status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu,  cmp, csc, sub, rstw);
-		dpos = jpg::next_mcupos(frame_info_, mcu, cmp, sub);
+		dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 	}
 	return status;
 }

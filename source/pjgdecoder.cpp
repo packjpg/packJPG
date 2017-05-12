@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 
+#include "dct8x8.h"
 #include "jfifparse.h"
 #include "programinfo.h"
 
