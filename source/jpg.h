@@ -14,7 +14,7 @@ inline CodingStatus increment_counts(const FrameInfo& frame_info, const ScanInfo
 	if (sub >= frame_info.components[component].mbs) {
 		sub = 0;
 		csc++;
-		if (csc >= scan_info.cmpc) {
+		if (csc >= scan_info.cmp.size()) {
 			csc = 0;
 			component = scan_info.cmp[0];
 			mcu++;

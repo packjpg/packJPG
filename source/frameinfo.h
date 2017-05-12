@@ -4,7 +4,8 @@
 #include "component.h"
 #include "jpegtype.h"
 
-struct FrameInfo {
+class FrameInfo {
+public:
 	JpegType coding_process;
 
 	int image_height = 0;

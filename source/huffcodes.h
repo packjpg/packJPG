@@ -4,7 +4,8 @@
 #include <array>
 #include <cstdint>
 
-struct HuffCodes {
+class HuffCodes {
+public:
 	std::array<std::uint16_t, 256> cval{};
 	std::array<std::uint16_t, 256> clen{};
 	std::uint16_t max_eobrun = 0;

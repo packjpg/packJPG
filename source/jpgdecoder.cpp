@@ -45,7 +45,7 @@ void JpgDecoder::decode() {
 
 void JpgDecoder::check_huffman_tables_available(int scans_finished) {
 	// check if huffman tables are available
-	for (int csc = 0; csc < scan_info_.cmpc; csc++) {
+	for (int csc = 0; csc < scan_info_.cmp.size(); csc++) {
 		const auto& component = frame_info_.components[scan_info_.cmp[csc]];
 		if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
 			(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
@@ -68,7 +68,7 @@ void JpgDecoder::decode_scan(int restart_interval) {
 		// set last DCs for diff coding
 		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
 
-		if (scan_info_.cmpc > 1) {
+		if (scan_info_.cmp.size() > 1) {
 			status = decode_interleaved_data(restart_interval, cmp, dpos, mcu, csc, sub);
 		} else {
 			status = decode_noninterleaved_data(restart_interval, cmp, dpos);
