@@ -7,10 +7,6 @@
 
 #include "codingstatus.h"
 
-constexpr int clamp(int val, int lo, int hi) {
-	return (val < lo) ? lo : (val > hi ? hi : val);
-}
-
 class Component {
 public:
 	int quant(std::size_t bp) const;

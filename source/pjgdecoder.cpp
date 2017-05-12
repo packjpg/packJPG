@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 
+#include "bitops.h"
 #include "dct8x8.h"
 #include "jfifparse.h"
 #include "programinfo.h"
@@ -447,7 +448,7 @@ void PjgDecoder::ac_low(Component& component) {
 				ctx_lak = context_.lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
 			else
 				ctx_lak = 0;
-			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
+			ctx_lak = bitops::clamp(ctx_lak, max_valn, max_valp);
 			const int ctx_len = pjg::bitlen2048n(ctx_lak); // Bitlength context.				
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, zdstls[dpos]);

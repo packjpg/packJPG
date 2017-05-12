@@ -427,7 +427,7 @@ void PjgEncoder::ac_low(Component& component) {
 			} else {
 				ctx_lak = 0;
 			}
-			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
+			ctx_lak = bitops::clamp(ctx_lak, max_valn, max_valp);
 			const int ctx_len = pjg::bitlen2048n(ctx_lak); // Context for bitlength.
 
 			// shift context / do context modelling (segmentation is done per context)
