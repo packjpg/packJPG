@@ -5,7 +5,6 @@
 
 #include "jfifparse.h"
 #include "programinfo.h"
-#include "writer.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	// check header codes ( maybe position in other function ? )
@@ -196,8 +195,6 @@ void PjgDecoder::zdst_low(Component& component) {
 
 void PjgDecoder::dc(Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context_.get_weights(); // weighting for contexts
-
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
@@ -235,7 +232,7 @@ void PjgDecoder::dc(Component& component) {
 		// get segment-number from zero distribution list and segmentation set
 		const int snum = segm_tab[zdstls[dpos]];
 		// calculate contexts (for bit length)
-		const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context
+		const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context
 		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
@@ -270,8 +267,6 @@ void PjgDecoder::dc(Component& component) {
 
 void PjgDecoder::ac_high(Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context_.get_weights(); // weighting for contexts
-
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
@@ -335,7 +330,7 @@ void PjgDecoder::ac_high(Component& component) {
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[zdstls[dpos]];
 			// calculate contexts (for bit length)
-			const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context.
+			const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context.
 			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
