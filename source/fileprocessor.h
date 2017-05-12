@@ -35,7 +35,7 @@ private:
 	 */
 	FileType get_file_type();
 	void verify_reversible(Writer& verification_output) const;
-	std::string determine_output_destination(const std::string& input_file, const std::string& new_extension) const;
+	std::string output_destination(const std::string& input_file) const;
 
 	bool overwrite_ = false; // Output file destination overwrites any existing destination instead of selecting a unique name?
 	bool verify_reversible_ = true; // After (de)compressing, reverse the process to make sure the output can be returned to its original state.

@@ -10,7 +10,7 @@
 FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose) : overwrite_(overwrite), verify_reversible_(verify), verbose_(verbose) {
 	input_reader_ = std::make_unique<MemoryFileReader>(input_file);
 	file_type_ = get_file_type();
-	output_destination_ = determine_output_destination(input_file, file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext);
+	output_destination_ = output_destination(input_file);
 	output_writer_ = std::make_unique<FileWriter>(output_destination_);
 
 	if (file_type_ == FileType::JPG) {
@@ -136,7 +136,8 @@ void FileProcessor::verify_reversible(Writer& verification_output) const {
 	}
 }
 
-std::string FileProcessor::determine_output_destination(const std::string& input_file, const std::string& new_extension) const {
+std::string FileProcessor::output_destination(const std::string& input_file) const {
+	const auto new_extension = file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext;
 	auto filename_base = input_file.substr(0, input_file.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
 	while (std::experimental::filesystem::exists(filename) && !overwrite_) {
