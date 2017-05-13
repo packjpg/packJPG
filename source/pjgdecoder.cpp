@@ -274,12 +274,12 @@ void PjgDecoder::ac_high(Component& component) {
 	const int bc = component.bc;
 	const int w = component.bch;
 
-	std::vector<std::uint8_t> sgn_store(bc); // sign storage for context	
+	std::vector<std::uint8_t> signs(bc); // sign storage for context	
 	auto zdstls = component.zdstdata; // copy of zero distribution list
 
 	// set up quick access arrays for signs context
-	std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	//std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	//std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 
 	auto& eob_x = component.eobxhigh;
 	auto& eob_y = component.eobyhigh;
@@ -299,7 +299,7 @@ void PjgDecoder::ac_high(Component& component) {
 
 		// preset absolute values/sign storage
 		context.reset_store();
-		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<std::uint8_t>(0));
+		std::fill(std::begin(signs), std::end(signs), static_cast<std::uint8_t>(0));
 
 		auto& coeffs = component.colldata[bpos]; // Current coefficient data.
 
@@ -346,16 +346,17 @@ void PjgDecoder::ac_high(Component& component) {
 						absv |= 1;
 				}
 				// decode sign
-				int ctx_sgn = (p_x > 0) ? sgn_nbh[dpos] : 0; // Sign context.
-				if (p_y > 0)
-					ctx_sgn += 3 * sgn_nbv[dpos]; // IMPROVE! !!!!!!!!!!!
+				int ctx_sgn = p_x > 0 ? signs[dpos - 1] : 0; // Sign context.
+				if (p_y > 0) {
+					ctx_sgn += 3 * signs[dpos - w]; // IMPROVE! !!!!!!!!!!!
+				}
 				mod_sgn->shift_context(ctx_sgn);
 				const int sgn = decoder_->decode(*mod_sgn);
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
 				context.abs_coeffs_[dpos] = absv;
-				sgn_store[dpos] = sgn + 1;
+				signs[dpos] = sgn + 1;
 				zdstls[dpos]--;
 				// recalculate x/y eob
 				if (b_x > eob_x[dpos])
