@@ -47,7 +47,6 @@ private:
 	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& component);
 
 	std::unique_ptr<ArithmeticEncoder> encoder_;
-	PjgContext context_;
 };
 
 #endif

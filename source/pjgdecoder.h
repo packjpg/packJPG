@@ -59,7 +59,6 @@ private:
 	std::vector<std::uint8_t> garbage_data_;
 
 	std::unique_ptr<ArithmeticDecoder> decoder_;
-	PjgContext context_;
 };
 
 #endif
