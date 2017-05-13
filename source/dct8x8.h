@@ -2,6 +2,7 @@
 #define DCT8X8_H
 
 #include <array>
+#include <cstdint>
 
 namespace dct {
 
@@ -13,7 +14,7 @@ constexpr int DCT_RESCALE(int v) {
 
 
 // Precalculated int values for 8x8 IDCT, multplied by 8192:
-constexpr std::array<int, 4096> icos_idct_8x8
+constexpr std::array<std::int16_t, 4096> icos_idct_8x8
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1420,  1970,  1856,  1670,  1420,  1116,   769,   392, 
@@ -530,7 +531,7 @@ constexpr std::array<int, 4096> icos_idct_8x8
 };
 
 // Precalculated int base values for 8x8 DCT, multplied by 8192:
-constexpr std::array<int, 64> icos_base_8x8
+constexpr std::array<std::int16_t, 64> icos_base_8x8
 {
 	 8192,  8192,  8192,  8192,  8192,  8192,  8192,  8192, 
 	11363,  9633,  6436,  2260, -2260, -6436, -9633, -11363, 
@@ -543,7 +544,7 @@ constexpr std::array<int, 64> icos_base_8x8
 };
 
 // Precalculated int values for 1x8 IDCT, multplied by 8192:
-constexpr std::array<int, 64> icos_idct_1x8
+constexpr std::array<std::int16_t, 64> icos_idct_1x8
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1024,  1204,   554,  -283, -1024, -1420, -1338,  -805, 

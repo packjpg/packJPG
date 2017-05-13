@@ -462,7 +462,7 @@ const std::array<const std::vector<std::uint8_t>, 4> standard_huffman_tables
 {standard_luma_dc_table, standard_chroma_dc_table, standard_luma_ac_table, standard_chroma_ac_table};
 
 // Precalculated bit lengths for values from 0 to 1024:
-constexpr std::array<int, 1025> pbitlen_0_1024
+constexpr std::array<std::int8_t, 1025> pbitlen_0_1024
 {
 	 0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // 32
 	 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // 64
@@ -500,7 +500,7 @@ constexpr std::array<int, 1025> pbitlen_0_1024
 };
 
 // Precalculated bit lengths for values from -2048 to 2047:
-constexpr std::array<int, 4096> pbitlen_n2048_2047
+constexpr std::array<std::int8_t, 4096> pbitlen_n2048_2047
 {
 	12,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -2016
 	11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -1984
