@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "bitops.h"
+#include "dct8x8.h"
 #include "programinfo.h"
 
 PjgEncoder::PjgEncoder(Writer& encoding_output) {
@@ -173,8 +174,6 @@ void PjgEncoder::zdst_low(const Component& component) {
 
 void PjgEncoder::dc(const Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context_.get_weights(); // weighting for contexts
-
 
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
@@ -213,7 +212,7 @@ void PjgEncoder::dc(const Component& component) {
 		// get segment-number from zero distribution list and segmentation set
 		const int snum = segm_tab[zdstls[dpos]];
 		// calculate contexts (for bit length)
-		const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context
+		const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context
 		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
@@ -247,7 +246,6 @@ void PjgEncoder::dc(const Component& component) {
 
 void PjgEncoder::ac_high(Component& component) {
 	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
-	const auto c_weight = context_.get_weights(); // weighting for contexts
 
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
@@ -312,7 +310,7 @@ void PjgEncoder::ac_high(Component& component) {
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[zdstls[dpos]];
 			// calculate contexts (for bit length)
-			const int ctx_avr = context_.aavrg_context(c_absc, c_weight, dpos, p_y, p_x, r_x); // Average context.
+			const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context.
 			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
@@ -429,7 +427,7 @@ void PjgEncoder::ac_low(Component& component) {
 			} else {
 				ctx_lak = 0;
 			}
-			ctx_lak = clamp(ctx_lak, max_valn, max_valp);
+			ctx_lak = bitops::clamp(ctx_lak, max_valn, max_valp);
 			const int ctx_len = pjg::bitlen2048n(ctx_lak); // Context for bitlength.
 
 			// shift context / do context modelling (segmentation is done per context)

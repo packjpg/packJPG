@@ -16,6 +16,7 @@
 #include "frameinfo.h"
 #include "huffcodes.h"
 #include "jpegtype.h"
+#include "pjpgtbl.h"
 #include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"
@@ -380,11 +381,12 @@ namespace jfif {
 		auto reader = std::make_unique<MemoryReader>(segment.get_data());
 		reader->skip(4); // Skip the segment header.
 		ScanInfo scan_info;
-		scan_info.cmpc = reader->read_byte();
-		if (scan_info.cmpc > frame_info.components.size()) {
-			throw std::range_error(std::to_string(scan_info.cmpc) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
+		const int component_count = reader->read_byte();
+		if (component_count > frame_info.components.size()) {
+			throw std::range_error(std::to_string(component_count) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
 		}
-		for (int i = 0; i < scan_info.cmpc; i++) {
+		scan_info.cmp.resize(component_count);
+		for (int i = 0; i < component_count; i++) {
 			const int jpg_id = reader->read_byte();
 			int cmp;
 			for (cmp = 0; cmp < frame_info.components.size(); cmp++) {

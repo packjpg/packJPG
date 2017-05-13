@@ -16,14 +16,16 @@ constexpr std::uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
 constexpr std::uint32_t CODER_MAXSCALE = CODER_LIMIT025 - 1;
 constexpr std::uint32_t ESCAPE_SYMBOL = CODER_LIMIT025;
 
-struct Symbol {
+class Symbol {
+public:
 	std::uint32_t low_count;
 	std::uint32_t high_count;
 	std::uint32_t scale;
 };
 
 // The table type associated with BinaryModel, contains the information needed for one context.
-struct BinaryTable {
+class BinaryTable {
+public:
 	// counts for each symbol contained in the table
 	std::vector<std::uint16_t> counts;
 	// links to higher order contexts
@@ -76,7 +78,8 @@ struct BinaryTable {
 
 // The table associated with UniversalModel, implemented for a fast totalize_table,
 // and contains the information needed for one context.
-struct UniversalTable {
+class UniversalTable {
+public:
 	// counts for each symbol contained in the table
 	std::vector<std::uint16_t> counts;
 	// links to higher order contexts
@@ -248,7 +251,6 @@ private:
 	bool* scoreboard_;
 	std::vector<UniversalTable*> contexts_;
 };
-
 
 /*
 A binary statistical model for arithmetic coding.
