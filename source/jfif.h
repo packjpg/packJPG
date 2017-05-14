@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <vector>
 
 #include "component.h"
 #include "frameinfo.h"
 #include "huffcodes.h"
+#include "marker.h"
 #include "reader.h"
 #include "scaninfo.h"
 #include "segment.h"
@@ -44,6 +44,9 @@ namespace jfif {
 
 	// Helper function that parses SOS segments.
 	ScanInfo get_scan_info(FrameInfo& frame_info, const Segment& segment);
+
+	// increment all counts where needed
+	CodingStatus increment_counts(const FrameInfo& frame_info, const ScanInfo& scan_info, int rsti, int& mcu, int& component, int& csc, int& sub, int& rstw);
 }
 
 #endif

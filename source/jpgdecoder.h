@@ -1,6 +1,7 @@
 #ifndef JPGDECODER_H
 #define JPGDECODER_H
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -8,11 +9,11 @@
 
 #include "component.h"
 #include "codingstatus.h"
+#include "frameinfo.h"
 #include "huffcodes.h"
 #include "hufftree.h"
 #include "scaninfo.h"
 #include "segment.h"
-#include "frameinfo.h"
 
 class JpgDecoder {
 public:

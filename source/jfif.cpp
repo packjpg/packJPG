@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <string>
 #include <stdexcept>
 
 #include "bitops.h"
 #include "jpegtype.h"
+#include "marker.h"
 #include "pjpgtbl.h"
 
 void jfif::parse_dht(const Segment& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
@@ -392,4 +394,30 @@ ScanInfo jfif::get_scan_info(FrameInfo& frame_info, const Segment& segment) {
 	}
 
 	return scan_info;
+}
+
+CodingStatus jfif::increment_counts(const FrameInfo& frame_info, const ScanInfo& scan_info, int rsti, int& mcu, int& component, int& csc, int& sub, int& rstw) {
+	sub++;
+	if (sub >= frame_info.components[component].mbs) {
+		sub = 0;
+		csc++;
+		if (csc >= scan_info.cmp.size()) {
+			csc = 0;
+			component = scan_info.cmp[0];
+			mcu++;
+			if (mcu >= frame_info.mcu_count) {
+				return CodingStatus::DONE;
+			}
+			else if (rsti > 0) {
+				rstw--;
+				if (rstw == 0) {
+					return CodingStatus::RESTART;
+				}
+			}
+		}
+		else {
+			component = scan_info.cmp[csc];
+		}
+	}
+	return CodingStatus::OKAY;
 }

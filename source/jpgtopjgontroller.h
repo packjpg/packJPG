@@ -3,6 +3,8 @@
 
 #include "controller.h"
 
+#include <vector>
+
 #include "component.h"
 #include "reader.h"
 #include "writer.h"

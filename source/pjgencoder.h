@@ -2,6 +2,7 @@
 #define PJGENCODER_H
 
 #include <array>
+#include <cstdint>
 #include <memory>
 
 #include "aricoder.h"

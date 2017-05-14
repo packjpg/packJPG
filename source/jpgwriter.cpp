@@ -1,5 +1,7 @@
 #include "jpgwriter.h"
 
+#include "marker.h"
+
 JpgWriter::JpgWriter(Writer& writer, const std::vector<Segment>& segments,
 	const std::vector<std::uint8_t>& huffman_data,
 	const std::vector<std::uint8_t>& garbage_data,

@@ -1,10 +1,11 @@
 #ifndef JPGWRITER_H
 #define JPGWRITER_H
 
+#include <cstdint>
 #include <vector>
 
-#include "writer.h"
 #include "segment.h"
+#include "writer.h"
 
 class JpgWriter {
 public:

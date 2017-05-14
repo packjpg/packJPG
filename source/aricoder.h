@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <vector>
+
 #include "reader.h"
 #include "writer.h"
 #include "arithmeticbitwriter.h"

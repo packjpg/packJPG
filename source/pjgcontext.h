@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <tuple>
 
 #include "component.h"
 #include "pjpgtbl.h"

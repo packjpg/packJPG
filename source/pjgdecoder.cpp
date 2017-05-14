@@ -6,6 +6,7 @@
 #include "bitops.h"
 #include "dct8x8.h"
 #include "jfif.h"
+#include "pjgcontext.h"
 #include "programinfo.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {

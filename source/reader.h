@@ -1,6 +1,7 @@
 #ifndef READER_H
 #define READER_H
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
