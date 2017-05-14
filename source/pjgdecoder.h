@@ -9,7 +9,6 @@
 #include "aricoder.h"
 #include "component.h"
 #include "frameinfo.h"
-#include "pjgcontext.h"
 #include "reader.h"
 #include "segment.h"
 
@@ -59,7 +58,6 @@ private:
 	std::vector<std::uint8_t> garbage_data_;
 
 	std::unique_ptr<ArithmeticDecoder> decoder_;
-	PjgContext context_;
 };
 
 #endif

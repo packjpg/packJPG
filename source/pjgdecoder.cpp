@@ -5,7 +5,9 @@
 
 #include "bitops.h"
 #include "dct8x8.h"
-#include "jfifparse.h"
+#include "jfif.h"
+#include "pjgcontext.h"
+#include "pjpgtbl.h"
 #include "programinfo.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
@@ -159,7 +161,7 @@ void PjgDecoder::zdst_high(Component& component) {
 	// arithmetic decode zero-distribution-list
 	for (int dpos = 0; dpos < bc; dpos++) {
 		// context modelling - use average of above and left as context		
-		auto coords = context_.get_context_nnb(dpos, w);
+		auto coords = PjgContext::get_context_nnb(dpos, w);
 		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
 		// shift context
@@ -196,7 +198,6 @@ void PjgDecoder::zdst_low(Component& component) {
 }
 
 void PjgDecoder::dc(Component& component) {
-	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
@@ -213,15 +214,10 @@ void PjgDecoder::dc(Component& component) {
 	const int bc = component.bc;
 	const int w = component.bch;
 
-	// allocate memory for absolute values storage
-	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
+	PjgContext context(component);
 
-	// set up context quick access array
-	context_.aavrg_prepare(c_absc, absv_store.data(), component);
-
-	// locally store pointer to coefficients and zero distribution list
-	auto& coeffs = component.colldata[0]; // Pointer to current coefficent data.
-	const auto& zdstls = component.zdstdata; // Pointer to zero distribution list.
+	auto& coeffs = component.colldata[0];
+	const auto& zero_dist_list = component.zdstdata;
 
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++) {
@@ -232,9 +228,9 @@ void PjgDecoder::dc(Component& component) {
 		const int r_x = w - (p_x + 1);
 
 		// get segment-number from zero distribution list and segmentation set
-		const int snum = segm_tab[zdstls[dpos]];
+		const int snum = segm_tab[zero_dist_list[dpos]];
 		// calculate contexts (for bit length)
-		const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context
+		const int ctx_avr = context.aavrg_context(dpos, p_y, p_x, r_x); // Average context
 		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context				
 		// shift context / do context modelling (segmentation is done per context)
 		mod_len->shift_model(ctx_len, snum);
@@ -262,13 +258,12 @@ void PjgDecoder::dc(Component& component) {
 			// copy to colldata
 			coeffs[dpos] = (sgn == 0) ? absv : -absv;
 			// store absolute value/sign
-			absv_store[dpos] = absv;
+			context.abs_coeffs_[dpos] = absv;
 		}
 	}
 }
 
 void PjgDecoder::ac_high(Component& component) {
-	std::array<std::uint16_t*, 6> c_absc{nullptr}; // quick access array for contexts
 	// decide segmentation setting
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
@@ -281,21 +276,18 @@ void PjgDecoder::ac_high(Component& component) {
 	const int bc = component.bc;
 	const int w = component.bch;
 
-	// allocate memory for absolute values & signs storage
-	std::vector<std::uint16_t> absv_store(bc); // absolute coefficients values storage
-	std::vector<std::uint8_t> sgn_store(bc); // sign storage for context	
+	std::vector<std::uint8_t> signs(bc); // sign storage for context	
 	auto zdstls = component.zdstdata; // copy of zero distribution list
 
 	// set up quick access arrays for signs context
-	std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	//std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
+	//std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
 
-	// locally store pointer to eob x / eob y
-	auto& eob_x = component.eobxhigh; // Pointer to x eobs.
-	auto& eob_y = component.eobyhigh; // Pointer to y eobs.
+	auto& eob_x = component.eobxhigh;
+	auto& eob_y = component.eobyhigh;
 
 	// set up average context quick access arrays
-	context_.aavrg_prepare(c_absc, absv_store.data(), component);
+	PjgContext context(component);
 
 	// work through lower 7x7 bands in order of pjg::freqscan
 	for (int i = 1; i < 64; i++) {
@@ -308,11 +300,10 @@ void PjgDecoder::ac_high(Component& component) {
 			continue; // process remaining coefficients elsewhere
 
 		// preset absolute values/sign storage
-		std::fill(std::begin(absv_store), std::end(absv_store), static_cast<std::uint16_t>(0));
-		std::fill(std::begin(sgn_store), std::end(sgn_store), static_cast<std::uint8_t>(0));
+		context.reset_store();
+		std::fill(std::begin(signs), std::end(signs), static_cast<std::uint8_t>(0));
 
-		// locally store pointer to coefficients
-		auto& coeffs = component.colldata[bpos]; // Pointer to current coefficent data.
+		auto& coeffs = component.colldata[bpos]; // Current coefficient data.
 
 		// get max bit length
 		const int max_val = component.max_v(bpos); // Max value.
@@ -332,7 +323,7 @@ void PjgDecoder::ac_high(Component& component) {
 			// get segment-number from zero distribution list and segmentation set
 			const int snum = segm_tab[zdstls[dpos]];
 			// calculate contexts (for bit length)
-			const int ctx_avr = context_.aavrg_context(c_absc, dpos, p_y, p_x, r_x); // Average context.
+			const int ctx_avr = context.aavrg_context(dpos, p_y, p_x, r_x); // Average context.
 			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
@@ -357,16 +348,17 @@ void PjgDecoder::ac_high(Component& component) {
 						absv |= 1;
 				}
 				// decode sign
-				int ctx_sgn = (p_x > 0) ? sgn_nbh[dpos] : 0; // Sign context.
-				if (p_y > 0)
-					ctx_sgn += 3 * sgn_nbv[dpos]; // IMPROVE! !!!!!!!!!!!
+				int ctx_sgn = p_x > 0 ? signs[dpos - 1] : 0; // Sign context.
+				if (p_y > 0) {
+					ctx_sgn += 3 * signs[dpos - w]; // IMPROVE! !!!!!!!!!!!
+				}
 				mod_sgn->shift_context(ctx_sgn);
 				const int sgn = decoder_->decode(*mod_sgn);
 				// copy to colldata
 				coeffs[dpos] = (sgn == 0) ? absv : -absv;
 				// store absolute value/sign, decrement zdst
-				absv_store[dpos] = absv;
-				sgn_store[dpos] = sgn + 1;
+				context.abs_coeffs_[dpos] = absv;
+				signs[dpos] = sgn + 1;
 				zdstls[dpos]--;
 				// recalculate x/y eob
 				if (b_x > eob_x[dpos])
@@ -404,8 +396,7 @@ void PjgDecoder::ac_low(Component& component) {
 		int b_y = (i % 2 == 1) ? i / 2 : 0;
 		const int bpos = static_cast<int>(pjg::zigzag[b_x + (8 * b_y)]);
 
-		// locally store pointer to band coefficients
-		auto& coeffs = component.colldata[bpos]; // Pointer to current coefficent data.
+		auto& coeffs = component.colldata[bpos]; // Current coefficient data.
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
@@ -445,7 +436,7 @@ void PjgDecoder::ac_low(Component& component) {
 			// edge treatment / calculate LAKHANI context
 			int ctx_lak; // Lakhani context.
 			if ((*edge_c) > 0)
-				ctx_lak = context_.lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
+				ctx_lak = PjgContext::lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
 			else
 				ctx_lak = 0;
 			ctx_lak = bitops::clamp(ctx_lak, max_valn, max_valp);
@@ -504,11 +495,7 @@ void PjgDecoder::ac_low(Component& component) {
 std::vector<std::uint8_t> PjgDecoder::generic() {
 	std::vector<std::uint8_t> generic_data;
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
-	while (true) {
-		int c = decoder_->decode(*model);
-		if (c == 256) {
-			break;
-		}
+	for (int c = decoder_->decode(*model); c != 256; c = decoder_->decode(*model)) {
 		generic_data.emplace_back(static_cast<std::uint8_t>(c));
 		model->shift_context(c);
 	}

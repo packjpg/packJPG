@@ -1,91 +1,106 @@
 #include "pjgcontext.h"
+#include "pjpgtbl.h"
 
-void PjgContext::aavrg_prepare(std::array<std::uint16_t*, 6>& abs_coeffs, std::uint16_t* abs_store, const Component& component) {
-	int w = component.bch;
-
-	// set up quick access arrays for all prediction positions
-	abs_coeffs[0] = abs_store + (0 + ((-2) * w)); // top-top
-	abs_coeffs[1] = abs_store + (-1 + ((-1) * w)); // top-left
-	abs_coeffs[2] = abs_store + (0 + ((-1) * w)); // top
-	abs_coeffs[3] = abs_store + (1 + ((-1) * w)); // top-right
-	abs_coeffs[4] = abs_store + (-2 + ((0) * w)); // left-left
-	abs_coeffs[5] = abs_store + (-1 + ((0) * w)); // left
+// Context weighting factors:
+namespace pjg {
+constexpr std::array<int, 6> weights{
+	pjg::abs_ctx_weights_lum[0][0][2], // top-top
+	pjg::abs_ctx_weights_lum[0][1][1], // top-left
+	pjg::abs_ctx_weights_lum[0][1][2], // top
+	pjg::abs_ctx_weights_lum[0][1][3], // top-right
+	pjg::abs_ctx_weights_lum[0][2][0], // left-left
+	pjg::abs_ctx_weights_lum[0][2][1] // left
+};
 }
 
-int PjgContext::aavrg_context(const std::array<std::uint16_t*, 6>& abs_coeffs, int pos, int p_y, int p_x, int r_x) {
+PjgContext::PjgContext(const Component& component) : abs_coeffs_(component.bc) {
+	const auto w = component.bch;
+	quick_abs_coeffs_[0] = abs_coeffs_.data() + (0 + ((-2) * w)); // top-top
+	quick_abs_coeffs_[1] = abs_coeffs_.data() + (-1 + ((-1) * w)); // top-left
+	quick_abs_coeffs_[2] = abs_coeffs_.data() + (0 + ((-1) * w)); // top
+	quick_abs_coeffs_[3] = abs_coeffs_.data() + (1 + ((-1) * w)); // top-right
+	quick_abs_coeffs_[4] = abs_coeffs_.data() + (-2 + ((0) * w)); // left-left
+	quick_abs_coeffs_[5] = abs_coeffs_.data() + (-1 + ((0) * w)); // left
+}
+
+void PjgContext::reset_store() {
+	std::fill(std::begin(abs_coeffs_), std::end(abs_coeffs_), static_cast<std::uint16_t>(0));
+}
+
+int PjgContext::aavrg_context(int pos, int p_y, int p_x, int r_x) {
 	int ctx_avr = 0; // AVERAGE context
 	int w_ctx = 0; // accumulated weight of context
 	int w_curr; // current weight of context
 
 	// different cases due to edge treatment
 	if (p_y >= 2) {
-		w_curr = std::get<0>(weights);
-		ctx_avr += abs_coeffs[0][pos] * w_curr;
+		w_curr = std::get<0>(pjg::weights);
+		ctx_avr += quick_abs_coeffs_[0][pos] * w_curr;
 		w_ctx += w_curr;
-		w_curr = std::get<2>(weights);
-		ctx_avr += abs_coeffs[2][pos] * w_curr;
+		w_curr = std::get<2>(pjg::weights);
+		ctx_avr += quick_abs_coeffs_[2][pos] * w_curr;
 		w_ctx += w_curr;
 		if (p_x >= 2) {
-			w_curr = std::get<1>(weights);
-			ctx_avr += abs_coeffs[1][pos] * w_curr;
+			w_curr = std::get<1>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<4>(weights);
-			ctx_avr += abs_coeffs[4][pos] * w_curr;
+			w_curr = std::get<4>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		} else if (p_x == 1) {
-			w_curr = std::get<1>(weights);
-			ctx_avr += abs_coeffs[1][pos] * w_curr;
+			w_curr = std::get<1>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		}
 		if (r_x >= 1) {
-			w_curr = std::get<3>(weights);
-			ctx_avr += abs_coeffs[3][pos] * w_curr;
+			w_curr = std::get<3>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[3][pos] * w_curr;
 			w_ctx += w_curr;
 		}
 	} else if (p_y == 1) {
-		w_curr = std::get<2>(weights);
-		ctx_avr += abs_coeffs[2][pos] * w_curr;
+		w_curr = std::get<2>(pjg::weights);
+		ctx_avr += quick_abs_coeffs_[2][pos] * w_curr;
 		w_ctx += w_curr;
 		if (p_x >= 2) {
-			w_curr = std::get<1>(weights);
-			ctx_avr += abs_coeffs[1][pos] * w_curr;
+			w_curr = std::get<1>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<4>(weights);
-			ctx_avr += abs_coeffs[4][pos] * w_curr;
+			w_curr = std::get<4>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		} else if (p_x == 1) {
-			w_curr = std::get<1>(weights);
-			ctx_avr += abs_coeffs[1][pos] * w_curr;
+			w_curr = std::get<1>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		}
 		if (r_x >= 1) {
-			w_curr = std::get<3>(weights);
-			ctx_avr += abs_coeffs[3][pos] * w_curr;
+			w_curr = std::get<3>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[3][pos] * w_curr;
 			w_ctx += w_curr;
 		}
 	} else {
 		if (p_x >= 2) {
-			w_curr = std::get<4>(weights);
-			ctx_avr += abs_coeffs[4][pos] * w_curr;
+			w_curr = std::get<4>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
 			w_ctx += w_curr;
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		} else if (p_x == 1) {
-			w_curr = std::get<5>(weights);
-			ctx_avr += abs_coeffs[5][pos] * w_curr;
+			w_curr = std::get<5>(pjg::weights);
+			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
 			w_ctx += w_curr;
 		}
 	}

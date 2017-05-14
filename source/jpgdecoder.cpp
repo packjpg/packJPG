@@ -1,8 +1,10 @@
 #include "jpgdecoder.h"
 
 #include <string>
-#include "jpg.h"
-#include "jfifparse.h"
+
+#include "bitops.h"
+#include "jfif.h"
+#include "marker.h"
 
 JpgDecoder::JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data) :
 	frame_info_(frame_info), segments_(segments) {
@@ -183,7 +185,7 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		while (status == CodingStatus::OKAY) {
 			this->decode_sequential_block(components[cmp], cmp, dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	} else if (scan_info_.sah == 0) {
@@ -192,7 +194,7 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		while (status == CodingStatus::OKAY) {
 			decode_successive_approx_first_stage(components[cmp], cmp, dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	} else {
@@ -201,7 +203,7 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		while (status == CodingStatus::OKAY) {
 			decode_success_approx_later_stage(components[cmp], dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	}

@@ -2,11 +2,11 @@
 #define PJGENCODER_H
 
 #include <array>
+#include <cstdint>
 #include <memory>
 
 #include "aricoder.h"
 #include "component.h"
-#include "pjgcontext.h"
 #include "segment.h"
 
 class PjgEncoder {
@@ -47,7 +47,6 @@ private:
 	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& component);
 
 	std::unique_ptr<ArithmeticEncoder> encoder_;
-	PjgContext context_;
 };
 
 #endif

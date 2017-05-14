@@ -59,6 +59,27 @@ Segment::Segment(const std::vector<std::uint8_t>& headerData, std::size_t offset
 
 }
 
+std::vector<Segment> Segment::parse_segments(const std::vector<std::uint8_t>& header_data, std::size_t offset) {
+	if (offset > header_data.size()) {
+		return std::vector<Segment>(); // Don't try to read in invalid memory.
+	}
+
+	std::vector<Segment> segments; // The segments in the header.
+	auto header_pos = std::next(std::begin(header_data), offset); // Position in the header.
+
+																  // Parse the segments:
+	while (std::distance(header_pos, std::end(header_data)) > 0) {
+		Segment segment(header_data, std::distance(std::begin(header_data), header_pos));
+		if (segment.get_type() == Marker::EOI) {
+			break; // Last segment encountered, don't read any more.
+		}
+		segments.push_back(segment);
+		std::advance(header_pos, segment.get_size());
+	}
+
+	return segments;
+}
+
 Marker Segment::get_type() const {
 	return type_;
 }

@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "jfifparse.h"
+#include "jfif.h"
 
 JpgReader::JpgReader(Reader& reader) : reader_(reader) {}
 

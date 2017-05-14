@@ -1,7 +1,8 @@
 #include "jpgencoder.h"
 
-#include "jpg.h"
-#include "jfifparse.h"
+#include "bitops.h"
+#include "jfif.h"
+#include "marker.h"
 #include "pjpgtbl.h"
 
 JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
@@ -182,14 +183,14 @@ CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, i
 		while (status == CodingStatus::OKAY) {
 			dc_succ_approx_first_stage(frame_info_.components[cmp], cmp, dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	} else {
 		while (status == CodingStatus::OKAY) {
 			dc_succ_approx_later_stage(frame_info_.components[cmp], dpos);
 
-			status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
+			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
 			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 		}
 	}
@@ -201,7 +202,7 @@ CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& 
 	while (status == CodingStatus::OKAY) {
 		encode_sequential(frame_info_.components[cmp], cmp, dpos);
 
-		status = jpg::increment_counts(frame_info_, scan_info_, rsti, mcu,  cmp, csc, sub, rstw);
+		status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu,  cmp, csc, sub, rstw);
 		dpos = frame_info_.next_mcupos(mcu, cmp, sub);
 	}
 	return status;
