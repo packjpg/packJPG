@@ -1,6 +1,7 @@
 #ifndef BITOPS_H
 #define BITOPS_H
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 
@@ -9,8 +10,9 @@ namespace bitops {
 /*
 * If val is below min, returns min, if val is above max, max is returned, otherwise val is returned.
 */
-constexpr int clamp(int val, int min, int max) {
-	return (val < min) ? min : (val > max ? max : val);
+template <class T>
+constexpr int clamp(T val, T lo, T hi) {
+	return std::min(hi, std::max(lo, val));
 }
 
 constexpr std::uint16_t pack(std::uint8_t left, std::uint8_t right) {

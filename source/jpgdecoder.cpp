@@ -2,7 +2,7 @@
 
 #include <string>
 #include "jpg.h"
-#include "jfifparse.h"
+#include "jfif.h"
 
 JpgDecoder::JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data) :
 	frame_info_(frame_info), segments_(segments) {

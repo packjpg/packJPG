@@ -1,7 +1,8 @@
 #include "jpgencoder.h"
 
+#include "bitops.h"
 #include "jpg.h"
-#include "jfifparse.h"
+#include "jfif.h"
 #include "pjpgtbl.h"
 
 JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :

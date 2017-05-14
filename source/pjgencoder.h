@@ -6,7 +6,6 @@
 
 #include "aricoder.h"
 #include "component.h"
-#include "pjgcontext.h"
 #include "segment.h"
 
 class PjgEncoder {

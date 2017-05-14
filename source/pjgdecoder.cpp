@@ -5,7 +5,7 @@
 
 #include "bitops.h"
 #include "dct8x8.h"
-#include "jfifparse.h"
+#include "jfif.h"
 #include "programinfo.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
