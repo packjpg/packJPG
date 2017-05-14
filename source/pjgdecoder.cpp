@@ -7,6 +7,7 @@
 #include "dct8x8.h"
 #include "jfif.h"
 #include "pjgcontext.h"
+#include "pjpgtbl.h"
 #include "programinfo.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {

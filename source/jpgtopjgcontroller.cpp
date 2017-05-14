@@ -1,6 +1,5 @@
 #include "jpgtopjgontroller.h"
 
-#include <cstdint>
 #include <string>
 
 #include "jpgreader.h"

@@ -6,6 +6,7 @@
 #include "bitops.h"
 #include "dct8x8.h"
 #include "pjgcontext.h"
+#include "pjpgtbl.h"
 #include "programinfo.h"
 
 PjgEncoder::PjgEncoder(Writer& encoding_output) {

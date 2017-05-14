@@ -1,7 +1,5 @@
 #include "pjgtojpgcontroller.h"
 
-#include <cstdint>
-
 #include "jpgencoder.h"
 #include "jpgwriter.h"
 #include "pjgdecoder.h"

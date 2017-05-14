@@ -1,5 +1,7 @@
 #include "arithmeticbitwriter.h"
 
+#include <limits>
+
 void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	if (n + curr_bit_ >= 8) {
 		auto remainingBits = 8 - curr_bit_;
