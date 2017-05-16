@@ -21,57 +21,51 @@ PjgEncoder::PjgEncoder(Writer& encoding_output) {
 }
 
 void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {
-
-	// set padbit to 1 if previously unset:
+	// Set the padbit to 1 if it has not been set:
 	if (padbit == -1) {
 		padbit = 1;
 	}
 
-	// optimize header for compression
+	// Optimize the header segments for compression:
 	for (auto& segment : segments) {
 		segment.optimize();
 	}
-	// encode JPG header
+	// Encode the header segments:
 	this->generic(segments);
 
-	// store padbit (padbit can't be retrieved from the header)
+	// Store the padbit (as it can't be retrieved from the header during decompression):
 	this->bit(padbit);
 
-	// also encode one bit to signal false/correct use of RST markers
-	this->bit(rst_err.empty() ? 0 : 1);
-	// encode # of false set RST markers per scan
-	if (!rst_err.empty()) {
+	// Encode a bit indicating whether RST markers are used:
+	std::uint8_t rst_err_used = rst_err.empty() ? 0 : 1;
+	this->bit(rst_err_used);
+	// Encode the number of false set RST markers per scan:
+	if (rst_err_used) {
 		this->generic(rst_err);
 	}
 
-	// encode actual components data
+	// Encode component data:
 	for (auto& component : components) {
-		// encode frequency scan ('zero-sort-scan')
-		component.freqscan = this->zstscan(component); // set zero sort scan as freqscan
-		// encode zero-distribution-lists for higher (7x7) ACs
+		component.freqscan = this->zstscan(component);
 		this->zdst_high(component);
-		// encode coefficients for higher (7x7) ACs
 		this->ac_high(component);
-		// encode zero-distribution-lists for lower ACs
 		this->zdst_low(component);
-		// encode coefficients for first row / collumn ACs
 		this->ac_low(component);
-		// encode coefficients for DC
 		this->dc(component);
 	}
 
-	// encode checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	this->bit(!garbage_data.empty() ? 1 : 0);
-	// encode garbage data only if needed
-	if (!garbage_data.empty()) {
+	// Encode a bit indicating whether there is garbage data:
+	std::uint8_t garbage_exists = garbage_data.empty() ? 0 : 1;
+	this->bit(garbage_exists);
+	// Encode the garbage data:
+	if (garbage_exists) {
 		this->generic(garbage_data);
 	}
 
 	encoder_->finalize();
 
-	// errormessage if write error
 	if (encoder_->error()) {
-		throw std::runtime_error("write error, possibly drive is full");
+		throw std::runtime_error("Error occurred while writing, drive is possibly full.");
 	}
 }
 

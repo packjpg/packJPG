@@ -19,19 +19,19 @@ private:
 	// Encodes frequency scanorder.
 	std::array<std::uint8_t, 64> zstscan(const Component& component);
 
-	// Encodes # of non zeroes (high).
+	// Encodes zero-distribution-lists (number of non zeroes) for higher ACs.
 	void zdst_high(const Component& component);
 
-	// Encodes # of non zeroes (low).
+	// Encodes zero-distribution-lists (number of non zeroes) for lower ACs.
 	void zdst_low(const Component& component);
 
 	// Encodes DC coefficients.
 	void dc(const Component& component);
 
-	// Encodes high (7x7) AC coefficients.
+	// Encodes higher (7x7) AC coefficients.
 	void ac_high(Component& component);
 
-	// Encodes first row/col AC coefficients.
+	// Encodes first row/col (lower) AC coefficients.
 	void ac_low(Component& component);
 
 	// Encodes all of the segments as generic 8-bit data
