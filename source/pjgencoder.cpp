@@ -145,25 +145,21 @@ void PjgEncoder::zdst_high(const Component& component) {
 
 void PjgEncoder::zdst_low(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-	const auto& zdstls_x = component.zdstxlow;
-	const auto& zdstls_y = component.zdstylow;
-	const auto& ctx_eobx = component.eobxhigh;
-	const auto& ctx_eoby = component.eobyhigh;
-	const auto& ctx_zdst = component.zdstdata;
-	const int bc = component.bc;
 
-	// arithmetic encode zero-distribution-list (first row)
-	for (int dpos = 0; dpos < bc; dpos++) {
-		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
-		model->shift_context(ctx_eobx[dpos]); // shift context
-		encoder_->encode(*model, zdstls_x[dpos]); // encode symbol
-	}
-	// arithmetic encode zero-distribution-list (first collumn)
-	for (int dpos = 0; dpos < bc; dpos++) {
-		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
-		model->shift_context(ctx_eoby[dpos]); // shift context
-		encoder_->encode(*model, zdstls_y[dpos]); // encode symbol
-	}
+	const auto& zero_dist_context = component.zdstdata;
+
+	auto encode_zero_dist = [&](const auto& zero_dist_list, const auto& eob_context) {
+		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
+			encoder_->encode(*model, zero_dist_list[dpos]);
+		}
+	};
+	
+	// Encode the first row zero-distribution-list:
+	encode_zero_dist(component.zdstxlow, component.eobxhigh);
+
+	// Encode the first column zero-distribution-list:
+	encode_zero_dist(component.zdstylow, component.eobyhigh);
 }
 
 void PjgEncoder::dc(const Component& component) {
