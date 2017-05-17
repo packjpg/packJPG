@@ -34,6 +34,9 @@ private:
 	// Encodes first row/col (lower) AC coefficients.
 	void ac_low(Component& component);
 
+
+	void encode_residual(BinaryModel& model, int coeff_abs, int coeff_bitlen, int val_context);
+
 	// Encodes all of the segments as generic 8-bit data
 	void generic(const std::vector<Segment>& segments);
 
