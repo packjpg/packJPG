@@ -115,7 +115,7 @@ std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
 	// encode scanorder
 	for (int i = 1; i < 64; i++) {
 		// reduce range of model
-		model->exclude_symbols(64 - i);
+		model->exclude_symbols_above(64 - i);
 
 		// decode symbol
 		int cpos = decoder_->decode(*model); // coded position	
@@ -327,7 +327,7 @@ void PjgDecoder::ac_high(Component& component) {
 			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, snum);
-			mod_len->exclude_symbols(max_len);
+			mod_len->exclude_symbols_above(max_len);
 
 			// decode bit length of current coefficient
 			const int clen = decoder_->decode(*mod_len);
@@ -443,7 +443,7 @@ void PjgDecoder::ac_low(Component& component) {
 			const int ctx_len = pjg::bitlen2048n(ctx_lak); // Bitlength context.				
 			// shift context / do context modelling (segmentation is done per context)
 			mod_len->shift_model(ctx_len, zdstls[dpos]);
-			mod_len->exclude_symbols(max_len);
+			mod_len->exclude_symbols_above(max_len);
 
 			// decode bit length of current coefficient
 			const int clen = decoder_->decode(*mod_len);

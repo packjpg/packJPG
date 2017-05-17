@@ -327,7 +327,7 @@ void UniversalModel::flush_model()
 	contexts_[1]->recursive_flush();
 }
 
-void UniversalModel::exclude_symbols(int c)
+void UniversalModel::exclude_symbols_above(int c)
 {
 	for (c = c + 1; c < max_symbol_; c++) {
 		if (!scoreboard_[c]) {
