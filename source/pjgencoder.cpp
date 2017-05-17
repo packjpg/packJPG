@@ -167,16 +167,14 @@ void PjgEncoder::zdst_low(const Component& component) {
 }
 
 void PjgEncoder::dc(const Component& component) {
-	// decide segmentation setting
-	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
+	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
-	// get max absolute value/bit length
-	const int max_val = component.max_v(0); // Max value.
-	const int max_len = pjg::bitlen1024p(max_val); // Max bitlength.
+	const int max_val = component.max_v(0);
+	const int max_bitlen = pjg::bitlen1024p(max_val);
 
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(component.segm_cnt, max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
-	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
+	auto bitlen_model = std::make_unique<UniversalModel>(max_bitlen + 1, std::max(component.segm_cnt, max_bitlen + 1), 2);
+	auto residual_model = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
+	auto sign_model = std::make_unique<BinaryModel>(1, 0);
 
 	// set width/height of each band
 	const int bc = component.bc;
@@ -184,43 +182,43 @@ void PjgEncoder::dc(const Component& component) {
 
 	PjgContext context(component);
 
-	const auto& coeffs = component.colldata[0]; // Current coefficent data.
+	const auto& coeffs = component.colldata[0];
 	const auto& zero_dist_list = component.zdstdata;
 
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++) {
 		//calculate x/y positions in band
 		const int p_y = dpos / w;
-		// r_y = h - ( p_y + 1 );
 		const int p_x = dpos % w;
 		const int r_x = w - (p_x + 1);
 
-		// get segment-number from zero distribution list and segmentation set
-		const int snum = segm_tab[zero_dist_list[dpos]];
-		// calculate contexts (for bit length)
-		const int ctx_avr = context.aavrg_context(dpos, p_y, p_x, r_x); // Average context
-		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
-		// shift context / do context modelling (segmentation is done per context)
-		mod_len->shift_model(ctx_len, snum);
+		const int segment_number = segmentation_set[zero_dist_list[dpos]];
+		
+		const int average_context = context.aavrg_context(dpos, p_y, p_x, r_x);
+		const int bitlen_context = pjg::bitlen1024p(average_context);
 
-		// simple treatment if coefficient is zero
+		// shift context / do context modelling (segmentation is done per context)
+		bitlen_model->shift_model(bitlen_context, segment_number);
+
 		if (coeffs[dpos] == 0) {
-			// encode bit length (0) of current coefficient			
-			encoder_->encode(*mod_len, 0);
+			// Simple treatment if the coefficient is zero:
+			// Encode the bitlength (i.e. 0) of the coefficient:	
+			encoder_->encode(*bitlen_model, 0);
 		} else {
-			// get absolute val, sign & bit length for current coefficient
-			const int absv = std::abs(coeffs[dpos]);
-			const int clen = pjg::bitlen1024p(absv);
-			const int sgn = (coeffs[dpos] > 0) ? 0 : 1;
-			// encode bit length of current coefficient
-			encoder_->encode(*mod_len, clen);
-			// encoding of residual
-			// first set bit must be 1, so we start at clen - 2
-			this->encode_residual(*mod_res, absv, clen - 2, snum);
-			// encode sign
-			encoder_->encode(*mod_sgn, sgn);
-			// store absolute value
-			context.abs_coeffs_[dpos] = absv;
+			// Encode the bitlength of the current coefficient:
+			const int coeff_abs = std::abs(coeffs[dpos]);
+			const int coeff_bitlen = pjg::bitlen1024p(coeff_abs);
+			encoder_->encode(*bitlen_model, coeff_bitlen);
+
+			// Encode the residual of the current coefficient:
+			// The highest-nonzero must be 1, so we start at bitlen - 2:
+			this->encode_residual(*residual_model, coeff_abs, coeff_bitlen - 2, segment_number);
+
+			// Encode the sign of the current coefficient:
+			const int coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
+			encoder_->encode(*sign_model, coeff_sign);
+
+			context.abs_coeffs_[dpos] = coeff_abs;
 		}
 	}
 }
@@ -439,10 +437,10 @@ void PjgEncoder::ac_low(Component& component) {
 	}
 }
 
-void PjgEncoder::encode_residual(BinaryModel& model, int val_abs, int bit_start, int val_context) {
-	for (int bit_pos = bit_start; bit_pos >= 0; bit_pos--) {
-		model.shift_model(val_context, bit_pos);
-		const int bit = bitops::bitn(val_abs, bit_pos);
+void PjgEncoder::encode_residual(BinaryModel& model, int val_abs, int max_bit_pos, int val_context) {
+	for (int bit_plane = max_bit_pos; bit_plane >= 0; bit_plane--) {
+		model.shift_model(val_context, bit_plane);
+		const int bit = bitops::bitn(val_abs, bit_plane);
 		encoder_->encode(model, bit);
 	}
 }
