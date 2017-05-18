@@ -46,7 +46,8 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 
 	// Encode component data:
 	for (auto& component : components) {
-		component.freqscan = this->zstscan(component);
+		component.freqscan = this->get_zerosort_scan(component);
+		this->zstscan(component.freqscan);
 		this->zdst_high(component);
 		this->ac_high(component);
 		this->zdst_low(component);
@@ -69,42 +70,32 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 	}
 }
 
-std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& component) {
-	const auto zero_sorted_scan = this->get_zerosort_scan(component);
-	auto standard_scan = pjg::stdscan;
+void PjgEncoder::zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
+	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan)); // Skip the first (zero) element.
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 	auto not_zero = [](auto const& val) { return val != 0; };
 
 	// Encode scanorder:
-	for (int i = 1; i < 64; i++) {
+	for (int i = 1; i < zero_sorted_scan.size(); i++) {
 		model->exclude_symbols_above(64 - i);
 
-		// compare remaining list to remaining scan
-		auto true_pos = std::begin(standard_scan);
-		int c;
-		for (c = i; c < 64; c++) {
-			true_pos = std::find_if(true_pos + 1, std::end(standard_scan), not_zero);
-			if (true_pos != std::end(standard_scan) && *true_pos != zero_sorted_scan[c]) {
-				break;
-			}
-		}
-		if (true_pos == std::end(standard_scan) || c == 64) {
-			// remaining list is in sorted scanorder
-			// encode zero and make a quick exit
+		bool remainder_sorted = std::equal(std::begin(standard_scan),
+		                                   std::end(standard_scan),
+		                                   std::begin(zero_sorted_scan) + i,
+		                                   std::end(zero_sorted_scan));
+		if (remainder_sorted) {
+			// The remainder of the list is in sorted scanorder
 			encoder_->encode(*model, 0);
 			break;
 		}
-
-		// list is not in sorted order -> next pos has to be encoded
-		auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
-		const int coded_pos = 1 + std::count_if(std::begin(standard_scan), pos, not_zero);
-		*pos = 0; // remove from list
+		// The list is not in sorted order: encode the next position:
+		const auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
+		const int coded_pos = 1 + std::distance(std::begin(standard_scan), pos);
+		standard_scan.erase(pos);
 
 		encoder_->encode(*model, coded_pos);
 		model->shift_context(coded_pos);
 	}
-
-	return zero_sorted_scan;
 }
 
 std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& component) const {

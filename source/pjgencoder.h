@@ -17,7 +17,7 @@ public:
 	void encode(std::uint8_t padbit, std::vector<Component>& components, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& grbgdata);
 private:
 	// Encodes frequency scanorder.
-	std::array<std::uint8_t, 64> zstscan(const Component& component);
+	void zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan);
 
 	// Encodes zero-distribution-lists (number of non zeroes) for higher ACs.
 	void zdst_high(const Component& component);
