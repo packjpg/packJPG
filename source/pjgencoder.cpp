@@ -73,7 +73,6 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 void PjgEncoder::zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan)); // Skip the first (zero) element.
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
-	auto not_zero = [](auto const& val) { return val != 0; };
 
 	// Encode scanorder:
 	for (int i = 1; i < zero_sorted_scan.size(); i++) {
