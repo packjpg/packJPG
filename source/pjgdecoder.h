@@ -19,11 +19,11 @@ public:
 	// Decodes image encoded as pjg to colldata.
 	void decode();
 
-	std::vector<Segment> get_segments();
-	std::vector<std::uint8_t> get_garbage_data();
+	std::vector<Segment> get_segments() const;
+	std::vector<std::uint8_t> get_garbage_data() const;
 	std::unique_ptr<FrameInfo> get_frame_info();
-	std::uint8_t get_padbit();
-	std::vector<std::uint8_t> get_rst_err();
+	std::uint8_t get_padbit() const;
+	std::vector<std::uint8_t> get_rst_err() const;
 private:
 	// Decodes frequency (zero-sorted) scan order.
 	std::array<std::uint8_t, 64> decode_zero_sorted_scan();

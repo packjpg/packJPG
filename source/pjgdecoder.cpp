@@ -56,19 +56,19 @@ std::unique_ptr<FrameInfo> PjgDecoder::get_frame_info() {
 	return std::move(frame_info_);
 }
 
-std::vector<Segment> PjgDecoder::get_segments() {
+std::vector<Segment> PjgDecoder::get_segments() const {
 	return segments_;
 }
 
-std::uint8_t PjgDecoder::get_padbit() {
+std::uint8_t PjgDecoder::get_padbit() const {
 	return padbit_;
 }
 
-std::vector<std::uint8_t> PjgDecoder::get_rst_err() {
+std::vector<std::uint8_t> PjgDecoder::get_rst_err() const {
 	return rst_err_;
 }
 
-std::vector<std::uint8_t> PjgDecoder::get_garbage_data() {
+std::vector<std::uint8_t> PjgDecoder::get_garbage_data() const {
 	return garbage_data_;
 }
 
@@ -100,49 +100,39 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 }
 
 void PjgDecoder::zdst_high(Component& component) {
-	// init model, constants
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	auto& zdstls = component.zdstdata;
+	auto& zero_dist_list = component.zdstdata;
 	const int w = component.bch;
-	const int bc = component.bc;
 
-	// arithmetic decode zero-distribution-list
-	for (int dpos = 0; dpos < bc; dpos++) {
-		// context modelling - use average of above and left as context		
+	// Decode the zero-distribution-list:
+	for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+		// Context modeling: use the average of above and left as context:	
 		auto coords = PjgContext::get_context_nnb(dpos, w);
-		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
-		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
-		// shift context
+		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
+		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
 		model->shift_context((coords.first + coords.second + 2) / 4);
-		// decode symbol
-		zdstls[dpos] = decoder_->decode(*model);
+
+		zero_dist_list[dpos] = decoder_->decode(*model);
 	}
 }
 
 void PjgDecoder::zdst_low(Component& component) {
-	// init model, constants
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
-	auto& zdstls_x = component.zdstxlow;
-	auto& zdstls_y = component.zdstylow;
+	const auto& zero_dist_context = component.zdstdata;
 
-	const auto& ctx_eobx = component.eobxhigh;
-	const auto& ctx_eoby = component.eobyhigh;
-	const auto& ctx_zdst = component.zdstdata;
-	const int bc = component.bc;
+	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list)
+	{
+		for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
+			zero_dist_list[dpos] = decoder_->decode(*model);
+		}
+	};
 
-	// arithmetic encode zero-distribution-list (first row)
-	for (int dpos = 0; dpos < bc; dpos++) {
-		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
-		model->shift_context(ctx_eobx[dpos]); // shift context
-		zdstls_x[dpos] = decoder_->decode(*model); // decode symbol
-	}
-	// arithmetic encode zero-distribution-list (first collumn)
-	for (int dpos = 0; dpos < bc; dpos++) {
-		model->shift_context((ctx_zdst[dpos] + 3) / 7); // shift context
-		model->shift_context(ctx_eoby[dpos]); // shift context
-		zdstls_y[dpos] = decoder_->decode(*model); // decode symbol
-	}
+	// Decode the first row zero-distribution-list:
+	decode_zero_dist_list(component.eobxhigh, component.zdstxlow);
+	// Decode the column row zero-distribution-list:
+	decode_zero_dist_list(component.eobyhigh, component.zdstylow);
 }
 
 void PjgDecoder::dc(Component& component) {
