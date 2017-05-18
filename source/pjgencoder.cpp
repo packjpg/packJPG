@@ -127,19 +127,18 @@ std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& component) {
 
 void PjgEncoder::zdst_high(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	const auto& zdstls = component.zdstdata;
+	const auto& zero_dist_list = component.zdstdata;
 	const int w = component.bch;
 
-	// arithmetic encode zero-distribution-list
-	for (std::size_t dpos = 0; dpos < zdstls.size(); dpos++) {
-		// context modelling - use average of above and left as context
+	// Encode the zero-distribution-list:
+	for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+		// context modeling - use the average of above and left as context:
 		auto coords = PjgContext::get_context_nnb(dpos, w);
-		coords.first = (coords.first >= 0) ? zdstls[coords.first] : 0;
-		coords.second = (coords.second >= 0) ? zdstls[coords.second] : 0;
-		// shift context
+		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
+		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
 		model->shift_context((coords.first + coords.second + 2) / 4);
-		// encode symbol
-		encoder_->encode(*model, zdstls[dpos]);
+
+		encoder_->encode(*model, zero_dist_list[dpos]);
 	}
 }
 
