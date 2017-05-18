@@ -26,7 +26,7 @@ public:
 	std::vector<std::uint8_t> get_rst_err();
 private:
 	// Decodes frequency scan order.
-	std::array<std::uint8_t, 64> zstscan();
+	std::array<std::uint8_t, 64> decode_zero_sorted_scan();
 
 	// Decodes number of nonzeroes (high).
 	void zdst_high(Component& component);

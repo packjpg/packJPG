@@ -54,7 +54,7 @@ void PjgDecoder::decode() {
 	// decode actual components data
 	for (auto& component : frame_info_->components) {
 		// decode frequency scan ('zero-sort-scan')
-		component.freqscan = this->zstscan(); // set zero sort scan as freqscan
+		component.freqscan = this->decode_zero_sorted_scan();
 		// decode zero-distribution-lists for higher (7x7) ACs
 		this->zdst_high(component);
 		// decode coefficients for higher (7x7) ACs
@@ -98,57 +98,31 @@ std::vector<std::uint8_t> PjgDecoder::get_garbage_data() {
 	return garbage_data_;
 }
 
-std::array<std::uint8_t, 64> PjgDecoder::zstscan() {
-	int tpos; // true position
+std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
+	std::array<std::uint8_t, 64> zero_sorted_scan{};
+	// Skip the first (DC) element, since it is always 0 in the zero-sorted scan order.
+	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan));
 
-	std::array<std::uint8_t, 64> zsrtscan;
-	// set first position in zero sort scan
-	zsrtscan[0] = 0;
-
-	// preset freqlist
-	std::array<std::uint8_t, 64> freqlist;
-	std::copy(std::begin(pjg::stdscan), std::end(pjg::stdscan), std::begin(freqlist));
-
-	// init model
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
-	// encode scanorder
-	for (int i = 1; i < 64; i++) {
-		// reduce range of model
+	// Decode the zero-sorted scan order:
+	for (int i = 1; i < zero_sorted_scan.size(); i++) {
 		model->exclude_symbols_above(64 - i);
 
-		// decode symbol
-		int cpos = decoder_->decode(*model); // coded position	
-		model->shift_context(cpos);
+		int coded_pos = decoder_->decode(*model);
+		model->shift_context(coded_pos);
 
-		if (cpos == 0) {
-			// remaining list is identical to scan
-			// fill the scan & make a quick exit				
-			for (tpos = 0; i < 64; i++) {
-				tpos++;
-				while (freqlist[tpos] == 0 && tpos < freqlist.size()) {
-					tpos++;
-				}
-				zsrtscan[i] = freqlist[tpos];
-			}
+		if (coded_pos == 0) {
+			// The remainder of the zero-sorted scan is identical to the standard scan:
+			std::copy(std::begin(standard_scan), std::end(standard_scan), std::begin(zero_sorted_scan) + i);
 			break;
 		}
-
-		// decode position from list
-		for (tpos = 0; tpos < 64; tpos++) {
-			if (freqlist[tpos] != 0)
-				cpos--;
-			if (cpos == 0)
-				break;
-		}
-
-		// write decoded position to zero sort scan
-		zsrtscan[i] = freqlist[tpos];
-		// remove from list
-		freqlist[tpos] = 0;
+		coded_pos--;
+		zero_sorted_scan[i] = standard_scan[coded_pos];
+		standard_scan.erase(std::begin(standard_scan) + coded_pos);
 	}
 
-	return zsrtscan;
+	return zero_sorted_scan;
 }
 
 void PjgDecoder::zdst_high(Component& component) {
