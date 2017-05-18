@@ -11,66 +11,42 @@
 #include "programinfo.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
-	// check header codes ( maybe position in other function ? )
-	while (true) {
-		const auto hcode = decoding_stream.read_byte();
-		if (hcode >= 0x14) {
-			// compare version number
-			if (hcode != program_info::appversion) {
-				throw std::runtime_error("incompatible file, use " + program_info::appname
-					+ " v" + std::to_string(hcode / 10) + "." + std::to_string(hcode % 10));
-			} else {
-				break;
-			}
-		} else {
-			throw std::runtime_error("unknown header code, use newer version of " + program_info::appname);
+	const auto image_pjg_version = decoding_stream.read_byte();
+	if (image_pjg_version >= 0x14) {
+		if (image_pjg_version != program_info::appversion) {
+			throw std::runtime_error("Incompatible file, use " + program_info::appname
+				+ " v" + std::to_string(image_pjg_version / 10) + "." + std::to_string(image_pjg_version % 10));
 		}
+	} else {
+		throw std::runtime_error("Unknown pjg version, use newer version of " + program_info::appname);
 	}
-
-
-	// init arithmetic compression
 	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream);
 }
 
 void PjgDecoder::decode() {
-	// decode JPG header
 	segments_ = Segment::parse_segments(this->generic());
-	// retrieve padbit from stream
 	padbit_ = this->bit();
-	// decode one bit that signals false /correct use of RST markers
-	auto cb = this->bit();
-	// decode # of false set RST markers per scan only if available
-	if (cb == 1) {
+	const bool rst_err_used = this->bit() == 1;
+	if (rst_err_used) {
+		// Decode the number of false set RST markers per scan only if available:
 		rst_err_ = this->generic();
 	}
 
-	// undo header optimizations
 	for (auto& segment : segments_) {
 		segment.undo_optimize();
 	}
-	// parse header for image-info
 	frame_info_ = jfif::get_frame_info(segments_);
 
-	// decode actual components data
 	for (auto& component : frame_info_->components) {
-		// decode frequency scan ('zero-sort-scan')
 		component.freqscan = this->decode_zero_sorted_scan();
-		// decode zero-distribution-lists for higher (7x7) ACs
 		this->zdst_high(component);
-		// decode coefficients for higher (7x7) ACs
 		this->ac_high(component);
-		// decode zero-distribution-lists for lower ACs
 		this->zdst_low(component);
-		// decode coefficients for first row / collumn ACs
 		this->ac_low(component);
-		// decode coefficients for DC
 		this->dc(component);
 	}
 
-	// retrieve checkbit for garbage (0 if no garbage, 1 if garbage has to be coded)
-	auto garbage_exists = this->bit() == 1;
-
-	// decode garbage data only if available
+	const bool garbage_exists = this->bit() == 1;
 	if (garbage_exists) {
 		garbage_data_ = this->generic();
 	}
@@ -80,11 +56,9 @@ std::unique_ptr<FrameInfo> PjgDecoder::get_frame_info() {
 	return std::move(frame_info_);
 }
 
-
 std::vector<Segment> PjgDecoder::get_segments() {
 	return segments_;
 }
-
 
 std::uint8_t PjgDecoder::get_padbit() {
 	return padbit_;

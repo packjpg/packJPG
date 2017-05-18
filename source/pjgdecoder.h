@@ -25,13 +25,13 @@ public:
 	std::uint8_t get_padbit();
 	std::vector<std::uint8_t> get_rst_err();
 private:
-	// Decodes frequency scan order.
+	// Decodes frequency (zero-sorted) scan order.
 	std::array<std::uint8_t, 64> decode_zero_sorted_scan();
 
-	// Decodes number of nonzeroes (high).
+	// Decode zero-distribution-lists (number of nonzeroes) for higher (7x7) ACs.
 	void zdst_high(Component& component);
 
-	// Decodes number of nonzeroes (low).
+	// Decode zero-distribution-lists (number of nonzeroes) for lower ACs.
 	void zdst_low(Component& component);
 
 	// Decodes DC coefficients.
