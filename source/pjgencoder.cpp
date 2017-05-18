@@ -70,59 +70,65 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 }
 
 std::array<std::uint8_t, 64> PjgEncoder::zstscan(const Component& component) {
-	// calculate zero sort scan
 	const auto zero_sorted_scan = this->get_zerosort_scan(component);
-
-	// preset freqlist
-	std::array<std::uint8_t, 64> freqlist;
-	std::copy(std::begin(pjg::stdscan), std::end(pjg::stdscan), std::begin(freqlist));
-
-	// init model
+	auto standard_scan = pjg::stdscan;
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
+	auto not_zero = [](auto const& val) { return val != 0; };
 
-	// encode scanorder
+	// Encode scanorder:
 	for (int i = 1; i < 64; i++) {
-		// reduce range of model
 		model->exclude_symbols_above(64 - i);
 
-		// compare remaining list to remainnig scan
-		int tpos = 0; // True position.
+		// compare remaining list to remaining scan
+		auto true_pos = std::begin(standard_scan);
 		int c;
 		for (c = i; c < 64; c++) {
-			// search next val != 0 in list
-			tpos++;
-			while (freqlist[tpos] == 0 && tpos < freqlist.size()) {
-				tpos++;
-			}
-			// get out if not a match
-			if (freqlist[tpos] != zero_sorted_scan[c]) {
+			true_pos = std::find_if(true_pos + 1, std::end(standard_scan), not_zero);
+			if (true_pos != std::end(standard_scan) && *true_pos != zero_sorted_scan[c]) {
 				break;
 			}
 		}
-		if (c == 64) {
+		if (true_pos == std::end(standard_scan) || c == 64) {
 			// remaining list is in sorted scanorder
 			// encode zero and make a quick exit
 			encoder_->encode(*model, 0);
 			break;
 		}
 
-		// list is not in sorted order -> next pos hat to be encoded
-		int cpos = 1; // Coded position.
-		// encode position
-		for (tpos = 0; freqlist[tpos] != zero_sorted_scan[i]; tpos++) {
-			if (freqlist[tpos] != 0) {
-				cpos++;
-			}
-		}
-		// remove from list
-		freqlist[tpos] = 0;
+		// list is not in sorted order -> next pos has to be encoded
+		auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
+		const int coded_pos = 1 + std::count_if(std::begin(standard_scan), pos, not_zero);
+		*pos = 0; // remove from list
 
-		// encode coded position in list
-		encoder_->encode(*model, cpos);
-		model->shift_context(cpos);
+		encoder_->encode(*model, coded_pos);
+		model->shift_context(coded_pos);
 	}
 
 	return zero_sorted_scan;
+}
+
+std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& component) const {
+	// Preset the unsorted scan index:
+	std::array<std::uint8_t, 64> index;
+	std::iota(std::begin(index), std::end(index), std::uint8_t(0));
+
+	// Count the number of zeroes for each frequency:
+	std::array<std::size_t, 64> zeroDist; // Distribution of zeroes per band.
+	std::transform(std::begin(component.colldata),
+	               std::end(component.colldata),
+	               std::begin(zeroDist),
+	               [&](const auto& freq) {
+		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
+	               });
+
+	// Sort in ascending order according to the number of zeroes per band:
+	std::stable_sort(std::begin(index) + 1, // Skip the first element.
+	                 std::end(index),
+	                 [&](const auto& a, const auto& b) {
+		                 return zeroDist[a] < zeroDist[b];
+	                 }
+	);
+	return index;
 }
 
 void PjgEncoder::zdst_high(const Component& component) {
@@ -144,9 +150,7 @@ void PjgEncoder::zdst_high(const Component& component) {
 
 void PjgEncoder::zdst_low(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-
 	const auto& zero_dist_context = component.zdstdata;
-
 	auto encode_zero_dist = [&](const auto& zero_dist_list, const auto& eob_context) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
@@ -468,28 +472,4 @@ void PjgEncoder::bit(std::uint8_t bit) {
 	// encode one bit
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	encoder_->encode(*model, bit);
-}
-
-std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& component) {
-	// Preset the unsorted scan index:
-	std::array<std::uint8_t, 64> index;
-	std::iota(std::begin(index), std::end(index), std::uint8_t(0)); // Initialize the unsorted scan with indices 0, 1, ..., 63.
-
-																	// Count the number of zeroes for each frequency:
-	std::array<std::size_t, 64> zeroDist; // Distribution of zeroes per band.
-	std::transform(std::begin(component.colldata),
-		std::end(component.colldata),
-		std::begin(zeroDist),
-		[&](const auto& freq) {
-		return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
-	});
-
-	// Sort in ascending order according to the number of zeroes per band:
-	std::stable_sort(std::begin(index) + 1, // Skip the first element.
-		std::end(index),
-		[&](const auto& a, const auto& b) {
-		return zeroDist[a] < zeroDist[b];
-	}
-	);
-	return index;
 }

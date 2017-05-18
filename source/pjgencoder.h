@@ -47,7 +47,7 @@ private:
 	void bit(std::uint8_t bit);
 
 	// Get zero-sorted frequency scan vector.
-	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& component);
+	std::array<std::uint8_t, 64> get_zerosort_scan(const Component& component) const;
 
 	std::unique_ptr<ArithmeticEncoder> encoder_;
 };
