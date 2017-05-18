@@ -46,8 +46,8 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 
 	// Encode component data:
 	for (auto& component : components) {
-		component.freqscan = this->get_zerosort_scan(component);
-		this->zstscan(component.freqscan);
+		component.freqscan = this->get_zero_sorted_scan(component);
+		this->encode_zero_sorted_scan(component.freqscan);
 		this->zdst_high(component);
 		this->ac_high(component);
 		this->zdst_low(component);
@@ -70,8 +70,9 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 	}
 }
 
-void PjgEncoder::zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
-	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan)); // Skip the first (zero) element.
+void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
+	// Skip the first (DC) element, since it is always the first element in the zero-sorted scan order.
+	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan));
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
 	// Encode scanorder:
@@ -83,11 +84,11 @@ void PjgEncoder::zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 		                                   std::begin(zero_sorted_scan) + i,
 		                                   std::end(zero_sorted_scan));
 		if (remainder_sorted) {
-			// The remainder of the list is in sorted scanorder
+			// The remainder of the standard is in zero-sorted order.
 			encoder_->encode(*model, 0);
 			break;
 		}
-		// The list is not in sorted order: encode the next position:
+		// The list is not in zero-sorted order: encode the next position:
 		const auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
 		const int coded_pos = 1 + std::distance(std::begin(standard_scan), pos);
 		standard_scan.erase(pos);
@@ -97,25 +98,25 @@ void PjgEncoder::zstscan(const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	}
 }
 
-std::array<std::uint8_t, 64> PjgEncoder::get_zerosort_scan(const Component& component) const {
+std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& component) const {
 	// Preset the unsorted scan index:
 	std::array<std::uint8_t, 64> index;
 	std::iota(std::begin(index), std::end(index), std::uint8_t(0));
 
 	// Count the number of zeroes for each frequency:
-	std::array<std::size_t, 64> zeroDist; // Distribution of zeroes per band.
+	std::array<std::size_t, 64> zero_dist; // Distribution of zeroes per band.
 	std::transform(std::begin(component.colldata),
 	               std::end(component.colldata),
-	               std::begin(zeroDist),
-	               [&](const auto& freq) {
+	               std::begin(zero_dist),
+	               [](const auto& freq) {
 		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
 	               });
 
 	// Sort in ascending order according to the number of zeroes per band:
-	std::stable_sort(std::begin(index) + 1, // Skip the first element.
+	std::stable_sort(std::begin(index) + 1, // Skip the first (DC) element, since it should always be first.
 	                 std::end(index),
-	                 [&](const auto& a, const auto& b) {
-		                 return zeroDist[a] < zeroDist[b];
+	                 [&zero_dist](const auto& a, const auto& b) {
+		                 return zero_dist[a] < zero_dist[b];
 	                 }
 	);
 	return index;
