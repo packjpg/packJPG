@@ -16,28 +16,18 @@ void JpgToPjgController::execute() {
 	reader->read();
 	auto frame_info = reader->get_frame_info();
 	auto segments = reader->get_segments();
-	const auto& huffman_data = reader->get_huffman_data();
-	const auto& rst_err = reader->get_rst_err();
-	const auto& garbage_data = reader->get_garbage_data();
 
-	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
+	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, reader->get_huffman_data());
 	jpeg_decoder->decode();
 
 	this->check_value_range(frame_info->components);
-
-	const auto padbit = jpeg_decoder->get_padbit();
-
-	for (auto& component : frame_info->components) {
-		component.adapt_icos();
-		component.predict_dc();
-	}
-
+	
 	auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);
-	pjg_encoder->encode(padbit,
+	pjg_encoder->encode(jpeg_decoder->get_padbit(),
 	                    frame_info->components,
 	                    segments,
-	                    rst_err,
-	                    garbage_data);
+	                    reader->get_rst_err(),
+	                    reader->get_garbage_data());
 
 }
 
