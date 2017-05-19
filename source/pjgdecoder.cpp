@@ -136,106 +136,87 @@ void PjgDecoder::zdst_low(Component& component) {
 }
 
 void PjgDecoder::dc(Component& component) {
-	// decide segmentation setting
-	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
+	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
-	// get max absolute value/bit length
-	const int max_val = component.max_v(0); // Max value.
-	const int max_len = pjg::bitlen1024p(max_val); // Max bitlength.
+	const int max_val = component.max_v(0);
+	const int max_bitlen = pjg::bitlen1024p(max_val);
 
-	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(max_len + 1, std::max(component.segm_cnt, max_len + 1), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
-	auto mod_sgn = std::make_unique<BinaryModel>(1, 0);
+	auto bitlen_model = std::make_unique<UniversalModel>(max_bitlen + 1, std::max(component.segm_cnt, max_bitlen + 1), 2);
+	auto residual_model = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
+	auto sign_model = std::make_unique<BinaryModel>(1, 0);
 
-	// set width/height of each band
-	const int bc = component.bc;
-	const int w = component.bch;
+	const int band_width = component.bch;
 
 	PjgContext context(component);
 
 	auto& coeffs = component.colldata[0];
 	const auto& zero_dist_list = component.zdstdata;
 
-	// arithmetic compression loop
-	for (int dpos = 0; dpos < bc; dpos++) {
+	for (int pos = 0; pos < coeffs.size(); pos++) {
 		//calculate x/y positions in band
-		const int p_y = dpos / w;
-		// r_y = h - ( p_y + 1 );
-		const int p_x = dpos % w;
-		const int r_x = w - (p_x + 1);
+		const int p_y = pos / band_width;
+		const int p_x = pos % band_width;
+		const int r_x = band_width - (p_x + 1);
 
-		// get segment-number from zero distribution list and segmentation set
-		const int snum = segm_tab[zero_dist_list[dpos]];
-		// calculate contexts (for bit length)
-		const int ctx_avr = context.aavrg_context(dpos, p_y, p_x, r_x); // Average context
-		const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context				
+		const int segment_num = segmentation_set[zero_dist_list[pos]];
+
+		const int average_context = context.aavrg_context(pos, p_y, p_x, r_x);
+		const int bitlen_context = pjg::bitlen1024p(average_context);			
 		// shift context / do context modelling (segmentation is done per context)
-		mod_len->shift_model(ctx_len, snum);
-		// decode bit length of current coefficient
-		const int clen = decoder_->decode(*mod_len);
+		bitlen_model->shift_model(bitlen_context, segment_num);
 
-		// simple treatment if coefficient is zero
-		if (clen == 0) {
-			// coeffs[ dpos ] = 0;
-		} else {
-			// decoding of residual
-			int absv = 1;
-			// first set bit must be 1, so we start at clen - 2
-			for (int bp = clen - 2; bp >= 0; bp--) {
-				mod_res->shift_model(snum, bp); // shift in 2 contexts
-				// decode bit
-				const int bt = decoder_->decode(*mod_res);
-				// update absv
-				absv = absv << 1;
-				if (bt)
-					absv |= 1;
+		const int coeff_bitlen = decoder_->decode(*bitlen_model);
+
+		if (coeff_bitlen != 0) {
+			// Decode the residual of the coefficient:
+			int coeff_residual = 1;
+			// first set bit must be 1, so we start at bitlen - 2
+			for (int bp = coeff_bitlen - 2; bp >= 0; bp--) {
+				residual_model->shift_model(segment_num, bp);
+				const int bit = decoder_->decode(*residual_model);
+				coeff_residual = coeff_residual << 1;
+				if (bit) {
+					coeff_residual |= 1;
+				}
 			}
-			// decode sign
-			const int sgn = decoder_->decode(*mod_sgn);
-			// copy to colldata
-			coeffs[dpos] = (sgn == 0) ? absv : -absv;
-			// store absolute value/sign
-			context.abs_coeffs_[dpos] = absv;
+
+			const int coeff_sign = decoder_->decode(*sign_model);
+
+			coeffs[pos] = (coeff_sign == 0) ? coeff_residual : -coeff_residual;
+			context.abs_coeffs_[pos] = coeff_residual;
 		}
 	}
 }
 
 void PjgDecoder::ac_high(Component& component) {
-	// decide segmentation setting
-	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
+	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
-	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
-	auto mod_sgn = std::make_unique<BinaryModel>(9, 1);
+	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
+	auto residual_model = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
+	auto sign_model = std::make_unique<BinaryModel>(9, 1);
 
 	// set width/height of each band
 	const int bc = component.bc;
 	const int w = component.bch;
 
-	std::vector<std::uint8_t> signs(bc); // sign storage for context	
-	auto zdstls = component.zdstdata; // copy of zero distribution list
-
-	// set up quick access arrays for signs context
-	//std::uint8_t* sgn_nbh = sgn_store.data() - 1; // Left signs neighbor.
-	//std::uint8_t* sgn_nbv = sgn_store.data() - w; // Upper signs neighbor.
+	std::vector<std::uint8_t> signs(bc);
+	auto zero_dist_list = component.zdstdata; // copy of zero distribution list
 
 	auto& eob_x = component.eobxhigh;
 	auto& eob_y = component.eobyhigh;
 
-	// set up average context quick access arrays
 	PjgContext context(component);
 
-	// work through lower 7x7 bands in order of pjg::freqscan
+	// work through lower 7x7 bands in zero-sorted scan order:
 	for (int i = 1; i < 64; i++) {
 		// work through blocks in order of frequency scan
 		const int bpos = static_cast<int>(component.freqscan[i]);
 		const int b_x = pjg::unzigzag[bpos] % 8;
 		const int b_y = pjg::unzigzag[bpos] / 8;
 
-		if ((b_x == 0) || (b_y == 0))
+		if ((b_x == 0) || (b_y == 0)) {
 			continue; // process remaining coefficients elsewhere
+		}
 
 		// preset absolute values/sign storage
 		context.reset_store();
@@ -243,72 +224,62 @@ void PjgDecoder::ac_high(Component& component) {
 
 		auto& coeffs = component.colldata[bpos]; // Current coefficient data.
 
-		// get max bit length
-		const int max_val = component.max_v(bpos); // Max value.
-		const int max_len = pjg::bitlen1024p(max_val); // Max bitlength.
+		const int max_val = component.max_v(bpos);
+		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		// arithmetic compression loop
-		for (int dpos = 0; dpos < bc; dpos++) {
-			// skip if beyound eob
-			if (zdstls[dpos] == 0)
-				continue;
+		for (int pos = 0; pos < bc; pos++) {
+			if (zero_dist_list[pos] == 0) {
+				continue; // skip if beyound eob
+			}
 
 			//calculate x/y positions in band
-			const int p_y = dpos / w;
-			const int p_x = dpos % w;
+			const int p_y = pos / w;
+			const int p_x = pos % w;
 			const int r_x = w - (p_x + 1);
 
-			// get segment-number from zero distribution list and segmentation set
-			const int snum = segm_tab[zdstls[dpos]];
-			// calculate contexts (for bit length)
-			const int ctx_avr = context.aavrg_context(dpos, p_y, p_x, r_x); // Average context.
-			const int ctx_len = pjg::bitlen1024p(ctx_avr); // Bitlength context.
-			// shift context / do context modelling (segmentation is done per context)
-			mod_len->shift_model(ctx_len, snum);
-			mod_len->exclude_symbols_above(max_len);
+			const int segment_num = segmentation_set[zero_dist_list[pos]];
 
-			// decode bit length of current coefficient
-			const int clen = decoder_->decode(*mod_len);
-			// simple treatment if coefficient is zero
-			if (clen == 0) {
-				// coeffs[ dpos ] = 0;
-			} else {
-				// decoding of residual
-				int absv = 1;
-				// first set bit must be 1, so we start at clen - 2
-				for (int bp = clen - 2; bp >= 0; bp--) {
-					mod_res->shift_model(snum, bp); // shift in 2 contexts
-					// decode bit
-					const int bt = decoder_->decode(*mod_res);
-					// update absv
-					absv = absv << 1;
-					if (bt)
-						absv |= 1;
+			const int average_context = context.aavrg_context(pos, p_y, p_x, r_x);
+			const int bitlen_context = pjg::bitlen1024p(average_context);
+			// shift context / do context modelling (segmentation is done per context)
+			bitlen_model->shift_model(bitlen_context, segment_num);
+			bitlen_model->exclude_symbols_above(max_bitlen);
+
+			const int coeff_bitlen = decoder_->decode(*bitlen_model);
+
+			if (coeff_bitlen != 0) {
+				// Decode the residual of the coefficient:
+				int coeff_residual = 1;
+				// first set bit must be 1, so we start at bitlen - 2
+				for (int bp = coeff_bitlen - 2; bp >= 0; bp--) {
+					residual_model->shift_model(segment_num, bp);
+					const int bit = decoder_->decode(*residual_model);
+					coeff_residual <<= 1;
+					if (bit) {
+						coeff_residual |= 1;
+					}
 				}
-				// decode sign
-				int ctx_sgn = p_x > 0 ? signs[dpos - 1] : 0; // Sign context.
+
+				// Decode the sign of the coefficient:
+				int sign_context = p_x > 0 ? signs[pos - 1] : 0;
 				if (p_y > 0) {
-					ctx_sgn += 3 * signs[dpos - w]; // IMPROVE! !!!!!!!!!!!
+					sign_context += 3 * signs[pos - w]; // IMPROVE! !!!!!!!!!!!
 				}
-				mod_sgn->shift_context(ctx_sgn);
-				const int sgn = decoder_->decode(*mod_sgn);
-				// copy to colldata
-				coeffs[dpos] = (sgn == 0) ? absv : -absv;
-				// store absolute value/sign, decrement zdst
-				context.abs_coeffs_[dpos] = absv;
-				signs[dpos] = sgn + 1;
-				zdstls[dpos]--;
-				// recalculate x/y eob
-				if (b_x > eob_x[dpos])
-					eob_x[dpos] = b_x;
-				if (b_y > eob_y[dpos])
-					eob_y[dpos] = b_y;
+				sign_model->shift_context(sign_context);
+				const int coeff_sign = decoder_->decode(*sign_model);
+
+				coeffs[pos] = (coeff_sign == 0) ? coeff_residual : -coeff_residual;
+				context.abs_coeffs_[pos] = coeff_residual;
+				signs[pos] = coeff_sign + 1;
+				zero_dist_list[pos]--;
+
+				eob_x[pos] = std::max(eob_x[pos], static_cast<std::uint8_t>(b_x));
+				eob_y[pos] = std::max(eob_y[pos], static_cast<std::uint8_t>(b_y));
 			}
 		}
-		// flush models
-		mod_len->flush_model();
-		mod_res->flush_model();
-		mod_sgn->flush_model();
+		bitlen_model->flush_model();
+		residual_model->flush_model();
+		sign_model->flush_model();
 	}
 }
 
@@ -317,19 +288,18 @@ void PjgDecoder::ac_low(Component& component) {
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 
-	// init models for bitlenghts and -patterns
-	auto mod_len = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
-	auto mod_res = std::make_unique<BinaryModel>(1 << 4, 2);
-	auto mod_top = std::make_unique<BinaryModel>(1 << std::max(4, component.nois_trs), 3);
-	auto mod_sgn = std::make_unique<BinaryModel>(11, 1);
+	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
+	auto residual_model = std::make_unique<BinaryModel>(1 << 4, 2);
+	auto top_model = std::make_unique<BinaryModel>(1 << std::max(4, component.nois_trs), 3);
+	auto sign_model = std::make_unique<BinaryModel>(11, 1);
 
 	// set width/height of each band
 	const int bc = component.bc;
 	const int w = component.bch;
 
-	// work through each first row / first collumn band
+	// work through each first row / first column band
 	for (int i = 2; i < 16; i++) {
-		// alternate between first row and first collumn
+		// alternate between first row and first column
 		int b_x = (i % 2 == 0) ? i / 2 : 0;
 		int b_y = (i % 2 == 1) ? i / 2 : 0;
 		const int bpos = static_cast<int>(pjg::zigzag[b_x + (8 * b_y)]);
@@ -338,7 +308,7 @@ void PjgDecoder::ac_low(Component& component) {
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		auto& zdstls = b_x == 0 ? component.zdstylow : component.zdstxlow; // Pointer to row/col # of non-zeroes.
+		auto& zero_dist_list = b_x == 0 ? component.zdstylow : component.zdstxlow; // Pointer to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {
 				coeffs_x[b_x] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();
@@ -355,78 +325,70 @@ void PjgDecoder::ac_low(Component& component) {
 			edge_c = &p_y;
 		}
 
-		// get max bit length / other info
-		const int max_valp = component.max_v(bpos); // Max value (positive).
-		const int max_valn = -max_valp; // Max value (negative).
-		const int max_len = pjg::bitlen1024p(max_valp); // Max bitlength.
-		const int thrs_bp = std::max(0, max_len - component.nois_trs); // Residual threshold bitplane.
+		const int max_val = component.max_v(bpos);
+		const int max_bitlen = pjg::bitlen1024p(max_val);
+		const int thrs_bp = std::max(0, max_bitlen - component.nois_trs); // Residual threshold bitplane.
 
-		// arithmetic compression loop
-		for (int dpos = 0; dpos < bc; dpos++) {
+		for (int pos = 0; pos < bc; pos++) {
 			// skip if beyound eob
-			if (zdstls[dpos] == 0)
+			if (zero_dist_list[pos] == 0) {
 				continue;
+			}
 
 			//calculate x/y positions in band
-			p_y = dpos / w;
-			p_x = dpos % w;
+			p_y = pos / w;
+			p_x = pos % w;
 
-			// edge treatment / calculate LAKHANI context
-			int ctx_lak; // Lakhani context.
-			if ((*edge_c) > 0)
-				ctx_lak = PjgContext::lakh_context(coeffs_x, coeffs_a, pred_cf, dpos);
-			else
-				ctx_lak = 0;
-			ctx_lak = bitops::clamp(ctx_lak, max_valn, max_valp);
-			const int ctx_len = pjg::bitlen2048n(ctx_lak); // Bitlength context.				
-			// shift context / do context modelling (segmentation is done per context)
-			mod_len->shift_model(ctx_len, zdstls[dpos]);
-			mod_len->exclude_symbols_above(max_len);
-
-			// decode bit length of current coefficient
-			const int clen = decoder_->decode(*mod_len);
-			// simple treatment if coefficients == 0
-			if (clen == 0) {
-				// coeffs[ dpos ] = 0;
+			int lakhani_context;
+			if ((*edge_c) > 0) {
+				lakhani_context = PjgContext::lakh_context(coeffs_x, coeffs_a, pred_cf, pos);
 			} else {
-				// decoding of residual
-				int bp = clen - 2; // first set bit must be 1, so we start at clen - 2
-				int ctx_res = (bp >= thrs_bp) ? 1 : 0; // Bit plane context for residual.
-				const int ctx_abs = std::abs(ctx_lak); // Absolute context.
-				const int ctx_sgn = (ctx_lak == 0) ? 0 : (ctx_lak > 0) ? 1 : 2; // Context for sign.
+				lakhani_context = 0;
+			}
+			lakhani_context = bitops::clamp(lakhani_context, -max_val, max_val);
+
+			// shift context / do context modelling (segmentation is done per context)
+			const int bitlen_context = pjg::bitlen2048n(lakhani_context);
+			bitlen_model->shift_model(bitlen_context, zero_dist_list[pos]);
+			bitlen_model->exclude_symbols_above(max_bitlen);
+
+			const int coeff_bitlen = decoder_->decode(*bitlen_model);
+			if (coeff_bitlen != 0) {
+				// Decode the residual of the coefficient:
+				int bp = coeff_bitlen - 2; // first set bit must be 1, so we start at clen - 2
+				int residual_context = (bp >= thrs_bp) ? 1 : 0; // Bit plane context for residual.
+				const int absolute_context = std::abs(lakhani_context);
 				for (; bp >= thrs_bp; bp--) {
-					mod_top->shift_model(ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp); // shift in 3 contexts
-					// decode bit
-					const int bt = decoder_->decode(*mod_top);
-					// update context
-					ctx_res = ctx_res << 1;
-					if (bt)
-						ctx_res |= 1;
+					top_model->shift_model(absolute_context >> thrs_bp, residual_context, coeff_bitlen - thrs_bp);
+					const int bit = decoder_->decode(*top_model);
+					residual_context = residual_context << 1;
+					if (bit) {
+						residual_context |= 1;
+					}
 				}
-				int absv = (ctx_res == 0) ? 1 : ctx_res; // !!!!
+				int coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
 				for (; bp >= 0; bp--) {
-					mod_res->shift_model(zdstls[dpos], bp); // shift in 2 contexts
-					// decode bit
-					const int bt = decoder_->decode(*mod_res);
-					// update absv
-					absv = absv << 1;
-					if (bt)
-						absv |= 1;
+					residual_model->shift_model(zero_dist_list[pos], bp);
+					const int bit = decoder_->decode(*residual_model);
+					coeff_residual = coeff_residual << 1;
+					if (bit) {
+						coeff_residual |= 1;
+					}
 				}
-				// decode sign
-				mod_sgn->shift_model(zdstls[dpos], ctx_sgn);
-				const int sgn = decoder_->decode(*mod_sgn);
-				// copy to colldata
-				coeffs[dpos] = (sgn == 0) ? absv : -absv;
-				// decrement # of non zeroes
-				zdstls[dpos]--;
+				// Decode the sign of the coefficient:
+				const int sign_context = (lakhani_context == 0) ? 0 : (lakhani_context > 0) ? 1 : 2;
+				sign_model->shift_model(zero_dist_list[pos], sign_context);
+				const int sign = decoder_->decode(*sign_model);
+
+				coeffs[pos] = (sign == 0) ? coeff_residual : -coeff_residual;
+
+				zero_dist_list[pos]--;
 			}
 		}
-		// flush models
-		mod_len->flush_model();
-		mod_res->flush_model();
-		mod_top->flush_model();
-		mod_sgn->flush_model();
+		bitlen_model->flush_model();
+		residual_model->flush_model();
+		top_model->flush_model();
+		sign_model->flush_model();
 	}
 }
 
