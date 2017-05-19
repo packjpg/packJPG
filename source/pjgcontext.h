@@ -17,7 +17,7 @@ public:
 	void reset_store();
 
 	// Special average context used in coeff encoding.
-	int aavrg_context(int pos, int p_y, int p_x, int r_x);
+	int aavrg_context(int pos, int band_width);
 
 	// Lakhani ac context used in coeff encoding.
 	static int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);

@@ -168,7 +168,7 @@ void PjgEncoder::dc(const Component& component) {
 
 	// set width/height of each band
 	const int bc = component.bc;
-	const int w = component.bch;
+	const int band_width = component.bch;
 
 	PjgContext context(component);
 
@@ -177,14 +177,8 @@ void PjgEncoder::dc(const Component& component) {
 
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++) {
-		//calculate x/y positions in band
-		const int p_y = dpos / w;
-		const int p_x = dpos % w;
-		const int r_x = w - (p_x + 1);
-
 		const int segment_number = segmentation_set[zero_dist_list[dpos]];
-		
-		const int average_context = context.aavrg_context(dpos, p_y, p_x, r_x);
+		const int average_context = context.aavrg_context(dpos, band_width);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 
 		// shift context / do context modelling (segmentation is done per context)
@@ -222,7 +216,7 @@ void PjgEncoder::ac_high(Component& component) {
 
 	// set width/height of each band
 	const int bc = component.bc;
-	const int w = component.bch;
+	const int band_width = component.bch;
 
 	std::vector<std::uint8_t> signs(bc); // sign storage for context	
 	auto zero_dist_list = component.zdstdata; // copy of zero distribution list
@@ -251,21 +245,16 @@ void PjgEncoder::ac_high(Component& component) {
 		const int max_val = component.max_v(block);
 		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		for (int dpos = 0; dpos < bc; dpos++) {
+		for (int dpos = 0; dpos < coeffs.size(); dpos++) {
 			// skip if beyound eob
 			if (zero_dist_list[dpos] == 0) {
 				continue;
 			}
 
-			//calculate x/y positions in band
-			const int p_y = dpos / w;
-			const int p_x = dpos % w;
-			const int r_x = w - (p_x + 1);
-
 			// get segment-number from zero distribution list and segmentation set
 			const int segment_number = segm_tab[zero_dist_list[dpos]];
 			// calculate contexts (for bit length)
-			const int average_context = context.aavrg_context(dpos, p_y, p_x, r_x);
+			const int average_context = context.aavrg_context(dpos, band_width);
 			const int bitlen_context = pjg::bitlen1024p(average_context);
 			// shift context / do context modelling (segmentation is done per context)
 			bitlen_model->shift_model(bitlen_context, segment_number);
@@ -288,9 +277,11 @@ void PjgEncoder::ac_high(Component& component) {
 				this->encode_residual(*residual_model, coeff_abs, coeff_bitlen - 2, segment_number);
 
 				// Encode the sign of the current coefficient:
+				const int p_y = dpos / band_width;
+				const int p_x = dpos % band_width;
 				int sign_context = (p_x > 0) ? signs[dpos - 1] : 0;
 				if (p_y > 0) {
-					sign_context += 3 * signs[dpos - w]; // IMPROVE !!!!!!!!!!!
+					sign_context += 3 * signs[dpos - band_width]; // IMPROVE !!!!!!!!!!!
 				}
 				sign_model->shift_context(sign_context);
 				encoder_->encode(*sign_model, coeff_sign);
