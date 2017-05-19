@@ -74,8 +74,7 @@ std::vector<std::uint8_t> PjgDecoder::get_garbage_data() const {
 
 std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 	std::array<std::uint8_t, 64> zero_sorted_scan{};
-	// Skip the first (DC) element, since it is always 0 in the zero-sorted scan order.
-	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan) + 1, std::end(pjg::stdscan));
+	std::vector<std::uint8_t> standard_scan(std::begin(pjg::stdscan), std::end(pjg::stdscan));
 
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
@@ -88,10 +87,9 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 
 		if (coded_pos == 0) {
 			// The remainder of the zero-sorted scan is identical to the standard scan:
-			std::copy(std::begin(standard_scan), std::end(standard_scan), std::begin(zero_sorted_scan) + i);
+			std::copy(std::begin(standard_scan) + 1, std::end(standard_scan), std::begin(zero_sorted_scan) + i);
 			break;
 		}
-		coded_pos--;
 		zero_sorted_scan[i] = standard_scan[coded_pos];
 		standard_scan.erase(std::begin(standard_scan) + coded_pos);
 	}
@@ -102,17 +100,17 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 void PjgDecoder::zdst_high(Component& component) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
 	auto& zero_dist_list = component.zdstdata;
-	const int w = component.bch;
+	const int band_width = component.bch;
 
 	// Decode the zero-distribution-list:
-	for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+	for (int pos = 0; pos < zero_dist_list.size(); pos++) {
 		// Context modeling: use the average of above and left as context:	
-		auto coords = PjgContext::get_context_nnb(dpos, w);
-		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
-		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
-		model->shift_context((coords.first + coords.second + 2) / 4);
+		auto neighbors = PjgContext::get_context_nnb(pos, band_width);
+		neighbors.first = (neighbors.first >= 0) ? zero_dist_list[neighbors.first] : 0;
+		neighbors.second = (neighbors.second >= 0) ? zero_dist_list[neighbors.second] : 0;
+		model->shift_context((neighbors.first + neighbors.second + 2) / 4);
 
-		zero_dist_list[dpos] = decoder_->decode(*model);
+		zero_dist_list[pos] = decoder_->decode(*model);
 	}
 }
 
@@ -136,7 +134,6 @@ void PjgDecoder::zdst_low(Component& component) {
 }
 
 void PjgDecoder::dc(Component& component) {
-	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	const int max_val = component.max_v(0);
 	const int max_bitlen = pjg::bitlen1024p(max_val);
@@ -145,13 +142,12 @@ void PjgDecoder::dc(Component& component) {
 	auto residual_model = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
 	auto sign_model = std::make_unique<BinaryModel>(1, 0);
 
+	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 	const int band_width = component.bch;
-
 	PjgContext context(component);
-
-	auto& coeffs = component.colldata[0];
 	const auto& zero_dist_list = component.zdstdata;
 
+	auto& coeffs = component.colldata[0];
 	for (int pos = 0; pos < coeffs.size(); pos++) {
 		//calculate x/y positions in band
 		const int p_y = pos / band_width;
@@ -169,16 +165,8 @@ void PjgDecoder::dc(Component& component) {
 
 		if (coeff_bitlen != 0) {
 			// Decode the residual of the coefficient:
-			int coeff_residual = 1;
-			// first set bit must be 1, so we start at bitlen - 2
-			for (int bp = coeff_bitlen - 2; bp >= 0; bp--) {
-				residual_model->shift_model(segment_num, bp);
-				const int bit = decoder_->decode(*residual_model);
-				coeff_residual = coeff_residual << 1;
-				if (bit) {
-					coeff_residual |= 1;
-				}
-			}
+			// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
+			const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
 
 			const int coeff_sign = decoder_->decode(*sign_model);
 
@@ -249,16 +237,8 @@ void PjgDecoder::ac_high(Component& component) {
 
 			if (coeff_bitlen != 0) {
 				// Decode the residual of the coefficient:
-				int coeff_residual = 1;
-				// first set bit must be 1, so we start at bitlen - 2
-				for (int bp = coeff_bitlen - 2; bp >= 0; bp--) {
-					residual_model->shift_model(segment_num, bp);
-					const int bit = decoder_->decode(*residual_model);
-					coeff_residual <<= 1;
-					if (bit) {
-						coeff_residual |= 1;
-					}
-				}
+				// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
+				const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
 
 				// Decode the sign of the coefficient:
 				int sign_context = p_x > 0 ? signs[pos - 1] : 0;
@@ -366,15 +346,9 @@ void PjgDecoder::ac_low(Component& component) {
 						residual_context |= 1;
 					}
 				}
-				int coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
-				for (; bp >= 0; bp--) {
-					residual_model->shift_model(zero_dist_list[pos], bp);
-					const int bit = decoder_->decode(*residual_model);
-					coeff_residual = coeff_residual << 1;
-					if (bit) {
-						coeff_residual |= 1;
-					}
-				}
+				int initial_coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
+				const int coeff_residual = this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual);
+
 				// Decode the sign of the coefficient:
 				const int sign_context = (lakhani_context == 0) ? 0 : (lakhani_context > 0) ? 1 : 2;
 				sign_model->shift_model(zero_dist_list[pos], sign_context);
@@ -407,4 +381,17 @@ std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	std::uint8_t bit = decoder_->decode(*model); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
+}
+
+int PjgDecoder::decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual) {
+	int residual = initial_residual;
+	for (int bit_plane = starting_bit; bit_plane >= 0; bit_plane--) {
+		residual_model.shift_model(context, bit_plane);
+		const int bit = decoder_->decode(residual_model);
+		residual <<= 1;
+		if (bit) {
+			residual |= 1;
+		}
+	}
+	return residual;
 }

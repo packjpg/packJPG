@@ -49,6 +49,8 @@ private:
 	// Decodes one bit.
 	std::uint8_t bit();
 
+	int PjgDecoder::decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual = 1);
+
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
 
