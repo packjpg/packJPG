@@ -338,28 +338,6 @@ static void execute( bool (*function)() );
 static bool swap_streams();
 static bool compare_output();
 
-/* -----------------------------------------------
-filter DC coefficients
------------------------------------------------ */
-static bool predict_dc() {
-	// apply prediction, store prediction error instead of DC
-	for (auto& component : frame_info->components) {
-		component.predict_dc();
-	}
-	return true;
-}
-
-/* -----------------------------------------------
-unpredict DC coefficients
------------------------------------------------ */
-static bool unpredict_dc() {
-	// remove prediction, store DC instead of prediction error
-	for (auto& component : frame_info->components) {
-		component.unpredict_dc();
-	}
-	return true;
-}
-
 namespace jpg {
 
 char padbit = -1; // padbit (for huffman coding)
@@ -514,23 +492,6 @@ namespace pjg {
 		}
 	}
 }
-
-/*
-* Discrete cosine transform (DCT) and Inverse discrete cosine transform (IDCT) functions and data.
-*
-*/
-namespace dct {
-	/* -----------------------------------------------
-	adapt ICOS tables for quantizer tables
-	----------------------------------------------- */
-	bool adapt_icos() {
-		for (auto& component : frame_info->components) {
-			component.adapt_icos();
-		}
-		return true;
-	}
-}
-
 
 /* -----------------------------------------------
 	function declarations: miscelaneous helpers
@@ -866,12 +827,6 @@ static inline std::string get_status( bool (*function)() )
 		return "Decompressing JPEG image data";
 	} else if ( function == *jpg::encode::recode ) {
 		return "Recompressing JPEG image data";
-	} else if ( function == *dct::adapt_icos ) {
-		return "Adapting DCT precalc. tables";
-	} else if ( function == *predict_dc ) {
-		return "Applying prediction to DC";
-	} else if ( function == *unpredict_dc ) {
-		return "Removing prediction from DC";
 	} else if ( function == *jpg::decode::check_value_range ) {
 		return "Checking values range";
 	} else if ( function == *pjg::encode::encode ) {
@@ -916,22 +871,16 @@ static void process_file(FileType filetype) {
 		execute(jpg::decode::read);
 		execute(jpg::decode::decode);
 		execute(jpg::decode::check_value_range);
-		execute(dct::adapt_icos);
-		execute(predict_dc);
 		execute(pjg::encode::encode);
 		if (verify) {
 			execute(swap_streams);
 			execute(pjg::decode::decode);
-			execute(dct::adapt_icos);
-			execute(unpredict_dc);
 			execute(jpg::encode::recode);
 			execute(jpg::encode::merge);
 			execute(compare_output);
 		}
 	} else {
 		execute(pjg::decode::decode);
-		execute(dct::adapt_icos);
-		execute(unpredict_dc);
 		execute(jpg::encode::recode);
 		execute(jpg::encode::merge);
 		if (verify) {
@@ -939,8 +888,6 @@ static void process_file(FileType filetype) {
 			execute(jpg::decode::read);
 			execute(jpg::decode::decode);
 			execute(jpg::decode::check_value_range);
-			execute(dct::adapt_icos);
-			execute(predict_dc);
 			execute(pjg::encode::encode);
 			execute(compare_output);
 		}

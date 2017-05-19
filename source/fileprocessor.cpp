@@ -8,33 +8,34 @@
 #include "pjgtojpgcontroller.h"
 
 FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose) : overwrite_(overwrite), verify_reversible_(verify), verbose_(verbose) {
-	input_ = std::make_unique<FileReader>(input_file);
+	input_reader_ = std::make_unique<FileReader>(input_file);
 	file_type_ = get_file_type();
-	const auto output_file = determine_output_destination(input_file, file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext);
-	output_ = std::make_unique<FileWriter>(output_file);
+	output_destination_ = output_destination(input_file);
+	output_writer_ = std::make_unique<FileWriter>(output_destination_);
 
 	if (file_type_ == FileType::JPG) {
-		controller_ = std::make_unique<JpgToPjgController>(*input_, *output_);
+		controller_ = std::make_unique<JpgToPjgController>(*input_reader_, *output_writer_);
 	} else {
-		controller_ = std::make_unique<PjgToJpgController>(*input_, *output_);
+		controller_ = std::make_unique<PjgToJpgController>(*input_reader_, *output_writer_);
 	}
 }
 
 FileProcessor::FileProcessor(bool verify, bool verbose) : verify_reversible_(verify), verbose_(verbose) {
-	input_ = std::make_unique<StreamReader>();
+	input_reader_ = std::make_unique<StreamReader>();
 	file_type_ = get_file_type();
-	output_ = std::make_unique<StreamWriter>();
+	output_writer_ = std::make_unique<StreamWriter>();
+	output_dest_is_stdout_ = true;
 
 	if (file_type_ == FileType::JPG) {
-		controller_ = std::make_unique<JpgToPjgController>(*input_, *output_);
+		controller_ = std::make_unique<JpgToPjgController>(*input_reader_, *output_writer_);
 	} else {
-		controller_ = std::make_unique<PjgToJpgController>(*input_, *output_);
+		controller_ = std::make_unique<PjgToJpgController>(*input_reader_, *output_writer_);
 	}
 }
 
 void FileProcessor::execute() {
 	if (executed_) {
-		throw std::runtime_error("Already executed the file processor.");
+		throw std::runtime_error("Tried to execute the file processor again.");
 	} else {
 		executed_ = true;
 	}
@@ -45,7 +46,7 @@ void FileProcessor::execute() {
 		return;
 	}
 
-	auto output_as_input = std::make_unique<MemoryReader>(output_->get_data());
+	auto output_as_input = std::make_unique<MemoryReader>(output_writer_->get_data());
 	std::array<std::uint8_t, 2> magic_bytes{};
 	output_as_input->read(magic_bytes.data(), 2);
 	auto verification_output = std::make_unique<MemoryWriter>();
@@ -62,23 +63,37 @@ void FileProcessor::execute() {
 
 std::size_t FileProcessor::get_jpg_size() const {
 	if (file_type_ == FileType::JPG) {
-		return input_->get_size();
+		return input_reader_->get_size();
 	} else {
-		return output_->num_bytes_written();
+		return output_writer_->num_bytes_written();
 	}
 }
 
 std::size_t FileProcessor::get_pjg_size() const {
 	if (file_type_ == FileType::JPG) {
-		return output_->num_bytes_written();
+		return output_writer_->num_bytes_written();
 	} else {
-		return input_->get_size();
+		return input_reader_->get_size();
+	}
+}
+
+bool FileProcessor::delete_output() {
+	if (!output_dest_is_stdout_) {
+		executed_ = true;
+		output_writer_.reset(nullptr); // Close stream associated with destination file.
+		try {
+			return std::experimental::filesystem::remove(output_destination_);
+		} catch (const std::exception&) {
+			return false;
+		}
+	} else {
+		return true;
 	}
 }
 
 FileType FileProcessor::get_file_type() {
 	std::array<std::uint8_t, 2> magic_bytes{};
-	if (input_->read(magic_bytes.data(), 2) != 2) {
+	if (input_reader_->read(magic_bytes.data(), 2) != 2) {
 		throw std::runtime_error("Not enough data to determine file type");
 	}
 
@@ -103,7 +118,7 @@ FileType FileProcessor::get_file_type() {
 }
 
 void FileProcessor::verify_reversible(Writer& verification_output) const {
-	const auto& input_data = input_->get_data();
+	const auto& input_data = input_reader_->get_data();
 	const auto& verification_data = verification_output.get_data();
 	if (input_data.size() != verification_data.size()) {
 		throw std::runtime_error("Expected (input) file size: " + std::to_string(input_data.size())
@@ -121,7 +136,8 @@ void FileProcessor::verify_reversible(Writer& verification_output) const {
 	}
 }
 
-std::string FileProcessor::determine_output_destination(const std::string& input_file, const std::string& new_extension) const {
+std::string FileProcessor::output_destination(const std::string& input_file) const {
+	const auto new_extension = file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext;
 	auto filename_base = input_file.substr(0, input_file.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
 	while (std::experimental::filesystem::exists(filename) && !overwrite_) {

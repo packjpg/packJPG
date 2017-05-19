@@ -46,6 +46,8 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 
 	// Encode component data:
 	for (auto& component : components) {
+		component.adapt_icos();
+		component.predict_dc();
 		auto zero_dist_lists = component.calc_zdst_lists();
 		const auto zero_sorted_scan = this->get_zero_sorted_scan(component);
 		this->encode_zero_sorted_scan(zero_sorted_scan);
