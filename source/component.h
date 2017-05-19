@@ -30,8 +30,6 @@ public:
 	// Calculates next position (non interleaved).
 	CodingStatus next_mcuposn(int rsti, int& dpos, int& rstw) const;
 
-	std::array<std::uint8_t, 64> freqscan; // optimized order for frequency scans (only pointers to scans)
-
 	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
 
 	std::array<std::uint16_t, 64> qtable{}; // quantization table
@@ -53,7 +51,6 @@ public:
 
 private:
 
-	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8; // precalculated/adapted values for idct (8x8)
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 

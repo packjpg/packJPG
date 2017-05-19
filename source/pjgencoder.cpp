@@ -47,10 +47,10 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 	// Encode component data:
 	for (auto& component : components) {
 		auto zero_dist_lists = component.calc_zdst_lists();
-		component.freqscan = this->get_zero_sorted_scan(component);
-		this->encode_zero_sorted_scan(component.freqscan);
+		const auto zero_sorted_scan = this->get_zero_sorted_scan(component);
+		this->encode_zero_sorted_scan(zero_sorted_scan);
 		this->zdst_high(component, std::get<0>(zero_dist_lists));
-		const auto eob_data = this->ac_high(component, std::vector<std::uint8_t>(std::get<0>(zero_dist_lists)));
+		const auto eob_data = this->ac_high(component, std::vector<std::uint8_t>(std::get<0>(zero_dist_lists)), zero_sorted_scan);
 		this->zdst_low(component, std::get<0>(zero_dist_lists), std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists), eob_data.first, eob_data.second);
 		this->ac_low(component, std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists));
 		this->dc(component, std::get<0>(zero_dist_lists));
@@ -205,7 +205,7 @@ void PjgEncoder::dc(const Component& component, const std::vector<std::uint8_t>&
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>& zero_dist_list) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(11, component.segm_cnt), 2);
@@ -226,7 +226,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 	// work through lower 7x7 bands in order of frequency
 	for (int i = 1; i < 64; i++) {
 		// work through blocks in order of frequency scan
-		const int block = static_cast<int>(component.freqscan[i]);
+		const int block = static_cast<int>(zero_sorted_scan[i]);
 		const int b_x = pjg::unzigzag[block] % 8;
 		const int b_y = pjg::unzigzag[block] / 8;
 
