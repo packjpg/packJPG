@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <tuple>
 #include <vector>
 
 #include "codingstatus.h"
@@ -24,16 +25,10 @@ public:
 
 	// Calculate zero distribution lists.
 	// This functions counts, for each DCT block, the number of non-zero coefficients
-	void calc_zdst_lists();
+	std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> calc_zdst_lists();
 
 	// Calculates next position (non interleaved).
 	CodingStatus next_mcuposn(int rsti, int& dpos, int& rstw) const;
-
-	std::vector<std::uint8_t> zdstdata; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
-	std::vector<std::uint8_t> eobxhigh; // eob in x direction (for higher 7x7 block)
-	std::vector<std::uint8_t> eobyhigh; // eob in y direction (for higher 7x7 block)
-	std::vector<std::uint8_t> zdstxlow; // # of non zeroes for first row
-	std::vector<std::uint8_t> zdstylow; // # of non zeroes for first column
 
 	std::array<std::uint8_t, 64> freqscan; // optimized order for frequency scans (only pointers to scans)
 

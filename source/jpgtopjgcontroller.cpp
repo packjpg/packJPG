@@ -30,7 +30,6 @@ void JpgToPjgController::execute() {
 	for (auto& component : frame_info->components) {
 		component.adapt_icos();
 		component.predict_dc();
-		component.calc_zdst_lists();
 	}
 
 	auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);

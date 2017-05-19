@@ -27,86 +27,91 @@ void PjgContext::reset_store() {
 	std::fill(std::begin(abs_coeffs_), std::end(abs_coeffs_), static_cast<std::uint16_t>(0));
 }
 
-int PjgContext::aavrg_context(int pos, int p_y, int p_x, int r_x) {
-	int ctx_avr = 0; // AVERAGE context
-	int w_ctx = 0; // accumulated weight of context
-	int w_curr; // current weight of context
+int PjgContext::aavrg_context(int pos, int band_width) {
+	// Calculate x/y positions in band:
+	const int p_y = pos / band_width;
+	const int p_x = pos % band_width;
+	const int r_x = band_width - (p_x + 1);
+
+	int average_context = 0;
+	int tot_context_weight = 0;
+	int curr_context_weight;
 
 	// different cases due to edge treatment
 	if (p_y >= 2) {
-		w_curr = std::get<0>(pjg::weights);
-		ctx_avr += quick_abs_coeffs_[0][pos] * w_curr;
-		w_ctx += w_curr;
-		w_curr = std::get<2>(pjg::weights);
-		ctx_avr += quick_abs_coeffs_[2][pos] * w_curr;
-		w_ctx += w_curr;
+		curr_context_weight = std::get<0>(pjg::weights);
+		average_context += quick_abs_coeffs_[0][pos] * curr_context_weight;
+		tot_context_weight += curr_context_weight;
+		curr_context_weight = std::get<2>(pjg::weights);
+		average_context += quick_abs_coeffs_[2][pos] * curr_context_weight;
+		tot_context_weight += curr_context_weight;
 		if (p_x >= 2) {
-			w_curr = std::get<1>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<4>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<1>(pjg::weights);
+			average_context += quick_abs_coeffs_[1][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<4>(pjg::weights);
+			average_context += quick_abs_coeffs_[4][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		} else if (p_x == 1) {
-			w_curr = std::get<1>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<1>(pjg::weights);
+			average_context += quick_abs_coeffs_[1][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		}
 		if (r_x >= 1) {
-			w_curr = std::get<3>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[3][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<3>(pjg::weights);
+			average_context += quick_abs_coeffs_[3][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		}
 	} else if (p_y == 1) {
-		w_curr = std::get<2>(pjg::weights);
-		ctx_avr += quick_abs_coeffs_[2][pos] * w_curr;
-		w_ctx += w_curr;
+		curr_context_weight = std::get<2>(pjg::weights);
+		average_context += quick_abs_coeffs_[2][pos] * curr_context_weight;
+		tot_context_weight += curr_context_weight;
 		if (p_x >= 2) {
-			w_curr = std::get<1>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<4>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<1>(pjg::weights);
+			average_context += quick_abs_coeffs_[1][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<4>(pjg::weights);
+			average_context += quick_abs_coeffs_[4][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		} else if (p_x == 1) {
-			w_curr = std::get<1>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[1][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<1>(pjg::weights);
+			average_context += quick_abs_coeffs_[1][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		}
 		if (r_x >= 1) {
-			w_curr = std::get<3>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[3][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<3>(pjg::weights);
+			average_context += quick_abs_coeffs_[3][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		}
 	} else {
 		if (p_x >= 2) {
-			w_curr = std::get<4>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[4][pos] * w_curr;
-			w_ctx += w_curr;
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<4>(pjg::weights);
+			average_context += quick_abs_coeffs_[4][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		} else if (p_x == 1) {
-			w_curr = std::get<5>(pjg::weights);
-			ctx_avr += quick_abs_coeffs_[5][pos] * w_curr;
-			w_ctx += w_curr;
+			curr_context_weight = std::get<5>(pjg::weights);
+			average_context += quick_abs_coeffs_[5][pos] * curr_context_weight;
+			tot_context_weight += curr_context_weight;
 		}
 	}
 
 	// return average context
-	return (w_ctx != 0) ? (ctx_avr + (w_ctx / 2)) / w_ctx : 0;
+	return (tot_context_weight != 0) ? (average_context + (tot_context_weight / 2)) / tot_context_weight : 0;
 }
 
 int PjgContext::lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {

@@ -209,7 +209,7 @@ public:
 	/*
 	Excludes every symbol above c. Note that update_model undoes symbol exclusions.
 	*/
-	void exclude_symbols(int c);
+	void exclude_symbols_above(int c);
 
 	/*
 	Converts a Symbol to an int, used only in encoding.

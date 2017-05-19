@@ -19,35 +19,37 @@ public:
 	// Decodes image encoded as pjg to colldata.
 	void decode();
 
-	std::vector<Segment> get_segments();
-	std::vector<std::uint8_t> get_garbage_data();
+	std::vector<Segment> get_segments() const;
+	std::vector<std::uint8_t> get_garbage_data() const;
 	std::unique_ptr<FrameInfo> get_frame_info();
-	std::uint8_t get_padbit();
-	std::vector<std::uint8_t> get_rst_err();
+	std::uint8_t get_padbit() const;
+	std::vector<std::uint8_t> get_rst_err() const;
 private:
-	// Decodes frequency scan order.
-	std::array<std::uint8_t, 64> zstscan();
+	// Decodes frequency (zero-sorted) scan order.
+	std::array<std::uint8_t, 64> decode_zero_sorted_scan();
 
-	// Decodes number of nonzeroes (high).
-	void zdst_high(Component& component);
+	// Decode zero-distribution-lists (number of nonzeroes) for higher (7x7) ACs.
+	std::vector<std::uint8_t> zdst_high(const Component& component);
 
-	// Decodes number of nonzeroes (low).
-	void zdst_low(Component& component);
+	// Decode zero-distribution-lists (number of nonzeroes) for lower ACs.
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y);
 
 	// Decodes DC coefficients.
-	void dc(Component& component);
+	void dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Decodes high (7x7) AC coefficients.
-	void ac_high(Component& component);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list);
 
 	// Decodes first row/col AC coefficients.
-	void ac_low(Component& component);
+	void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
 
 	// Decodes generic 8-bit data.
 	std::vector<std::uint8_t> generic();
 
 	// Decodes one bit.
 	std::uint8_t bit();
+
+	int PjgDecoder::decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual = 1);
 
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
