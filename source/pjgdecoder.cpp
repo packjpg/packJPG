@@ -39,11 +39,11 @@ void PjgDecoder::decode() {
 
 	for (auto& component : frame_info_->components) {
 		const auto zero_sorted_scan = this->decode_zero_sorted_scan();
-		component.zdstdata = this->zdst_high(component);
-		this->ac_high(component, zero_sorted_scan);
-		auto lower_zero_dist_lists = this->zdst_low(component);
+		const auto zero_dist_data = this->zdst_high(component);
+		const auto eob_data = this->ac_high(component, zero_sorted_scan, std::vector<std::uint8_t>(zero_dist_data));
+		auto lower_zero_dist_lists = this->zdst_low(component, zero_dist_data, eob_data.first, eob_data.second);
 		this->ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
-		this->dc(component);
+		this->dc(component, zero_dist_data);
 	}
 
 	const bool garbage_exists = this->bit() == 1;
@@ -115,10 +115,8 @@ std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 	return zero_dist_list;
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst_low(const Component& component) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-
-	const auto& zero_dist_context = component.zdstdata;
 
 	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
 		for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
@@ -128,14 +126,14 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	};
 
 	std::vector<std::uint8_t> first_row_zero_dist_list(component.bc);
-	decode_zero_dist_list(component.eobxhigh, first_row_zero_dist_list);
+	decode_zero_dist_list(eob_x, first_row_zero_dist_list);
 	std::vector<std::uint8_t> first_col_zero_dist_list(component.bc);
-	decode_zero_dist_list(component.eobyhigh, first_col_zero_dist_list);
+	decode_zero_dist_list(eob_y, first_col_zero_dist_list);
 
 	return std::make_pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
 }
 
-void PjgDecoder::dc(Component& component) {
+void PjgDecoder::dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
 
 	const int max_val = component.max_v(0);
 	const int max_bitlen = pjg::bitlen1024p(max_val);
@@ -147,7 +145,6 @@ void PjgDecoder::dc(Component& component) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 	const int band_width = component.bch;
 	PjgContext context(component);
-	const auto& zero_dist_list = component.zdstdata;
 
 	auto& coeffs = component.colldata[0];
 	for (int pos = 0; pos < coeffs.size(); pos++) {
@@ -172,7 +169,7 @@ void PjgDecoder::dc(Component& component) {
 	}
 }
 
-void PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -183,10 +180,9 @@ void PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64
 	const int band_width = component.bch;
 
 	std::vector<std::uint8_t> signs(bc);
-	auto zero_dist_list = component.zdstdata; // copy of zero distribution list
 
-	auto& eob_x = component.eobxhigh;
-	auto& eob_y = component.eobyhigh;
+	std::vector<std::uint8_t> eob_x(bc);
+	std::vector<std::uint8_t> eob_y(bc);
 
 	PjgContext context(component);
 
@@ -253,6 +249,8 @@ void PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64
 		residual_model->flush_model();
 		sign_model->flush_model();
 	}
+
+	return std::make_pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>(std::move(eob_x), std::move(eob_y));
 }
 
 void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {

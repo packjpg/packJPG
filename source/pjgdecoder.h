@@ -32,13 +32,13 @@ private:
 	std::vector<std::uint8_t> zdst_high(const Component& component);
 
 	// Decode zero-distribution-lists (number of nonzeroes) for lower ACs.
-	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> zdst_low(const Component& component);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y);
 
 	// Decodes DC coefficients.
-	void dc(Component& component);
+	void dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Decodes high (7x7) AC coefficients.
-	void ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list);
 
 	// Decodes first row/col AC coefficients.
 	void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
