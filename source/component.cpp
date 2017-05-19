@@ -73,10 +73,10 @@ void Component::adapt_icos() {
 	}
 }
 
-void Component::calc_zdst_lists() {
-	zdstdata.resize(bc);
-	zdstxlow.resize(bc);
-	zdstylow.resize(bc);
+std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> Component::calc_zdst_lists() {
+	std::vector<std::uint8_t> zdstdata(bc);
+	std::vector<std::uint8_t> zdstxlow(bc);
+	std::vector<std::uint8_t> zdstylow(bc);
 
 	// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
 	for (std::size_t bpos = 1; bpos < colldata.size(); bpos++) {
@@ -102,6 +102,7 @@ void Component::calc_zdst_lists() {
 			}
 		}
 	}
+	return std::make_tuple(std::move(zdstdata), std::move(zdstxlow), std::move(zdstylow));
 }
 
 CodingStatus Component::next_mcuposn(int rsti, int& dpos, int& rstw) const {

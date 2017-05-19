@@ -130,7 +130,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	std::vector<std::uint8_t> first_col_zero_dist_list(component.bc);
 	decode_zero_dist_list(eob_y, first_col_zero_dist_list);
 
-	return std::make_pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
+	return std::make_pair(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
 }
 
 void PjgDecoder::dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
@@ -250,7 +250,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 		sign_model->flush_model();
 	}
 
-	return std::make_pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>(std::move(eob_x), std::move(eob_y));
+	return std::make_pair(std::move(eob_x), std::move(eob_y));
 }
 
 void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {

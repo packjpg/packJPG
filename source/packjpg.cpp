@@ -364,9 +364,9 @@ static bool unpredict_dc() {
 calculate zero distribution lists
 ----------------------------------------------- */
 static bool calc_zdst_lists() {
-	for (auto& component : frame_info->components) {
+	/*for (auto& component : frame_info->components) {
 		component.calc_zdst_lists();
-	}
+	}*/
 
 	return true;
 }

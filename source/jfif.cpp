@@ -257,10 +257,6 @@ std::unique_ptr<FrameInfo> jfif::parse_sof(Marker type, const Segment& segment, 
 		for (auto& coeffs : component.colldata) {
 			coeffs.resize(component.bc);
 		}
-
-		component.eobxhigh.resize(component.bc);
-		component.eobyhigh.resize(component.bc);
-
 	}
 
 	// decide components' statistical ids

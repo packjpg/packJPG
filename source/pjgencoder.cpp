@@ -46,13 +46,14 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 
 	// Encode component data:
 	for (auto& component : components) {
+		auto zero_dist_lists = component.calc_zdst_lists();
 		component.freqscan = this->get_zero_sorted_scan(component);
 		this->encode_zero_sorted_scan(component.freqscan);
-		this->zdst_high(component);
-		this->ac_high(component);
-		this->zdst_low(component);
-		this->ac_low(component);
-		this->dc(component);
+		this->zdst_high(component, std::get<0>(zero_dist_lists));
+		const auto eob_data = this->ac_high(component, std::vector<std::uint8_t>(std::get<0>(zero_dist_lists)));
+		this->zdst_low(component, std::get<0>(zero_dist_lists), std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists), eob_data.first, eob_data.second);
+		this->ac_low(component, std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists));
+		this->dc(component, std::get<0>(zero_dist_lists));
 	}
 
 	// Encode a bit indicating whether there is garbage data:
@@ -122,9 +123,8 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& c
 	return index;
 }
 
-void PjgEncoder::zdst_high(const Component& component) {
+void PjgEncoder::zdst_high(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	const auto& zero_dist_list = component.zdstdata;
 	const int w = component.bch;
 
 	// Encode the zero-distribution-list:
@@ -139,9 +139,8 @@ void PjgEncoder::zdst_high(const Component& component) {
 	}
 }
 
-void PjgEncoder::zdst_low(const Component& component) {
+void PjgEncoder::zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
-	const auto& zero_dist_context = component.zdstdata;
 	auto encode_zero_dist = [&](const auto& zero_dist_list, const auto& eob_context) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
@@ -150,13 +149,13 @@ void PjgEncoder::zdst_low(const Component& component) {
 	};
 	
 	// Encode the first row zero-distribution-list:
-	encode_zero_dist(component.zdstxlow, component.eobxhigh);
+	encode_zero_dist(zdstxlow, eob_x);
 
 	// Encode the first column zero-distribution-list:
-	encode_zero_dist(component.zdstylow, component.eobyhigh);
+	encode_zero_dist(zdstylow, eob_y);
 }
 
-void PjgEncoder::dc(const Component& component) {
+void PjgEncoder::dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	const int max_val = component.max_v(0);
@@ -173,7 +172,6 @@ void PjgEncoder::dc(const Component& component) {
 	PjgContext context(component);
 
 	const auto& coeffs = component.colldata[0];
-	const auto& zero_dist_list = component.zdstdata;
 
 	// arithmetic compression loop
 	for (int dpos = 0; dpos < bc; dpos++) {
@@ -207,7 +205,7 @@ void PjgEncoder::dc(const Component& component) {
 	}
 }
 
-void PjgEncoder::ac_high(Component& component) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>& zero_dist_list) {
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(11, component.segm_cnt), 2);
@@ -219,10 +217,9 @@ void PjgEncoder::ac_high(Component& component) {
 	const int band_width = component.bch;
 
 	std::vector<std::uint8_t> signs(bc); // sign storage for context	
-	auto zero_dist_list = component.zdstdata; // copy of zero distribution list
 	
-	auto& eob_x = component.eobxhigh;
-	auto& eob_y = component.eobyhigh;
+	std::vector<std::uint8_t> eob_x(bc);
+	std::vector<std::uint8_t> eob_y(bc);
 
 	PjgContext context(component);
 
@@ -300,9 +297,10 @@ void PjgEncoder::ac_high(Component& component) {
 		residual_model->flush_model();
 		sign_model->flush_model();
 	}
+	return std::make_pair(std::move(eob_x), std::move(eob_y));
 }
 
-void PjgEncoder::ac_low(Component& component) {
+void PjgEncoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
@@ -327,7 +325,7 @@ void PjgEncoder::ac_low(Component& component) {
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		const int& edge_criterion = b_x == 0 ? p_x : p_y;
-		auto& zero_dist_list = b_x == 0 ? component.zdstylow : component.zdstxlow; // Reference to row/col # of non-zeroes.
+		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {
 				const auto block = pjg::zigzag[b_x + (8 * b_y)];
