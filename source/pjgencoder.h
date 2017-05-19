@@ -29,7 +29,7 @@ private:
 	void dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Encodes higher (7x7) AC coefficients.
-	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, std::vector<std::uint8_t>& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, std::vector<std::uint8_t>&& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan);
 
 	// Encodes first row/col (lower) AC coefficients.
 	void ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);

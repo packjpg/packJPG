@@ -360,17 +360,6 @@ static bool unpredict_dc() {
 	return true;
 }
 
-/* -----------------------------------------------
-calculate zero distribution lists
------------------------------------------------ */
-static bool calc_zdst_lists() {
-	/*for (auto& component : frame_info->components) {
-		component.calc_zdst_lists();
-	}*/
-
-	return true;
-}
-
 namespace jpg {
 
 char padbit = -1; // padbit (for huffman coding)
@@ -885,8 +874,6 @@ static inline std::string get_status( bool (*function)() )
 		return "Removing prediction from DC";
 	} else if ( function == *jpg::decode::check_value_range ) {
 		return "Checking values range";
-	} else if ( function == *calc_zdst_lists ) {
-		return "Calculating zero dist lists";
 	} else if ( function == *pjg::encode::encode ) {
 		return "Compressing data to PJG";
 	} else if ( function == *pjg::decode::decode ) {
@@ -931,7 +918,6 @@ static void process_file(FileType filetype) {
 		execute(jpg::decode::check_value_range);
 		execute(dct::adapt_icos);
 		execute(predict_dc);
-		execute(calc_zdst_lists);
 		execute(pjg::encode::encode);
 		if (verify) {
 			execute(swap_streams);
@@ -955,7 +941,6 @@ static void process_file(FileType filetype) {
 			execute(jpg::decode::check_value_range);
 			execute(dct::adapt_icos);
 			execute(predict_dc);
-			execute(calc_zdst_lists);
 			execute(pjg::encode::encode);
 			execute(compare_output);
 		}

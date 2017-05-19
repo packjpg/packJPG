@@ -169,7 +169,7 @@ void PjgDecoder::dc(Component& component, const std::vector<std::uint8_t>& zero_
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t>&& zero_dist_list) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);

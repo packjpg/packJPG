@@ -205,7 +205,7 @@ void PjgEncoder::dc(const Component& component, const std::vector<std::uint8_t>&
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>&& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(11, component.segm_cnt), 2);

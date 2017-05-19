@@ -38,7 +38,7 @@ private:
 	void dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Decodes high (7x7) AC coefficients.
-	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t>&& zero_dist_list);
 
 	// Decodes first row/col AC coefficients.
 	void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
