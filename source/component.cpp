@@ -59,10 +59,6 @@ void Component::adapt_icos() {
 			quant[ipos] = 0;
 		}
 	}
-	// adapt idct 8x8 table
-	for (std::size_t ipos = 0; ipos < adpt_idct_8x8.size(); ipos++) {
-		adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
-	}
 	// adapt idct 1x8 table
 	for (std::size_t ipos = 0; ipos < adpt_idct_1x8.size(); ipos++) {
 		adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
