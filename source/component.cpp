@@ -74,6 +74,10 @@ void Component::adapt_icos() {
 }
 
 void Component::calc_zdst_lists() {
+	zdstdata.resize(bc);
+	zdstxlow.resize(bc);
+	zdstylow.resize(bc);
+
 	// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
 	for (std::size_t bpos = 1; bpos < colldata.size(); bpos++) {
 		const int b_x = pjg::unzigzag[bpos] % 8;

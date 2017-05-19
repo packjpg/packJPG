@@ -29,19 +29,19 @@ private:
 	std::array<std::uint8_t, 64> decode_zero_sorted_scan();
 
 	// Decode zero-distribution-lists (number of nonzeroes) for higher (7x7) ACs.
-	void zdst_high(Component& component);
+	std::vector<std::uint8_t> zdst_high(const Component& component);
 
 	// Decode zero-distribution-lists (number of nonzeroes) for lower ACs.
-	void zdst_low(Component& component);
+	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> zdst_low(const Component& component);
 
 	// Decodes DC coefficients.
 	void dc(Component& component);
 
 	// Decodes high (7x7) AC coefficients.
-	void ac_high(Component& component);
+	void ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan);
 
 	// Decodes first row/col AC coefficients.
-	void ac_low(Component& component);
+	void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
 
 	// Decodes generic 8-bit data.
 	std::vector<std::uint8_t> generic();

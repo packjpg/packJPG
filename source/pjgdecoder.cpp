@@ -38,11 +38,11 @@ void PjgDecoder::decode() {
 	frame_info_ = jfif::get_frame_info(segments_);
 
 	for (auto& component : frame_info_->components) {
-		component.freqscan = this->decode_zero_sorted_scan();
-		this->zdst_high(component);
-		this->ac_high(component);
-		this->zdst_low(component);
-		this->ac_low(component);
+		const auto zero_sorted_scan = this->decode_zero_sorted_scan();
+		component.zdstdata = this->zdst_high(component);
+		this->ac_high(component, zero_sorted_scan);
+		auto lower_zero_dist_lists = this->zdst_low(component);
+		this->ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
 		this->dc(component);
 	}
 
@@ -97,9 +97,9 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 	return zero_sorted_scan;
 }
 
-void PjgDecoder::zdst_high(Component& component) {
+std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
-	auto& zero_dist_list = component.zdstdata;
+	std::vector<std::uint8_t> zero_dist_list(component.bc);
 	const int band_width = component.bch;
 
 	// Decode the zero-distribution-list:
@@ -112,25 +112,27 @@ void PjgDecoder::zdst_high(Component& component) {
 
 		zero_dist_list[pos] = decoder_->decode(*model);
 	}
+	return zero_dist_list;
 }
 
-void PjgDecoder::zdst_low(Component& component) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst_low(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
 	const auto& zero_dist_context = component.zdstdata;
 
-	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list)
-	{
+	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
 		for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
 			zero_dist_list[dpos] = decoder_->decode(*model);
 		}
 	};
 
-	// Decode the first row zero-distribution-list:
-	decode_zero_dist_list(component.eobxhigh, component.zdstxlow);
-	// Decode the column row zero-distribution-list:
-	decode_zero_dist_list(component.eobyhigh, component.zdstylow);
+	std::vector<std::uint8_t> first_row_zero_dist_list(component.bc);
+	decode_zero_dist_list(component.eobxhigh, first_row_zero_dist_list);
+	std::vector<std::uint8_t> first_col_zero_dist_list(component.bc);
+	decode_zero_dist_list(component.eobyhigh, first_col_zero_dist_list);
+
+	return std::make_pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
 }
 
 void PjgDecoder::dc(Component& component) {
@@ -170,7 +172,7 @@ void PjgDecoder::dc(Component& component) {
 	}
 }
 
-void PjgDecoder::ac_high(Component& component) {
+void PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -191,7 +193,7 @@ void PjgDecoder::ac_high(Component& component) {
 	// work through lower 7x7 bands in zero-sorted scan order:
 	for (int i = 1; i < 64; i++) {
 		// work through blocks in order of frequency scan
-		const int bpos = static_cast<int>(component.freqscan[i]);
+		const int bpos = static_cast<int>(zero_sorted_scan[i]);
 		const int b_x = pjg::unzigzag[bpos] % 8;
 		const int b_y = pjg::unzigzag[bpos] / 8;
 
@@ -253,7 +255,7 @@ void PjgDecoder::ac_high(Component& component) {
 	}
 }
 
-void PjgDecoder::ac_low(Component& component) {
+void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {
 	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
 	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
@@ -278,7 +280,7 @@ void PjgDecoder::ac_low(Component& component) {
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
-		auto& zero_dist_list = b_x == 0 ? component.zdstylow : component.zdstxlow; // Pointer to row/col # of non-zeroes.
+		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {
 				coeffs_x[b_x] = component.colldata[pjg::zigzag[b_x + (8 * b_y)]].data();

@@ -258,11 +258,8 @@ std::unique_ptr<FrameInfo> jfif::parse_sof(Marker type, const Segment& segment, 
 			coeffs.resize(component.bc);
 		}
 
-		component.zdstdata.resize(component.bc);
 		component.eobxhigh.resize(component.bc);
 		component.eobyhigh.resize(component.bc);
-		component.zdstxlow.resize(component.bc);
-		component.zdstylow.resize(component.bc);
 
 	}
 
