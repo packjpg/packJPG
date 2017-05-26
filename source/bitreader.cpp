@@ -4,8 +4,7 @@
 
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	data_(bits),
-	curr_byte_(std::begin(data_)),
-	eof_(bits.empty()) {
+	curr_byte_(std::begin(data_)) {
 }
 
 BitReader::~BitReader() {
@@ -27,7 +26,6 @@ std::uint16_t BitReader::read_u16(std::size_t num_bits) {
 		curr_bit_ = 8;
 		++curr_byte_;
 		if (curr_byte_ == std::end(data_)) {
-			eof_ = true;
 			return val;
 		}
 	}
@@ -51,13 +49,29 @@ std::uint8_t BitReader::read_bit() {
 	std::uint8_t bit = bitops::bitn(*curr_byte_, --curr_bit_);
 	if (curr_bit_ == 0) {
 		++curr_byte_;
-		if (curr_byte_ == std::end(data_)) {
-			eof_ = true;
-		}
 		curr_bit_ = 8;
 	}
 
 	return bit;
+}
+
+void BitReader::rewind_bits(std::size_t num_bits) {
+	if (eof()) {
+		overread_ = false;
+	} else if (num_bits <= 8 - curr_bit_) {
+		curr_bit_ += num_bits;
+		return;
+	}
+	curr_bit_ += num_bits;
+	const auto num_bytes_rewound = curr_bit_ / 8;
+	auto num_to_rewind = std::min(num_bytes_rewound, std::size_t(std::distance(std::begin(data_), curr_byte_)));
+	auto new_pos = std::distance(std::begin(data_), curr_byte_) - num_to_rewind;
+	curr_byte_ = std::next(std::begin(data_), new_pos);
+	curr_bit_ %= 8;
+	if (curr_bit_ == 0) {
+		++curr_byte_;
+		curr_bit_ = 8;
+	}
 }
 
 /* -----------------------------------------------
@@ -72,7 +86,6 @@ std::uint8_t BitReader::unpad(std::uint8_t fillbit) {
 		if (curr_bit_ < 8) {
 			++curr_byte_;
 			curr_bit_ = 8;
-			eof_ = curr_byte_ == std::end(data_);
 		}
 	}
 
@@ -80,7 +93,7 @@ std::uint8_t BitReader::unpad(std::uint8_t fillbit) {
 }
 
 bool BitReader::eof() const {
-	return eof_;
+	return curr_byte_ == std::end(data_);
 }
 
 bool BitReader::overread() const {
