@@ -2,6 +2,7 @@
 
 #include "bitops.h"
 
+#include <exception>
 #include <string>
 
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
