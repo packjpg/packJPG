@@ -2,8 +2,8 @@
 
 #include "bitops.h"
 
-#include <exception>
 #include <string>
+#include <stdexcept>
 
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	data_(bits),
