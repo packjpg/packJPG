@@ -41,7 +41,7 @@ private:
 	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t>&& zero_dist_list);
 
 	// Decodes first row/col AC coefficients.
-	void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
+	void ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow);
 
 	// Decodes generic 8-bit data.
 	std::vector<std::uint8_t> generic();
@@ -49,7 +49,7 @@ private:
 	// Decodes one bit.
 	std::uint8_t bit();
 
-	int PjgDecoder::decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual = 1);
+	int decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual = 1);
 
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
