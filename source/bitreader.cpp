@@ -2,44 +2,42 @@
 
 #include "bitops.h"
 
+#include <string>
+
 BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	data_(bits),
 	curr_byte_(std::begin(data_)) {
 }
 
-BitReader::~BitReader() {
-}
+BitReader::~BitReader() {}
 
 std::uint16_t BitReader::read_u16(std::size_t num_bits) {
-	// safety check for eof
-	if (eof()) {
-		overread_ = true;
-		return 0;
-	} else if (num_bits > 16) {
-		return 0; // throw an exception?
+	if (num_bits > 16) {
+		throw std::runtime_error("Tried to read " + std::to_string(num_bits) + ", when at most 16 bits can be read with read_u16.");
 	}
 
 	std::uint16_t val = 0;
-	while (num_bits >= curr_bit_) {
+	while (num_bits >= curr_bit_ && !eof()) {
 		num_bits -= curr_bit_;
 		val |= (bitops::rbits(*curr_byte_, curr_bit_) << num_bits);
 		curr_bit_ = 8;
 		++curr_byte_;
-		if (curr_byte_ == std::end(data_)) {
-			return val;
-		}
 	}
 
-	if (num_bits > 0) {
+	if (num_bits > 0 && !eof()) {
 		val |= (bitops::mbits(*curr_byte_, curr_bit_, (curr_bit_ - num_bits)));
 		curr_bit_ -= num_bits;
+		num_bits = 0;
+	}
+
+	if (num_bits != 0) {
+		overread_ = true;
 	}
 
 	return val;
 }
 
 std::uint8_t BitReader::read_bit() {
-	// safety check for eof
 	if (eof()) {
 		overread_ = true;
 		return 0;
