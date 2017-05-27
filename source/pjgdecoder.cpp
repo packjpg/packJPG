@@ -43,7 +43,7 @@ void PjgDecoder::decode() {
 		const auto eob_data = this->ac_high(component, zero_sorted_scan, std::vector<std::uint8_t>(zero_dist_data));
 		auto lower_zero_dist_lists = this->zdst_low(component, zero_dist_data, eob_data.first, eob_data.second);
 		this->ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
-		this->dc(component, zero_dist_data);
+		this->decode_dc(component, zero_dist_data);
 		component.adapt_icos();
 		component.unpredict_dc();
 	}
@@ -135,8 +135,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	return std::make_pair(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
 }
 
-void PjgDecoder::dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
-
+void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
 	const int max_val = component.max_v(0);
 	const int max_bitlen = pjg::bitlen1024p(max_val);
 
@@ -145,33 +144,28 @@ void PjgDecoder::dc(Component& component, const std::vector<std::uint8_t>& zero_
 	auto sign_model = std::make_unique<BinaryModel>(1, 0);
 
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
-	const int band_width = component.bch;
 	PjgContext context(component);
 
-	auto& coeffs = component.colldata[0];
-	for (int pos = 0; pos < coeffs.size(); pos++) {
+	auto& dc_coeffs = component.colldata[0];
+	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
 		const int segment_num = segmentation_set[zero_dist_list[pos]];
-		const int average_context = context.aavrg_context(pos, band_width);
-		const int bitlen_context = pjg::bitlen1024p(average_context);			
-		// shift context / do context modelling (segmentation is done per context)
+		const int average_context = context.aavrg_context(pos, component.bch);
+		const int bitlen_context = pjg::bitlen1024p(average_context);
+		// Do context modeling (segmentation is done per context):
 		bitlen_model->shift_model(bitlen_context, segment_num);
 
 		const int coeff_bitlen = decoder_->decode(*bitlen_model);
-
 		if (coeff_bitlen != 0) {
-			// Decode the residual of the coefficient:
 			// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
 			const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
-
-			const int coeff_sign = decoder_->decode(*sign_model);
-
-			coeffs[pos] = (coeff_sign == 0) ? coeff_residual : -coeff_residual;
+			const bool coeff_is_positive = decoder_->decode(*sign_model) == 0;
+			dc_coeffs[pos] = coeff_is_positive ? coeff_residual : -coeff_residual;
 			context.abs_coeffs_[pos] = coeff_residual;
 		}
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t> zero_dist_list) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t>&& zero_dist_list) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -224,7 +218,6 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 			const int coeff_bitlen = decoder_->decode(*bitlen_model);
 
 			if (coeff_bitlen != 0) {
-				// Decode the residual of the coefficient:
 				// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
 				const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
 
@@ -261,7 +254,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
-	auto residual_model = std::make_unique<BinaryModel>(1 << 4, 2);
+	auto residual_model = std::make_unique<BinaryModel>(16, 2);
 	auto top_model = std::make_unique<BinaryModel>(1 << std::max(4, component.nois_trs), 3);
 	auto sign_model = std::make_unique<BinaryModel>(11, 1);
 
@@ -276,7 +269,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 		int b_y = (i % 2 == 1) ? i / 2 : 0;
 		const int bpos = static_cast<int>(pjg::zigzag[b_x + (8 * b_y)]);
 
-		auto& coeffs = component.colldata[bpos]; // Current coefficient data.
+		auto& coeffs = component.colldata[bpos];
 		// store pointers to prediction coefficients
 		int p_x, p_y;
 		int* edge_c; // edge criteria
