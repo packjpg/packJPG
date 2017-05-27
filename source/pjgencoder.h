@@ -23,10 +23,10 @@ private:
 	void zdst_high(const Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Encodes zero-distribution-lists (number of non zeroes) for lower ACs.
-	void zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y);
+	void zdst_low(const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y);
 
 	// Encodes DC coefficients.
-	void dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list);
+	void encode_dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list);
 
 	// Encodes higher (7x7) AC coefficients.
 	std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> ac_high(Component& component, std::vector<std::uint8_t>&& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan);

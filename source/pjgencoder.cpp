@@ -53,9 +53,9 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 		this->encode_zero_sorted_scan(zero_sorted_scan);
 		this->zdst_high(component, std::get<0>(zero_dist_lists));
 		const auto eob_data = this->ac_high(component, std::vector<std::uint8_t>(std::get<0>(zero_dist_lists)), zero_sorted_scan);
-		this->zdst_low(component, std::get<0>(zero_dist_lists), std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists), eob_data.first, eob_data.second);
+		this->zdst_low(std::get<0>(zero_dist_lists), std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists), eob_data.first, eob_data.second);
 		this->ac_low(component, std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists));
-		this->dc(component, std::get<0>(zero_dist_lists));
+		this->encode_dc(component, std::get<0>(zero_dist_lists));
 	}
 
 	// Encode a bit indicating whether there is garbage data:
@@ -141,7 +141,7 @@ void PjgEncoder::zdst_high(const Component& component, const std::vector<std::ui
 	}
 }
 
-void PjgEncoder::zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
+void PjgEncoder::zdst_low(const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 	auto encode_zero_dist = [&](const auto& zero_dist_list, const auto& eob_context) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
@@ -157,8 +157,7 @@ void PjgEncoder::zdst_low(const Component& component, const std::vector<std::uin
 	encode_zero_dist(zdstylow, eob_y);
 }
 
-void PjgEncoder::dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
-	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
+void PjgEncoder::encode_dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
 
 	const int max_val = component.max_v(0);
 	const int max_bitlen = pjg::bitlen1024p(max_val);
@@ -167,42 +166,35 @@ void PjgEncoder::dc(const Component& component, const std::vector<std::uint8_t>&
 	auto residual_model = std::make_unique<BinaryModel>(std::max(component.segm_cnt, 16), 2);
 	auto sign_model = std::make_unique<BinaryModel>(1, 0);
 
-	// set width/height of each band
-	const int bc = component.bc;
-	const int band_width = component.bch;
-
+	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 	PjgContext context(component);
 
-	const auto& coeffs = component.colldata[0];
-
-	// arithmetic compression loop
-	for (int dpos = 0; dpos < bc; dpos++) {
-		const int segment_number = segmentation_set[zero_dist_list[dpos]];
-		const int average_context = context.aavrg_context(dpos, band_width);
+	const auto& dc_coeffs = component.colldata[0];
+	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
+		const int segment_number = segmentation_set[zero_dist_list[pos]];
+		const int average_context = context.aavrg_context(pos, component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 
-		// shift context / do context modelling (segmentation is done per context)
+		// Do context modeling (segmentation is done per context):
 		bitlen_model->shift_model(bitlen_context, segment_number);
 
-		if (coeffs[dpos] == 0) {
-			// Simple treatment if the coefficient is zero:
-			// Encode the bitlength (i.e. 0) of the coefficient:	
+		if (dc_coeffs[pos] == 0) {
 			encoder_->encode(*bitlen_model, 0);
 		} else {
 			// Encode the bitlength of the current coefficient:
-			const int coeff_abs = std::abs(coeffs[dpos]);
-			const int coeff_bitlen = pjg::bitlen1024p(coeff_abs);
+			const int coeff_residual = std::abs(dc_coeffs[pos]);
+			const int coeff_bitlen = pjg::bitlen1024p(coeff_residual);
 			encoder_->encode(*bitlen_model, coeff_bitlen);
 
 			// Encode the residual of the current coefficient:
-			// The highest-nonzero must be 1, so we start at bitlen - 2:
-			this->encode_residual(*residual_model, coeff_abs, coeff_bitlen - 2, segment_number);
+			// The highest-nonzero bit is 1, so we start at bitlen - 2:
+			this->encode_residual(*residual_model, coeff_residual, coeff_bitlen - 2, segment_number);
 
 			// Encode the sign of the current coefficient:
-			const int coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
+			const int coeff_sign = (dc_coeffs[pos] > 0) ? 0 : 1;
 			encoder_->encode(*sign_model, coeff_sign);
 
-			context.abs_coeffs_[dpos] = coeff_abs;
+			context.abs_coeffs_[pos] = coeff_residual;
 		}
 	}
 }
