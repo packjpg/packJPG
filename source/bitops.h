@@ -320,36 +320,4 @@ private:
 	std::unique_ptr<MemoryWriter> writer_;
 };
 
-
-/* -----------------------------------------------
-	class for input and output from file or memory
-	----------------------------------------------- */
-
-class iostream
-{
-public:
-	iostream( void* src, StreamType srctype, int srcsize, StreamMode iomode );
-	~iostream();
-	void switch_mode();
-	int read(unsigned char* to, int dtsize);
-	bool read_byte(unsigned char* to);
-	int write(const unsigned char* from, int dtsize);
-	int write_byte(unsigned char byte);
-	int rewind();
-	int getpos();
-	int getsize();
-	unsigned char* getptr();
-	bool chkerr();
-	bool chkeof();
-	
-private:
-    std::unique_ptr<Writer> writer_;
-	std::unique_ptr<Reader> reader_;
-
-    std::string filepath_;
-	
-    StreamType srct;
-	StreamMode mode;
-};
-
 #endif

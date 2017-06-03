@@ -10,38 +10,36 @@
 	constructor for aricoder class
 	----------------------------------------------- */
 
-aricoder::aricoder( iostream* stream, StreamMode iomode ) : sptr(stream), mode(iomode)
-{
-	if ( mode == StreamMode::kRead) { // mode is reading / decoding
-		// code buffer has to be filled before starting decoding
-		for (int i = 0; i < CODER_USE_BITS; i++ )
-			ccode = ( ccode << 1 ) | read_bit();
-	} // mode is writing / encoding otherwise
+ArithmeticDecoder::ArithmeticDecoder(Reader& reader) : reader_(reader) {
+    // code buffer has to be filled before starting decoding
+	for (std::uint32_t i = 0; i < CODER_USE_BITS; i++ ) {
+		ccode = ( ccode << 1 ) | read_bit();
+    }
 }
+
+ArithmeticEncoder::ArithmeticEncoder(Writer& writer) : writer_(writer) {}
 
 /* -----------------------------------------------
 	destructor for aricoder class
 	----------------------------------------------- */
 
-aricoder::~aricoder()
+ArithmeticEncoder::~ArithmeticEncoder()
 {
-	if ( mode == StreamMode::kWrite) { // mode is writing / encoding
-		// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
-		// there are only two possible cases
-		if ( clow < CODER_LIMIT025 ) { // case a.) 
-			write_bit<0>();
-			// write remaining bits
-			write_bit<1>();
-			writeNrbitsAsOne();
-		}
-		else { // case b.), clow >= CODER_LIMIT025
-			write_bit<1>();
-		} // done, zeroes are auto-read by the decoder
+
+	// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
+	// there are only two possible cases
+	if ( clow < CODER_LIMIT025 ) { // case a.) 
+		write_bit<0>();
+		// write remaining bits
+		write_bit<1>();
+		writeNrbitsAsOne();
+	} else { // case b.), clow >= CODER_LIMIT025
+		write_bit<1>();
+	} // done, zeroes are auto-read by the decoder
 		
-		// pad code with zeroes
-		while (cbit > 0) {
-			write_bit<0>();
-		}
+	// pad code with zeroes
+	while (cbit > 0) {
+		write_bit<0>();
 	}
 }
 
@@ -49,7 +47,7 @@ aricoder::~aricoder()
 	arithmetic encoder function
 	----------------------------------------------- */
 	
-void aricoder::encode( symbol* s )
+void ArithmeticEncoder::encode( symbol* s )
 {	
 	// Make local copies of clow_ and chigh_ for cache performance:
 	uint32_t clow_local = clow;
@@ -98,18 +96,18 @@ void aricoder::encode( symbol* s )
 	chigh = chigh_local;
 }
 
-void aricoder::writeNrbitsAsZero() {
+void ArithmeticEncoder::writeNrbitsAsZero() {
 	if (nrbits + cbit >= 8) {
 		int remainingBits = 8 - cbit;
 		nrbits -= remainingBits;
 		bbyte <<= remainingBits;
-		sptr->write_byte(bbyte);
+		writer_.write_byte(bbyte);
 		cbit = 0;
 	}
 
 	constexpr uint8_t zero = 0;
 	while (nrbits >= 8) {
-		sptr->write_byte(zero);
+		writer_.write_byte(zero);
 		nrbits -= 8;
 	}
 	/*
@@ -121,19 +119,19 @@ void aricoder::writeNrbitsAsZero() {
 	nrbits = 0;
 }
 
-void aricoder::writeNrbitsAsOne() {
+void ArithmeticEncoder::writeNrbitsAsOne() {
 	if (nrbits + cbit >= 8) {
 		int remainingBits = 8 - cbit;
 		nrbits -= remainingBits;
 		bbyte <<= remainingBits;
 		bbyte |= std::numeric_limits<uint8_t>::max() >> (8 - remainingBits);
-		sptr->write_byte(bbyte);
+		writer_.write_byte(bbyte);
 		cbit = 0;
 	}
 
 	constexpr uint8_t all_ones = std::numeric_limits<uint8_t>::max();
 	while (nrbits >= 8) {
-		sptr->write_byte(all_ones);
+		writer_.write_byte(all_ones);
 		nrbits -= 8;
 	}
 
@@ -151,7 +149,7 @@ void aricoder::writeNrbitsAsOne() {
 	arithmetic decoder get count function
 	----------------------------------------------- */
 	
-unsigned int aricoder::decode_count( symbol* s )
+unsigned int ArithmeticDecoder::decode_count( symbol* s )
 {
 	// update cstep, which is needed to remove the symbol from the stream later
 	cstep = ( ( chigh - clow ) + 1 ) / s->scale;
@@ -164,7 +162,7 @@ unsigned int aricoder::decode_count( symbol* s )
 	arithmetic decoder function
 	----------------------------------------------- */
 	
-void aricoder::decode( symbol* s )
+void ArithmeticDecoder::decode( symbol* s )
 {
 	// no actual decoding takes place, as this has to happen in the statistical model
 	// the symbol has to be removed from the stream, though
@@ -214,11 +212,11 @@ void aricoder::decode( symbol* s )
 	bit reader function
 	----------------------------------------------- */
 	
-unsigned char aricoder::read_bit()
+unsigned char ArithmeticDecoder::read_bit()
 {
 	// read in new byte if needed
 	if ( cbit == 0 ) {
-		if ( !sptr->read_byte(&bbyte)) // read next byte if available
+		if ( !reader_.read_byte(&bbyte)) // read next byte if available
 			bbyte = 0; // if no more data is left in the stream
 		cbit = 8;
 	}
@@ -454,7 +452,7 @@ int model_s::convert_symbol_to_int(uint32_t count, symbol *s)
 
 	// go through the totals table, search the symbol that matches the count
 	int c;
-	for (c = 1; c < totals.size(); c++) {
+	for (c = 1; c < int(totals.size()); c++) {
 		if (count >= totals[c]) {
 			break;
 		}
