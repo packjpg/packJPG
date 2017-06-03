@@ -423,12 +423,12 @@ INTERN int jpg_decode_dc_prg_sa( BitReader* huffr, short* block );
 INTERN int jpg_encode_dc_prg_sa( BitWriter* huffw, short* block );
 INTERN int jpg_decode_ac_prg_sa( BitReader* huffr, huffTree* actree, short* block,
 						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, MemoryWriter* storw, huffCodes* actbl,
+INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, std::vector<std::uint8_t>& storw, huffCodes* actbl,
 						short* block, int* eobrun, int from, int to );
 
 INTERN int jpg_decode_eobrun_sa( BitReader* huffr, short* block, int* eobrun, int from, int to );
 INTERN int jpg_encode_eobrun( BitWriter* huffw, huffCodes* actbl, int* eobrun );
-INTERN int jpg_encode_crbits( BitWriter* huffw, MemoryWriter* storw );
+INTERN int jpg_encode_crbits( BitWriter* huffw, std::vector<std::uint8_t>& storw );
 
 INTERN int jpg_next_huffcode( BitReader *huffw, huffTree *ctree );
 INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw );
@@ -2747,7 +2747,6 @@ INTERN bool decode_jpeg( void )
 INTERN bool recode_jpeg( void )
 {
 	BitWriter*  huffw; // bitwise writer for image data
-	MemoryWriter* storw; // bytewise writer for storage of correction bits
 	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -2768,7 +2767,7 @@ INTERN bool recode_jpeg( void )
 	huffw = new BitWriter(padbit);
 	
 	// init storage writer
-	storw = new MemoryWriter();
+	std::vector<std::uint8_t> storw; // Storage for correction bits.
 	
 	// preset count of scans and restarts
 	scnc = 0;
@@ -3049,9 +3048,6 @@ INTERN bool recode_jpeg( void )
 	huffdata = huffw->get_c_bytes();
 	hufs = huffw->num_bytes_written();	
 	delete huffw;
-	
-	// remove storage writer
-	delete storw;
 	
 	// store last scan & restart positions
 	scnp[ scnc ] = hufs;
@@ -4269,7 +4265,7 @@ INTERN int jpg_decode_ac_prg_sa( BitReader* huffr, huffTree* actree, short* bloc
 /* -----------------------------------------------
 	progressive AC SA encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, MemoryWriter* storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, std::vector<std::uint8_t>& storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4321,7 +4317,7 @@ INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, MemoryWriter* storw, huffCode
 		}
 		else { // store correction bits
 			n = block[ bpos ] & 0x1;
-			storw->write_byte( n );
+			storw.emplace_back(n);
 		}
 	}
 	
@@ -4330,7 +4326,7 @@ INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, MemoryWriter* storw, huffCode
 	{
 		if ( block[ bpos ] != 0 ) { // store correction bits
 			n = block[ bpos ] & 0x1;
-			storw->write_byte( n );
+			storw.emplace_back(n);
 		}
 	}
 	
@@ -4404,13 +4400,12 @@ INTERN int jpg_encode_eobrun( BitWriter* huffw, huffCodes* actbl, int* eobrun )
 /* -----------------------------------------------
 	correction bits encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_crbits( BitWriter* huffw, MemoryWriter* storw )
+INTERN int jpg_encode_crbits( BitWriter* huffw, std::vector<std::uint8_t>& storw )
 {	
-	const auto bits = storw->get_data();
-	for (const std::uint8_t bit : bits) {
+	for (const std::uint8_t bit : storw) {
 		huffw->write_bit(bit);
     }
-	storw->reset();
+	storw.clear();
 	return 0;
 }
 
