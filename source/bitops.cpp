@@ -9,7 +9,8 @@ reading and writing of arrays
 #include <array>
 #include <cstdio>
 #include <cstdlib>
-#include <vector>
+#include <experimental/filesystem>
+#include <fstream>
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
@@ -227,6 +228,17 @@ std::size_t BitWriter::num_bytes_written() const {
 	return bytes_.size();
 }
 
+unsigned char* Reader::get_c_data() {
+    const auto data = this->get_data();
+    auto c_data_copy = (unsigned char*)std::malloc(data.size() * sizeof data[0]);
+    if (c_data_copy == nullptr) {
+        return nullptr;
+    }
+
+    std::copy(std::begin(data), std::end(data), c_data_copy);
+    return c_data_copy;
+}
+
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
 	data_(bytes),
 	cbyte_(std::begin(data_)) {
@@ -318,6 +330,21 @@ bool MemoryReader::end_of_reader() {
 	return cbyte_ == std::end(data_);
 }
 
+unsigned char* Writer::get_c_data() {
+    try {
+        const auto data = this->get_data();
+        auto c_data_copy = (unsigned char*)std::malloc(data.size() * sizeof data[0]);
+        if (c_data_copy == nullptr) {
+            return nullptr;
+        }
+
+        std::copy(std::begin(data), std::end(data), c_data_copy);
+        return c_data_copy;
+    } catch (const std::exception&) {
+        return nullptr;
+    }
+}
+
 MemoryWriter::MemoryWriter() {}
 
 std::size_t MemoryWriter::write(const std::uint8_t* from, std::size_t n) {
@@ -344,15 +371,6 @@ std::vector<std::uint8_t> MemoryWriter::get_data() {
 	return data_;
 }
 
-unsigned char* MemoryWriter::get_c_data() {
-    auto c_data_copy = (unsigned char*)std::malloc(data_.size() * sizeof data_[0]);
-    if (c_data_copy == nullptr) {
-        return nullptr;
-    }
-    std::copy(std::begin(data_), std::end(data_), c_data_copy);
-    return c_data_copy;
-}
-
 void MemoryWriter::reset() {
 	data_.resize(0);
 }
@@ -365,40 +383,280 @@ bool MemoryWriter::error() {
 	return false;
 }
 
-/* -----------------------------------------------
-	constructor for iostream class
-	----------------------------------------------- */
+FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
+	fptr_ = std::fopen(file_path.c_str(), "wb");
+	if (fptr_ != nullptr) {
+		file_buffer_.reserve(32768);
+		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.capacity());
+	} else {
+		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
+	}
 
-iostream::iostream( void* src, StreamType srctype, int srcsize, StreamMode iomode )
-{
-	// locally copy source, source type # and io mode #
-	source = src;
-	srct   = srctype;
-	srcs   = srcsize;
-	mode   = iomode;
+}
+
+FileWriter::~FileWriter() {
+	if (fptr_ != nullptr) {
+		std::fflush(fptr_);
+		std::fclose(fptr_);
+	}
+}
+
+std::size_t FileWriter::write(const std::uint8_t* from, std::size_t n) {
+	return std::fwrite(from, sizeof from[0], n, fptr_);
+}
+
+std::size_t FileWriter::write(const std::vector<std::uint8_t>& bytes) {
+	return write(bytes.data(), bytes.size());
+}
+
+std::size_t FileWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	return write(bytes.data(), 2);
+}
+
+bool FileWriter::write_byte(std::uint8_t byte) {
+	return std::fputc(byte, fptr_) == byte;
+}
+
+std::vector<std::uint8_t> FileWriter::get_data() {
+	std::fflush(fptr_);
+	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		std::vector<std::uint8_t> data_copy(size);
+		is.seekg(0);
+		if (is.read(reinterpret_cast<char*>(data_copy.data()), size)) {
+			return data_copy;
+		} else {
+			throw std::runtime_error("FileWriter::get_data: unable to read bytes from file.");
+		}
+	} else {
+		throw std::runtime_error("FileWriter::get_data: unable to open read stream for file.");
+	}
+}
+
+void FileWriter::reset() {
+	std::fseek(fptr_, 0, SEEK_SET);
+}
+
+std::size_t FileWriter::num_bytes_written() {
+	std::fflush(fptr_);
+	return std::experimental::filesystem::file_size(file_path_);
+}
+
+bool FileWriter::error() {
+	return fptr_ == nullptr || std::ferror(fptr_);
+}
+
+StreamWriter::StreamWriter() {
+	writer_ = std::make_unique<MemoryWriter>();
+}
+
+StreamWriter::~StreamWriter() {
+#if defined(_WIN32) || defined(WIN32)
+	const int result = _setmode(_fileno(stdout), _O_BINARY);
+	if (result == -1) {
+		return;
+	}
+#endif
+	const auto& data = writer_->get_data();
+	fwrite(data.data(), sizeof data[0], data.size(), stdout);
+}
+
+std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
+	return writer_->write(from, n);
+}
+
+std::size_t StreamWriter::write(const std::vector<std::uint8_t>& bytes) {
+	return writer_->write(bytes);
+}
+
+std::size_t StreamWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	return writer_->write(bytes);
+}
+
+bool StreamWriter::write_byte(std::uint8_t byte) {
+	return writer_->write_byte(byte);
+}
+
+std::vector<std::uint8_t> StreamWriter::get_data() {
+	return writer_->get_data();
+}
+
+void StreamWriter::reset() {
+	writer_->reset();
+}
+
+std::size_t StreamWriter::num_bytes_written() {
+	return writer_->num_bytes_written();
+}
+
+bool StreamWriter::error() {
+	return writer_->error();
+}
+
+
+
+FileReader::FileReader(const std::string& file_path) {
+	if (std::ifstream is{ file_path, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		std::vector<std::uint8_t> data(size);
+		is.seekg(0);
+		if (is.read(reinterpret_cast<char*>(data.data()), size)) {
+			reader_ = std::make_unique<MemoryReader>(data);
+		} else {
+			throw std::runtime_error("FileReader: unable to read bytes from " + file_path);
+		}
+	} else {
+		throw std::runtime_error("FileReader: unable to open read stream for " + file_path);
+	}
+}
+
+FileReader::~FileReader() {}
+
+std::size_t FileReader::read(std::uint8_t* to, std::size_t num_to_read) {
+	return reader_->read(to, num_to_read);
+}
+
+std::size_t FileReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+	return reader_->read(into, num_to_read, offset);
+}
+
+std::uint8_t FileReader::read_byte() {
+	return reader_->read_byte();
+}
+
+bool FileReader::read_byte(std::uint8_t* to) {
+	return reader_->read_byte(to);
+}
+
+void FileReader::skip(std::size_t n) {
+	return reader_->skip(n);
+}
+
+void FileReader::rewind_bytes(std::size_t n) {
+	return reader_->rewind_bytes(n);
+}
+
+void FileReader::rewind() {
+	reader_->rewind();
+}
+
+std::size_t FileReader::num_bytes_read() {
+	return reader_->num_bytes_read();
+}
+
+std::size_t FileReader::get_size() {
+	return reader_->get_size();
+}
+
+std::vector<std::uint8_t> FileReader::get_data() {
+	return reader_->get_data();
+}
+
+bool FileReader::error() {
+	return reader_->error();
+}
+
+bool FileReader::end_of_reader() {
+	return reader_->end_of_reader();
+}
+
+StreamReader::StreamReader() {
+#if defined(_WIN32) || defined(WIN32)
+	const int result = _setmode(_fileno(stdin), _O_BINARY);
+	if (result == -1) {
+		throw std::runtime_error("Unable to set mode for stdin");
+	}
+#endif
+	// read whole stream into memory buffer
+	std::vector<std::uint8_t> stream_data;
+	constexpr auto buffer_capacity = 1024 * 1024;
+	std::vector<std::uint8_t> buffer(buffer_capacity);
+
+	auto bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+	while (bytes_read > 0) {
+		stream_data.insert(std::end(stream_data), std::begin(buffer), std::begin(buffer) + bytes_read);
+		bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+	}
+
+	reader_ = std::make_unique<MemoryReader>(stream_data);
+}
+
+std::size_t StreamReader::read(std::uint8_t* to, std::size_t num_to_read) {
+	return reader_->read(to, num_to_read);
+}
+
+std::size_t StreamReader::read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset) {
+	return reader_->read(into, num_to_read, offset);
+}
+
+std::uint8_t StreamReader::read_byte() {
+	return reader_->read_byte();
+}
+
+bool StreamReader::read_byte(std::uint8_t* to) {
+	return reader_->read_byte(to);
+}
+
+void StreamReader::skip(std::size_t n) {
+	reader_->skip(n);
+}
+
+void StreamReader::rewind_bytes(std::size_t n) {
+	reader_->rewind_bytes(n);
+}
+
+void StreamReader::rewind() {
+	reader_->rewind();
+}
+
+std::size_t StreamReader::num_bytes_read() {
+	return reader_->num_bytes_read();
+}
+
+std::size_t StreamReader::get_size() {
+	return reader_->get_size();
+}
+
+std::vector<std::uint8_t> StreamReader::get_data() {
+	return reader_->get_data();
+}
+
+bool StreamReader::error() {
+	return reader_->error();
+}
+
+bool StreamReader::end_of_reader() {
+	return reader_->end_of_reader();
+}
+
+iostream::iostream(void* src, StreamType srctype, int srcsize, StreamMode iomode) {
+	mode = iomode;
+    srct = srctype;
 	
-	// don't free memory when reading - this will be useful if switching occurs
-	free_mem_sw = false;
-	
-	// set binary mode for streams
-	#if defined(_WIN32) || defined(WIN32)
-		_setmode( _fileno( stdin ), _O_BINARY);
-		_setmode( _fileno( stdout ), _O_BINARY);
-	#endif
-	
-	// open file/mem/stream
-	switch ( srct )
-	{
+	switch (srctype) {
 		case StreamType::kFile:
-			open_file();
-			break;
+            filepath_ = std::string((char*)src);
+			if (mode == StreamMode::kRead) {
+		        reader_ = std::make_unique<FileReader>(filepath_);
+	        } else {
+		        writer_ = std::make_unique<FileWriter>(filepath_);
+            }
+            break;
 		
 		case StreamType::kMemory:
-			open_mem();
+			if (mode == StreamMode::kRead) {
+		        reader_ = std::make_unique<MemoryReader>(( unsigned char* ) src, srcsize);
+	        } else {
+	     	    writer_ = std::make_unique<MemoryWriter>();
+            }
 			break;
 		
 		case StreamType::kStream:
-			open_stream();
+			if (mode == StreamMode::kRead) {
+                reader_ = std::make_unique<StreamReader>();
+	        } else {
+               writer_ = std::make_unique<StreamWriter>();
+            }
 			break;
 		
 		default:			
@@ -406,356 +664,113 @@ iostream::iostream( void* src, StreamType srctype, int srcsize, StreamMode iomod
 	}
 }
 
-/* -----------------------------------------------
-	destructor for iostream class
-	----------------------------------------------- */
-
-iostream::~iostream()
-{
-	// if needed, write memory to stream or free memory from buffered stream
-	if ( srct == StreamType::kStream) {
-		if ( mode == StreamMode::kWrite ) {
-			if ( !(mwrt->error()) ) {
-				srcs   = mwrt->num_bytes_written();
-				source = mwrt->get_c_data();
-				fwrite( source, sizeof( char ), srcs, stdout );
-			}
-		}
-	}
-	
-	// free all buffers
-	if (srct == StreamType::kFile) {
-		if (fptr != nullptr) {
-			if (mode == StreamMode::kWrite) fflush(fptr);
-			fclose(fptr);
-		}
-	}
-	else if (mode == StreamMode::kRead) {
-		if (free_mem_sw)
-			free(source);
-	}
-}
+iostream::~iostream(){}
 
 /* -----------------------------------------------
 	switches mode from reading to writing and vice versa
 	----------------------------------------------- */
 	
-void iostream::switch_mode()
-{	
-	// return immediately if there's an error
-	if ( chkerr() ) return;
-	
-	
-	if ( mode == StreamMode::kRead) {
-		// WARNING: when switching from reading to writing, information might be lost forever
+void iostream::switch_mode() {	
+	if ( chkerr() ) {
+        return;
+    }
+
+    if (mode == StreamMode::kRead) {
 		switch ( srct ) {
 			case StreamType::kFile:
-				fclose( fptr );
-				fptr = fopen( ( char* ) source, "wb" );
+                writer_ = std::make_unique<FileWriter>(filepath_);
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
-				mrdr.reset();
-				if ( free_mem_sw )
-					free( source );
-				mwrt = std::make_unique<MemoryWriter>();
+				writer_ = std::make_unique<MemoryWriter>();
 				break;
 			default:
 				break;
 		}
-		mode = StreamMode::kWrite;
-	}
-	else {
-		// switching from writing to reading is a bit more complicated
+        reader_.reset();
+        mode = StreamMode::kWrite;
+    } else {
 		switch ( srct ) {
 			case StreamType::kFile:
-				fflush( fptr );
-				fclose( fptr );
-				fptr = fopen( ( char* ) source, "rb" );
+                reader_ = std::make_unique<FileReader>(filepath_);
 				break;
 			case StreamType::kMemory:
 			case StreamType::kStream:
-				source = mwrt->get_c_data();
-				srcs   = mwrt->num_bytes_written();
-				mwrt.reset();
-				mrdr = std::make_unique<MemoryReader>( ( unsigned char* ) source, srcs );
-				free_mem_sw = true;
+				reader_ = std::make_unique<MemoryReader>(writer_->get_data());
 				break;
 			default:
 				break;
 		}
-		mode = StreamMode::kRead;
-	}
+        writer_.reset();
+        mode = StreamMode::kRead;
+    }
 }
 
-/* -----------------------------------------------
-	generic read function
-	----------------------------------------------- */
-	
-int iostream::read(unsigned char* to, int dtsize)
-{
-	return ( srct == StreamType::kFile) ? read_file( to, dtsize ) : read_mem( to, dtsize );
+int iostream::read(unsigned char* to, int dtsize) {
+    return reader_->read(to, dtsize);
 }
 
 bool iostream::read_byte(unsigned char* to) {
-	return  srct == StreamType::kFile ? read_file_byte(to) : read_mem_byte(to);
+    return reader_->read_byte(to);
 }
 
-/* -----------------------------------------------
-	generic write function
-	----------------------------------------------- */
-
-int iostream::write(const unsigned char* from, int dtsize )
-{
-	return ( srct == StreamType::kFile) ? write_file( from, dtsize ) : write_mem( from, dtsize );
+int iostream::write(const unsigned char* from, int dtsize ) {
+	return writer_->write(from, dtsize);
 }
 
 int iostream::write_byte(unsigned char byte) {
-	return srct == StreamType::kFile ? write_file_byte(byte) : write_mem_byte(byte);
-}
-
-/* -----------------------------------------------
-	flush function 
-	----------------------------------------------- */
-
-int iostream::flush()
-{
-	if ( srct == StreamType::kFile)
-		fflush( fptr );
-	
-	return getpos();
+	return writer_->write_byte(byte);
 }
 
 /* -----------------------------------------------
 	rewind to beginning of stream
 	----------------------------------------------- */
 
-int iostream::rewind()
-{
-	// WARNING: when writing, rewind might lose all your data
-	if ( srct == StreamType::kFile)
-		fseek( fptr, 0, SEEK_SET );
-	else if ( mode == StreamMode::kRead )
-		mrdr->rewind();
-	else
-		mwrt->reset();
-	
-	return getpos();
+int iostream::rewind() {
+    if (mode == StreamMode::kRead) {
+        reader_->rewind();
+    } else {
+        writer_->reset();
+    }
+    return 0;
 }
 
-/* -----------------------------------------------
-	get current position in stream
-	----------------------------------------------- */
-
-int iostream::getpos()
-{
-	int pos;
-	
-	if ( srct == StreamType::kFile)
-		pos = ftell( fptr );
-	else if ( mode == StreamMode::kRead )
-		pos = mrdr->num_bytes_read();
-	else
-		pos = mwrt->num_bytes_written();
-
-	return pos;
+int iostream::getpos() {
+    if (mode == StreamMode::kRead) {
+        return reader_->num_bytes_read();
+    } else {
+        return writer_->num_bytes_written();
+    }
 }
 
-/* -----------------------------------------------
-	get size of file
-	----------------------------------------------- */
-
-int iostream::getsize()
-{
-	int siz;
-	
-	if ( mode == StreamMode::kRead ) {
-		if ( srct == StreamType::kFile) {
-			int pos = ftell( fptr );
-			fseek( fptr, 0, SEEK_END );
-			siz = ftell( fptr );
-			fseek( fptr, pos, SEEK_SET );
-		}
-		else {
-			siz = mrdr->get_size();
-		}
-	}
-	else {
-		siz = getpos();
-	}
-
-	return siz;
+int iostream::getsize() {
+    if (mode == StreamMode::kRead) {
+        return reader_->get_size();
+    } else {
+        return writer_->num_bytes_written();
+    }
 }
 
-/* -----------------------------------------------
-	get data pointer (for mem io only)
-	----------------------------------------------- */
-
-unsigned char* iostream::getptr()
-{
-	if ( srct == StreamType::kMemory)
-		return ( mode == StreamMode::kRead ) ? ( unsigned char* ) source : mwrt->get_c_data();
-	else
-		return nullptr;
+unsigned char* iostream::getptr() {
+    if (mode == StreamMode::kRead) {
+        return reader_->get_c_data();
+    } else {
+        return writer_->get_c_data();
+    }
 }
 
-/* -----------------------------------------------
-	check for errors
-	----------------------------------------------- */
-	
-bool iostream::chkerr()
-{
-	bool error = false;
-	
-	// check for io errors
-	if ( srct == StreamType::kFile) {
-		if ( fptr == nullptr )
-			error = true;
-		else if ( ferror( fptr ) )
-			error = true;
-	}
-	else if ( mode == StreamMode::kRead ) {
-		if ( mrdr == nullptr )			
-			error = true;
-	}
-	else {		
-		if ( mwrt == nullptr )
-			error = true;
-		else if ( mwrt->error() )
-			error = true;
-	}
-	
-	return error;
+bool iostream::chkerr() {
+    if (mode == StreamMode::kRead) {
+        return reader_->error();
+    } else {
+        return writer_->error();
+    }
 }
 
-/* -----------------------------------------------
-	check for eof (read only)
-	----------------------------------------------- */
-	
-bool iostream::chkeof()
-{
-	if ( mode == StreamMode::kRead )
-		return ( srct == StreamType::kFile) ? feof( fptr ) != 0 : mrdr->end_of_reader();
-	else
+bool iostream::chkeof() {
+	if (mode == StreamMode::kRead) {
+		return reader_->end_of_reader();
+	} else {
 		return false;
-}
-
-/* -----------------------------------------------
-	open function for files
-	----------------------------------------------- */
-
-void iostream::open_file()
-{
-	char* fn = (char*) source;
-	
-	// open file for reading / writing
-	fptr = fopen( fn, ( mode == StreamMode::kRead ) ? "rb" : "wb" );
-	if (fptr != nullptr) {
-		file_buffer.reserve(32768);
-		std::setvbuf(fptr, file_buffer.data(), _IOFBF, file_buffer.capacity());
-	}
-}
-
-/* -----------------------------------------------
-	open function for memory
-	----------------------------------------------- */
-
-void iostream::open_mem()
-{
-	if ( mode == StreamMode::kRead )
-		mrdr = std::make_unique<MemoryReader>( ( unsigned char* ) source, srcs );
-	else
-		mwrt = std::make_unique<MemoryWriter>();
-}
-
-/* -----------------------------------------------
-	open function for streams
-	----------------------------------------------- */
-
-void iostream::open_stream()
-{	
-	
-	if ( mode == StreamMode::kRead ) {
-		// read whole stream into memory buffer
-		auto strwrt = std::make_unique<MemoryWriter>();
-		constexpr int buffer_capacity = 1024 * 1024;
-        std::vector<unsigned char> buffer(buffer_capacity);
-
-		int bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
-		while (bytesRead > 0) {
-			strwrt->write(buffer.data(), bytesRead);
-			bytesRead = fread(buffer.data(), sizeof(buffer[0]), buffer_capacity, stdin);
-		}
-		if ( strwrt->error() ) {
-			source = nullptr;
-			srcs   = 0;
-		}
-		else {
-			source = strwrt->get_c_data();
-			srcs   = strwrt->num_bytes_written();
-		}
-		// free memory after done
-		free_mem_sw = true;
-	}
-	
-	// for writing: simply open new stream in mem writer
-	// writing to stream will be done later
-	open_mem();
-}
-
-/* -----------------------------------------------
-	write function for files
-	----------------------------------------------- */
-
-int iostream::write_file(const unsigned char* from, int dtsize )
-{
-	return fwrite( from, sizeof(unsigned char), dtsize, fptr );
-}
-
-int iostream::write_file_byte(unsigned char byte) {
-	return fputc(byte, fptr) == byte;
-}
-
-/* -----------------------------------------------
-	read function for files
-	----------------------------------------------- */
-
-int iostream::read_file(unsigned char* to, int dtsize )
-{
-	return fread( to, sizeof(unsigned char), dtsize, fptr );
-}
-
-bool iostream::read_file_byte(unsigned char* to) {
-	int val = fgetc(fptr);
-	*to = val;
-	return val != EOF;
-}
-
-/* -----------------------------------------------
-	write function for memory
-	----------------------------------------------- */
-	
-int iostream::write_mem(const unsigned char* from, int dtsize )
-{	
-	mwrt->write(from, dtsize);
-	
-	return ( mwrt->error()) ? 0 : dtsize;
-}
-
-int iostream::write_mem_byte(unsigned char byte) {
-	mwrt->write_byte(byte);
-	return mwrt->error() ? 0 : 1;
-}
-
-/* -----------------------------------------------
-	read function for memory
-	----------------------------------------------- */
-
-int iostream::read_mem(unsigned char* to, int dtsize)
-{	
-	return mrdr->read(to, dtsize);
-}
-
-bool iostream::read_mem_byte(unsigned char* to) {
-	return mrdr->read_byte(to);
+    }
 }

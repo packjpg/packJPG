@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 enum StreamType {
@@ -151,6 +152,8 @@ public:
 	*/
 	virtual std::vector<std::uint8_t> get_data() = 0;
 
+    unsigned char* get_c_data();
+
 	virtual bool error() = 0;
 	/*
 	* Returns whether all bytes in the reader have been read.
@@ -185,6 +188,55 @@ private:
 	std::vector<std::uint8_t>::const_iterator cbyte_; // The position in the data of the byte being read.
 };
 
+class FileReader : public Reader {
+public:
+	FileReader(const std::string& file_path);
+	~FileReader();
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
+	void rewind() override;
+
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	std::unique_ptr<MemoryReader> reader_;
+};
+
+class StreamReader : public Reader {
+public:
+	StreamReader();
+
+	~StreamReader() {}
+
+	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
+	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
+	std::uint8_t read_byte() override;
+	bool read_byte(std::uint8_t* to) override;
+
+	void skip(std::size_t n) override;
+	void rewind_bytes(std::size_t n) override;
+	void rewind() override;
+
+	std::size_t num_bytes_read() override;
+	std::size_t get_size() override;
+	std::vector<std::uint8_t> get_data() override;
+	bool error() override;
+	bool end_of_reader() override;
+
+private:
+	std::unique_ptr<MemoryReader> reader_;
+};
+
 class Writer {
 public:
 	Writer() {}
@@ -198,7 +250,7 @@ public:
 	virtual bool write_byte(std::uint8_t byte) = 0;
 
 	virtual std::vector<std::uint8_t> get_data() = 0;
-    virtual unsigned char* get_c_data() = 0;
+    unsigned char* get_c_data();
 
 	virtual void reset() = 0;
 	virtual std::size_t num_bytes_written() = 0;
@@ -217,7 +269,6 @@ public:
 	bool write_byte(std::uint8_t byte) override;
 
 	std::vector<std::uint8_t> get_data() override;
-    unsigned char* get_c_data() override;
 
 	void reset() override;
 	std::size_t num_bytes_written() override;
@@ -225,6 +276,48 @@ public:
 
 private:
 	std::vector<std::uint8_t> data_;
+};
+
+class FileWriter : public Writer {
+public:
+	FileWriter(const std::string& file_path);
+	~FileWriter();
+
+	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
+	std::size_t write(const std::array<std::uint8_t, 2>& bytes) override;
+	bool write_byte(std::uint8_t byte) override;
+
+	std::vector<std::uint8_t> get_data() override;
+
+	void reset() override;
+	std::size_t num_bytes_written() override;
+	bool error() override;
+
+private:
+	FILE* fptr_ = nullptr;
+	std::vector<char> file_buffer_; // Used to replace the default file buffer for reads/writes to improve performance.
+	const std::string file_path_;
+};
+
+class StreamWriter : public Writer {
+public:
+	StreamWriter();
+	~StreamWriter();
+
+	std::size_t write(const std::uint8_t* from, std::size_t n) override;
+	std::size_t write(const std::vector<std::uint8_t>& bytes) override;
+	std::size_t write(const std::array<std::uint8_t, 2>& bytes) override;
+	bool write_byte(std::uint8_t byte) override;
+
+	std::vector<std::uint8_t> get_data() override;
+
+	void reset() override;
+	std::size_t num_bytes_written() override;
+	bool error() override;
+
+private:
+	std::unique_ptr<MemoryWriter> writer_;
 };
 
 
@@ -242,7 +335,6 @@ public:
 	bool read_byte(unsigned char* to);
 	int write(const unsigned char* from, int dtsize);
 	int write_byte(unsigned char byte);
-	int flush();
 	int rewind();
 	int getpos();
 	int getsize();
@@ -251,30 +343,13 @@ public:
 	bool chkeof();
 	
 private:
-	void open_file();
-	void open_mem();
-	void open_stream();
+    std::unique_ptr<Writer> writer_;
+	std::unique_ptr<Reader> reader_;
+
+    std::string filepath_;
 	
-	int write_file(const unsigned char* from, int dtsize);
-	int write_file_byte(unsigned char byte);
-	int read_file(unsigned char* to, int dtsize);
-	bool read_file_byte(unsigned char* to);
-	int write_mem(const unsigned char* from, int dtsize );
-	int write_mem_byte(unsigned char byte);
-	int read_mem(unsigned char* to, int dtsize);
-	bool read_mem_byte(unsigned char* to);
-	
-	FILE* fptr;
-	std::vector<char> file_buffer; // Used to replace the default file buffer for reads/writes to improve performance.
-  
-	std::unique_ptr<MemoryWriter> mwrt;
-	std::unique_ptr<MemoryReader> mrdr;
-	
-	bool free_mem_sw;
-	void* source;
+    StreamType srct;
 	StreamMode mode;
-	StreamType srct;
-	int srcs;
 };
 
 #endif
