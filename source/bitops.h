@@ -4,8 +4,6 @@
 #define RBITS( c, n )		( c & ( 0xFF >> (8 - n) ) )
 #define LBITS( c, n )		( c >> (8 - n) )
 #define MBITS( c, l, r )	( RBITS( c,l ) >> r )
-#define RBITS32( c, n )		( c & ( 0xFFFFFFFF >> (32 - n) ) )
-#define MBITS32( c, l, r )	( RBITS32( c,l ) >> r )
 #define BITN( c, n )		( (c >> n) & 0x1 )
 #define BITLEN( l, v )		for ( l = 0; ( v >> l ) > 0; l++ )
 #define FDIV2( v, p )		( ( v < 0 ) ? -( (-v) >> p ) : ( v >> p ) )
@@ -14,17 +12,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-enum StreamType {
-	kFile = 0,
-	kMemory = 1,
-	kStream = 2
-};
-
-enum StreamMode {
-	kRead = 0,
-	kWrite = 1
-};
 
 	
 /* -----------------------------------------------

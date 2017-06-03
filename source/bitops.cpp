@@ -180,15 +180,23 @@ BitWriter::BitWriter(std::uint8_t padbit) : padbit_(padbit) {}
 
 BitWriter::~BitWriter() {}
 
+std::uint32_t rbits32(std::uint32_t val, std::size_t n) {
+    return val & (0xFFFFFFFF >> (32 - n));
+}
+
+std::uint32_t mbits32(std::uint32_t val, std::size_t l, std::size_t r) {
+    return rbits32(val, l) >> r;
+}
+
 void BitWriter::write_u16(std::uint16_t val, std::size_t num_bits) {
 	while (num_bits >= curr_bit_) {
-		curr_byte_ |= MBITS32(val, num_bits, num_bits - curr_bit_);
+		curr_byte_ |= mbits32(val, num_bits, num_bits - curr_bit_);
 		num_bits -= curr_bit_;
 		write_curr_byte();
 	}
 
 	if (num_bits > 0) {
-		curr_byte_ |= RBITS32(val, num_bits) << (curr_bit_ - num_bits);
+		curr_byte_ |= rbits32(val, num_bits) << (curr_bit_ - num_bits);
 		curr_bit_ -= num_bits;
 	}
 }
