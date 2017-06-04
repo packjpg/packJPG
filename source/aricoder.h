@@ -1,11 +1,12 @@
 #ifndef ARICODER_H
 #define ARICODER_H
 
-#include <cstdint>
-
 #include "bitops.h"
-#include <vector>
+
 #include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 // defines for coder
 constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
@@ -147,6 +148,26 @@ struct table_s {
 	}
 };
 
+class ArithmeticBitWriter {
+public:
+	template <std::uint8_t bit>
+	void write_bit();
+
+	void write_n_zero_bits(std::size_t n);
+
+	void write_n_one_bits(std::size_t n);
+
+	void pad();
+
+	std::vector<std::uint8_t> get_data() const;
+
+
+private:
+	std::vector<std::uint8_t> data_;
+	std::uint8_t curr_byte_ = 0;
+	std::size_t curr_bit_ = 0;
+};
+
 
 /* -----------------------------------------------
 	class for arithmetic coding of data to/from iostream
@@ -158,30 +179,16 @@ class ArithmeticEncoder
     ArithmeticEncoder(Writer& writer);
 	~ArithmeticEncoder();
 	void encode( symbol* s );
+
+    void finalize();
 	
 	private:
-
-	template<uint8_t bit>
-	void write_bit() {
-		// add bit at last position
-		bbyte = (bbyte << 1) | bit;
-		// increment bit position
-		cbit++;
-
-		// write bit if done
-		if (cbit == 8) {
-			writer_.write_byte(bbyte);
-			cbit = 0;
-		}
-	}
-	
-	void writeNrbitsAsZero();
-	void writeNrbitsAsOne();
 	
 	// i/o variables
+    
+    bool finalized = false;
     Writer& writer_;
-	unsigned char bbyte = 0;
-	unsigned char cbit = 0;
+    std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
 	
 	// arithmetic coding variables
 	unsigned int ccode = 0;

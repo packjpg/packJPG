@@ -3,12 +3,71 @@
 #include "bitops.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
-#include <stdlib.h>
+#include <limits>
 
-/* -----------------------------------------------
-	constructor for aricoder class
-	----------------------------------------------- */
+template <std::uint8_t bit>
+void ArithmeticBitWriter::write_bit() {
+    // add bit at last position
+    curr_byte_ = (curr_byte_ << 1) | bit;
+	// increment bit position
+	curr_bit_++;
+
+	// write bit if done
+	if (curr_bit_ == 8) {
+		data_.emplace_back(curr_byte_);
+		curr_bit_ = 0;
+	}
+}
+
+void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
+	if (n + curr_bit_ >= 8) {
+		auto remainingBits = 8 - curr_bit_;
+		n -= remainingBits;
+		curr_byte_ <<= remainingBits;
+		data_.emplace_back(curr_byte_);
+		curr_bit_ = 0;
+	}
+
+	while (n >= 8) {
+		data_.emplace_back(0);
+		n -= 8;
+	}
+
+	curr_byte_ <<= n;
+	curr_bit_ += n;
+}
+
+void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
+	constexpr std::uint8_t all_ones = std::numeric_limits<std::uint8_t>::max();
+	if (n + curr_bit_ >= 8) {
+		auto remainingBits = 8 - curr_bit_;
+		n -= remainingBits;
+		curr_byte_ <<= remainingBits;
+		curr_byte_ |= all_ones >> (8 - remainingBits);
+		data_.emplace_back(curr_byte_);
+		curr_bit_ = 0;
+	}
+
+	while (n >= 8) {
+		data_.emplace_back(all_ones);
+		n -= 8;
+	}
+
+	curr_byte_ = (curr_byte_ << n) | (all_ones >> (8 - n));
+	curr_bit_ += n;
+}
+
+void ArithmeticBitWriter::pad() {
+	while (curr_bit_ > 0) {
+		write_bit<0>();
+	}
+}
+
+std::vector<std::uint8_t> ArithmeticBitWriter::get_data() const {
+	return data_;
+}
 
 ArithmeticDecoder::ArithmeticDecoder(Reader& reader) : reader_(reader) {
     // code buffer has to be filled before starting decoding
@@ -19,28 +78,34 @@ ArithmeticDecoder::ArithmeticDecoder(Reader& reader) : reader_(reader) {
 
 ArithmeticEncoder::ArithmeticEncoder(Writer& writer) : writer_(writer) {}
 
-/* -----------------------------------------------
-	destructor for aricoder class
-	----------------------------------------------- */
+ArithmeticEncoder::~ArithmeticEncoder() {
+    if (!finalized) {
+        this->finalize();
+    }
+}
 
-ArithmeticEncoder::~ArithmeticEncoder()
-{
+void ArithmeticEncoder::finalize() {
+    if (finalized) {
+        return;
+    }
+    
+    // due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
+    // there are only two possible cases
+    if (clow < CODER_LIMIT025) {
+        bitwriter_->write_bit<0>();
+        bitwriter_->write_bit<1>();
+        bitwriter_->write_n_one_bits(nrbits);
+        nrbits = 0;
+    } else {
+         // case b.), clow >= CODER_LIMIT025
+        bitwriter_->write_bit<1>();
+    }
+     // done, zeroes are auto-read by the decoder
 
-	// due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
-	// there are only two possible cases
-	if ( clow < CODER_LIMIT025 ) { // case a.) 
-		write_bit<0>();
-		// write remaining bits
-		write_bit<1>();
-		writeNrbitsAsOne();
-	} else { // case b.), clow >= CODER_LIMIT025
-		write_bit<1>();
-	} // done, zeroes are auto-read by the decoder
-		
-	// pad code with zeroes
-	while (cbit > 0) {
-		write_bit<0>();
-	}
+    bitwriter_->pad(); // Pad code with zeroes.
+    writer_.write(bitwriter_->get_data());
+    
+    finalized = true;
 }
 
 /* -----------------------------------------------
@@ -63,17 +128,19 @@ void ArithmeticEncoder::encode( symbol* s )
 	while ( clow_local >= CODER_LIMIT050  || chigh_local < CODER_LIMIT050  ) {
 		if (chigh_local < CODER_LIMIT050 ) {	// this means both, high and low are below, and 0 can be safely shifted out
 			// write 0 bit
-			write_bit<0>();
+			bitwriter_->write_bit<0>();
 			// shift out remaing e3 bits
-			writeNrbitsAsOne();
+            bitwriter_->write_n_one_bits(nrbits);
+            nrbits = 0;
 		}
 		else { // if the first wasn't the case, it's clow >= CODER_LIMIT050
 			// write 1 bit
-			write_bit<1>();
+			bitwriter_->write_bit<1>();
 			clow_local &= CODER_LIMIT050 - 1;
 			chigh_local &= CODER_LIMIT050 - 1;
 			// shift out remaing e3 bits
-			writeNrbitsAsZero();
+			bitwriter_->write_n_zero_bits(nrbits);
+            nrbits = 0;
 		}
 		clow_local <<= 1;
 		chigh_local <<= 1;
@@ -94,54 +161,6 @@ void ArithmeticEncoder::encode( symbol* s )
 
 	clow = clow_local;
 	chigh = chigh_local;
-}
-
-void ArithmeticEncoder::writeNrbitsAsZero() {
-	if (nrbits + cbit >= 8) {
-		int remainingBits = 8 - cbit;
-		nrbits -= remainingBits;
-		bbyte <<= remainingBits;
-		writer_.write_byte(bbyte);
-		cbit = 0;
-	}
-
-	constexpr uint8_t zero = 0;
-	while (nrbits >= 8) {
-		writer_.write_byte(zero);
-		nrbits -= 8;
-	}
-	/*
-	No need to check if cbits is 8, since nrbits is strictly less than 8
-	and cbit is initially 0 here:
-	*/
-	bbyte <<= nrbits;
-	cbit += nrbits;
-	nrbits = 0;
-}
-
-void ArithmeticEncoder::writeNrbitsAsOne() {
-	if (nrbits + cbit >= 8) {
-		int remainingBits = 8 - cbit;
-		nrbits -= remainingBits;
-		bbyte <<= remainingBits;
-		bbyte |= std::numeric_limits<uint8_t>::max() >> (8 - remainingBits);
-		writer_.write_byte(bbyte);
-		cbit = 0;
-	}
-
-	constexpr uint8_t all_ones = std::numeric_limits<uint8_t>::max();
-	while (nrbits >= 8) {
-		writer_.write_byte(all_ones);
-		nrbits -= 8;
-	}
-
-	/*
-	No need to check if cbits is 8, since nrbits is strictly less than 8
-	and cbit is initially 0 here:
-	*/
-	bbyte = (bbyte << nrbits) | (std::numeric_limits<uint8_t>::max() >> (8 - nrbits));
-	cbit += nrbits;
-	nrbits = 0;
 }
 
 
