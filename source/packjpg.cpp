@@ -269,11 +269,15 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <cmath>
 #include <ctime>
+#include <memory>
+#include <stdexcept>
+#include <vector>
 
 #include "bitops.h"
 #include "aricoder.h"
@@ -408,28 +412,28 @@ INTERN bool jpg_setup_imginfo( void );
 INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char* segment );
 INTERN bool jpg_rebuild_header( void );
 
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block );
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block );
+INTERN int jpg_decode_block_seq( BitReader* huffr, huffTree* dctree, huffTree* actree, short* block );
+INTERN int jpg_encode_block_seq( BitWriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block );
 
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block );
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block );
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block,
+INTERN int jpg_decode_dc_prg_fs( BitReader* huffr, huffTree* dctree, short* block );
+INTERN int jpg_encode_dc_prg_fs( BitWriter* huffw, huffCodes* dctbl, short* block );
+INTERN int jpg_decode_ac_prg_fs( BitReader* huffr, huffTree* actree, short* block,
 						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block,
+INTERN int jpg_encode_ac_prg_fs( BitWriter* huffw, huffCodes* actbl, short* block,
 						int* eobrun, int from, int to );
 
-INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block );
-INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block );
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block,
+INTERN int jpg_decode_dc_prg_sa( BitReader* huffr, short* block );
+INTERN int jpg_encode_dc_prg_sa( BitWriter* huffw, short* block );
+INTERN int jpg_decode_ac_prg_sa( BitReader* huffr, huffTree* actree, short* block,
 						int* eobrun, int from, int to );
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl,
+INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, std::vector<std::uint8_t>& storw, huffCodes* actbl,
 						short* block, int* eobrun, int from, int to );
 
-INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to );
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun );
-INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw );
+INTERN int jpg_decode_eobrun_sa( BitReader* huffr, short* block, int* eobrun, int from, int to );
+INTERN int jpg_encode_eobrun( BitWriter* huffw, huffCodes* actbl, int* eobrun );
+INTERN int jpg_encode_crbits( BitWriter* huffw, std::vector<std::uint8_t>& storw );
 
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree );
+INTERN int jpg_next_huffcode( BitReader *huffw, huffTree *ctree );
 INTERN int jpg_next_mcupos( int* mcu, int* cmp, int* csc, int* sub, int* dpos, int* rstw );
 INTERN int jpg_next_mcuposn( int* cmp, int* dpos, int* rstw );
 INTERN int jpg_skip_eobrun( int* cmp, int* dpos, int* rstw, int* eobrun );
@@ -441,23 +445,23 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
 	function declarations: pjg-specific
 	----------------------------------------------- */
 	
-INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp );
-INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp );
-INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp );
-INTERN bool pjg_encode_dc( aricoder* enc, int cmp );
-INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp );
-INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp );
-INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len );
-INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit );
+INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int len );
+INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit );
 
-INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp );
-INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp );
-INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp );
-INTERN bool pjg_decode_dc( aricoder* dec, int cmp );
-INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp );
-INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp );
-INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len );
-INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit );
+INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_generic( ArithmeticDecoder* dec, unsigned char** data, int* len );
+INTERN bool pjg_decode_bit( ArithmeticDecoder* dec, unsigned char* bit );
 
 INTERN void pjg_get_zerosort_scan( unsigned char* sv, int cmp );
 INTERN bool pjg_optimize_header( void );
@@ -615,11 +619,11 @@ INTERN int    jpgfilesize;			// size of JPEG file
 INTERN int    pjgfilesize;			// size of PJG file
 INTERN int    jpegtype = 0;			// type of JPEG coding: 0->unknown, 1->sequential, 2->progressive
 INTERN int    filetype;				// type of current file
-INTERN iostream* str_in  = NULL;	// input stream
-INTERN iostream* str_out = NULL;	// output stream
+INTERN std::unique_ptr<Reader> str_in;	// input stream
+INTERN std::unique_ptr<Writer> str_out;	// output stream
 
 #if !defined(BUILD_LIB)
-INTERN iostream* str_str = NULL;	// storage stream
+INTERN std::unique_ptr<Reader> str_str;	// storage stream
 
 INTERN char** filelist = NULL;		// list of files to process 
 INTERN int    file_cnt = 0;			// count of files in list
@@ -919,13 +923,13 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 	// fetch pointer and size of output (only for memory output)
 	if ( ( errorlevel < err_tol ) && ( lib_out_type == 1 ) &&
 		 ( out_file != NULL ) && ( out_size != NULL ) ) {
-		*out_size = str_out->getsize();
-		*out_file = str_out->getptr();
+		*out_size = str_out->num_bytes_written();
+		*out_file = str_out->get_c_data();
 	}
 	
 	// close iostreams
-	if ( str_in  != NULL ) delete( str_in  ); str_in  = NULL;
-	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
+    str_in.reset(nullptr);
+    str_out.reset(nullptr);
 	
 	end = clock();
 	
@@ -1007,21 +1011,52 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	jpgfilesize = 0;
 	pjgfilesize = 0;
 	
-	// open input stream, check for errors
-	str_in = new iostream( in_src, StreamType(in_type), in_size, StreamMode::kRead );
-	if ( str_in->chkerr() ) {
-		sprintf( errormessage, "error opening input stream" );
-		errorlevel = 2;
-		return;
-	}	
-	
-	// open output stream, check for errors
-	str_out = new iostream( out_dest, StreamType(out_type), 0, StreamMode::kWrite);
-	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "error opening output stream" );
-		errorlevel = 2;
-		return;
-	}
+
+    switch (in_type) {
+        case 0:
+            std::string input_file((char*)in_src);
+            try {
+                str_in = std::make_unique<FileReader>(input_file);
+            } catch (const std::runtime_error&) {
+                sprintf(errormessage, "error opening input file %s", input_file.c_str());
+		        errorlevel = 2;
+		        return;
+            }
+            break;
+        case 1:
+            str_in = std::make_unique<MemoryReader>((unsigned char*)in_src, in_size);
+            break;
+        case 2:
+            str_in = std::make_unique<StreamReader>();
+            break;
+        default:
+            sprintf(errormessage, "Invalid input type: %i", in_type);
+		    errorlevel = 2;
+		    return;
+    }
+
+    switch (out_type) {
+        case 0:
+            std::string output_file((char*)out_dest);
+            try {
+                str_out = std::make_unique<FileWriter>(output_file);
+            } catch (const std::runtime_error&) {
+                sprintf(errormessage, "error opening output file %s", output_file.c_str());
+		        errorlevel = 2;
+		        return;
+            }
+            break;
+        case 1:
+            str_in = std::make_unique<MemoryWriter>();
+            break;
+        case 2:
+            str_in = std::make_unique<StreamWriter>();
+            break;
+        default:
+            sprintf(errormessage, "Invalid output type: %i", out_type);
+		    errorlevel = 2;
+		    return;
+    }
 	
 	// free memory from filenames if needed
 	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
@@ -1333,9 +1368,9 @@ INTERN void process_ui( void )
 	process_file();
 	
 	// close iostreams
-	if ( str_in  != NULL ) delete( str_in  ); str_in  = NULL;
-	if ( str_out != NULL ) delete( str_out ); str_out = NULL;
-	if ( str_str != NULL ) delete( str_str ); str_str = NULL;
+    str_in.reset(nullptr);
+    str_out.reset(nullptr);
+    str_str.reset(nullptr);
 	// delete if broken or if output not needed
 	if ( ( !pipe_on ) && ( ( errorlevel >= err_tol ) || ( action != A_COMPRESS ) ) ) {
 		if ( filetype == F_JPG ) {
@@ -1765,14 +1800,17 @@ INTERN bool check_file( void )
 	unsigned char fileid[ 2 ] = { 0, 0 };
 	const char* filename = filelist[ file_no ];
 	
-	
-	// open input stream, check for errors
-	str_in = new iostream( (void*) filename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kRead );
-	if ( str_in->chkerr() ) {
-		sprintf( errormessage, FRD_ERRMSG, filename );
-		errorlevel = 2;
-		return false;
-	}
+    if (pipe_on) {
+        str_in = std::make_unique<StreamReader>();
+    } else {
+        try {
+            str_in = std::make_unique<FileReader>(std::string(filename));
+        } catch (const std::runtime_error& e) {
+            std::strcpy(errormessage, e.what());
+            errorlevel = 2;
+            return false;
+        }
+    }
 	
 	// free memory from filenames if needed
 	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
@@ -1802,13 +1840,18 @@ INTERN bool check_file( void )
 			jpgfilename = create_filename( "STDIN", NULL );
 			pjgfilename = create_filename( "STDOUT", NULL );
 		}
-		// open output stream, check for errors
-		str_out = new iostream( (void*) pjgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
-		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, pjgfilename );
-			errorlevel = 2;
-			return false;
-		}
+
+        if (pipe_on) {
+            str_out = std::make_unique<StreamWriter>();
+        } else {
+            try {
+                str_out = std::make_unique<FileWriter>(std::string(pjgfilename));
+            } catch (const std::runtime_error& e) {
+                std::strcpy(errormessage, e.what());
+                errorlevel = 2;
+                return false;
+            }
+        }
 		// JPEG specific settings - restore original settings
 		if ( orig_set[ 0 ] == 0 )
 			auto_set = true;
@@ -1840,12 +1883,11 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDIN", NULL );
 		}
 		// open output stream, check for errors
-		str_out = new iostream( (void*) jpgfilename, ( !pipe_on ) ? StreamType::kFile : StreamType::kStream, 0, StreamMode::kWrite );
-		if ( str_out->chkerr() ) {
-			sprintf( errormessage, FWR_ERRMSG, jpgfilename );
-			errorlevel = 2;
-			return false;
-		}
+        if (pipe_on) {
+            str_out = std::make_unique<FileWriter>(std::string(jpgfilename));
+        } else {
+            str_out = std::make_unique<StreamWriter>();
+        }
 		// PJG specific settings - auto unless specified otherwise
 		auto_set = true;
 	}
@@ -1873,22 +1915,15 @@ INTERN bool swap_streams( void )
 	unsigned char dmp[ 2 ];
 	
 	// store input stream
-	str_str = str_in;
+	str_str = std::move(str_in);
 	str_str->rewind();
 	
 	// replace input stream by output stream / switch mode for reading / read first bytes
-	str_in = str_out;
-	str_in->switch_mode();
+    str_in = std::make_unique<MemoryReader>(str_out->get_data());
 	str_in->read( dmp, 2 );
 	
 	// open new stream for output / check for errors
-	str_out = new iostream( nullptr, StreamType::kMemory, 0, StreamMode::kWrite );
-	if ( str_out->chkerr() ) {
-		sprintf( errormessage, "error opening comparison stream" );
-		errorlevel = 2;
-		return false;
-	}
-	
+    str_out = std::make_unique<MemoryWriter>();
 	
 	return true;
 }
@@ -1902,65 +1937,38 @@ INTERN bool swap_streams( void )
 #if !defined(BUILD_LIB)
 INTERN bool compare_output( void )
 {
-	unsigned char* buff_ori;
-	unsigned char* buff_cmp;
-	int bsize = 1024;
-	int dsize;
-	int i, b;
-	
-	
-	// init buffer arrays
-	buff_ori = ( unsigned char* ) calloc( bsize, sizeof( char ) );
-	buff_cmp = ( unsigned char* ) calloc( bsize, sizeof( char ) );
-	if ( ( buff_ori == NULL ) || ( buff_cmp == NULL ) ) {
-		if ( buff_ori != NULL ) free( buff_ori );
-		if ( buff_cmp != NULL ) free( buff_cmp );
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
-	
-	// switch output stream mode / check for stream errors
-	str_out->switch_mode();
-	while ( true ) {
-		if ( str_out->chkerr() )
-			sprintf( errormessage, "error in comparison stream" );
-		else if ( str_in->chkerr() )
-			sprintf( errormessage, "error in output stream" );
-		else if ( str_str->chkerr() )
-			sprintf( errormessage, "error in input stream" );
-		else break;
-		errorlevel = 2;
-		return false;
-	}
-	
-	// compare sizes
-	dsize = str_str->getsize();
-	if ( str_out->getsize() != dsize ) {
+    if (str_out->error()) {
+        sprintf(errormessage, "error in comparison stream");
+        errorlevel = 2;
+        return false;
+    } else if (str_in->error()) {
+        sprintf(errormessage, "error in output stream");
+        errorlevel = 2;
+        return false;
+    } else if (str_str->error()) {
+        sprintf(errormessage, "error in input stream");
+        errorlevel = 2;
+        return false;
+    }
+    
+	const auto verif_data = str_out->get_data();
+    const auto orig_data = str_str->get_data();
+    
+	if (verif_data.size() != orig_data.size()) {
 		sprintf( errormessage, "file sizes do not match" );
 		errorlevel = 2;
 		return false;
 	}
-	
-	// compare files byte by byte
-	for ( i = 0; i < dsize; i++ ) {
-		b = i % bsize;
-		if ( b == 0 ) {
-			str_str->read( buff_ori, bsize );
-			str_out->read( buff_cmp, bsize );
-		}
-		if ( buff_ori[ b ] != buff_cmp[ b ] ) {
-			sprintf( errormessage, "difference found at 0x%X", i );
-			errorlevel = 2;
-			return false;
-		}
+	const auto result = std::mismatch(std::begin(orig_data),
+	                                  std::end(orig_data),
+	                                  std::begin(verif_data),
+	                                  std::end(verif_data));
+	if (result.first != std::end(orig_data) || result.second != std::end(verif_data)) {
+		const auto first_diff = std::distance(std::begin(orig_data), result.first);
+        sprintf( errormessage, "difference found at 0x%ld", first_diff );
+		errorlevel = 2;
+		return false;
 	}
-	
-	// free buffers
-	free( buff_ori );
-	free( buff_cmp );
-	
-	
 	return true;
 }
 #endif
@@ -2079,20 +2087,20 @@ INTERN bool read_jpeg( void )
 	unsigned int   cpos = 0; // rst marker counter
 	unsigned char  tmp;	
 	
-	abytewriter* huffw;	
-	abytewriter* hdrw;
-	abytewriter* grbgw;	
+	MemoryWriter* huffw;	
+	MemoryWriter* hdrw;
+	MemoryWriter* grbgw;	
 	
 	
 	// preset count of scans
 	scnc = 0;
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	hdrw = new MemoryWriter();
 	hdrs = 0; // size of header data, start with 0
 	
 	// start huffman writer
-	huffw = new abytewriter( 0 );
+	huffw = new MemoryWriter();
 	hufs  = 0; // size of image data, start with 0
 	
 	// alloc memory for segment data first
@@ -2118,7 +2126,7 @@ INTERN bool read_jpeg( void )
 				if ( tmp != 0xFF ) {
 					crst = 0;
 					while ( tmp != 0xFF ) {
-						huffw->write( tmp );
+						huffw->write_byte( tmp );
 						if ( str_in->read_byte(&tmp) == 0 )
 							break;
 					}
@@ -2131,7 +2139,7 @@ INTERN bool read_jpeg( void )
 					if ( tmp == 0x00 ) {
 						crst = 0;
 						// no zeroes needed -> ignore 0x00. write 0xFF
-						huffw->write( 0xFF );
+						huffw->write_byte( 0xFF );
 					}
 					else if ( tmp == 0xD0 + ( cpos % 8 ) ) { // restart marker
 						// increment rst counters
@@ -2205,11 +2213,11 @@ INTERN bool read_jpeg( void )
 		// if EOI is encountered make a quick exit
 		if ( type == 0xD9 ) {
 			// get pointer for header data & size
-			hdrdata  = hdrw->getptr();
-			hdrs     = hdrw->getpos();
+			hdrdata  = hdrw->get_c_data();
+			hdrs     = hdrw->num_bytes_written();
 			// get pointer for huffman data & size
-			huffdata = huffw->getptr();
-			hufs     = huffw->getpos();
+			huffdata = huffw->get_c_data();
+			hufs     = huffw->num_bytes_written();
 			// everything is done here now
 			break;			
 		}
@@ -2235,7 +2243,7 @@ INTERN bool read_jpeg( void )
 		// read rest of segment, store back in header writer
 		if ( str_in->read( ( segment + 4 ), ( len - 4 ) ) !=
 			( unsigned short ) ( len - 4 ) ) break;
-		hdrw->write_n( segment, len );
+		hdrw->write( segment, len );
 	}
 	// JPEG reader loop end
 	
@@ -2253,23 +2261,23 @@ INTERN bool read_jpeg( void )
 	// store garbage after EOI if needed
 	grbs = str_in->read_byte(&tmp);
 	if ( grbs > 0 ) {
-		grbgw = new abytewriter( 1024 );
-		grbgw->write( tmp );
+		grbgw = new MemoryWriter();
+		grbgw->write_byte( tmp );
 		while( true ) {
 			len = str_in->read( segment, ssize );
 			if ( len == 0 ) break;
-			grbgw->write_n( segment, len );
+			grbgw->write( segment, len );
 		}
-		grbgdata = grbgw->getptr();
-		grbs     = grbgw->getpos();
-		delete ( grbgw );
+		grbgdata = grbgw->get_c_data();
+		grbs     = grbgw->num_bytes_written();
+		delete grbgw;
 	}
 	
 	// free segment
 	free( segment );
 	
 	// get filesize
-	jpgfilesize = str_in->getsize();	
+	jpgfilesize = str_in->get_size();	
 	
 	// parse header for image info
 	if ( !jpg_setup_imginfo() ) {
@@ -2369,14 +2377,14 @@ INTERN bool merge_jpeg( void )
 		str_out->write( grbgdata, grbs );
 	
 	// errormessage if write error
-	if ( str_out->chkerr() ) {
+	if ( str_out->error() ) {
 		sprintf( errormessage, "write error, possibly drive is full" );
 		errorlevel = 2;		
 		return false;
 	}
 	
 	// get filesize
-	jpgfilesize = str_out->getsize();
+	jpgfilesize = str_out->num_bytes_written();
 	
 	
 	return true;
@@ -2389,7 +2397,7 @@ INTERN bool merge_jpeg( void )
 
 INTERN bool decode_jpeg( void )
 {
-	abitreader* huffr; // bitwise reader for image data
+	BitReader* huffr; // bitwise reader for image data
 	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -2406,8 +2414,8 @@ INTERN bool decode_jpeg( void )
 	int eob, sta;
 	
 	
-	// open huffman coded image data for input in abitreader
-	huffr = new abitreader( huffdata, hufs );
+	// open huffman coded image data for input in BitReader
+	huffr = new BitReader( huffdata, hufs );
 	
 	// preset count of scans
 	scnc = 0;
@@ -2745,8 +2753,7 @@ INTERN bool decode_jpeg( void )
 
 INTERN bool recode_jpeg( void )
 {
-	abitwriter*  huffw; // bitwise writer for image data
-	abytewriter* storw; // bytewise writer for storage of correction bits
+	BitWriter*  huffw; // bitwise writer for image data
 	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -2763,12 +2770,11 @@ INTERN bool recode_jpeg( void )
 	int tmp;
 	
 	
-	// open huffman coded image data in abitwriter
-	huffw = new abitwriter( 0 );
-	huffw->set_fillbit( padbit );
+	// open huffman coded image data in BitWriter
+	huffw = new BitWriter(padbit);
 	
 	// init storage writer
-	storw = new abytewriter( 0 );
+	std::vector<std::uint8_t> storw; // Storage for correction bits.
 	
 	// preset count of scans and restarts
 	scnc = 0;
@@ -2828,7 +2834,7 @@ INTERN bool recode_jpeg( void )
 		dpos = 0;
 		
 		// store scan position
-		scnp[ scnc ] = huffw->getpos();
+		scnp[ scnc ] = huffw->num_bytes_written();
 		
 		// JPEG imagedata encoding routines
 		while ( true )
@@ -3040,26 +3046,15 @@ INTERN bool recode_jpeg( void )
 			}
 			else if ( sta == 1 ) { // status 1 means restart
 				if ( rsti > 0 ) // store rstp & stay in the loop
-					rstp[ rstc++ ] = huffw->getpos() - 1;
+					rstp[ rstc++ ] = huffw->num_bytes_written() - 1;
 			}
 		}
 	}
 	
-	// safety check for error in huffwriter
-	if ( huffw->error ()) {
-		delete huffw;
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
-	
 	// get data into huffdata
-	huffdata = huffw->getptr();
-	hufs = huffw->getpos();	
+	huffdata = huffw->get_c_bytes();
+	hufs = huffw->num_bytes_written();	
 	delete huffw;
-	
-	// remove storage writer
-	delete storw;
 	
 	// store last scan & restart positions
 	scnp[ scnc ] = hufs;
@@ -3254,7 +3249,6 @@ INTERN bool calc_zdst_lists( void )
 	
 INTERN bool pack_pjg( void )
 {
-	aricoder* encoder;
 	unsigned char hcode;
 	int cmp;
 	#if defined(DEV_INFOS)
@@ -3279,7 +3273,7 @@ INTERN bool pack_pjg( void )
 	
 	
 	// init arithmetic compression
-	encoder = new aricoder(str_out, StreamMode::kWrite);
+	auto encoder = new ArithmeticEncoder(*str_out);
 	
 	// discard meta information from header if option set
 	if ( disc_meta )
@@ -3362,14 +3356,14 @@ INTERN bool pack_pjg( void )
 	
 	
 	// errormessage if write error
-	if ( str_out->chkerr() ) {
+	if ( str_out->error() ) {
 		sprintf( errormessage, "write error, possibly drive is full" );
 		errorlevel = 2;		
 		return false;
 	}
 	
 	// get filesize
-	pjgfilesize = str_out->getsize();
+	pjgfilesize = str_out->num_bytes_written();
 	
 	
 	return true;
@@ -3382,7 +3376,6 @@ INTERN bool pack_pjg( void )
 	
 INTERN bool unpack_pjg( void )
 {
-	aricoder* decoder;
 	unsigned char hcode;
 	unsigned char cb;
 	int cmp;
@@ -3416,7 +3409,7 @@ INTERN bool unpack_pjg( void )
 	
 	
 	// init arithmetic compression
-	decoder = new aricoder(str_in, StreamMode::kRead);
+	auto decoder = new ArithmeticDecoder(*str_in);
 	
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
@@ -3464,7 +3457,7 @@ INTERN bool unpack_pjg( void )
 	
 	
 	// get filesize
-	pjgfilesize = str_in->getsize();
+	pjgfilesize = str_in->get_size();
 	
 	
 	return true;
@@ -3883,7 +3876,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 	----------------------------------------------- */
 INTERN bool jpg_rebuild_header( void )
 {	
-	abytewriter* hdrw; // new header writer
+	MemoryWriter* hdrw; // new header writer
 	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -3891,7 +3884,7 @@ INTERN bool jpg_rebuild_header( void )
 	
 	
 	// start headerwriter
-	hdrw = new abytewriter( 4096 );
+	hdrw = new MemoryWriter();
 	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
@@ -3901,15 +3894,15 @@ INTERN bool jpg_rebuild_header( void )
 		if ( ( type == 0xDA ) || ( type == 0xC4 ) || ( type == 0xDB ) ||
 			 ( type == 0xC0 ) || ( type == 0xC1 ) || ( type == 0xC2 ) ||
 			 ( type == 0xDD ) ) {
-			hdrw->write_n( &(hdrdata[ hpos ]), len );
+			hdrw->write( &(hdrdata[ hpos ]), len );
 		}
 		hpos += len;
 	}
 	
 	// replace current header with the new one
 	free( hdrdata );
-	hdrdata = hdrw->getptr();
-	hdrs    = hdrw->getpos();
+	hdrdata = hdrw->get_c_data();
+	hdrs    = hdrw->num_bytes_written();
 	delete( hdrw );
 	
 	
@@ -3920,7 +3913,7 @@ INTERN bool jpg_rebuild_header( void )
 /* -----------------------------------------------
 	sequential block decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* actree, short* block )
+INTERN int jpg_decode_block_seq( BitReader* huffr, huffTree* dctree, huffTree* actree, short* block )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3975,7 +3968,7 @@ INTERN int jpg_decode_block_seq( abitreader* huffr, huffTree* dctree, huffTree* 
 /* -----------------------------------------------
 	sequential block encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block )
+INTERN int jpg_encode_block_seq( BitWriter* huffw, huffCodes* dctbl, huffCodes* actbl, short* block )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -3987,8 +3980,8 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 	// encode DC
 	s = BITLEN2048N( block[ 0 ] );
 	n = ENVLI( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
-	huffw->write( n, s );
+	huffw->write_u16( dctbl->cval[ s ], dctbl->clen[ s ] );
+	huffw->write_u16( n, s );
 	
 	// encode AC
 	z = 0;
@@ -3998,7 +3991,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 		if ( block[ bpos ] != 0 ) {
 			// write remaining zeroes
 			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write_u16( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
 				z -= 16;
 			}			
 			// vli encode
@@ -4006,8 +3999,8 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
-			huffw->write( n, s );
+			huffw->write_u16( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write_u16( n, s );
 			// reset zeroes
 			z = 0;
 		}
@@ -4017,7 +4010,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 	}
 	// write eob if needed
 	if ( z > 0 )
-		huffw->write( actbl->cval[ 0x00 ], actbl->clen[ 0x00 ] );
+		huffw->write_u16( actbl->cval[ 0x00 ], actbl->clen[ 0x00 ] );
 		
 	
 	return 64 - z;
@@ -4027,7 +4020,7 @@ INTERN int jpg_encode_block_seq( abitwriter* huffw, huffCodes* dctbl, huffCodes*
 /* -----------------------------------------------
 	progressive DC decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* block )
+INTERN int jpg_decode_dc_prg_fs( BitReader* huffr, huffTree* dctree, short* block )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4050,7 +4043,7 @@ INTERN int jpg_decode_dc_prg_fs( abitreader* huffr, huffTree* dctree, short* blo
 /* -----------------------------------------------
 	progressive DC encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* block )
+INTERN int jpg_encode_dc_prg_fs( BitWriter* huffw, huffCodes* dctbl, short* block )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4059,8 +4052,8 @@ INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* blo
 	// encode DC	
 	s = BITLEN2048N( block[ 0 ] );
 	n = ENVLI( s, block[ 0 ] );
-	huffw->write( dctbl->cval[ s ], dctbl->clen[ s ] );
-	huffw->write( n, s );
+	huffw->write_u16( dctbl->cval[ s ], dctbl->clen[ s ] );
+	huffw->write_u16( n, s );
 	
 	
 	// return 0 if everything is ok
@@ -4071,7 +4064,7 @@ INTERN int jpg_encode_dc_prg_fs( abitwriter* huffw, huffCodes* dctbl, short* blo
 /* -----------------------------------------------
 	progressive AC decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+INTERN int jpg_decode_ac_prg_fs( BitReader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4124,7 +4117,7 @@ INTERN int jpg_decode_ac_prg_fs( abitreader* huffr, huffTree* actree, short* blo
 /* -----------------------------------------------
 	progressive AC encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+INTERN int jpg_encode_ac_prg_fs( BitWriter* huffw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4142,7 +4135,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 			jpg_encode_eobrun( huffw, actbl, eobrun );
 			// write remaining zeroes
 			while ( z >= 16 ) {
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write_u16( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
 				z -= 16;
 			}			
 			// vli encode
@@ -4150,8 +4143,8 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
-			huffw->write( n, s );
+			huffw->write_u16( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write_u16( n, s );
 			// reset zeroes
 			z = 0;
 		}
@@ -4177,7 +4170,7 @@ INTERN int jpg_encode_ac_prg_fs( abitwriter* huffw, huffCodes* actbl, short* blo
 /* -----------------------------------------------
 	progressive DC SA decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block )
+INTERN int jpg_decode_dc_prg_sa( BitReader* huffr, short* block )
 {
 	// decode next bit of dc coefficient
 	block[ 0 ] = huffr->read( 1 );
@@ -4190,10 +4183,10 @@ INTERN int jpg_decode_dc_prg_sa( abitreader* huffr, short* block )
 /* -----------------------------------------------
 	progressive DC SA encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block )
+INTERN int jpg_encode_dc_prg_sa( BitWriter* huffw, short* block )
 {
 	// enocode next bit of dc coefficient
-	huffw->write( block[ 0 ], 1 );
+	huffw->write_u16( block[ 0 ], 1 );
 	
 	// return 0 if everything is ok
 	return 0;
@@ -4203,7 +4196,7 @@ INTERN int jpg_encode_dc_prg_sa( abitwriter* huffw, short* block )
 /* -----------------------------------------------
 	progressive AC SA decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
+INTERN int jpg_decode_ac_prg_sa( BitReader* huffr, huffTree* actree, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4277,7 +4270,7 @@ INTERN int jpg_decode_ac_prg_sa( abitreader* huffr, huffTree* actree, short* blo
 /* -----------------------------------------------
 	progressive AC SA encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
+INTERN int jpg_encode_ac_prg_sa( BitWriter* huffw, std::vector<std::uint8_t>& storw, huffCodes* actbl, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4308,7 +4301,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 		if ( block[ bpos ] == 0 ) {
 			z++; // increment zero counter
 			if ( z == 16 ) { // write zeroes if needed
-				huffw->write( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
+				huffw->write_u16( actbl->cval[ 0xF0 ], actbl->clen[ 0xF0 ] );
 				jpg_encode_crbits( huffw, storw );
 				z = 0;
 			}
@@ -4320,8 +4313,8 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 			n = ENVLI( s, block[ bpos ] );
 			hc = ( ( z << 4 ) + s );
 			// write to huffman writer
-			huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
-			huffw->write( n, s );
+			huffw->write_u16( actbl->cval[ hc ], actbl->clen[ hc ] );
+			huffw->write_u16( n, s );
 			// write correction bits
 			jpg_encode_crbits( huffw, storw );
 			// reset zeroes
@@ -4329,7 +4322,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 		}
 		else { // store correction bits
 			n = block[ bpos ] & 0x1;
-			storw->write( n );
+			storw.emplace_back(n);
 		}
 	}
 	
@@ -4338,7 +4331,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 	{
 		if ( block[ bpos ] != 0 ) { // store correction bits
 			n = block[ bpos ] & 0x1;
-			storw->write( n );
+			storw.emplace_back(n);
 		}
 	}
 	
@@ -4360,7 +4353,7 @@ INTERN int jpg_encode_ac_prg_sa( abitwriter* huffw, abytewriter* storw, huffCode
 /* -----------------------------------------------
 	run of EOB SA decoding routine
 	----------------------------------------------- */
-INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, int from, int to )
+INTERN int jpg_decode_eobrun_sa( BitReader* huffr, short* block, int* eobrun, int from, int to )
 {
 	unsigned short n;
 	int bpos;
@@ -4382,7 +4375,7 @@ INTERN int jpg_decode_eobrun_sa( abitreader* huffr, short* block, int* eobrun, i
 /* -----------------------------------------------
 	run of EOB encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
+INTERN int jpg_encode_eobrun( BitWriter* huffw, huffCodes* actbl, int* eobrun )
 {
 	unsigned short n;
 	unsigned char  s;
@@ -4391,16 +4384,16 @@ INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
 	
 	if ( (*eobrun) > 0 ) {
 		while ( (*eobrun) > actbl->max_eobrun ) {
-			huffw->write( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
-			huffw->write( E_ENVLI( 14, 32767 ), 14 );
+			huffw->write_u16( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
+			huffw->write_u16( E_ENVLI( 14, 32767 ), 14 );
 			(*eobrun) -= actbl->max_eobrun;
 		}
 		BITLEN( s, (*eobrun) );
 		s--;
 		n = E_ENVLI( s, (*eobrun) );
 		hc = ( s << 4 );
-		huffw->write( actbl->cval[ hc ], actbl->clen[ hc ] );
-		huffw->write( n, s );
+		huffw->write_u16( actbl->cval[ hc ], actbl->clen[ hc ] );
+		huffw->write_u16( n, s );
 		(*eobrun) = 0;
 	}
 
@@ -4412,26 +4405,12 @@ INTERN int jpg_encode_eobrun( abitwriter* huffw, huffCodes* actbl, int* eobrun )
 /* -----------------------------------------------
 	correction bits encoding routine
 	----------------------------------------------- */
-INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw )
+INTERN int jpg_encode_crbits( BitWriter* huffw, std::vector<std::uint8_t>& storw )
 {	
-	unsigned char* data;
-	int len;
-	int i;
-	
-	
-	// peek into data from abytewriter	
-	len = storw->getpos();
-	if ( len == 0 ) return 0;
-	data = storw->peekptr();
-	
-	// write bits to huffwriter
-	for ( i = 0; i < len; i++ )
-		huffw->write( data[ i ], 1 );
-	
-	// reset abytewriter, discard data
-	storw->reset();
-	
-	
+	for (const std::uint8_t bit : storw) {
+		huffw->write_bit(bit);
+    }
+	storw.clear();
 	return 0;
 }
 
@@ -4439,7 +4418,7 @@ INTERN int jpg_encode_crbits( abitwriter* huffw, abytewriter* storw )
 /* -----------------------------------------------
 	returns next code (from huffman-tree & -data)
 	----------------------------------------------- */
-INTERN int jpg_next_huffcode( abitreader *huffw, huffTree *ctree )
+INTERN int jpg_next_huffcode( BitReader *huffw, huffTree *ctree )
 {	
 	int node = 0;
 	
@@ -4658,7 +4637,7 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
+INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4726,7 +4705,7 @@ INTERN bool pjg_encode_zstscan( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (high)
 	----------------------------------------------- */	
-INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp )
+INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4766,7 +4745,7 @@ INTERN bool pjg_encode_zdst_high( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes # of non zeroes to pjg (low)
 	----------------------------------------------- */	
-INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp )
+INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -4813,7 +4792,7 @@ INTERN bool pjg_encode_zdst_low( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes DC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
+INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -4933,7 +4912,7 @@ INTERN bool pjg_encode_dc( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
+INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5117,7 +5096,7 @@ INTERN bool pjg_encode_ac_high( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes first row/col AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
+INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 {
 	model_s* mod_len;
 	model_b* mod_sgn;
@@ -5281,7 +5260,7 @@ INTERN bool pjg_encode_ac_low( aricoder* enc, int cmp )
 /* -----------------------------------------------
 	encodes a stream of generic (8bit) data to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len )
+INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int len )
 {
 	model_s* model;
 	int i;
@@ -5306,7 +5285,7 @@ INTERN bool pjg_encode_generic( aricoder* enc, unsigned char* data, int len )
 /* -----------------------------------------------
 	encodes one bit to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit )
+INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit )
 {
 	model_b* model;
 	
@@ -5324,7 +5303,7 @@ INTERN bool pjg_encode_bit( aricoder* enc, unsigned char bit )
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp )
+INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 {	
 	model_s* model;;
 	
@@ -5390,7 +5369,7 @@ INTERN bool pjg_decode_zstscan( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (high)
 	----------------------------------------------- */
-INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp )
+INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp )
 {
 	model_s* model;
 	
@@ -5430,7 +5409,7 @@ INTERN bool pjg_decode_zdst_high( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes # of non zeroes from pjg (low)
 	----------------------------------------------- */	
-INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp )
+INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp )
 {
 	model_s* model;
 	
@@ -5477,7 +5456,7 @@ INTERN bool pjg_decode_zdst_low( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes DC coefficients from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
+INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5597,7 +5576,7 @@ INTERN bool pjg_decode_dc( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
+INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
@@ -5781,7 +5760,7 @@ INTERN bool pjg_decode_ac_high( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	decodes high (7x7) AC coefficients to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
+INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 {
 	model_s* mod_len;
 	model_b* mod_sgn;
@@ -5943,22 +5922,22 @@ INTERN bool pjg_decode_ac_low( aricoder* dec, int cmp )
 /* -----------------------------------------------
 	deodes a stream of generic (8bit) data from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
+INTERN bool pjg_decode_generic( ArithmeticDecoder* dec, unsigned char** data, int* len )
 {
-	abytewriter* bwrt;
+	MemoryWriter* bwrt;
 	model_s* model;
 	int c;
 	
 	
 	// start byte writer
-	bwrt = new abytewriter( 1024 );
+	bwrt = new MemoryWriter();
 	
 	// decode header, ending with 256 symbol
 	model = INIT_MODEL_S( 256 + 1, 256, 1 );
 	while ( true ) {
 		c = decode_ari( dec, model );
 		if ( c == 256 ) break;
-		bwrt->write( (unsigned char) c );
+		bwrt->write_byte( (unsigned char) c );
 		model->shift_context( c );
 	}
 	delete( model );
@@ -5972,8 +5951,8 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 	}
 	
 	// get data/length and close byte writer
-	(*data) = bwrt->getptr();
-	if ( len != NULL ) (*len) = bwrt->getpos();
+	(*data) = bwrt->get_c_data();
+	if ( len != NULL ) (*len) = bwrt->num_bytes_written();
 	delete bwrt;
 	
 	
@@ -5984,7 +5963,7 @@ INTERN bool pjg_decode_generic( aricoder* dec, unsigned char** data, int* len )
 /* -----------------------------------------------
 	decodes one bit from pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_bit( aricoder* dec, unsigned char* bit )
+INTERN bool pjg_decode_bit( ArithmeticDecoder* dec, unsigned char* bit )
 {
 	model_b* model;
 	

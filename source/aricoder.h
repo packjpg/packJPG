@@ -1,11 +1,12 @@
 #ifndef ARICODER_H
 #define ARICODER_H
 
-#include <cstdint>
-
 #include "bitops.h"
-#include <vector>
+
 #include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 // defines for coder
 constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
@@ -147,43 +148,68 @@ struct table_s {
 	}
 };
 
+class ArithmeticBitWriter {
+public:
+	template <std::uint8_t bit>
+	void write_bit();
+
+	void write_n_zero_bits(std::size_t n);
+
+	void write_n_one_bits(std::size_t n);
+
+	void pad();
+
+	std::vector<std::uint8_t> get_data() const;
+
+
+private:
+	std::vector<std::uint8_t> data_;
+	std::uint8_t curr_byte_ = 0;
+	std::size_t curr_bit_ = 0;
+};
+
 
 /* -----------------------------------------------
 	class for arithmetic coding of data to/from iostream
 	----------------------------------------------- */
-	
-class aricoder
+
+class ArithmeticEncoder
 {
 	public:
-	aricoder( iostream* stream, StreamMode iomode );
-	~aricoder();
+    ArithmeticEncoder(Writer& writer);
+	~ArithmeticEncoder();
 	void encode( symbol* s );
+
+    void finalize();
+	
+	private:
+	
+	// i/o variables
+    
+    bool finalized = false;
+    Writer& writer_;
+    std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
+	
+	// arithmetic coding variables
+	unsigned int ccode = 0;
+	unsigned int clow = 0;
+	unsigned int chigh = CODER_LIMIT100 - 1;
+	unsigned int cstep = 0;
+	unsigned int nrbits = 0;
+};
+
+class ArithmeticDecoder {
+	public:
+    ArithmeticDecoder(Reader& reader);
+	~ArithmeticDecoder() {}
 	unsigned int decode_count( symbol* s );
 	void decode( symbol* s );
 	
 	private:
-
-	template<uint8_t bit>
-	void write_bit() {
-		// add bit at last position
-		bbyte = (bbyte << 1) | bit;
-		// increment bit position
-		cbit++;
-
-		// write bit if done
-		if (cbit == 8) {
-			sptr->write_byte(bbyte);
-			cbit = 0;
-		}
-	}
-	
-	void writeNrbitsAsZero();
-	void writeNrbitsAsOne();
 	unsigned char read_bit();
 	
 	// i/o variables
-	iostream* sptr; // Pointer to iostream for reading/writing.
-	const StreamMode mode;
+    Reader& reader_;
 	unsigned char bbyte = 0;
 	unsigned char cbit = 0;
 	
@@ -192,7 +218,6 @@ class aricoder
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
 	unsigned int cstep = 0;
-	unsigned int nrbits = 0;
 };
 
 
@@ -276,7 +301,7 @@ static void shift_model(M model, C context, Cargs ... contextList) {
 /* -----------------------------------------------
 	generic model_s encoder function
 	----------------------------------------------- */
-static inline void encode_ari( aricoder* encoder, model_s* model, int c )
+static inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c )
 {
 	symbol s;
 	int esc;
@@ -291,7 +316,7 @@ static inline void encode_ari( aricoder* encoder, model_s* model, int c )
 /* -----------------------------------------------
 	generic model_s decoder function
 	----------------------------------------------- */	
-static inline int decode_ari( aricoder* decoder, model_s* model )
+static inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 {
 	symbol s;
 	uint32_t count;
@@ -311,7 +336,7 @@ static inline int decode_ari( aricoder* decoder, model_s* model )
 /* -----------------------------------------------
 	generic model_b encoder function
 	----------------------------------------------- */	
-static inline void encode_ari( aricoder* encoder, model_b* model, int c )
+static inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c )
 {
 	symbol s;
 	
@@ -323,7 +348,7 @@ static inline void encode_ari( aricoder* encoder, model_b* model, int c )
 /* -----------------------------------------------
 	generic model_b decoder function
 	----------------------------------------------- */	
-static inline int decode_ari( aricoder* decoder, model_b* model )
+static inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 {
 	symbol s;
 	

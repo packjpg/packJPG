@@ -6,7 +6,7 @@ CC      = cc
 CPP     = c++
 RC      = windres
 CFLAGS  = -I. -DUNIX -DDEV_BUILD -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer -std=c++14
-LDFLAGS = 
+LDFLAGS = -lstdc++fs
 DEPS    = bitops.h aricoder.h pjpgtbl.h dct8x8.h Makefile
 OBJ     = bitops.o aricoder.o packjpg.o
 RES     = icon.res
