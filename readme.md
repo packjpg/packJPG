@@ -182,7 +182,7 @@ The minor version is used to indicate smaller changes that don't break compatibi
 
 The major version number is set directly in the source code via the 'pjgversion' (main version number) and the 'subversion' (subversion string) constants. 
 
-##History
+## History
 
 
 v1.9a (04/20/2007) (non public)
