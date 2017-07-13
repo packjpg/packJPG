@@ -1014,11 +1014,10 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 
     switch (in_type) {
         case 0:
-            std::string input_file((char*)in_src);
             try {
-                str_in = std::make_unique<FileReader>(input_file);
+                str_in = std::make_unique<FileReader>((char*)in_src);
             } catch (const std::runtime_error&) {
-                sprintf(errormessage, "error opening input file %s", input_file.c_str());
+                sprintf(errormessage, "error opening input file %s", (char*)in_src);
 		        errorlevel = 2;
 		        return;
             }
@@ -1027,7 +1026,13 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
             str_in = std::make_unique<MemoryReader>((unsigned char*)in_src, in_size);
             break;
         case 2:
-            str_in = std::make_unique<StreamReader>();
+			try {
+				str_in = std::make_unique<StreamReader>();
+			} catch (const std::runtime_error& e) {
+				sprintf(errormessage, e.what());
+				errorlevel = 2;
+				return;
+			}
             break;
         default:
             sprintf(errormessage, "Invalid input type: %i", in_type);
@@ -1037,20 +1042,25 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 
     switch (out_type) {
         case 0:
-            std::string output_file((char*)out_dest);
             try {
-                str_out = std::make_unique<FileWriter>(output_file);
+                str_out = std::make_unique<FileWriter>((char*)out_dest);
             } catch (const std::runtime_error&) {
-                sprintf(errormessage, "error opening output file %s", output_file.c_str());
+                sprintf(errormessage, "error opening output file %s", (char*)out_dest);
 		        errorlevel = 2;
 		        return;
             }
             break;
         case 1:
-            str_in = std::make_unique<MemoryWriter>();
+            str_out = std::make_unique<MemoryWriter>();
             break;
         case 2:
-            str_in = std::make_unique<StreamWriter>();
+			try {
+				str_out = std::make_unique<StreamWriter>();
+			} catch (const std::runtime_error& e) {
+				sprintf(errormessage, e.what());
+				errorlevel = 2;
+				return;
+			}
             break;
         default:
             sprintf(errormessage, "Invalid output type: %i", out_type);
@@ -1059,8 +1069,14 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
     }
 	
 	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	if (jpgfilename != nullptr) {
+		free(jpgfilename);
+		jpgfilename = nullptr;
+	}
+	if (pjgfilename != nullptr) {
+		free(pjgfilename);
+		pjgfilename = nullptr;
+	}
 	
 	// check input stream
 	str_in->read( buffer, 2 );
@@ -1800,21 +1816,27 @@ INTERN bool check_file( void )
 	unsigned char fileid[ 2 ] = { 0, 0 };
 	const char* filename = filelist[ file_no ];
 	
-    if (pipe_on) {
-        str_in = std::make_unique<StreamReader>();
-    } else {
-        try {
-            str_in = std::make_unique<FileReader>(std::string(filename));
-        } catch (const std::runtime_error& e) {
-            std::strcpy(errormessage, e.what());
-            errorlevel = 2;
-            return false;
-        }
-    }
+	try {
+		if (pipe_on) {
+			str_in = std::make_unique<StreamReader>();
+		} else {
+			str_in = std::make_unique<FileReader>(std::string(filename));
+		}
+	} catch (const std::runtime_error& e) {
+		std::strcpy(errormessage, e.what());
+		errorlevel = 2;
+		return false;
+	}
 	
 	// free memory from filenames if needed
-	if ( jpgfilename != NULL ) free( jpgfilename ); jpgfilename = NULL;
-	if ( pjgfilename != NULL ) free( pjgfilename ); pjgfilename = NULL;
+	if (jpgfilename != nullptr) {
+		free(jpgfilename);
+		jpgfilename = nullptr;
+	}
+	if (pjgfilename != nullptr) {
+		free(pjgfilename);
+		pjgfilename = nullptr;
+	}
 	
 	// immediately return error if 2 bytes can't be read
 	if ( str_in->read( fileid, 2 ) != 2 ) { 
@@ -1841,17 +1863,17 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDOUT", NULL );
 		}
 
-        if (pipe_on) {
-            str_out = std::make_unique<StreamWriter>();
-        } else {
-            try {
-                str_out = std::make_unique<FileWriter>(std::string(pjgfilename));
-            } catch (const std::runtime_error& e) {
-                std::strcpy(errormessage, e.what());
-                errorlevel = 2;
-                return false;
-            }
-        }
+		try {
+			if (pipe_on) {
+				str_out = std::make_unique<StreamWriter>();
+			} else {
+				str_out = std::make_unique<FileWriter>(std::string(pjgfilename));
+			}
+		} catch (const std::runtime_error& e) {
+			std::strcpy(errormessage, e.what());
+            errorlevel = 2;
+            return false;
+		}
 		// JPEG specific settings - restore original settings
 		if ( orig_set[ 0 ] == 0 )
 			auto_set = true;
@@ -3414,7 +3436,10 @@ INTERN bool unpack_pjg( void )
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
 	// retrieve padbit from stream
-	if ( !pjg_decode_bit( decoder, &cb ) ) return false; padbit = cb;
+	if (!pjg_decode_bit(decoder, &cb)) {
+		return false;
+	}
+	padbit = cb;
 	// decode one bit that signals false /correct use of RST markers
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	// decode # of false set RST markers per scan only if available
@@ -7235,3 +7260,4 @@ INTERN bool dump_pgm( void )
 /* ----------------------- End of developers functions -------------------------- */
 
 /* ----------------------- End of file -------------------------- */
+
