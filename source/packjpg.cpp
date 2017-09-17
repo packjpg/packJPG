@@ -9,7 +9,8 @@
 #include "programinfo.h"
 #include "fileprocessor.h"
 
-struct ProgramOptions {
+class ProgramOptions {
+public:
 	FILE* info_stream = stdout; // stream for output of messages
 	bool verbose = false; // Print high-level progress in program?
 	bool overwrite_existing_output = false; // Overwrite existing file(s) with output?
@@ -83,8 +84,8 @@ int main(int argc, char** argv) {
 		} catch (const std::runtime_error& e) {
 			const auto name = file_path == "-" ? "stdin" : file_path;
 			fprintf(options->info_stream, "\nError processing %s: %s\n", name.c_str(), e.what());
-			bool successfully_deleted = processor->delete_output();
-			if (successfully_deleted) {
+			bool deleted_output = processor->delete_output();
+			if (!deleted_output) {
 				fprintf(options->info_stream, "Unable to delete the output of processing %s\n", name.c_str());
 			}
 			errors++;
