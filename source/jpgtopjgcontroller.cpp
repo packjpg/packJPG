@@ -9,6 +9,9 @@
 JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output)
 	: jpg_input_(jpg_input), pjg_output_(pjg_output) {}
 
+JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output, ImageDebug debug)
+	: jpg_input_(jpg_input), pjg_output_(pjg_output), debug_(debug) {}
+
 JpgToPjgController::~JpgToPjgController() {}
 
 void JpgToPjgController::execute() {
@@ -16,15 +19,55 @@ void JpgToPjgController::execute() {
 	reader->read();
 	auto frame_info = reader->get_frame_info();
 	auto segments = reader->get_segments();
+	const auto huffman_data = reader->get_huffman_data();
 
-	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, reader->get_huffman_data());
+	if (debug_.options_.split_dump) {
+		debug_.dump_header(segments);
+		debug_.dump_huffman(huffman_data);
+	}
+
+
+	if (debug_.options_.txt_info) {
+		debug_.dump_info(*frame_info, segments);
+	}
+
+	auto jpeg_decoder = std::make_unique<JpgDecoder>(*frame_info, segments, huffman_data);
 	jpeg_decoder->decode();
 
-	this->check_value_range(frame_info->components);
-	
+	auto& components = frame_info->components;
+	if (debug_.options_.coll_dump) {
+		debug_.dump_coll(components, debug_.options_.collmode);
+	}
+
+	this->check_value_range(components);
+
+	for (auto& component : components) {
+		component.adapt_icos();
+	}
+
+	if (debug_.options_.pgm_dump) {
+		debug_.dump_pgm(components);
+	}
+
+	for (auto& component : components) {
+		component.predict_dc();
+	}
+
+	if (debug_.options_.fcoll_dump) {
+		debug_.dump_coll(components, debug_.options_.collmode);
+	}
+
+	if (debug_.options_.dist_info) {
+		debug_.dump_dist(components);
+	}
+
+	if (debug_.options_.zdst_dump) {
+		debug_.dump_zdst(components);
+	}
+
 	auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);
 	pjg_encoder->encode(jpeg_decoder->get_padbit(),
-	                    frame_info->components,
+	                    components,
 	                    segments,
 	                    reader->get_rst_err(),
 	                    reader->get_garbage_data());

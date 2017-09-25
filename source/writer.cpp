@@ -8,6 +8,10 @@
 #include <io.h>
 #endif
 
+std::size_t Writer::write_str(const std::string& s) {
+	return this->write(reinterpret_cast<const std::uint8_t*>(s.c_str()), s.size());
+}
+
 FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
 	fptr_ = std::fopen(file_path.c_str(), "wb");
 	if (fptr_ != nullptr) {

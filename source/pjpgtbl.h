@@ -63,6 +63,19 @@ constexpr std::array<std::uint8_t, 64> unzigzag
 	53, 60, 61, 54, 47, 55, 62, 63
 };
 
+// even/uneven zigzag scan conversion table
+constexpr std::array<std::uint8_t, 64> even_zigzag =
+{
+	 0,  5, 14, 27,  1,  6, 15, 28,
+	 3, 12, 25, 41,  8, 17, 30, 43,
+	10, 23, 39, 52, 19, 32, 45, 54,
+	21, 37, 50, 59, 34, 47, 56, 61,
+	 2,  7, 16, 29,  4, 13, 26, 42,
+	 9, 18, 31, 44, 11, 24, 40, 53,
+	20, 33, 46, 55, 22, 38, 51, 60,
+	35, 48, 57, 62, 36, 49, 58, 63,
+};
+
 // Context weighting for each band (luminance) (from POTY 2006/2007):
 constexpr int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ]
 {

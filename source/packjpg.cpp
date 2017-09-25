@@ -6,8 +6,10 @@
 #include <string>
 #include <vector>
 
+#include "debugoptions.h"
 #include "programinfo.h"
 #include "fileprocessor.h"
+#include "bitops.h"
 
 class ProgramOptions {
 public:
@@ -17,8 +19,10 @@ public:
 	bool wait_once_finished = false; // Wait for user input after finishing.
 	bool verify_reversible = false; // Check to make sure this program can losslessly reverse its own output.
 	std::vector<std::string> files; // Paths to the file(s) to process.
+	DebugOptions debug_options;
 
 	ProgramOptions(int argc, char** argv) {
+		int tmp_val = 0;
 		// read in arguments
 		for (int i = 1; i < argc; i++) {
 			std::string arg = argv[i];
@@ -33,6 +37,22 @@ public:
 			} else if (arg == "-") {
 				info_stream = stderr;
 				files.push_back("-"); // use "-" as a placeholder for stdin
+			} else if (std::sscanf(argv[i], "-coll%i", &tmp_val) == 1) {
+				debug_options.collmode = bitops::clamp(tmp_val, 0, 5);
+				debug_options.coll_dump = true;
+			} else if (std::sscanf(argv[i], "-fcol%i", &tmp_val) == 1) {
+				debug_options.collmode = bitops::clamp(tmp_val, 0, 5);
+				debug_options.fcoll_dump = true;
+			} else if (arg == "-split") {
+				debug_options.split_dump = true;
+			} else if (arg == "-zdst") {
+				debug_options.zdst_dump = true;
+			} else if (arg == "-info") {
+				debug_options.txt_info = true;
+			} else if (arg == "-dist") {
+				debug_options.dist_info = true;
+			} else if (arg == "-pgm") {
+				debug_options.pgm_dump = true;
 			} else if (std::experimental::filesystem::exists(arg)) {
 				files.push_back(arg);
 			} else {
@@ -76,7 +96,7 @@ int main(int argc, char** argv) {
 			if (file_path == "-") {
 				processor = std::make_unique<FileProcessor>(options->verify_reversible, options->verbose);
 			} else {
-				processor = std::make_unique<FileProcessor>(file_path, options->overwrite_existing_output, options->verify_reversible, options->verbose);
+				processor = std::make_unique<FileProcessor>(file_path, options->overwrite_existing_output, options->verify_reversible, options->verbose, options->debug_options);
 			}
 			processor->execute();
 			cumulative_jpg_size += processor->get_jpg_size();

@@ -59,6 +59,10 @@ void Component::adapt_icos() {
 			quant[ipos] = 0;
 		}
 	}
+	// adapt idct 8x8 table
+	for (std::size_t ipos = 0; ipos < 64 * 64; ipos++) {
+		adpt_idct_8x8[ipos] = dct::icos_idct_8x8[ipos] * quant[ipos % 64];
+	}
 	// adapt idct 1x8 table
 	for (std::size_t ipos = 0; ipos < adpt_idct_1x8.size(); ipos++) {
 		adpt_idct_1x8[ipos] = dct::icos_idct_1x8[ipos] * quant[(ipos % 8) * 8];
@@ -69,7 +73,7 @@ void Component::adapt_icos() {
 	}
 }
 
-std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> Component::calc_zdst_lists() {
+std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> Component::calc_zdst_lists() const {
 	std::vector<std::uint8_t> zdstdata(bc);
 	std::vector<std::uint8_t> zdstxlow(bc);
 	std::vector<std::uint8_t> zdstylow(bc);
@@ -171,6 +175,81 @@ int Component::idct_2d_fst_1x8(std::size_t dpos, int iy) const {
 	idct += colldata[20][dpos] * adpt_idct_1x8[ixy + 5];
 	idct += colldata[21][dpos] * adpt_idct_1x8[ixy + 6];
 	idct += colldata[35][dpos] * adpt_idct_1x8[ixy + 7];
+
+	return idct;
+}
+
+int Component::idct_2d_fst_8x8(int dpos, int ix, int iy) const {
+	int idct = 0;
+
+	// calculate start index
+	const int ixy = ((iy << 3) + ix) << 6;
+
+	// begin transform
+	idct += colldata[0][dpos]  * adpt_idct_8x8[ixy + 0];
+	idct += colldata[1][dpos]  * adpt_idct_8x8[ixy + 1];
+	idct += colldata[5][dpos]  * adpt_idct_8x8[ixy + 2];
+	idct += colldata[6][dpos]  * adpt_idct_8x8[ixy + 3];
+	idct += colldata[14][dpos] * adpt_idct_8x8[ixy + 4];
+	idct += colldata[15][dpos] * adpt_idct_8x8[ixy + 5];
+	idct += colldata[27][dpos] * adpt_idct_8x8[ixy + 6];
+	idct += colldata[28][dpos] * adpt_idct_8x8[ixy + 7];
+	idct += colldata[2][dpos]  * adpt_idct_8x8[ixy + 8];
+	idct += colldata[4][dpos]  * adpt_idct_8x8[ixy + 9];
+	idct += colldata[7][dpos]  * adpt_idct_8x8[ixy + 10];
+	idct += colldata[13][dpos] * adpt_idct_8x8[ixy + 11];
+	idct += colldata[16][dpos] * adpt_idct_8x8[ixy + 12];
+	idct += colldata[26][dpos] * adpt_idct_8x8[ixy + 13];
+	idct += colldata[29][dpos] * adpt_idct_8x8[ixy + 14];
+	idct += colldata[42][dpos] * adpt_idct_8x8[ixy + 15];
+	idct += colldata[3][dpos]  * adpt_idct_8x8[ixy + 16];
+	idct += colldata[8][dpos]  * adpt_idct_8x8[ixy + 17];
+	idct += colldata[12][dpos] * adpt_idct_8x8[ixy + 18];
+	idct += colldata[17][dpos] * adpt_idct_8x8[ixy + 19];
+	idct += colldata[25][dpos] * adpt_idct_8x8[ixy + 20];
+	idct += colldata[30][dpos] * adpt_idct_8x8[ixy + 21];
+	idct += colldata[41][dpos] * adpt_idct_8x8[ixy + 22];
+	idct += colldata[43][dpos] * adpt_idct_8x8[ixy + 23];
+	idct += colldata[9][dpos]  * adpt_idct_8x8[ixy + 24];
+	idct += colldata[11][dpos] * adpt_idct_8x8[ixy + 25];
+	idct += colldata[18][dpos] * adpt_idct_8x8[ixy + 26];
+	idct += colldata[24][dpos] * adpt_idct_8x8[ixy + 27];
+	idct += colldata[31][dpos] * adpt_idct_8x8[ixy + 28];
+	idct += colldata[40][dpos] * adpt_idct_8x8[ixy + 29];
+	idct += colldata[44][dpos] * adpt_idct_8x8[ixy + 30];
+	idct += colldata[53][dpos] * adpt_idct_8x8[ixy + 31];
+	idct += colldata[10][dpos] * adpt_idct_8x8[ixy + 32];
+	idct += colldata[19][dpos] * adpt_idct_8x8[ixy + 33];
+	idct += colldata[23][dpos] * adpt_idct_8x8[ixy + 34];
+	idct += colldata[32][dpos] * adpt_idct_8x8[ixy + 35];
+	idct += colldata[39][dpos] * adpt_idct_8x8[ixy + 36];
+	idct += colldata[45][dpos] * adpt_idct_8x8[ixy + 37];
+	idct += colldata[52][dpos] * adpt_idct_8x8[ixy + 38];
+	idct += colldata[54][dpos] * adpt_idct_8x8[ixy + 39];
+	idct += colldata[20][dpos] * adpt_idct_8x8[ixy + 40];
+	idct += colldata[22][dpos] * adpt_idct_8x8[ixy + 41];
+	idct += colldata[33][dpos] * adpt_idct_8x8[ixy + 42];
+	idct += colldata[38][dpos] * adpt_idct_8x8[ixy + 43];
+	idct += colldata[46][dpos] * adpt_idct_8x8[ixy + 44];
+	idct += colldata[51][dpos] * adpt_idct_8x8[ixy + 45];
+	idct += colldata[55][dpos] * adpt_idct_8x8[ixy + 46];
+	idct += colldata[60][dpos] * adpt_idct_8x8[ixy + 47];
+	idct += colldata[21][dpos] * adpt_idct_8x8[ixy + 48];
+	idct += colldata[34][dpos] * adpt_idct_8x8[ixy + 49];
+	idct += colldata[37][dpos] * adpt_idct_8x8[ixy + 50];
+	idct += colldata[47][dpos] * adpt_idct_8x8[ixy + 51];
+	idct += colldata[50][dpos] * adpt_idct_8x8[ixy + 52];
+	idct += colldata[56][dpos] * adpt_idct_8x8[ixy + 53];
+	idct += colldata[59][dpos] * adpt_idct_8x8[ixy + 54];
+	idct += colldata[61][dpos] * adpt_idct_8x8[ixy + 55];
+	idct += colldata[35][dpos] * adpt_idct_8x8[ixy + 56];
+	idct += colldata[36][dpos] * adpt_idct_8x8[ixy + 57];
+	idct += colldata[48][dpos] * adpt_idct_8x8[ixy + 58];
+	idct += colldata[49][dpos] * adpt_idct_8x8[ixy + 59];
+	idct += colldata[57][dpos] * adpt_idct_8x8[ixy + 60];
+	idct += colldata[58][dpos] * adpt_idct_8x8[ixy + 61];
+	idct += colldata[62][dpos] * adpt_idct_8x8[ixy + 62];
+	idct += colldata[63][dpos] * adpt_idct_8x8[ixy + 63];
 
 	return idct;
 }

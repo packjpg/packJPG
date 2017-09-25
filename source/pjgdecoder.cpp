@@ -44,8 +44,6 @@ void PjgDecoder::decode() {
 		auto lower_zero_dist_lists = this->zdst_low(component, zero_dist_data, eob_data.first, eob_data.second);
 		this->ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
 		this->decode_dc(component, zero_dist_data);
-		component.adapt_icos();
-		component.unpredict_dc();
 	}
 
 	const bool garbage_exists = this->bit() == 1;

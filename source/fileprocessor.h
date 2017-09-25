@@ -2,6 +2,8 @@
 #define FILEPROCESSOR_H
 
 #include "controller.h"
+#include "debugoptions.h"
+#include "imagedebug.h"
 #include "filetype.h"
 #include "reader.h"
 #include "writer.h"
@@ -11,7 +13,7 @@ public:
 	/**
 	 * Process the given file.
 	 */
-	FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose);
+	FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose, DebugOptions debug_options);
 	/*
 	 * Process from standard input (stdin). Writes to stdout for data and stderr for logs.
 	 */
@@ -37,11 +39,13 @@ private:
 	void verify_reversible(Writer& verification_output) const;
 	std::string output_destination(const std::string& input_file) const;
 
-	bool overwrite_ = false; // Output file destination overwrites any existing destination instead of selecting a unique name?
-	bool verify_reversible_ = true; // After (de)compressing, reverse the process to make sure the output can be returned to its original state.
-	bool verbose_ = false; // Display a lot of information to the user while running?
+	const bool overwrite_ = false; // Output file destination overwrites any existing destination instead of selecting a unique name?
+	const bool verify_reversible_ = true; // After (de)compressing, reverse the process to make sure the output can be returned to its original state.
+	const bool verbose_ = false; // Display a lot of information to the user while running?
 
 	bool executed_ = false; // Has execute() been run?
+
+	const ImageDebug debug_;
 
 	std::unique_ptr<Controller> controller_;
 

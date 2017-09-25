@@ -25,10 +25,12 @@ public:
 
 	// Calculate zero distribution lists.
 	// This functions counts, for each DCT block, the number of non-zero coefficients
-	std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> calc_zdst_lists();
+	std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> calc_zdst_lists() const;
 
 	// Calculates next position (non interleaved).
 	CodingStatus next_mcuposn(int rsti, int& dpos, int& rstw) const;
+
+	int idct_2d_fst_8x8(int dpos, int ix, int iy) const;
 
 	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
 
@@ -50,7 +52,7 @@ public:
 	int nois_trs = 6; // bit pattern noise threshold
 
 private:
-
+	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8{};	// precalculated/adapted values for idct (8x8)
 	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
 	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
 
@@ -64,7 +66,6 @@ private:
 
 	// Inverse DCT transform using precalc tables (fast).
 	int idct_2d_fst_1x8(std::size_t dpos, int iy) const;
-
 	// 1D DCT predictor for DC coefficients.
 	int dc_1ddct_predictor(std::size_t dpos);
 };
