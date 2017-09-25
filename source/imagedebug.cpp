@@ -135,7 +135,7 @@ void ImageDebug::dump_huffman(const std::vector<std::uint8_t>& huffman_data) con
 void ImageDebug::dump_info(const FrameInfo & frame_info, const std::vector<Segment>& segments) const {
 	const auto& components = frame_info.components;
 	const auto info_filename = base_file_ + ".nfo";
-	auto writer = std::make_unique<FileWriter>(base_file_);
+	auto writer = std::make_unique<FileWriter>(info_filename);
 
 	// Info about image:
 	writer->write_str("<Infofile for JPEG image " + base_file_ + ">\n\n\n");
