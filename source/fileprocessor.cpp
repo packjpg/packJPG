@@ -7,7 +7,7 @@
 #include "jpgtopjgontroller.h"
 #include "pjgtojpgcontroller.h"
 
-FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool verify, bool verbose, DebugOptions debug_options) : overwrite_(overwrite), verify_reversible_(verify), verbose_(verbose), debug_(input_file, debug_options) {
+FileProcessor::FileProcessor(const std::string& input_file, ProgramOptions options) : options_(options), debug_(input_file, options.debug_options) {
 	input_reader_ = std::make_unique<FileReader>(input_file);
 	file_type_ = get_file_type();
 	output_destination_ = output_destination(input_file);
@@ -20,7 +20,7 @@ FileProcessor::FileProcessor(const std::string& input_file, bool overwrite, bool
 	}
 }
 
-FileProcessor::FileProcessor(bool verify, bool verbose) : verify_reversible_(verify), verbose_(verbose) {
+FileProcessor::FileProcessor(ProgramOptions options) : options_(options) {
 	input_reader_ = std::make_unique<StreamReader>();
 	file_type_ = get_file_type();
 	output_writer_ = std::make_unique<StreamWriter>();
@@ -42,7 +42,7 @@ void FileProcessor::execute() {
 
 	controller_->execute();
 
-	if (!verify_reversible_) {
+	if (!options_.verify_reversible) {
 		return;
 	}
 
@@ -140,7 +140,7 @@ std::string FileProcessor::output_destination(const std::string& input_file) con
 	const auto new_extension = file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext;
 	auto filename_base = input_file.substr(0, input_file.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
-	while (std::experimental::filesystem::exists(filename) && !overwrite_) {
+	while (std::experimental::filesystem::exists(filename) && !options_.overwrite_existing_output) {
 		filename_base += "_";
 		filename = filename_base + "." + new_extension;
 	}

@@ -9,7 +9,15 @@
 #endif
 
 std::size_t Writer::write_str(const std::string& s) {
-	return this->write(reinterpret_cast<const std::uint8_t*>(s.c_str()), s.size());
+	std::size_t count = 0;
+	for (const auto c : s) {
+		bool char_write_successful = this->write_byte(c);
+		if (char_write_successful) {
+			count++;
+		}
+	}
+	return count;
+	//return this->write(reinterpret_cast<const std::uint8_t*>(s.c_str()), s.size());
 }
 
 FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
