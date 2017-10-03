@@ -39,10 +39,9 @@ private:
 	void verify_reversible(Writer& verification_output) const;
 	std::string output_destination(const std::string& input_file) const;
 
-	bool executed_ = false; // Has execute() been run?
+	bool executed_ = false; // Has execute() been run? Prevents multiple (de)compressions of the same file.
 
 	const ProgramOptions options_;
-	const ImageDebug debug_;
 
 	std::unique_ptr<Controller> controller_;
 

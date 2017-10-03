@@ -7,16 +7,17 @@
 #include "jpgtopjgontroller.h"
 #include "pjgtojpgcontroller.h"
 
-FileProcessor::FileProcessor(const std::string& input_file, ProgramOptions options) : options_(options), debug_(input_file, options.debug_options) {
+FileProcessor::FileProcessor(const std::string& input_file, ProgramOptions options) : options_(options) {
 	input_reader_ = std::make_unique<FileReader>(input_file);
 	file_type_ = get_file_type();
 	output_destination_ = output_destination(input_file);
 	output_writer_ = std::make_unique<FileWriter>(output_destination_);
 
+	ImageDebug debugger(input_file, options.debug_options);
 	if (file_type_ == FileType::JPG) {
-		controller_ = std::make_unique<JpgToPjgController>(*input_reader_, *output_writer_, debug_);
+		controller_ = std::make_unique<JpgToPjgController>(*input_reader_, *output_writer_, debugger);
 	} else {
-		controller_ = std::make_unique<PjgToJpgController>(*input_reader_, *output_writer_, debug_);
+		controller_ = std::make_unique<PjgToJpgController>(*input_reader_, *output_writer_, debugger);
 	}
 }
 
