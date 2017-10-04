@@ -28,7 +28,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 			}
 			break;
 		case 1: // sequential order collections, 'dhufs'
-			for (dpos = 0; dpos < component.bc; dpos++) {
+			for (dpos = 0; dpos < std::size_t(component.bc); dpos++) {
 				for (std::size_t bpos = 0; bpos < component.colldata.size(); bpos++) {
 					writer->write(colldata[bpos][dpos]);
 				}
@@ -42,7 +42,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 				}
 				if ((i % 8) == 0) {
 					dpos += component.bch;
-					if (dpos >= component.bc) {
+					if (dpos >= std::size_t(component.bc)) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -67,7 +67,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 				}
 				if ((i % 8) == 0) {
 					dpos += component.bch;
-					if (dpos >= component.bc) {
+					if (dpos >= std::size_t(component.bc)) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -105,7 +105,7 @@ void ImageDebug::dump_dist(const std::vector<Component>& components) const {
 			std::array<std::uint32_t, 1024 + 1> dist{};
 
 			// Get distribution:
-			for (std::size_t dpos = 0; dpos < component.bc; dpos++) {
+			for (std::size_t dpos = 0; dpos < std::size_t(component.bc); dpos++) {
 				dist[std::abs(coll[dpos])]++;
 			}
 

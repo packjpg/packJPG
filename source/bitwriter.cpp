@@ -2,7 +2,7 @@
 
 #include "bitops.h"
 
-BitWriter::BitWriter(std::uint8_t fillbit) : data_(65536), fillbit_(fillbit) {
+BitWriter::BitWriter(std::uint8_t fillbit) : fillbit_(fillbit), data_(65536) {
 }
 
 BitWriter::~BitWriter() {

@@ -47,7 +47,7 @@ void JpgDecoder::decode() {
 
 void JpgDecoder::check_huffman_tables_available(int scans_finished) {
 	// check if huffman tables are available
-	for (int csc = 0; csc < scan_info_.cmp.size(); csc++) {
+	for (std::size_t csc = 0; csc < scan_info_.cmp.size(); csc++) {
 		const auto& component = frame_info_.components[scan_info_.cmp[csc]];
 		if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
 			(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
@@ -259,7 +259,7 @@ void JpgDecoder::decode_sequential_block(Component& component, int cmp, int dpos
 	lastdc_[cmp] = block_[0];
 
 	// copy to colldata
-	for (int bpos = 0; bpos < eob; bpos++) {
+	for (std::size_t bpos = 0; bpos < eob; bpos++) {
 		component.colldata[bpos][dpos] = block_[bpos];
 	}
 }

@@ -79,7 +79,7 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
 	// Decode the zero-sorted scan order:
-	for (int i = 1; i < zero_sorted_scan.size(); i++) {
+	for (std::int32_t i = 1; i < std::int32_t(zero_sorted_scan.size()); i++) {
 		model->exclude_symbols_above(64 - i);
 
 		int coded_pos = decoder_->decode(*model);
@@ -103,9 +103,9 @@ std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 	const int band_width = component.bch;
 
 	// Decode the zero-distribution-list:
-	for (int pos = 0; pos < zero_dist_list.size(); pos++) {
+	for (std::size_t pos = 0; pos < zero_dist_list.size(); pos++) {
 		// Context modeling: use the average of above and left as context:	
-		auto neighbors = PjgContext::get_context_nnb(pos, band_width);
+		auto neighbors = PjgContext::get_context_nnb(std::int32_t(pos), band_width);
 		neighbors.first = (neighbors.first >= 0) ? zero_dist_list[neighbors.first] : 0;
 		neighbors.second = (neighbors.second >= 0) ? zero_dist_list[neighbors.second] : 0;
 		model->shift_context((neighbors.first + neighbors.second + 2) / 4);
@@ -119,7 +119,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
 	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
-		for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
 			zero_dist_list[dpos] = decoder_->decode(*model);
 		}
@@ -145,9 +145,9 @@ void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>
 	PjgContext context(component);
 
 	auto& dc_coeffs = component.colldata[0];
-	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
+	for (std::size_t pos = 0; pos < dc_coeffs.size(); pos++) {
 		const int segment_num = segmentation_set[zero_dist_list[pos]];
-		const int average_context = context.aavrg_context(pos, component.bch);
+		const int average_context = context.aavrg_context(std::int32_t(pos), component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 		// Do context modeling (segmentation is done per context):
 		bitlen_model->shift_model(bitlen_context, segment_num);
@@ -200,14 +200,14 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 		const int max_val = component.max_v(bpos);
 		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		for (int pos = 0; pos < coeffs.size(); pos++) {
+		for (std::size_t pos = 0; pos < coeffs.size(); pos++) {
 			if (zero_dist_list[pos] == 0) {
 				continue; // skip if beyound eob
 			}
 
 			const int segment_num = segmentation_set[zero_dist_list[pos]];
 
-			const int average_context = context.aavrg_context(pos, band_width);
+			const int average_context = context.aavrg_context(std::int32_t(pos), band_width);
 			const int bitlen_context = pjg::bitlen1024p(average_context);
 			// shift context / do context modelling (segmentation is done per context)
 			bitlen_model->shift_model(bitlen_context, segment_num);

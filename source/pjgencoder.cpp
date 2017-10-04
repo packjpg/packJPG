@@ -77,7 +77,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
 	// Encode scanorder:
-	for (int i = 1; i < zero_sorted_scan.size(); i++) {
+	for (std::size_t i = 1; i < zero_sorted_scan.size(); i++) {
 		model->exclude_symbols_above(64 - i);
 
 		bool remainder_sorted = std::equal(std::begin(standard_scan),
@@ -168,9 +168,9 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 	PjgContext context(component);
 
 	const auto& dc_coeffs = component.colldata[0];
-	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
+	for (std::size_t pos = 0; pos < dc_coeffs.size(); pos++) {
 		const int segment_number = segmentation_set[zero_dist_list[pos]];
-		const int average_context = context.aavrg_context(pos, component.bch);
+		const int average_context = context.aavrg_context(std::int32_t(pos), component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 
 		// Do context modeling (segmentation is done per context):
@@ -234,7 +234,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 		const int max_val = component.max_v(block);
 		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		for (int dpos = 0; dpos < coeffs.size(); dpos++) {
+		for (std::size_t dpos = 0; dpos < coeffs.size(); dpos++) {
 			// skip if beyound eob
 			if (zero_dist_list[dpos] == 0) {
 				continue;
@@ -243,7 +243,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 			// get segment-number from zero distribution list and segmentation set
 			const int segment_number = segm_tab[zero_dist_list[dpos]];
 			// calculate contexts (for bit length)
-			const int average_context = context.aavrg_context(dpos, band_width);
+			const int average_context = context.aavrg_context(std::int32_t(dpos), band_width);
 			const int bitlen_context = pjg::bitlen1024p(average_context);
 			// shift context / do context modelling (segmentation is done per context)
 			bitlen_model->shift_model(bitlen_context, segment_number);
@@ -266,8 +266,8 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 				this->encode_residual(*residual_model, coeff_abs, coeff_bitlen - 2, segment_number);
 
 				// Encode the sign of the current coefficient:
-				const int p_y = dpos / band_width;
-				const int p_x = dpos % band_width;
+				const int p_y = std::int32_t(dpos) / band_width;
+				const int p_x = std::int32_t(dpos) % band_width;
 				int sign_context = (p_x > 0) ? signs[dpos - 1] : 0;
 				if (p_y > 0) {
 					sign_context += 3 * signs[dpos - band_width]; // IMPROVE !!!!!!!!!!!

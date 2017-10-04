@@ -111,7 +111,7 @@ void ArithmeticEncoder::encode(const Symbol& s)
 ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : reader_(stream) {
 	// code buffer has to be filled before starting decoding
 	ccode_ = 0;
-	for (int i = 0; i < CODER_USE_BITS; i++) {
+	for (std::uint32_t i = 0; i < CODER_USE_BITS; i++) {
 		ccode_ = (ccode_ << 1) | read_bit();
 	}
 }
@@ -371,7 +371,7 @@ void UniversalModel::get_symbol_scale(Symbol& s)
 int UniversalModel::convert_symbol_to_int(std::uint32_t count, Symbol& s)
 {
 	// go through the totals table, search the symbol that matches the count
-	int c;
+	std::uint32_t c;
 	for (c = 1; c < totals_.size(); c++) {
 		if (count >= totals_[c]) {
 			break;

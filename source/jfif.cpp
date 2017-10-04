@@ -272,7 +272,7 @@ std::unique_ptr<FrameInfo> jfif::parse_sof(Marker type, const Segment& segment, 
 
 	// also decide automatic settings here
 	for (auto& component : frame_info->components) {
-		int set;
+		std::size_t set;
 		for (set = 0; pjg::conf_sets[set][component.sid] > static_cast<std::uint32_t>(component.bc); set++) {
 			if (pjg::conf_sets[set][component.sid] <= static_cast<std::uint32_t>(component.bc)) {
 				break; // This is guaranteed to happen, since the last array of conf_sets is filled with zeroes.
@@ -351,14 +351,14 @@ ScanInfo jfif::get_scan_info(FrameInfo& frame_info, const Segment& segment) {
 	auto reader = std::make_unique<MemoryReader>(segment.get_data());
 	reader->skip(4); // Skip the segment header.
 	ScanInfo scan_info;
-	const int component_count = reader->read_byte();
+	const std::uint32_t component_count = reader->read_byte();
 	if (component_count > frame_info.components.size()) {
 		throw std::range_error(std::to_string(component_count) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
 	}
 	scan_info.cmp.resize(component_count);
-	for (int i = 0; i < component_count; i++) {
+	for (std::uint32_t i = 0; i < component_count; i++) {
 		const int jpg_id = reader->read_byte();
-		int cmp;
+		std::uint32_t cmp;
 		for (cmp = 0; cmp < frame_info.components.size(); cmp++) {
 			if (jpg_id == frame_info.components[cmp].jid) {
 				break;
@@ -368,7 +368,7 @@ ScanInfo jfif::get_scan_info(FrameInfo& frame_info, const Segment& segment) {
 			throw std::range_error("component id mismatch in start-of-scan");
 		}
 		auto& component = frame_info.components[cmp];
-		scan_info.cmp[i] = cmp;
+		scan_info.cmp[i] = std::int32_t(cmp);
 		const auto byte = reader->read_byte();
 		component.huffdc = bitops::left_nibble(byte);
 		component.huffac = bitops::right_nibble(byte);
@@ -397,7 +397,7 @@ CodingStatus jfif::increment_counts(const FrameInfo& frame_info, const ScanInfo&
 	if (sub >= frame_info.components[component].mbs) {
 		sub = 0;
 		csc++;
-		if (csc >= scan_info.cmp.size()) {
+		if (csc >= std::int32_t(scan_info.cmp.size())) {
 			csc = 0;
 			component = scan_info.cmp[0];
 			mcu++;
