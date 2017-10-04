@@ -220,8 +220,8 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 				const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
 
 				// Decode the sign of the coefficient:
-				const int p_y = pos / band_width;
-				const int p_x = pos % band_width;
+				const int p_y = std::int32_t(pos) / band_width;
+				const int p_x = std::int32_t(pos) % band_width;
 				int sign_context = p_x > 0 ? signs[pos - 1] : 0;
 				if (p_y > 0) {
 					sign_context += 3 * signs[pos - band_width]; // IMPROVE! !!!!!!!!!!!

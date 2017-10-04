@@ -78,7 +78,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 
 	// Encode scanorder:
 	for (std::size_t i = 1; i < zero_sorted_scan.size(); i++) {
-		model->exclude_symbols_above(64 - i);
+		model->exclude_symbols_above(64 - std::int32_t(i));
 
 		bool remainder_sorted = std::equal(std::begin(standard_scan),
 		                                   std::end(standard_scan),
