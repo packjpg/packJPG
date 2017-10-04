@@ -272,14 +272,17 @@ std::unique_ptr<FrameInfo> jfif::parse_sof(Marker type, const Segment& segment, 
 
 	// also decide automatic settings here
 	for (auto& component : frame_info->components) {
-		int i;
-		for (i = 0; pjg::conf_sets[i][component.sid] > static_cast<std::size_t>(component.bc); i++) {
-			if (pjg::conf_sets[i][component.sid] <= static_cast<std::size_t>(component.bc)) {
+		int set;
+		for (set = 0; pjg::conf_sets[set][component.sid] > static_cast<std::uint32_t>(component.bc); set++) {
+			if (pjg::conf_sets[set][component.sid] <= static_cast<std::uint32_t>(component.bc)) {
 				break; // This is guaranteed to happen, since the last array of conf_sets is filled with zeroes.
 			}
 		}
+		if (set >= pjg::conf_sets.size()) {
+			throw std::runtime_error("Failed to decide valid automatic setting.");
+		}
 		component.segm_cnt = pjg::conf_segm;
-		component.nois_trs = pjg::conf_ntrs[i][component.sid];
+		component.nois_trs = pjg::conf_ntrs[set][component.sid];
 	}
 	return frame_info;
 }

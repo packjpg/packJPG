@@ -91,7 +91,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 		}
 		// The list is not in zero-sorted order: encode the next position:
 		const auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
-		const int coded_pos = 1 + std::distance(std::begin(standard_scan), pos);
+		const auto coded_pos = std::int32_t(1 + std::distance(std::begin(standard_scan), pos));
 		standard_scan.erase(pos);
 
 		encoder_->encode(*model, coded_pos);
@@ -130,7 +130,7 @@ void PjgEncoder::zdst_high(const Component& component, const std::vector<std::ui
 	// Encode the zero-distribution-list:
 	for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 		// context modeling - use the average of above and left as context:
-		auto coords = PjgContext::get_context_nnb(dpos, w);
+		auto coords = PjgContext::get_context_nnb(std::int32_t(dpos), w);
 		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
 		model->shift_context((coords.first + coords.second + 2) / 4);
@@ -315,8 +315,9 @@ void PjgEncoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 
 		const auto& coeffs = component.colldata[bpos]; // Current coefficent data.
 		// store pointers to prediction coefficients
-		int p_x, p_y;
-		const int& edge_criterion = b_x == 0 ? p_x : p_y;
+		std::int32_t p_x = 0;
+		std::int32_t p_y = 0;
+		const auto& edge_criterion = b_x == 0 ? p_x : p_y;
 		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {

@@ -17,8 +17,8 @@ HuffCodes::HuffCodes(const std::vector<std::uint8_t>& counts, const std::vector<
 	}
 
 	// find out eobrun max value
-	for (int i = 14; i >= 0; i--) {
-		if (clen[i << 4] > 0) {
+	for (std::int32_t i = 14; i >= 0; i--) {
+		if (clen[std::size_t(i) << 4] > 0) {
 			max_eobrun = (2 << i) - 1;
 			break;
 		}

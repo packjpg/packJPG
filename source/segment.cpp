@@ -146,8 +146,9 @@ void Segment::optimize_dht() {
 				continue;
 			}
 
-			data_[segment_pos] = standard_table.size() - 16 - table_id;
-			data_[segment_pos + 1] = table_id;
+			data_[segment_pos] = std::uint8_t(standard_table.size() - 16 - table_id); // This conversion is fine because all the standard_table size are >= than 16 + table_id (which is 0 <= table_id < 4).
+			data_[segment_pos + 1] = std::uint8_t(table_id); // 0 <= Table ID < 4
+			// TODO: asserts to guarantee above?
 
 			auto start_table_data = std::next(std::begin(data_), segment_pos + 2);
 			auto end_table_data = std::next(std::begin(data_), segment_pos + standard_table.size());
