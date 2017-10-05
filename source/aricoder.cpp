@@ -111,7 +111,7 @@ void ArithmeticEncoder::encode(const Symbol& s)
 ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : reader_(stream) {
 	// code buffer has to be filled before starting decoding
 	ccode_ = 0;
-	for (int i = 0; i < CODER_USE_BITS; i++) {
+	for (std::uint32_t i = 0; i < CODER_USE_BITS; i++) {
 		ccode_ = (ccode_ << 1) | read_bit();
 	}
 }
@@ -280,7 +280,7 @@ void UniversalModel::update_model(int symbol)
 			count++;
 			// store side information for totalize_table
 			context->max_symbol_count = std::max(count, context->max_symbol_count);
-			context->max_symbol = std::max(std::uint16_t(symbol + 1), context->max_symbol);
+			context->max_symbol = std::max(symbol + 1, context->max_symbol);
 			// if count for that symbol have gone above the maximum count
 			// the table has to be resized (scale factor 2)
 			if (count == max_symbol_count_) {
@@ -371,7 +371,7 @@ void UniversalModel::get_symbol_scale(Symbol& s)
 int UniversalModel::convert_symbol_to_int(std::uint32_t count, Symbol& s)
 {
 	// go through the totals table, search the symbol that matches the count
-	int c;
+	std::uint32_t c;
 	for (c = 1; c < totals_.size(); c++) {
 		if (count >= totals_[c]) {
 			break;
@@ -400,7 +400,7 @@ void UniversalModel::totalize_table(UniversalTable& context)
 		int local_symb = num_symbols_;
 
 		// set the last symbol of the totals to zero
-		int i = context.max_symbol - 1;
+		std::int32_t i = context.max_symbol - 1;
 		totals_[i + 2] = 0;
 
 		// (re)set current total

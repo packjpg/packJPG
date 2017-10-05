@@ -2,6 +2,7 @@
 #define JPGDECODER_H
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -65,7 +66,7 @@ private:
 	FrameInfo& frame_info_;
 	const std::vector<Segment>& segments_;
 
-	std::array<int, 4> lastdc_{}; // last dc for each component
+	std::array<std::int16_t, 4> lastdc_{}; // last dc for each component
 	std::array<std::int16_t, 64> block_{}; // store block for coeffs
 	ScanInfo scan_info_;
 
@@ -73,7 +74,7 @@ private:
 	std::array<std::array<std::unique_ptr<HuffTree>, 4>, 2> htrees_; // huffman decoding trees
 
 	bool padbit_set_ = false;
-	std::uint8_t padbit_ = -1;
+	std::uint8_t padbit_ = std::numeric_limits<std::uint8_t>::max();
 
 	std::unique_ptr<BitReader> huffman_reader_; // bitwise reader for image data
 };

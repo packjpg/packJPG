@@ -28,21 +28,22 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 			}
 			break;
 		case 1: // sequential order collections, 'dhufs'
-			for (dpos = 0; dpos < component.bc; dpos++) {
+			for (dpos = 0; dpos < std::size_t(component.bc); dpos++) {
 				for (std::size_t bpos = 0; bpos < component.colldata.size(); bpos++) {
 					writer->write(colldata[bpos][dpos]);
 				}
 			}
 			break;
 		case 2: // square collections
-			for (std::size_t i = 0; i < pjg::zigzag.size();) {
-				const auto bpos = pjg::zigzag[i++];
+			for (std::size_t i = 0; i < pjg::zigzag.size() && i >= 0;) {
+				const auto bpos = pjg::zigzag[i];
+				i++;
 				for (int j = 0; j < component.bch; j++) {
 					writer->write(component.colldata[bpos][dpos + j]);
 				}
 				if ((i % 8) == 0) {
 					dpos += component.bch;
-					if (dpos >= component.bc) {
+					if (dpos >= std::size_t(component.bc)) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -60,14 +61,15 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 			}
 			break;
 		case 4: // square collections / alt order (even/uneven)
-			for (std::size_t i = 0; i < pjg::even_zigzag.size();) {
-				const auto bpos = pjg::even_zigzag[i++];
+			for (std::size_t i = 0; i < pjg::even_zigzag.size() && i >= 0;) {
+				const auto bpos = pjg::even_zigzag[i];
+				i++;
 				for (int j = 0; j < component.bch; j++) {
 					writer->write(component.colldata[bpos][dpos + j]);
 				}
 				if ((i % 8) == 0) {
 					dpos += component.bch;
-					if (dpos >= component.bc) {
+					if (dpos >= std::size_t(component.bc)) {
 						dpos = 0;
 					} else {
 						i -= 8;
@@ -105,7 +107,7 @@ void ImageDebug::dump_dist(const std::vector<Component>& components) const {
 			std::array<std::uint32_t, 1024 + 1> dist{};
 
 			// Get distribution:
-			for (std::size_t dpos = 0; dpos < component.bc; dpos++) {
+			for (std::size_t dpos = 0; dpos < std::size_t(component.bc); dpos++) {
 				dist[std::abs(coll[dpos])]++;
 			}
 

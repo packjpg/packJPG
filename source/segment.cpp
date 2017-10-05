@@ -1,6 +1,7 @@
 #include "segment.h"
 
 #include <array>
+#include <functional>
 #include <numeric>
 
 #include "bitops.h"
@@ -126,7 +127,7 @@ void Segment::optimize_dqt() {
 		// Difference code 8-bit precision tables (for better packjpg compression):
 		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
-		std::adjacent_difference(start_table, end_table, start_table);
+		std::adjacent_difference(start_table, end_table, start_table, std::minus<std::uint8_t>());
 
 		segment_pos += 64;
 	}
@@ -146,8 +147,9 @@ void Segment::optimize_dht() {
 				continue;
 			}
 
-			data_[segment_pos] = standard_table.size() - 16 - table_id;
-			data_[segment_pos + 1] = table_id;
+			data_[segment_pos] = std::uint8_t(standard_table.size() - 16 - table_id); // This conversion is fine because all the standard_table size are >= than 16 + table_id (which is 0 <= table_id < 4).
+			data_[segment_pos + 1] = std::uint8_t(table_id); // 0 <= Table ID < 4
+			// TODO: asserts to guarantee above?
 
 			auto start_table_data = std::next(std::begin(data_), segment_pos + 2);
 			auto end_table_data = std::next(std::begin(data_), segment_pos + standard_table.size());
@@ -185,7 +187,7 @@ void Segment::undo_dqt_optimization() {
 		//  Undo difference coding of 8-bit precision tables:
 		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
-		std::partial_sum(start_table, end_table, start_table);
+		std::partial_sum(start_table, end_table, start_table, std::plus<std::uint8_t>());
 
 		segment_pos += 64;
 	}

@@ -87,7 +87,7 @@ public:
 	std::vector<UniversalTable*> links;
 	// speedup info
 	std::uint16_t max_symbol_count = std::uint16_t(0);
-	std::uint16_t max_symbol = std::uint16_t(0);
+	std::int32_t max_symbol = 0;
 
 	// Deletes this and all tables linked by this table.
 	~UniversalTable() {
@@ -104,7 +104,7 @@ public:
 		if (counts.empty()) return;
 
 		// now scale the table by bitshifting each count
-		int lst_symbol = max_symbol;
+		std::int32_t lst_symbol = max_symbol;
 		int i;
 		for (i = 0; i < lst_symbol; i++) {
 			counts[i] >>= 1; // Counts will not become negative since it is an unsigned type.

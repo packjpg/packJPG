@@ -10,7 +10,7 @@
 
 class Component {
 public:
-	int quant(std::size_t bp) const;
+	std::uint16_t quant(std::size_t bp) const;
 
 	int max_v(std::size_t bp) const;
 

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -54,7 +55,7 @@ private:
 	std::unique_ptr<FrameInfo> frame_info_;
 	std::vector<Segment> segments_;
 
-	std::uint8_t padbit_ = -1;
+	std::uint8_t padbit_ = std::numeric_limits<std::uint8_t>::max();
 
 	std::vector<std::uint8_t> rst_err_;
 	std::vector<std::uint8_t> garbage_data_;

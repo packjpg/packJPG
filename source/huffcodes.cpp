@@ -5,10 +5,10 @@ HuffCodes::HuffCodes(const std::vector<std::uint8_t>& counts, const std::vector<
 	int code = 0;
 
 	// symbol-value of code is its position in the table
-	for (int i = 0; i < 16; i++) {
+	for (std::uint16_t i = 0; i < 16; i++) {
 		for (std::uint8_t j = 0; j < counts[i]; j++) {
 			clen[values[k]] = 1 + i;
-			cval[values[k]] = code;
+			cval[values[k]] = static_cast<std::uint16_t>(code);
 
 			k++;
 			code++;
@@ -17,8 +17,8 @@ HuffCodes::HuffCodes(const std::vector<std::uint8_t>& counts, const std::vector<
 	}
 
 	// find out eobrun max value
-	for (int i = 14; i >= 0; i--) {
-		if (clen[i << 4] > 0) {
+	for (std::int32_t i = 14; i >= 0; i--) {
+		if (clen[std::size_t(i) << 4] > 0) {
 			max_eobrun = (2 << i) - 1;
 			break;
 		}

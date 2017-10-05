@@ -77,8 +77,8 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
 	// Encode scanorder:
-	for (int i = 1; i < zero_sorted_scan.size(); i++) {
-		model->exclude_symbols_above(64 - i);
+	for (std::size_t i = 1; i < zero_sorted_scan.size(); i++) {
+		model->exclude_symbols_above(64 - std::int32_t(i));
 
 		bool remainder_sorted = std::equal(std::begin(standard_scan),
 		                                   std::end(standard_scan),
@@ -91,7 +91,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 		}
 		// The list is not in zero-sorted order: encode the next position:
 		const auto pos = std::find(std::begin(standard_scan), std::end(standard_scan), zero_sorted_scan[i]);
-		const int coded_pos = 1 + std::distance(std::begin(standard_scan), pos);
+		const auto coded_pos = std::int32_t(1 + std::distance(std::begin(standard_scan), pos));
 		standard_scan.erase(pos);
 
 		encoder_->encode(*model, coded_pos);
@@ -130,7 +130,7 @@ void PjgEncoder::zdst_high(const Component& component, const std::vector<std::ui
 	// Encode the zero-distribution-list:
 	for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 		// context modeling - use the average of above and left as context:
-		auto coords = PjgContext::get_context_nnb(dpos, w);
+		auto coords = PjgContext::get_context_nnb(std::int32_t(dpos), w);
 		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
 		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
 		model->shift_context((coords.first + coords.second + 2) / 4);
@@ -168,9 +168,9 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 	PjgContext context(component);
 
 	const auto& dc_coeffs = component.colldata[0];
-	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
+	for (std::size_t pos = 0; pos < dc_coeffs.size(); pos++) {
 		const int segment_number = segmentation_set[zero_dist_list[pos]];
-		const int average_context = context.aavrg_context(pos, component.bch);
+		const int average_context = context.aavrg_context(std::int32_t(pos), component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 
 		// Do context modeling (segmentation is done per context):
@@ -180,7 +180,7 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 			encoder_->encode(*bitlen_model, 0);
 		} else {
 			// Encode the bitlength of the current coefficient:
-			const int coeff_residual = std::abs(dc_coeffs[pos]);
+			const auto coeff_residual = std::uint16_t(std::abs(dc_coeffs[pos]));
 			const int coeff_bitlen = pjg::bitlen1024p(coeff_residual);
 			encoder_->encode(*bitlen_model, coeff_bitlen);
 
@@ -234,7 +234,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 		const int max_val = component.max_v(block);
 		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		for (int dpos = 0; dpos < coeffs.size(); dpos++) {
+		for (std::size_t dpos = 0; dpos < coeffs.size(); dpos++) {
 			// skip if beyound eob
 			if (zero_dist_list[dpos] == 0) {
 				continue;
@@ -243,7 +243,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 			// get segment-number from zero distribution list and segmentation set
 			const int segment_number = segm_tab[zero_dist_list[dpos]];
 			// calculate contexts (for bit length)
-			const int average_context = context.aavrg_context(dpos, band_width);
+			const int average_context = context.aavrg_context(std::int32_t(dpos), band_width);
 			const int bitlen_context = pjg::bitlen1024p(average_context);
 			// shift context / do context modelling (segmentation is done per context)
 			bitlen_model->shift_model(bitlen_context, segment_number);
@@ -254,9 +254,9 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 				// Encode the bitlength (i.e. 0) of the coefficient:
 				encoder_->encode(*bitlen_model, 0);
 			} else {
-				const int coeff_abs = std::abs(coeffs[dpos]);
+				const auto coeff_abs = std::uint16_t(std::abs(coeffs[dpos]));
 				const int coeff_bitlen = pjg::bitlen1024p(coeff_abs);
-				const int coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
+				const std::uint8_t coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
 
 				// Encode the bitlength of the current coefficient:			
 				encoder_->encode(*bitlen_model, coeff_bitlen);
@@ -266,8 +266,8 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 				this->encode_residual(*residual_model, coeff_abs, coeff_bitlen - 2, segment_number);
 
 				// Encode the sign of the current coefficient:
-				const int p_y = dpos / band_width;
-				const int p_x = dpos % band_width;
+				const int p_y = std::int32_t(dpos) / band_width;
+				const int p_x = std::int32_t(dpos) % band_width;
 				int sign_context = (p_x > 0) ? signs[dpos - 1] : 0;
 				if (p_y > 0) {
 					sign_context += 3 * signs[dpos - band_width]; // IMPROVE !!!!!!!!!!!
@@ -315,8 +315,9 @@ void PjgEncoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 
 		const auto& coeffs = component.colldata[bpos]; // Current coefficent data.
 		// store pointers to prediction coefficients
-		int p_x, p_y;
-		const int& edge_criterion = b_x == 0 ? p_x : p_y;
+		std::int32_t p_x = 0;
+		std::int32_t p_y = 0;
+		const auto& edge_criterion = b_x == 0 ? p_x : p_y;
 		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {

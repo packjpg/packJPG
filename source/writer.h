@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <limits>
 #include <type_traits>
 #include <vector>
 

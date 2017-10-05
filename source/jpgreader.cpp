@@ -64,7 +64,7 @@ void JpgReader::read_sos() {
 		if (byte == 0x00) {
 			curr_restart_marker_counter = 0;
 			// no zeroes needed -> ignore 0x00. write 0xFF
-			huffman_data_.emplace_back(0xFF);
+			huffman_data_.emplace_back(std::uint8_t(0xFF));
 		} else if (byte == 0xD0 + (restart_marker_counter % 8)) {
 			// restart marker
 			restart_marker_counter++;
@@ -82,7 +82,7 @@ void JpgReader::read_sos() {
 				if (curr_restart_marker_counter > 255) {
 					throw std::runtime_error("Severe false use of RST markers (" + std::to_string(curr_restart_marker_counter) + ")");
 				}
-				rst_err_[scans_processed_] = curr_restart_marker_counter;
+				rst_err_[scans_processed_] = std::uint8_t(curr_restart_marker_counter);
 			}
 			reader_.rewind_bytes(2); // Unread the start of the next segment.
 			break;

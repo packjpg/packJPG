@@ -79,7 +79,7 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 	auto model = std::make_unique<UniversalModel>(64, 64, 1);
 
 	// Decode the zero-sorted scan order:
-	for (int i = 1; i < zero_sorted_scan.size(); i++) {
+	for (std::int32_t i = 1; i < std::int32_t(zero_sorted_scan.size()); i++) {
 		model->exclude_symbols_above(64 - i);
 
 		int coded_pos = decoder_->decode(*model);
@@ -103,14 +103,14 @@ std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 	const int band_width = component.bch;
 
 	// Decode the zero-distribution-list:
-	for (int pos = 0; pos < zero_dist_list.size(); pos++) {
+	for (std::size_t pos = 0; pos < zero_dist_list.size(); pos++) {
 		// Context modeling: use the average of above and left as context:	
-		auto neighbors = PjgContext::get_context_nnb(pos, band_width);
+		auto neighbors = PjgContext::get_context_nnb(std::int32_t(pos), band_width);
 		neighbors.first = (neighbors.first >= 0) ? zero_dist_list[neighbors.first] : 0;
 		neighbors.second = (neighbors.second >= 0) ? zero_dist_list[neighbors.second] : 0;
 		model->shift_context((neighbors.first + neighbors.second + 2) / 4);
 
-		zero_dist_list[pos] = decoder_->decode(*model);
+		zero_dist_list[pos] = std::uint8_t(decoder_->decode(*model));
 	}
 	return zero_dist_list;
 }
@@ -119,9 +119,9 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
 	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
-		for (int dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
-			zero_dist_list[dpos] = decoder_->decode(*model);
+			zero_dist_list[dpos] = std::uint8_t(decoder_->decode(*model));
 		}
 	};
 
@@ -145,9 +145,9 @@ void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>
 	PjgContext context(component);
 
 	auto& dc_coeffs = component.colldata[0];
-	for (int pos = 0; pos < dc_coeffs.size(); pos++) {
+	for (std::size_t pos = 0; pos < dc_coeffs.size(); pos++) {
 		const int segment_num = segmentation_set[zero_dist_list[pos]];
-		const int average_context = context.aavrg_context(pos, component.bch);
+		const int average_context = context.aavrg_context(std::int32_t(pos), component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 		// Do context modeling (segmentation is done per context):
 		bitlen_model->shift_model(bitlen_context, segment_num);
@@ -155,7 +155,7 @@ void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>
 		const int coeff_bitlen = decoder_->decode(*bitlen_model);
 		if (coeff_bitlen != 0) {
 			// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
-			const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
+			const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num));
 			const bool coeff_is_positive = decoder_->decode(*sign_model) == 0;
 			dc_coeffs[pos] = coeff_is_positive ? coeff_residual : -coeff_residual;
 			context.abs_coeffs_[pos] = coeff_residual;
@@ -200,14 +200,14 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 		const int max_val = component.max_v(bpos);
 		const int max_bitlen = pjg::bitlen1024p(max_val);
 
-		for (int pos = 0; pos < coeffs.size(); pos++) {
+		for (std::size_t pos = 0; pos < coeffs.size(); pos++) {
 			if (zero_dist_list[pos] == 0) {
 				continue; // skip if beyound eob
 			}
 
 			const int segment_num = segmentation_set[zero_dist_list[pos]];
 
-			const int average_context = context.aavrg_context(pos, band_width);
+			const int average_context = context.aavrg_context(std::int32_t(pos), band_width);
 			const int bitlen_context = pjg::bitlen1024p(average_context);
 			// shift context / do context modelling (segmentation is done per context)
 			bitlen_model->shift_model(bitlen_context, segment_num);
@@ -217,17 +217,17 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 
 			if (coeff_bitlen != 0) {
 				// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
-				const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
+				const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num));
 
 				// Decode the sign of the coefficient:
-				const int p_y = pos / band_width;
-				const int p_x = pos % band_width;
+				const int p_y = std::int32_t(pos) / band_width;
+				const int p_x = std::int32_t(pos) % band_width;
 				int sign_context = p_x > 0 ? signs[pos - 1] : 0;
 				if (p_y > 0) {
 					sign_context += 3 * signs[pos - band_width]; // IMPROVE! !!!!!!!!!!!
 				}
 				sign_model->shift_context(sign_context);
-				const int coeff_sign = decoder_->decode(*sign_model);
+				const auto coeff_sign = std::uint8_t(decoder_->decode(*sign_model));
 
 				coeffs[pos] = (coeff_sign == 0) ? coeff_residual : -coeff_residual;
 				context.abs_coeffs_[pos] = coeff_residual;
@@ -330,7 +330,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 					}
 				}
 				int initial_coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
-				const int coeff_residual = this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual);
+				const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual));
 
 				// Decode the sign of the coefficient:
 				const int sign_context = (lakhani_context == 0) ? 0 : (lakhani_context > 0) ? 1 : 2;
@@ -362,7 +362,7 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 
 std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
-	std::uint8_t bit = decoder_->decode(*model); // This conversion is okay since there are only 2 symbols in the model.
+	std::uint8_t bit = std::uint8_t(decoder_->decode(*model)); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
 

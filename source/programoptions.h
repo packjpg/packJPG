@@ -2,6 +2,7 @@
 #define PROGRAM_OPTIONS_H
 
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "debugoptions.h"
