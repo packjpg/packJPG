@@ -1,6 +1,7 @@
 #include "segment.h"
 
 #include <array>
+#include <functional>
 #include <numeric>
 
 #include "bitops.h"
@@ -126,7 +127,7 @@ void Segment::optimize_dqt() {
 		// Difference code 8-bit precision tables (for better packjpg compression):
 		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
-		std::adjacent_difference(start_table, end_table, start_table);
+		std::adjacent_difference(start_table, end_table, start_table, std::minus<std::uint8_t>());
 
 		segment_pos += 64;
 	}
@@ -186,7 +187,7 @@ void Segment::undo_dqt_optimization() {
 		//  Undo difference coding of 8-bit precision tables:
 		auto start_table = std::next(std::begin(data_), segment_pos);
 		auto end_table = std::next(start_table, 64);
-		std::partial_sum(start_table, end_table, start_table);
+		std::partial_sum(start_table, end_table, start_table, std::plus<std::uint8_t>());
 
 		segment_pos += 64;
 	}
