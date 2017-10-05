@@ -12,7 +12,7 @@ void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	}
 
 	while (n >= 8) {
-		data_.emplace_back(0);
+		data_.emplace_back(std::uint8_t(0));
 		n -= 8;
 	}
 

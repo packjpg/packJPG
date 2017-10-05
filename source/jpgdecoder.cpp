@@ -68,7 +68,7 @@ void JpgDecoder::decode_scan(int restart_interval) {
 	CodingStatus status = CodingStatus::OKAY;
 	while (status != CodingStatus::DONE) {
 		// set last DCs for diff coding
-		std::fill(std::begin(lastdc_), std::end(lastdc_), 0);
+		std::fill(std::begin(lastdc_), std::end(lastdc_), std::int16_t(0));
 
 		if (scan_info_.cmp.size() > 1) {
 			status = decode_interleaved_data(restart_interval, cmp, dpos, mcu, csc, sub);

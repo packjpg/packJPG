@@ -35,8 +35,9 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 			}
 			break;
 		case 2: // square collections
-			for (std::size_t i = 0; i < pjg::zigzag.size();) {
-				const auto bpos = pjg::zigzag[i++];
+			for (std::size_t i = 0; i < pjg::zigzag.size() && i >= 0;) {
+				const auto bpos = pjg::zigzag[i];
+				i++;
 				for (int j = 0; j < component.bch; j++) {
 					writer->write(component.colldata[bpos][dpos + j]);
 				}
@@ -60,8 +61,9 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 			}
 			break;
 		case 4: // square collections / alt order (even/uneven)
-			for (std::size_t i = 0; i < pjg::even_zigzag.size();) {
-				const auto bpos = pjg::even_zigzag[i++];
+			for (std::size_t i = 0; i < pjg::even_zigzag.size() && i >= 0;) {
+				const auto bpos = pjg::even_zigzag[i];
+				i++;
 				for (int j = 0; j < component.bch; j++) {
 					writer->write(component.colldata[bpos][dpos + j]);
 				}

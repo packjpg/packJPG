@@ -4,7 +4,7 @@
 #include "dct8x8.h"
 #include "pjpgtbl.h"
 
-int Component::quant(std::size_t bp) const {
+std::uint16_t Component::quant(std::size_t bp) const {
 	return qtable[bp];
 }
 
@@ -15,17 +15,17 @@ int Component::max_v(std::size_t bp) const {
 // Filter DC coefficients.
 void Component::predict_dc() {
 	// apply prediction, store prediction error instead of DC
-	const int absmaxp = max_v(0);
-	const int corr_f = (2 * absmaxp) + 1;
+	const auto absmaxp = std::int16_t(max_v(0));
+	const auto corr_f = std::int16_t((2 * absmaxp) + 1);
 
 	for (std::size_t dpos = colldata[0].size() - 1; dpos > 0; dpos--) {
-		auto& coef = colldata[0][dpos];
-		coef -= dc_1ddct_predictor(dpos); // 1d dct
+		auto& coeff = colldata[0][dpos];
+		coeff -= std::int16_t(dc_1ddct_predictor(dpos)); // 1d dct
 		// fix range
-		if (coef > absmaxp) {
-			coef -= corr_f;
-		} else if (coef < -absmaxp) {
-			coef += corr_f;
+		if (coeff > absmaxp) {
+			coeff -= corr_f;
+		} else if (coeff < -absmaxp) {
+			coeff += corr_f;
 		}
 	}
 }
@@ -33,17 +33,17 @@ void Component::predict_dc() {
 // Unpredict DC coefficients.
 void Component::unpredict_dc() {
 	// remove prediction, store DC instead of prediction error
-	const int absmaxp = max_v(0);
-	const int corr_f = (2 * absmaxp) + 1;
+	const auto absmaxp = std::int16_t(max_v(0));
+	const auto corr_f = std::int16_t((2 * absmaxp) + 1);
 
 	for (std::size_t dpos = 1; dpos < colldata[0].size(); dpos++) {
-		auto& coef = colldata[0][dpos];
-		coef += dc_1ddct_predictor(dpos); // 1d dct predictor
+		auto& coeff = colldata[0][dpos];
+		coeff += std::int16_t(dc_1ddct_predictor(dpos)); // 1d dct predictor
 		// fix range
-		if (coef > absmaxp) {
-			coef -= corr_f;
-		} else if (coef < -absmaxp) {
-			coef += corr_f;
+		if (coeff > absmaxp) {
+			coeff -= corr_f;
+		} else if (coeff < -absmaxp) {
+			coeff += corr_f;
 		}
 	}
 }

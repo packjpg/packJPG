@@ -180,7 +180,7 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 			encoder_->encode(*bitlen_model, 0);
 		} else {
 			// Encode the bitlength of the current coefficient:
-			const int coeff_residual = std::abs(dc_coeffs[pos]);
+			const auto coeff_residual = std::uint16_t(std::abs(dc_coeffs[pos]));
 			const int coeff_bitlen = pjg::bitlen1024p(coeff_residual);
 			encoder_->encode(*bitlen_model, coeff_bitlen);
 
@@ -254,9 +254,9 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 				// Encode the bitlength (i.e. 0) of the coefficient:
 				encoder_->encode(*bitlen_model, 0);
 			} else {
-				const int coeff_abs = std::abs(coeffs[dpos]);
+				const auto coeff_abs = std::uint16_t(std::abs(coeffs[dpos]));
 				const int coeff_bitlen = pjg::bitlen1024p(coeff_abs);
-				const int coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
+				const std::uint8_t coeff_sign = (coeffs[dpos] > 0) ? 0 : 1;
 
 				// Encode the bitlength of the current coefficient:			
 				encoder_->encode(*bitlen_model, coeff_bitlen);

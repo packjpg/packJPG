@@ -110,7 +110,7 @@ std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 		neighbors.second = (neighbors.second >= 0) ? zero_dist_list[neighbors.second] : 0;
 		model->shift_context((neighbors.first + neighbors.second + 2) / 4);
 
-		zero_dist_list[pos] = decoder_->decode(*model);
+		zero_dist_list[pos] = std::uint8_t(decoder_->decode(*model));
 	}
 	return zero_dist_list;
 }
@@ -121,7 +121,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
-			zero_dist_list[dpos] = decoder_->decode(*model);
+			zero_dist_list[dpos] = std::uint8_t(decoder_->decode(*model));
 		}
 	};
 
@@ -155,7 +155,7 @@ void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>
 		const int coeff_bitlen = decoder_->decode(*bitlen_model);
 		if (coeff_bitlen != 0) {
 			// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
-			const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
+			const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num));
 			const bool coeff_is_positive = decoder_->decode(*sign_model) == 0;
 			dc_coeffs[pos] = coeff_is_positive ? coeff_residual : -coeff_residual;
 			context.abs_coeffs_[pos] = coeff_residual;
@@ -217,7 +217,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 
 			if (coeff_bitlen != 0) {
 				// The highest nonzero bit of the residual is one, so we start at bitlen - 2:
-				const int coeff_residual = this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num);
+				const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, coeff_bitlen - 2, segment_num));
 
 				// Decode the sign of the coefficient:
 				const int p_y = std::int32_t(pos) / band_width;
@@ -227,7 +227,7 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 					sign_context += 3 * signs[pos - band_width]; // IMPROVE! !!!!!!!!!!!
 				}
 				sign_model->shift_context(sign_context);
-				const int coeff_sign = decoder_->decode(*sign_model);
+				const auto coeff_sign = std::uint8_t(decoder_->decode(*sign_model));
 
 				coeffs[pos] = (coeff_sign == 0) ? coeff_residual : -coeff_residual;
 				context.abs_coeffs_[pos] = coeff_residual;
@@ -330,7 +330,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 					}
 				}
 				int initial_coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
-				const int coeff_residual = this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual);
+				const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual));
 
 				// Decode the sign of the coefficient:
 				const int sign_context = (lakhani_context == 0) ? 0 : (lakhani_context > 0) ? 1 : 2;
@@ -362,7 +362,7 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 
 std::uint8_t PjgDecoder::bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
-	std::uint8_t bit = decoder_->decode(*model); // This conversion is okay since there are only 2 symbols in the model.
+	std::uint8_t bit = std::uint8_t(decoder_->decode(*model)); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;
 }
 
