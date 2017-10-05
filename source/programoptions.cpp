@@ -9,7 +9,6 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 	ProgramOptions options;
 	std::vector<std::string> files;
 
-	int tmp_val = 0;
 	// read in arguments
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -24,14 +23,26 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 		} else if (arg == "-") {
 			options.info_stream = stderr;
 			files.push_back("-"); // use "-" as a placeholder for stdin
-		} else if (std::sscanf(argv[i], "-coll%i", &tmp_val) == 1) {
-			options.debug_options.collmode = bitops::clamp(tmp_val, 0, 5);
-			options.debug_options.coll_dump = true;
-		} else if (std::sscanf(argv[i], "-fcol%i", &tmp_val) == 1) {
-			options.debug_options.collmode = bitops::clamp(tmp_val, 0, 5);
-			options.debug_options.fcoll_dump = true;
 		} else if (arg == "-split") {
 			options.debug_options.split_dump = true;
+		} else if (arg.find("-coll") == 0 && arg.size() == 6) {
+			const auto digit = arg.substr(5);
+			const auto digit_pos = digit.find_first_of("0123456789");
+			if (digit_pos != std::string::npos) {
+				options.debug_options.collmode = bitops::clamp(std::stoi(digit), 0, 5);
+				options.debug_options.coll_dump = true;
+			} else {
+				fprintf(stderr, "Invalid -coll argument: %s\n", arg.c_str());
+			}
+		} else if (arg.find("-fcol") == 0 && arg.size() == 6) {
+			const auto digit = arg.substr(5);
+			const auto digit_pos = digit.find_first_of("0123456789");
+			if (digit_pos != std::string::npos) {
+				options.debug_options.collmode = bitops::clamp(std::stoi(digit), 0, 5);
+				options.debug_options.fcoll_dump = true;
+			} else {
+				fprintf(stderr, "Invalid -fcol argument: %s\n", arg.c_str());
+			}
 		} else if (arg == "-zdst") {
 			options.debug_options.zdst_dump = true;
 		} else if (arg == "-info") {
@@ -43,7 +54,7 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 		} else if (std::experimental::filesystem::exists(arg)) {
 			files.push_back(arg);
 		} else {
-			fprintf(stderr, "Invalid option/file: %s", arg.c_str());
+			fprintf(stderr, "Invalid option/file: %s\n", arg.c_str());
 		}
 	}
 	return std::make_pair(files, options);
