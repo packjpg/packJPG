@@ -24,31 +24,31 @@ PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 }
 
 void PjgDecoder::decode() {
-	segments_ = Segment::parse_segments(this->generic());
-	padbit_ = this->bit();
-	const bool rst_err_used = this->bit() == 1;
-	if (rst_err_used) {
-		// Decode the number of false set RST markers per scan only if available:
-		rst_err_ = this->generic();
-	}
-
+	segments_ = Segment::parse_segments(this->decode_generic());
 	for (auto& segment : segments_) {
 		segment.undo_optimize();
 	}
 	frame_info_ = jfif::get_frame_info(segments_);
 
+	padbit_ = this->decode_bit();
+	const bool rst_err_used = this->decode_bit() == 1;
+	if (rst_err_used) {
+		// Decode the number of false set RST markers per scan only if available:
+		rst_err_ = this->decode_generic();
+	}
+
 	for (auto& component : frame_info_->components) {
 		const auto zero_sorted_scan = this->decode_zero_sorted_scan();
-		const auto zero_dist_data = this->zdst_high(component);
-		const auto eob_data = this->ac_high(component, zero_sorted_scan, std::vector<std::uint8_t>(zero_dist_data));
-		auto lower_zero_dist_lists = this->zdst_low(component, zero_dist_data, eob_data.first, eob_data.second);
-		this->ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
+		const auto zero_dist_data = this->decode_zdst_high(component);
+		const auto eob_data = this->decode_ac_high(component, zero_sorted_scan, zero_dist_data);
+		auto lower_zero_dist_lists = this->decode_zdst_low(component, zero_dist_data, eob_data);
+		this->decode_ac_low(component, lower_zero_dist_lists.first, lower_zero_dist_lists.second);
 		this->decode_dc(component, zero_dist_data);
 	}
 
-	const bool garbage_exists = this->bit() == 1;
+	const bool garbage_exists = this->decode_bit() == 1;
 	if (garbage_exists) {
-		garbage_data_ = this->generic();
+		garbage_data_ = this->decode_generic();
 	}
 }
 
@@ -97,7 +97,7 @@ std::array<std::uint8_t, 64> PjgDecoder::decode_zero_sorted_scan() {
 	return zero_sorted_scan;
 }
 
-std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
+std::vector<std::uint8_t> PjgDecoder::decode_zdst_high(const Component& component) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
 	std::vector<std::uint8_t> zero_dist_list(component.bc);
 	const int band_width = component.bch;
@@ -115,10 +115,10 @@ std::vector<std::uint8_t> PjgDecoder::zdst_high(const Component& component) {
 	return zero_dist_list;
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
+std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::decode_zdst_low(const Component& component, const std::vector<std::uint8_t>& zero_dist_context, const EOBData& eob_data) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
 
-	auto decode_zero_dist_list = [&](const auto& eob_context, auto& zero_dist_list) {
+	auto decode_zero_dist_list = [&](const std::vector<std::uint8_t>& eob_context, std::vector<std::uint8_t>& zero_dist_list) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
 			zero_dist_list[dpos] = std::uint8_t(decoder_->decode(*model));
@@ -126,9 +126,9 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::zdst
 	};
 
 	std::vector<std::uint8_t> first_row_zero_dist_list(component.bc);
-	decode_zero_dist_list(eob_x, first_row_zero_dist_list);
+	decode_zero_dist_list(eob_data.eob_x, first_row_zero_dist_list);
 	std::vector<std::uint8_t> first_col_zero_dist_list(component.bc);
-	decode_zero_dist_list(eob_y, first_col_zero_dist_list);
+	decode_zero_dist_list(eob_data.eob_y, first_col_zero_dist_list);
 
 	return std::make_pair(std::move(first_row_zero_dist_list), std::move(first_col_zero_dist_list));
 }
@@ -163,7 +163,7 @@ void PjgDecoder::decode_dc(Component& component, const std::vector<std::uint8_t>
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, std::vector<std::uint8_t>&& zero_dist_list) {
+EOBData PjgDecoder::decode_ac_high(Component& component, const std::array<std::uint8_t, 64>& zero_sorted_scan, const std::vector<std::uint8_t>& zero_distribution_list) {
 	const auto& segmentation_set = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -172,6 +172,8 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 
 	const int bc = component.bc;
 	const int band_width = component.bch;
+
+	std::vector<std::uint8_t> zero_dist_list(zero_distribution_list);
 
 	std::vector<std::uint8_t> signs(bc);
 
@@ -243,12 +245,15 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgDecoder::ac_h
 		sign_model->flush_model();
 	}
 
-	return std::make_pair(std::move(eob_x), std::move(eob_y));
+	EOBData eob_data;
+	eob_data.eob_x = eob_x;
+	eob_data.eob_y = eob_y;
+	return eob_data;
 }
 
-void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {
-	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
-	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
+void PjgDecoder::decode_ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {
+	std::array<const std::int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
+	std::array<const std::int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -269,7 +274,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 
 		auto& coeffs = component.colldata[bpos];
 		// store pointers to prediction coefficients
-		int p_x, p_y;
+		int p_x = 0, p_y = 0;
 		int* edge_c; // edge criteria
 		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
@@ -329,7 +334,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 						residual_context |= 1;
 					}
 				}
-				int initial_coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
+				const int initial_coeff_residual = (residual_context == 0) ? 1 : residual_context; // !!!!
 				const auto coeff_residual = std::int16_t(this->decode_residual(*residual_model, bp, zero_dist_list[pos], initial_coeff_residual));
 
 				// Decode the sign of the coefficient:
@@ -349,7 +354,7 @@ void PjgDecoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 	}
 }
 
-std::vector<std::uint8_t> PjgDecoder::generic() {
+std::vector<std::uint8_t> PjgDecoder::decode_generic() {
 	std::vector<std::uint8_t> generic_data;
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 	for (int c = decoder_->decode(*model); c != 256; c = decoder_->decode(*model)) {
@@ -360,7 +365,7 @@ std::vector<std::uint8_t> PjgDecoder::generic() {
 	return generic_data;
 }
 
-std::uint8_t PjgDecoder::bit() {
+std::uint8_t PjgDecoder::decode_bit() {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	std::uint8_t bit = std::uint8_t(decoder_->decode(*model)); // This conversion is okay since there are only 2 symbols in the model.
 	return bit;

@@ -3,6 +3,7 @@
 #include "bitops.h"
 #include "dct8x8.h"
 #include "pjpgtbl.h"
+#include "zerodistribution.h"
 
 std::uint16_t Component::quant(std::size_t bp) const {
 	return qtable[bp];
@@ -73,10 +74,8 @@ void Component::adapt_icos() {
 	}
 }
 
-std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> Component::calc_zdst_lists() const {
-	std::vector<std::uint8_t> zdstdata(bc);
-	std::vector<std::uint8_t> zdstxlow(bc);
-	std::vector<std::uint8_t> zdstylow(bc);
+ZeroDistribution Component::calc_zdst_lists() const {
+	ZeroDistribution zero_data(bc);
 
 	// calculate # on non-zeroes per block (separately for lower 7x7 block & first row/column)
 	for (std::size_t bpos = 1; bpos < colldata.size(); bpos++) {
@@ -85,24 +84,24 @@ std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std
 		if (b_x == 0) {
 			for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 				if (colldata[bpos][dpos] != 0) {
-					zdstylow[dpos]++;
+					zero_data.zdstylow[dpos]++;
 				}
 			}
 		} else if (b_y == 0) {
 			for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 				if (colldata[bpos][dpos] != 0) {
-					zdstxlow[dpos]++;
+					zero_data.zdstxlow[dpos]++;
 				}
 			}
 		} else {
 			for (std::size_t dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 				if (colldata[bpos][dpos] != 0) {
-					zdstdata[dpos]++;
+					zero_data.zero_dist_list[dpos]++;
 				}
 			}
 		}
 	}
-	return std::make_tuple(std::move(zdstdata), std::move(zdstxlow), std::move(zdstylow));
+	return zero_data;
 }
 
 CodingStatus Component::next_mcuposn(int rsti, int& dpos, int& rstw) const {

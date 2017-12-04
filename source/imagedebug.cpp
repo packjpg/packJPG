@@ -242,6 +242,6 @@ void ImageDebug::dump_zdst(const std::vector<Component>& components) const {
 	const auto zdst_filename = base_file_ + ".zdst";
 	for (std::size_t i = 0; i < components.size(); i++) {
 		const auto zdst = components[i].calc_zdst_lists();
-		this->dump_data_to_file(std::get<0>(zdst), zdst_filename + std::to_string(i));
+		this->dump_data_to_file(zdst.zero_dist_list, zdst_filename + std::to_string(i));
 	}
 }

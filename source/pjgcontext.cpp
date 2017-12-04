@@ -114,7 +114,7 @@ int PjgContext::aavrg_context(int pos, int band_width) {
 	return (tot_context_weight != 0) ? (average_context + (tot_context_weight / 2)) / tot_context_weight : 0;
 }
 
-int PjgContext::lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {
+int PjgContext::lakh_context(const std::array<const std::int16_t*, 8>& coeffs_x, const std::array<const std::int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos) {
 	int pred = 0;
 
 	// calculate partial prediction

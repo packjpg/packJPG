@@ -3,10 +3,10 @@
 
 #include <array>
 #include <cstdint>
-#include <tuple>
 #include <vector>
 
 #include "codingstatus.h"
+#include "zerodistribution.h"
 
 class Component {
 public:
@@ -25,7 +25,7 @@ public:
 
 	// Calculate zero distribution lists.
 	// This functions counts, for each DCT block, the number of non-zero coefficients
-	std::tuple<std::vector<std::uint8_t>, std::vector<std::uint8_t>, std::vector<std::uint8_t>> calc_zdst_lists() const;
+	ZeroDistribution calc_zdst_lists() const;
 
 	// Calculates next position (non interleaved).
 	CodingStatus next_mcuposn(int rsti, int& dpos, int& rstw) const;

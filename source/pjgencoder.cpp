@@ -5,9 +5,11 @@
 
 #include "bitops.h"
 #include "dct8x8.h"
+#include "eobdata.h"
 #include "pjgcontext.h"
 #include "pjpgtbl.h"
 #include "programinfo.h"
+#include "zerodistribution.h"
 
 PjgEncoder::PjgEncoder(Writer& encoding_output) {
 	// PJG-Header
@@ -31,37 +33,37 @@ void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components,
 		segment.optimize();
 	}
 	// Encode the header segments:
-	this->generic(segments);
+	this->encode_generic(segments);
 
 	// Store the padbit (as it can't be retrieved from the header during decompression):
-	this->bit(padbit);
+	this->encode_bit(padbit);
 
 	// Encode a bit indicating whether RST markers are used:
-	std::uint8_t rst_err_used = rst_err.empty() ? 0 : 1;
-	this->bit(rst_err_used);
+	const std::uint8_t rst_err_used = rst_err.empty() ? 0 : 1;
+	this->encode_bit(rst_err_used);
 	// Encode the number of false set RST markers per scan:
-	if (rst_err_used) {
-		this->generic(rst_err);
+	if (rst_err_used == 1) {
+		this->encode_generic(rst_err);
 	}
 
 	// Encode component data:
-	for (auto& component : components) {
+	for (const auto& component : components) {
 		auto zero_dist_lists = component.calc_zdst_lists();
 		const auto zero_sorted_scan = this->get_zero_sorted_scan(component);
 		this->encode_zero_sorted_scan(zero_sorted_scan);
-		this->zdst_high(component, std::get<0>(zero_dist_lists));
-		const auto eob_data = this->ac_high(component, std::vector<std::uint8_t>(std::get<0>(zero_dist_lists)), zero_sorted_scan);
-		this->zdst_low(std::get<0>(zero_dist_lists), std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists), eob_data.first, eob_data.second);
-		this->ac_low(component, std::get<1>(zero_dist_lists), std::get<2>(zero_dist_lists));
-		this->encode_dc(component, std::get<0>(zero_dist_lists));
+		this->encode_zdst_high(component, zero_dist_lists);
+		const auto eob_data = this->encode_ac_high(component, zero_dist_lists, zero_sorted_scan);
+		this->encode_zdst_low(zero_dist_lists, eob_data);
+		this->encode_ac_low(component, zero_dist_lists);
+		this->encode_dc(component, zero_dist_lists);
 	}
 
 	// Encode a bit indicating whether there is garbage data:
-	std::uint8_t garbage_exists = garbage_data.empty() ? 0 : 1;
-	this->bit(garbage_exists);
+	const std::uint8_t garbage_exists = garbage_data.empty() ? 0 : 1;
+	this->encode_bit(garbage_exists);
 	// Encode the garbage data:
-	if (garbage_exists) {
-		this->generic(garbage_data);
+	if (garbage_exists == 1) {
+		this->encode_generic(garbage_data);
 	}
 
 	encoder_->finalize();
@@ -85,7 +87,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 		                                   std::begin(zero_sorted_scan) + i,
 		                                   std::end(zero_sorted_scan));
 		if (remainder_sorted) {
-			// The remainder of the standard is in zero-sorted order.
+			// The remainder of the scan is in zero-sorted order.
 			encoder_->encode(*model, 0);
 			break;
 		}
@@ -100,10 +102,6 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 }
 
 std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& component) const {
-	// Preset the unsorted scan index:
-	std::array<std::uint8_t, 64> index;
-	std::iota(std::begin(index), std::end(index), std::uint8_t(0));
-
 	// Count the number of zeroes for each frequency:
 	std::array<std::size_t, 64> zero_dist; // Distribution of zeroes per band.
 	std::transform(std::begin(component.colldata),
@@ -113,34 +111,39 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& c
 		               return std::count(std::begin(freq), std::end(freq), static_cast<int16_t>(0));
 	               });
 
+	// Preset the unsorted scan index:
+	std::array<std::uint8_t, 64> zero_sorted_index;
+	std::iota(std::begin(zero_sorted_index), std::end(zero_sorted_index), std::uint8_t(0));
+
 	// Sort in ascending order according to the number of zeroes per band:
-	std::stable_sort(std::begin(index) + 1, // Skip the first (DC) element, since it should always be first.
-	                 std::end(index),
+	std::stable_sort(std::begin(zero_sorted_index) + 1, // Skip the first (DC) element, since it should always be first.
+	                 std::end(zero_sorted_index),
 	                 [&zero_dist](const auto& a, const auto& b) {
 		                 return zero_dist[a] < zero_dist[b];
 	                 }
 	);
-	return index;
+	return zero_sorted_index;
 }
 
-void PjgEncoder::zdst_high(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
+void PjgEncoder::encode_zdst_high(const Component& component, const ZeroDistribution& zero_data) {
 	auto model = std::make_unique<UniversalModel>(49 + 1, 25 + 1, 1);
 	const int w = component.bch;
 
 	// Encode the zero-distribution-list:
-	for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
+	for (std::size_t dpos = 0; dpos < zero_data.zero_dist_list.size(); dpos++) {
 		// context modeling - use the average of above and left as context:
 		auto coords = PjgContext::get_context_nnb(std::int32_t(dpos), w);
-		coords.first = (coords.first >= 0) ? zero_dist_list[coords.first] : 0;
-		coords.second = (coords.second >= 0) ? zero_dist_list[coords.second] : 0;
+		coords.first = (coords.first >= 0) ? zero_data.zero_dist_list[coords.first] : 0;
+		coords.second = (coords.second >= 0) ? zero_data.zero_dist_list[coords.second] : 0;
 		model->shift_context((coords.first + coords.second + 2) / 4);
 
-		encoder_->encode(*model, zero_dist_list[dpos]);
+		encoder_->encode(*model, zero_data.zero_dist_list[dpos]);
 	}
 }
 
-void PjgEncoder::zdst_low(const std::vector<std::uint8_t>& zero_dist_context, const std::vector<std::uint8_t>& zdstxlow, const std::vector<std::uint8_t>& zdstylow, const std::vector<std::uint8_t>& eob_x, const std::vector<std::uint8_t>& eob_y) {
+void PjgEncoder::encode_zdst_low(const ZeroDistribution& zero_data, const EOBData& eob_data) {
 	auto model = std::make_unique<UniversalModel>(8, 8, 2);
+	const auto& zero_dist_context = zero_data.zero_dist_list;
 	auto encode_zero_dist = [&](const auto& zero_dist_list, const auto& eob_context) {
 		for (std::size_t dpos = 0; dpos < zero_dist_list.size(); dpos++) {
 			model->shift_model((zero_dist_context[dpos] + 3) / 7, eob_context[dpos]);
@@ -149,13 +152,13 @@ void PjgEncoder::zdst_low(const std::vector<std::uint8_t>& zero_dist_context, co
 	};
 	
 	// Encode the first row zero-distribution-list:
-	encode_zero_dist(zdstxlow, eob_x);
+	encode_zero_dist(zero_data.zdstxlow, eob_data.eob_x);
 
 	// Encode the first column zero-distribution-list:
-	encode_zero_dist(zdstylow, eob_y);
+	encode_zero_dist(zero_data.zdstylow, eob_data.eob_y);
 }
 
-void PjgEncoder::encode_dc(const Component& component, const std::vector<std::uint8_t>& zero_dist_list) {
+void PjgEncoder::encode_dc(const Component& component, const ZeroDistribution& zero_data) {
 
 	const int max_val = component.max_v(0);
 	const int max_bitlen = pjg::bitlen1024p(max_val);
@@ -169,7 +172,7 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 
 	const auto& dc_coeffs = component.colldata[0];
 	for (std::size_t pos = 0; pos < dc_coeffs.size(); pos++) {
-		const int segment_number = segmentation_set[zero_dist_list[pos]];
+		const int segment_number = segmentation_set[zero_data.zero_dist_list[pos]];
 		const int average_context = context.aavrg_context(std::int32_t(pos), component.bch);
 		const int bitlen_context = pjg::bitlen1024p(average_context);
 
@@ -197,7 +200,7 @@ void PjgEncoder::encode_dc(const Component& component, const std::vector<std::ui
 	}
 }
 
-std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_high(Component& component, std::vector<std::uint8_t>&& zero_dist_list, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
+EOBData PjgEncoder::encode_ac_high(const Component& component, const ZeroDistribution& zero_data, const std::array<std::uint8_t, 64>& zero_sorted_scan) {
 	const auto& segm_tab = pjg::segm_tables[component.segm_cnt - 1];
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(11, component.segm_cnt), 2);
@@ -212,6 +215,8 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 	
 	std::vector<std::uint8_t> eob_x(bc);
 	std::vector<std::uint8_t> eob_y(bc);
+
+	auto zero_dist_list = zero_data.zero_dist_list; // Make a modifiable, local copy of the zero distribution data
 
 	PjgContext context(component);
 
@@ -289,12 +294,16 @@ std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>> PjgEncoder::ac_h
 		residual_model->flush_model();
 		sign_model->flush_model();
 	}
-	return std::make_pair(std::move(eob_x), std::move(eob_y));
+
+	EOBData eob_data;
+	eob_data.eob_x = eob_x;
+	eob_data.eob_y = eob_y;
+	return eob_data;
 }
 
-void PjgEncoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlow, std::vector<std::uint8_t>& zdstylow) {
-	std::array<int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
-	std::array<int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
+void PjgEncoder::encode_ac_low(const Component& component, ZeroDistribution& zero_data) {
+	std::array<const std::int16_t*, 8> coeffs_x{nullptr}; // prediction coeffs - current block
+	std::array<const std::int16_t*, 8> coeffs_a{nullptr}; // prediction coeffs - neighboring block
 	std::array<int, 8> pred_cf{}; // prediction multipliers
 
 	auto bitlen_model = std::make_unique<UniversalModel>(11, std::max(component.segm_cnt, 11), 2);
@@ -318,7 +327,7 @@ void PjgEncoder::ac_low(Component& component, std::vector<std::uint8_t>& zdstxlo
 		std::int32_t p_x = 0;
 		std::int32_t p_y = 0;
 		const auto& edge_criterion = b_x == 0 ? p_x : p_y;
-		auto& zero_dist_list = b_x == 0 ? zdstylow : zdstxlow; // Reference to row/col # of non-zeroes.
+		auto& zero_dist_list = b_x == 0 ? zero_data.zdstylow : zero_data.zdstxlow; // Reference to row/col # of non-zeroes.
 		if (b_x == 0) {
 			for (; b_x < 8; b_x++) {
 				const auto block = pjg::zigzag[b_x + (8 * b_y)];
@@ -417,7 +426,7 @@ void PjgEncoder::encode_residual(BinaryModel& model, int val_abs, int max_bit_po
 	}
 }
 
-void PjgEncoder::generic(const std::vector<Segment>& segments) {
+void PjgEncoder::encode_generic(const std::vector<Segment>& segments) {
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 
 	for (const auto& segment : segments) {
@@ -430,7 +439,7 @@ void PjgEncoder::generic(const std::vector<Segment>& segments) {
 	encoder_->encode(*model, 256);
 }
 
-void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
+void PjgEncoder::encode_generic(const std::vector<std::uint8_t>& data) {
 	auto model = std::make_unique<UniversalModel>(256 + 1, 256, 1);
 
 	for (std::uint8_t byte : data) {
@@ -441,8 +450,7 @@ void PjgEncoder::generic(const std::vector<std::uint8_t>& data) {
 	encoder_->encode(*model, 256);
 }
 
-void PjgEncoder::bit(std::uint8_t bit) {
-	// encode one bit
+void PjgEncoder::encode_bit(std::uint8_t bit) {
 	auto model = std::make_unique<BinaryModel>(1, -1);
 	encoder_->encode(*model, bit);
 }

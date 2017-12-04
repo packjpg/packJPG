@@ -20,7 +20,7 @@ public:
 	int aavrg_context(int pos, int band_width);
 
 	// Lakhani ac context used in coeff encoding.
-	static int lakh_context(const std::array<int16_t*, 8>& coeffs_x, const std::array<int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);
+	static int lakh_context(const std::array<const std::int16_t*, 8>& coeffs_x, const std::array<const std::int16_t*, 8>& coeffs_a, const std::array<int, 8>& pred_cf, int pos);
 
 	// Calculates coordinates for nearest neighbor (2D) context.
 	static std::pair<int, int> get_context_nnb(int pos, int w);

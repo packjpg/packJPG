@@ -36,7 +36,7 @@ FileProcessor::FileProcessor(ProgramOptions options) : options_(options) {
 
 void FileProcessor::execute() {
 	if (executed_) {
-		throw std::runtime_error("Tried to execute the file processor again.");
+		throw std::runtime_error("Tried to execute the file processor for " + output_destination_ + " again.");
 	} else {
 		executed_ = true;
 	}
@@ -48,8 +48,7 @@ void FileProcessor::execute() {
 	}
 
 	auto output_as_input = std::make_unique<MemoryReader>(output_writer_->get_data());
-	std::array<std::uint8_t, 2> magic_bytes{};
-	output_as_input->read(magic_bytes.data(), 2);
+	output_as_input->skip(2); // Skip the file type information (magic bytes).
 	auto verification_output = std::make_unique<MemoryWriter>();
 	std::unique_ptr<Controller> reversed_controller;
 	if (file_type_ == FileType::JPG) {
