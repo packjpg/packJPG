@@ -3825,7 +3825,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			return false;
 			
 		case 0xCD: // SOF13 segment
-			// coding process: arithmetic differntial sequential DCT
+			// coding process: arithmetic differential sequential DCT
 			sprintf( errormessage, "sof13 marker found, image is coded arithm. diff. sequential" );
 			errorlevel = 2;
 			return false;
@@ -3837,7 +3837,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			return false;
 		
 		case 0xCF: // SOF15 segment
-			// coding process: arithmetic differntial lossless
+			// coding process: arithmetic differential lossless
 			sprintf( errormessage, "sof15 marker found, image is coded arithm. diff. lossless" );
 			errorlevel = 2;
 			return false;
