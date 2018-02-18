@@ -499,7 +499,7 @@ INTERN inline float median_float( float* values, int size );
 
 
 /* -----------------------------------------------
-	function declarations: miscelaneous helpers
+	function declarations: miscellaneous helpers
 	----------------------------------------------- */
 #if !defined( BUILD_LIB )
 INTERN inline void progress_bar( int current, int last );
