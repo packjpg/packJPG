@@ -2,7 +2,7 @@ How to compile packJPG (01/30/2012)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This document gives detailed instructions on compiling packJPG either as 
-an executable or a static/shared libary. 
+an executable or a static/shared library. 
 
 
 Compiling packJPG as an executable

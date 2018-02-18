@@ -1148,7 +1148,7 @@ EXPORT const char* pjglib_short_name( void )
 }
 #endif
 
-/* ----------------------- End of libary only functions -------------------------- */
+/* ----------------------- End of library only functions -------------------------- */
 
 /* ----------------------- Begin of main interface functions -------------------------- */
 
