@@ -4826,7 +4826,7 @@ INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 	model_b* mod_res;
 	
 	unsigned char* zdstls; // pointer to zero distribution list
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
@@ -4948,7 +4948,7 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 	unsigned char* zdstls; // pointer to zero distribution list
 	unsigned char* eob_x; // pointer to x eobs
 	unsigned char* eob_y; // pointer to y eobs
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
@@ -5129,7 +5129,7 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 	model_b* mod_top;
 	
 	unsigned char* zdstls; // pointer to row/col # of non-zeroes
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
 	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block
@@ -5490,7 +5490,7 @@ INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 	model_b* mod_res;
 	
 	unsigned char* zdstls; // pointer to zero distribution list
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
@@ -5612,7 +5612,7 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 	unsigned char* zdstls; // pointer to zero distribution list
 	unsigned char* eob_x; // pointer to x eobs
 	unsigned char* eob_y; // pointer to y eobs
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
@@ -5793,7 +5793,7 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 	model_b* mod_top;
 	
 	unsigned char* zdstls; // pointer to row/col # of non-zeroes
-	signed short* coeffs; // pointer to current coefficent data
+	signed short* coeffs; // pointer to current coefficient data
 	
 	signed short* coeffs_x[ 8 ]; // prediction coeffs - current block
 	signed short* coeffs_a[ 8 ]; // prediction coeffs - neighboring block

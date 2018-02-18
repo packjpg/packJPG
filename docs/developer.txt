@@ -41,7 +41,7 @@
  -
  -"-coll?" and "-fcol?" write decompressed DCT coefficients to separate 
  -files (one for each color component). DCT coefficients are stored in two 
- -byte signed short integers. In the "-fcol?" option, DC coefficents are 
+ -byte signed short integers. In the "-fcol?" option, DC coefficients are 
  -replaced by the corresponding DC prediction errors, while using the 
  -"-coll?" option will dump DC coefficients without any prediction applied. 
  -The "?" has to be replaced by a number 0, 1, 2 or 3, which will 
