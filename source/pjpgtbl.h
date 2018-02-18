@@ -841,7 +841,7 @@ static const signed int abs_ctx_weights_chr[ 64 ][ 3 ][ 5 ] =
 };
 */
 
-// tresholds (size of component) for configuration sets
+// thresholds (size of component) for configuration sets
 static const unsigned int conf_sets[][3] =
 {
 	{ 76800, 19200, 19200 }, // 2480x1920
