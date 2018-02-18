@@ -2826,7 +2826,7 @@ INTERN bool recode_jpeg( void )
 		if ( type != 0xDA ) break;
 		
 		
-		// (re)alloc scan positons array
+		// (re)alloc scan positions array
 		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
 		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
 		if ( scnp == NULL ) {
@@ -2835,7 +2835,7 @@ INTERN bool recode_jpeg( void )
 			return false;
 		}
 		
-		// (re)alloc restart marker positons array if needed
+		// (re)alloc restart marker positions array if needed
 		if ( rsti > 0 ) {
 			tmp = rstc + ( ( cs_cmpc > 1 ) ?
 				( mcuc / rsti ) : ( cmpnfo[ cs_cmp[ 0 ] ].bc / rsti ) );
