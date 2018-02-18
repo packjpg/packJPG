@@ -916,7 +916,7 @@ static const unsigned char std_huff_tables[4][272] =
 	}
 };
 
-// lengths of standard huffmann tables
+// lengths of standard huffman tables
 static const unsigned char std_huff_lengths[ 4 ] =	{ 28, 28, 178, 178 };
 
 
