@@ -591,7 +591,7 @@ INTERN int imgwidth    = 0; // width of image
 INTERN int imgheight   = 0; // height of image
 
 INTERN int sfhm        = 0; // max horizontal sample factor
-INTERN int sfvm        = 0; // max verical sample factor
+INTERN int sfvm        = 0; // max vertical sample factor
 INTERN int mcuv        = 0; // mcus per line
 INTERN int mcuh        = 0; // mcus per collumn
 INTERN int mcuc        = 0; // count of mcus
