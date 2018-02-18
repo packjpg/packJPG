@@ -4210,7 +4210,7 @@ INTERN int jpg_decode_dc_prg_sa( BitReader* huffr, short* block )
 	----------------------------------------------- */
 INTERN int jpg_encode_dc_prg_sa( BitWriter* huffw, short* block )
 {
-	// enocode next bit of dc coefficient
+	// encode next bit of dc coefficient
 	huffw->write_u16( block[ 0 ], 1 );
 	
 	// return 0 if everything is ok
