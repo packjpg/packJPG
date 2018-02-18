@@ -4688,7 +4688,7 @@ INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 		// reduce range of model
 		model->exclude_symbols(64 - i);
 		
-		// compare remaining list to remainnig scan
+		// compare remaining list to remaining scan
 		tpos = 0;
 		for ( c = i; c < 64; c++ ) {
 			// search next val != 0 in list
