@@ -991,7 +991,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	
 	if input is memory
 	------------------
-	in_scr -> array containg data
+	in_scr -> array containing data
 	in_type -> 1
 	in_size -> size of data array
 	

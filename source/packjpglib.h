@@ -27,7 +27,7 @@ EXPORT const char* pjglib_short_name( void );
 	
 	if input is memory
 	------------------
-	in_scr -> array containg data
+	in_scr -> array containing data
 	in_type -> 1
 	in_size -> size of data array
 	
