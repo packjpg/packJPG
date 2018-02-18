@@ -5046,7 +5046,7 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 		// arithmetic compression loo
 		for ( dpos = 0; dpos < bc; dpos++ )
 		{		
-			// skip if beyound eob
+			// skip if beyond eob
 			if ( zdstls[dpos] == 0 )
 				continue;
 		
@@ -5206,7 +5206,7 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 		// arithmetic compression loop
 		for ( dpos = 0; dpos < bc; dpos++ )
 		{
-			// skip if beyound eob
+			// skip if beyond eob
 			if ( zdstls[ dpos ] == 0 )
 				continue;
 			
@@ -5710,7 +5710,7 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 		// arithmetic compression loop
 		for ( dpos = 0; dpos < bc; dpos++ )
 		{
-			// skip if beyound eob
+			// skip if beyond eob
 			if ( zdstls[dpos] == 0 )
 				continue;
 			
@@ -5870,7 +5870,7 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 		// arithmetic compression loop
 		for ( dpos = 0; dpos < bc; dpos++ )
 		{
-			// skip if beyound eob
+			// skip if beyond eob
 			if ( zdstls[ dpos ] == 0 )
 				continue;
 			
