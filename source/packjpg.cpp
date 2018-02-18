@@ -1597,7 +1597,7 @@ INTERN void process_file( void )
 				execute( calc_zdst_lists );
 				execute( pack_pjg );
 				#if !defined(BUILD_LIB)	
-				if ( verify_lv > 0 ) { // verifcation
+				if ( verify_lv > 0 ) { // verification
 					execute( reset_buffers );
 					execute( swap_streams );
 					execute( unpack_pjg );
