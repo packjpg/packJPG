@@ -583,7 +583,7 @@ INTERN int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ];	// precalculated/adapted values 
 	global variables: info about image
 	----------------------------------------------- */
 
-// seperate info for each color component
+// separate info for each color component
 INTERN componentInfo cmpnfo[ 4 ];
 
 INTERN int cmpc        = 0; // component count

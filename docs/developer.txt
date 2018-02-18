@@ -61,14 +61,14 @@
  -component are included in this file. 
  -
  -"-dump" dumps distribution for a given file to ".dist" files (again, one 
- -file per color component). For each band seperately this files contain 
+ -file per color component). For each band separately this files contain 
  -the number of coefficients = 0; 1; 2; 3; 4; .... (absolute values). Have 
  -a look at the source code to get an idea about the structure of these 
  -files. 
  -
  -"-pgm" mainly serves as a test function for the integrated DCT routines. 
  -Each color component is transformed back to it's image representation 
- -using the IDCT and dumped seperately as a ".PGM" (Portable GrayMap) 
+ -using the IDCT and dumped separately as a ".PGM" (Portable GrayMap) 
  -file.
  -
  -"-t?" and "-s?" control specific compression settings. By manipulating 
