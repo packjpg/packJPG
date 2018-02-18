@@ -2474,7 +2474,7 @@ INTERN bool decode_jpeg( void )
 		}
 		
 		
-		// intial variables set for decoding
+		// initial variables set for decoding
 		cmp  = cs_cmp[ 0 ];
 		csc  = 0;
 		mcu  = 0;
@@ -2848,7 +2848,7 @@ INTERN bool recode_jpeg( void )
 			}
 		}		
 		
-		// intial variables set for encoding
+		// initial variables set for encoding
 		cmp  = cs_cmp[ 0 ];
 		csc  = 0;
 		mcu  = 0;
