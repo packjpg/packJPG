@@ -5067,7 +5067,7 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 		
 			// simple treatment if coefficient is zero
 			if ( coeffs[ dpos ] == 0 ) {
-				// encode bit length (0) of current coefficien
+				// encode bit length (0) of current coefficient
 				encode_ari( enc, mod_len, 0 );
 			}
 			else {
