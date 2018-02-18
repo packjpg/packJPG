@@ -4855,7 +4855,7 @@ INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 	max_val = MAX_V( cmp, 0 );
 	max_len = BITLEN1024P( max_val );
 	
-	// init models for bitlenghts and -patterns	
+	// init models for bitlengths and -patterns	
 	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
 	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
 	mod_sgn = INIT_MODEL_B( 1, 0 );
@@ -4980,7 +4980,7 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 	// decide segmentation setting
 	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
-	// init models for bitlenghts and -patterns
+	// init models for bitlengths and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
 	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
 	mod_sgn = INIT_MODEL_B( 9, 1 );
@@ -5157,7 +5157,7 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 	int w, bc;
 	
 	
-	// init models for bitlenghts and -patterns
+	// init models for bitlengths and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
 	mod_res = INIT_MODEL_B( 1 << 4, 2 );
 	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
@@ -5519,7 +5519,7 @@ INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 	max_val = MAX_V( cmp, 0 );
 	max_len = BITLEN1024P( max_val );
 	
-	// init models for bitlenghts and -patterns
+	// init models for bitlengths and -patterns
 	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
 	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
 	mod_sgn = INIT_MODEL_B( 1, 0 );
@@ -5644,7 +5644,7 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 	// decide segmentation setting
 	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
-	// init models for bitlenghts and -patterns
+	// init models for bitlengths and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
 	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
 	mod_sgn = INIT_MODEL_B( 9, 1 );
@@ -5821,7 +5821,7 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 	int w, bc;
 	
 	
-	// init models for bitlenghts and -patterns
+	// init models for bitlengths and -patterns
 	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
 	mod_res = INIT_MODEL_B( 1 << 4, 2 );
 	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
