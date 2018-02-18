@@ -129,7 +129,7 @@ void ArithmeticEncoder::encode( symbol* s )
 		if (chigh_local < CODER_LIMIT050 ) {	// this means both, high and low are below, and 0 can be safely shifted out
 			// write 0 bit
 			bitwriter_->write_bit<0>();
-			// shift out remaing e3 bits
+			// shift out remaining e3 bits
             bitwriter_->write_n_one_bits(nrbits);
             nrbits = 0;
 		}
@@ -138,7 +138,7 @@ void ArithmeticEncoder::encode( symbol* s )
 			bitwriter_->write_bit<1>();
 			clow_local &= CODER_LIMIT050 - 1;
 			chigh_local &= CODER_LIMIT050 - 1;
-			// shift out remaing e3 bits
+			// shift out remaining e3 bits
 			bitwriter_->write_n_zero_bits(nrbits);
             nrbits = 0;
 		}
