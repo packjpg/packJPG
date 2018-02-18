@@ -445,7 +445,7 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,
 	function declarations: pjg-specific
 	----------------------------------------------- */
 	
-INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp );
+INTERN bool pjg_encode_zsrtscan( ArithmeticEncoder* enc, int cmp );
 INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp );
 INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp );
 INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp );
@@ -454,7 +454,7 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp );
 INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int len );
 INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit );
 
-INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp );
+INTERN bool pjg_decode_zsrtscan( ArithmeticDecoder* dec, int cmp );
 INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp );
 INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp );
 INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp );
@@ -3325,7 +3325,7 @@ INTERN bool pack_pjg( void )
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
 		#if !defined(DEV_INFOS)
 		// encode frequency scan ('zero-sort-scan')
-		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;
+		if ( !pjg_encode_zsrtscan( encoder, cmp ) ) return false;
 		// encode zero-distribution-lists for higher (7x7) ACs
 		if ( !pjg_encode_zdst_high( encoder, cmp ) ) return false;
 		// encode coefficients for higher (7x7) ACs
@@ -3339,7 +3339,7 @@ INTERN bool pack_pjg( void )
 		#else
 		dev_size = str_out->getpos();
 		// encode frequency scan ('zero-sort-scan')
-		if ( !pjg_encode_zstscan( encoder, cmp ) ) return false;		
+		if ( !pjg_encode_zsrtscan( encoder, cmp ) ) return false;		
 		dev_size_zsr[ cmp ] += str_out->getpos() - dev_size;
 		dev_size = str_out->getpos();
 		// encode zero-distribution-lists for higher (7x7) ACs
@@ -3457,7 +3457,7 @@ INTERN bool unpack_pjg( void )
 	// decode actual components data
 	for ( cmp = 0; cmp < cmpc; cmp++ ) {		
 		// decode frequency scan ('zero-sort-scan')
-		if ( !pjg_decode_zstscan( decoder, cmp ) ) return false;		
+		if ( !pjg_decode_zsrtscan( decoder, cmp ) ) return false;		
 		// decode zero-distribution-lists for higher (7x7) ACs
 		if ( !pjg_decode_zdst_high( decoder, cmp ) ) return false;
 		// decode coefficients for higher (7x7) ACs
@@ -4662,7 +4662,7 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
+INTERN bool pjg_encode_zsrtscan( ArithmeticEncoder* enc, int cmp )
 {
 	model_s* model;
 	
@@ -5328,7 +5328,7 @@ INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit )
 /* -----------------------------------------------
 	encodes frequency scanorder to pjg
 	----------------------------------------------- */
-INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
+INTERN bool pjg_decode_zsrtscan( ArithmeticDecoder* dec, int cmp )
 {	
 	model_s* model;;
 	
