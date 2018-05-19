@@ -1906,9 +1906,9 @@ INTERN bool check_file( void )
 		}
 		// open output stream, check for errors
         if (pipe_on) {
-            str_out = std::make_unique<FileWriter>(std::string(jpgfilename));
-        } else {
             str_out = std::make_unique<StreamWriter>();
+        } else {
+            str_out = std::make_unique<FileWriter>(std::string(jpgfilename));
         }
 		// PJG specific settings - auto unless specified otherwise
 		auto_set = true;
