@@ -313,7 +313,7 @@ void PjgDecoder::decode_ac_low(Component& component, std::vector<std::uint8_t>& 
 			} else {
 				lakhani_context = 0;
 			}
-			lakhani_context = bitops::clamp(lakhani_context, -max_val, max_val);
+			lakhani_context = std::clamp(lakhani_context, -max_val, max_val);
 
 			// shift context / do context modelling (segmentation is done per context)
 			const int bitlen_context = pjg::bitlen2048n(lakhani_context);

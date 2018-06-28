@@ -288,7 +288,7 @@ int Component::dc_1ddct_predictor(std::size_t dpos) {
 	colldata[0][dpos] = swap;
 
 	// Clamp and quantize predictor:
-	pred = bitops::clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
+	pred = std::clamp(pred, -(1024 * dct::DCT_RSC_FACTOR), 1016 * dct::DCT_RSC_FACTOR);
 	pred = pred / quant(0);
 	pred = dct::DCT_RESCALE(pred);
 

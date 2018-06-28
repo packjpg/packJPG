@@ -217,7 +217,7 @@ void ImageDebug::dump_pgm(const std::vector<Component>& components) const {
 					int pix_v = component.idct_2d_fst_8x8(dpos, x, y);
 					pix_v = dct::DCT_RESCALE(pix_v);
 					pix_v = pix_v + 128;
-					img_data[xpos] = static_cast<std::uint8_t>(bitops::clamp(0, 255, pix_v));
+					img_data[xpos] = static_cast<std::uint8_t>(std::clamp(0, 255, pix_v));
 				}
 			}
 		}
