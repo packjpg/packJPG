@@ -3,6 +3,7 @@
 #include <string>
 
 #include "jfif.h"
+#include "segmentparser.h"
 
 JpgReader::JpgReader(Reader& reader) : reader_(reader) {}
 
@@ -42,7 +43,7 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 void JpgReader::read() {
 	segments_ = parse_segments();
 	garbage_data_ = read_garbage_data();
-	frame_info_ = jfif::get_frame_info(segments_);
+	frame_info_ = SegmentParser::get_frame_info(segments_);
 }
 
 

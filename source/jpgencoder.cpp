@@ -4,6 +4,7 @@
 #include "jfif.h"
 #include "marker.h"
 #include "pjpgtbl.h"
+#include "segmentparser.h"
 
 JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
 	frame_info_(frame_info),
@@ -32,13 +33,13 @@ void JpgEncoder::encode() {
 	for (const auto& segment : segments_) {
 		switch (segment.get_type()) {
 		case Marker::DHT:
-			jfif::parse_dht(segment, dc_tables_, ac_tables_);
+			SegmentParser::parse_dht(segment, dc_tables_, ac_tables_);
 			continue;
 		case Marker::DRI:
-			restart_interval = jfif::parse_dri(segment);
+			restart_interval = SegmentParser::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = jfif::get_scan_info(frame_info_, segment);
+			scan_info_ = SegmentParser::get_scan_info(segment, frame_info_);
 			break;
 		default:
 			continue; // Ignore other segment types.

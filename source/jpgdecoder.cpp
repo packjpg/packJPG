@@ -5,6 +5,7 @@
 #include "bitops.h"
 #include "jfif.h"
 #include "marker.h"
+#include "segmentparser.h"
 
 JpgDecoder::JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data) :
 	frame_info_(frame_info), segments_(segments) {
@@ -18,14 +19,14 @@ void JpgDecoder::decode() {
 	for (const auto& segment : segments_) {
 		switch (segment.get_type()) {
 		case Marker::DHT:
-			jfif::parse_dht(segment, hcodes_);
+			SegmentParser::parse_dht(segment, hcodes_);
 			build_trees();
 			continue;
 		case Marker::DRI:
-			restart_interval = jfif::parse_dri(segment);
+			restart_interval = SegmentParser::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = jfif::get_scan_info(frame_info_, segment);
+			scan_info_ = SegmentParser::get_scan_info(segment, frame_info_);
 			break;
 		default:
 			continue;

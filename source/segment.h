@@ -43,12 +43,6 @@ public:
 	 */
 	void undo_optimize();
 
-	/*
-	Returns an in-order vector of the segments contained in the header data,
-	starting at the given offset in the data.
-	*/
-	static std::vector<Segment> parse_segments(const std::vector<std::uint8_t>& header_data, std::size_t offset = 0);
-
 private:
 	/*
 	Returns whether the given marker type has a length field associated with it.

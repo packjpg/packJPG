@@ -9,6 +9,7 @@
 #include "pjgcontext.h"
 #include "pjpgtbl.h"
 #include "programinfo.h"
+#include "segmentparser.h"
 
 PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	const auto image_pjg_version = decoding_stream.read_byte();
@@ -24,11 +25,11 @@ PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 }
 
 void PjgDecoder::decode() {
-	segments_ = Segment::parse_segments(this->decode_generic());
+	segments_ = SegmentParser::parse_segments(this->decode_generic());
 	for (auto& segment : segments_) {
 		segment.undo_optimize();
 	}
-	frame_info_ = jfif::get_frame_info(segments_);
+	frame_info_ = SegmentParser::get_frame_info(segments_);
 
 	padbit_ = this->decode_bit();
 	const bool rst_err_used = this->decode_bit() == 1;
