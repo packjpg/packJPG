@@ -2,6 +2,7 @@
 
 #include "bitops.h"
 
+#include <algorithm>
 #include <string>
 #include <stdexcept>
 
