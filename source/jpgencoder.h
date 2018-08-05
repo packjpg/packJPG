@@ -94,7 +94,7 @@ private:
 	std::map<int, std::unique_ptr<HuffCodes>> dc_tables_;
 	std::map<int, std::unique_ptr<HuffCodes>> ac_tables_;
 
-	std::array<std::int16_t, 4> lastdc_;  // last dc for each component (used for diff coding)
+	std::array<std::int16_t, 4> lastdc_{};  // last dc for each component (used for diff coding)
 
 	const std::vector<Segment>& segments_;
 

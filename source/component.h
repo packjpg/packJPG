@@ -53,8 +53,8 @@ public:
 
 private:
 	std::array<int, 8 * 8 * 8 * 8> adpt_idct_8x8{};	// precalculated/adapted values for idct (8x8)
-	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8; // precalculated/adapted values for idct (1x8)
-	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1; // precalculated/adapted values for idct (8x1)
+	std::array<int, 1 * 1 * 8 * 8> adpt_idct_1x8{}; // precalculated/adapted values for idct (1x8)
+	std::array<int, 8 * 8 * 1 * 1> adpt_idct_8x1{}; // precalculated/adapted values for idct (8x1)
 
 	// Calculates the next position (noninterleaved).
 	inline int calc_next_pos_noninterleaved(int curr_pos) const;

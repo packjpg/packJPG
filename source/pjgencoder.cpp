@@ -24,7 +24,7 @@ PjgEncoder::PjgEncoder(Writer& encoding_output) {
 
 void PjgEncoder::encode(std::uint8_t padbit, std::vector<Component>& components, std::vector<Segment>& segments, const std::vector<std::uint8_t>& rst_err, const std::vector<std::uint8_t>& garbage_data) {
 	// Set the padbit to 1 if it has not been set:
-	if (padbit == -1) {
+	if (padbit == static_cast<std::uint8_t>(-1)) {
 		padbit = 1;
 	}
 
@@ -103,7 +103,7 @@ void PjgEncoder::encode_zero_sorted_scan(const std::array<std::uint8_t, 64>& zer
 
 std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& component) const {
 	// Count the number of zeroes for each frequency:
-	std::array<std::size_t, 64> zero_dist; // Distribution of zeroes per band.
+	std::array<std::size_t, 64> zero_dist{}; // Distribution of zeroes per band.
 	std::transform(std::begin(component.colldata),
 	               std::end(component.colldata),
 	               std::begin(zero_dist),
@@ -112,7 +112,7 @@ std::array<std::uint8_t, 64> PjgEncoder::get_zero_sorted_scan(const Component& c
 	               });
 
 	// Preset the unsorted scan index:
-	std::array<std::uint8_t, 64> zero_sorted_index;
+	std::array<std::uint8_t, 64> zero_sorted_index{};
 	std::iota(std::begin(zero_sorted_index), std::end(zero_sorted_index), std::uint8_t(0));
 
 	// Sort in ascending order according to the number of zeroes per band:

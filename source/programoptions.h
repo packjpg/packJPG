@@ -1,5 +1,5 @@
 #ifndef PROGRAMOPTIONS_H
-#define PROGRAM_OPTIONS_H
+#define PROGRAMOPTIONS_H
 
 #include <cstdio>
 #include <string>
@@ -16,7 +16,7 @@ public:
 	bool verify_reversible = false; // Check to make sure this program can losslessly reverse its own output.
 	DebugOptions debug_options;
 
-	ProgramOptions() {}
+	ProgramOptions() = default;
 
 	static std::pair<std::vector<std::string>, ProgramOptions> parse_input(int argc, char** argv);
 

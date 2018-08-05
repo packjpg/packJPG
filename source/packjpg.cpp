@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
 		fprintf(options.info_stream, "\nSummary statistics: \n");
 		if (total_time > 0) {
 			fprintf(options.info_stream, "Total time       : %8.2f s\n", total_time);
-			const auto kbps = (cumulative_jpg_size / 1024) / total_time;
+			const auto kbps = (static_cast<double>(cumulative_jpg_size) / 1024) / total_time;
 			fprintf(options.info_stream, "Avg. kbyte per s : %8.0f KBps\n", kbps);
 		}
 		const auto compression_ratio = 100.0 * cumulative_pjg_size / cumulative_jpg_size;
