@@ -1,8 +1,7 @@
 #include "programoptions.h"
 
-#include <experimental/filesystem>
+#include <filesystem>
 
-#include "bitops.h"
 #include "programinfo.h"
 
 std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(int argc, char** argv) {
@@ -51,7 +50,7 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 			options.debug_options.dist_info = true;
 		} else if (arg == "-pgm") {
 			options.debug_options.pgm_dump = true;
-		} else if (std::experimental::filesystem::exists(arg)) {
+		} else if (std::filesystem::exists(arg)) {
 			files.push_back(arg);
 		} else {
 			fprintf(stderr, "Invalid option/file: %s\n", arg.c_str());

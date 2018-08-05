@@ -1,6 +1,6 @@
 #include "fileprocessor.h"
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <string>
 
 #include "programinfo.h"
@@ -82,7 +82,7 @@ bool FileProcessor::delete_output() {
 		executed_ = true;
 		output_writer_.reset(nullptr); // Close stream associated with destination file.
 		try {
-			return std::experimental::filesystem::remove(output_destination_);
+			return std::filesystem::remove(output_destination_);
 		} catch (const std::exception&) {
 			return false;
 		}
@@ -140,7 +140,7 @@ std::string FileProcessor::output_destination(const std::string& input_file) con
 	const auto new_extension = file_type_ == FileType::JPG ? program_info::pjg_ext : program_info::jpg_ext;
 	auto filename_base = input_file.substr(0, input_file.find_last_of("."));
 	auto filename = filename_base + "." + new_extension;
-	while (std::experimental::filesystem::exists(filename) && !options_.overwrite_existing_output) {
+	while (std::filesystem::exists(filename) && !options_.overwrite_existing_output) {
 		filename_base += "_";
 		filename = filename_base + "." + new_extension;
 	}

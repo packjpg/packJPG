@@ -1,6 +1,6 @@
 #include "writer.h"
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <fstream>
 
 #if defined(_WIN32) || defined(WIN32)
@@ -76,7 +76,7 @@ void FileWriter::rewind() {
 
 std::size_t FileWriter::num_bytes_written() {
 	std::fflush(fptr_);
-	return std::experimental::filesystem::file_size(file_path_);
+	return std::filesystem::file_size(file_path_);
 }
 
 bool FileWriter::error() {
