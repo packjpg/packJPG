@@ -11,7 +11,7 @@ class PjgToJpgController : public Controller {
 public:
 	PjgToJpgController(Reader& pjg_input, Writer& jpg_output);
 	PjgToJpgController(Reader& pjg_input, Writer& jpg_output, ImageDebug debug);
-	~PjgToJpgController();
+	~PjgToJpgController() = default;
 
 	void execute() override;
 

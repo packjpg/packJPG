@@ -110,8 +110,6 @@ FileReader::FileReader(const std::string& file_path) {
 	}
 }
 
-FileReader::~FileReader() {}
-
 std::size_t FileReader::read(std::uint8_t* to, std::size_t num_to_read) {
 	return reader_->read(to, num_to_read);
 }

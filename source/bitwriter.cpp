@@ -5,9 +5,6 @@
 BitWriter::BitWriter(std::uint8_t fillbit) : fillbit_(fillbit), data_(65536) {
 }
 
-BitWriter::~BitWriter() {
-}
-
 void BitWriter::write_u16(std::uint16_t val, std::size_t num_bits) {
 	// Resize if necessary
 	if (curr_byte_ > (data_.size() - 5)) {

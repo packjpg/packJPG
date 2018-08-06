@@ -6,8 +6,6 @@
 #include "programinfo.h"
 #include "pjpgtbl.h"
 
-ImageDebug::ImageDebug() {}
-
 ImageDebug::ImageDebug(const std::string& base_filename, DebugOptions options) : base_file_(base_filename), options_(options) {
 }
 

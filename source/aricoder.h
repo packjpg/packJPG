@@ -144,7 +144,7 @@ public:
 		max_symbol_count_(max_symbol_count) {
 
 	}
-	virtual ~Model() {}
+	virtual ~Model() = default;
 
 	virtual void shift_context(int c) = 0;
 
@@ -346,7 +346,7 @@ private:
 class ArithmeticDecoder {
 public:
 	ArithmeticDecoder(Reader& stream);
-	~ArithmeticDecoder();
+	~ArithmeticDecoder() = default;
 
 	int decode(UniversalModel& model);
 

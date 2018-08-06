@@ -15,7 +15,7 @@ private:
 	const std::string base_file_;
 
 public:
-	ImageDebug();
+	ImageDebug() = default;
 	ImageDebug(const std::string& base_filename, DebugOptions options);
 	void dump_coll(std::vector<Component>& components, int collmode) const;
 	void dump_data_to_file(const std::vector<std::uint8_t>& data, const std::string& file) const;

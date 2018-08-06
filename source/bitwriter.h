@@ -7,7 +7,7 @@
 class BitWriter {
 public:
 	BitWriter(std::uint8_t padbit);
-	~BitWriter();
+	~BitWriter() = default;
 	void write_u16(std::uint16_t val, std::size_t num_bits);
 	void write_bit(std::uint8_t bit);
 	void pad();

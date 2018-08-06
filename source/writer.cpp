@@ -83,8 +83,6 @@ bool FileWriter::error() {
 	return fptr_ == nullptr || std::ferror(fptr_);
 }
 
-MemoryWriter::MemoryWriter() {}
-
 std::size_t MemoryWriter::write(const std::uint8_t* from, std::size_t n) {
 	data_.insert(std::end(data_), from, from + n);
 	return n;

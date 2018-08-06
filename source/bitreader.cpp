@@ -11,8 +11,6 @@ BitReader::BitReader(const std::vector<std::uint8_t>& bits) :
 	curr_byte_(std::begin(data_)) {
 }
 
-BitReader::~BitReader() {}
-
 std::uint16_t BitReader::read_u16(std::size_t num_bits) {
 	if (num_bits > 16) {
 		throw std::runtime_error("Tried to read " + std::to_string(num_bits) + ", when at most 16 bits can be read with read_u16.");

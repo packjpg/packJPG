@@ -7,9 +7,9 @@
 
 class Reader {
 public:
-	Reader() {}
+	Reader() = default;
 
-	virtual ~Reader() {}
+	virtual ~Reader() = default;
 
 	/*
 	* Reads the minimum of n and the number of unread bytes to the pointer.
@@ -73,7 +73,7 @@ class MemoryReader : public Reader {
 public:
 	MemoryReader(const std::vector<std::uint8_t>& bytes);
 
-	~MemoryReader() {}
+	~MemoryReader() = default;
 
 	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
@@ -98,7 +98,7 @@ private:
 class FileReader : public Reader {
 public:
 	FileReader(const std::string& file_path);
-	~FileReader();
+	~FileReader() = default;
 
 	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;
@@ -123,7 +123,7 @@ class StreamReader : public Reader {
 public:
 	StreamReader();
 
-	~StreamReader() {}
+	~StreamReader() = default;
 
 	std::size_t read(std::uint8_t* to, std::size_t num_to_read) override;
 	std::size_t read(std::vector<std::uint8_t>& into, std::size_t num_to_read, std::size_t offset = 0) override;

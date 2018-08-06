@@ -12,8 +12,6 @@ JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output)
 JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output, ImageDebug debug)
 	: jpg_input_(jpg_input), pjg_output_(pjg_output), debug_(debug) {}
 
-JpgToPjgController::~JpgToPjgController() {}
-
 void JpgToPjgController::execute() {
 	auto reader = std::make_unique<JpgReader>(jpg_input_);
 	reader->read();

@@ -11,9 +11,9 @@
 
 class Writer {
 public:
-	Writer() {}
+	Writer() = default;
 
-	virtual ~Writer() {}
+	virtual ~Writer() = default;
 
 	virtual std::size_t write(const std::uint8_t* bytes, std::size_t num_bytes) = 0;
 	virtual std::size_t write(const std::vector<std::uint8_t>& bytes) = 0;
@@ -32,6 +32,7 @@ public:
 class FileWriter : public Writer {
 public:
 	FileWriter(const std::string& file_path);
+
 	~FileWriter();
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
@@ -64,9 +65,9 @@ private:
 
 class MemoryWriter : public Writer {
 public:
-	MemoryWriter();
+	MemoryWriter() = default;
 
-	~MemoryWriter() {}
+	~MemoryWriter() = default;
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
 	std::size_t write(const std::vector<std::uint8_t>& bytes) override;

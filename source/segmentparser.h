@@ -44,7 +44,7 @@ public:
 	static ScanInfo get_scan_info(const Segment& segment, FrameInfo& frame_info);
 
 private:
-	SegmentParser() {}
+	SegmentParser() = default;
 
 	// Helper function for parsing SOF segments.
 	static void parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components);

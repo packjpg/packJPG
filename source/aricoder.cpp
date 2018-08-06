@@ -116,8 +116,6 @@ ArithmeticDecoder::ArithmeticDecoder(Reader& stream) : reader_(stream) {
 	}
 }
 
-ArithmeticDecoder::~ArithmeticDecoder() {}
-
 int ArithmeticDecoder::decode(UniversalModel& model) {
 	Symbol s;
 	int c;
