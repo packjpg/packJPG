@@ -37,9 +37,7 @@ public:
 	// Deletes this and all tables linked by this table.
 	~BinaryTable() {
 		for (auto& link : links) {
-			if (link != nullptr) {
-				delete link;
-			}
+			delete link;
 		}
 	}
 
@@ -92,9 +90,7 @@ public:
 	// Deletes this and all tables linked by this table.
 	~UniversalTable() {
 		for (auto& link : links) {
-			if (link != nullptr) {
-				delete link;
-			}
+			delete link;
 		}
 	}
 
