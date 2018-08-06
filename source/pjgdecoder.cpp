@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <string>
 
-#include "bitops.h"
 #include "dct8x8.h"
 #include "jfif.h"
 #include "pjgcontext.h"

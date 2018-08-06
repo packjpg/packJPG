@@ -1,6 +1,5 @@
 #include "component.h"
 
-#include "bitops.h"
 #include "dct8x8.h"
 #include "pjpgtbl.h"
 #include "zerodistribution.h"

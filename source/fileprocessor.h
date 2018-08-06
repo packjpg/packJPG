@@ -3,7 +3,6 @@
 
 #include "controller.h"
 #include "filetype.h"
-#include "imagedebug.h"
 #include "programoptions.h"
 #include "reader.h"
 #include "writer.h"

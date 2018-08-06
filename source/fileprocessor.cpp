@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 
+#include "imagedebug.h"
 #include "programinfo.h"
 #include "jpgtopjgontroller.h"
 #include "pjgtojpgcontroller.h"
