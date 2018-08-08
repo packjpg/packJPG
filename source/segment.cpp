@@ -121,7 +121,8 @@ void Segment::optimize_dht() {
 			const auto& standard_table = pjg::standard_huffman_tables[table_id];
 			bool tables_match = std::equal(std::begin(standard_table),
 			                               std::end(standard_table),
-			                               std::begin(data_) + segment_pos);
+			                               std::begin(data_) + segment_pos,
+										   std::end(data_));
 			if (!tables_match) {
 				continue;
 			}
