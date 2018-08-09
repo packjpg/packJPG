@@ -5,6 +5,7 @@
 #include "jpgreader.h"
 #include "jpgdecoder.h"
 #include "pjgencoder.h"
+#include "segmentparser.h"
 
 JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output)
 	: jpg_input_(jpg_input), pjg_output_(pjg_output) {}
@@ -15,8 +16,8 @@ JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output, Im
 void JpgToPjgController::execute() {
 	auto reader = std::make_unique<JpgReader>(jpg_input_);
 	reader->read();
-	auto frame_info = reader->get_frame_info();
 	auto segments = reader->get_segments();
+	auto frame_info = SegmentParser::get_frame_info(segments);
 	const auto huffman_data = reader->get_huffman_data();
 
 	if (debug_.options_.split_dump) {

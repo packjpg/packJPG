@@ -43,7 +43,6 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 void JpgReader::read() {
 	segments_ = parse_segments();
 	garbage_data_ = read_garbage_data();
-	frame_info_ = SegmentParser::get_frame_info(segments_);
 }
 
 
@@ -93,10 +92,6 @@ void JpgReader::read_sos() {
 
 std::vector<Segment> JpgReader::get_segments() {
 	return segments_;
-}
-
-std::unique_ptr<FrameInfo> JpgReader::get_frame_info() {
-	return std::move(frame_info_);
 }
 
 std::vector<std::uint8_t> JpgReader::get_huffman_data() {
