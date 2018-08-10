@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <map>
 
-std::vector<Segment> SegmentParser::parse_segments(const std::vector<std::uint8_t>& header_data, std::size_t offset) {
+namespace SegmentParser {
+
+std::vector<Segment> parse_segments(const std::vector<std::uint8_t>& header_data, std::size_t offset) {
 	if (offset > header_data.size()) {
 		return std::vector<Segment>(); // Don't try to read invalid memory.
 	}
@@ -29,7 +31,7 @@ std::vector<Segment> SegmentParser::parse_segments(const std::vector<std::uint8_
 	return segments;
 }
 
-void SegmentParser::parse_dht(const Segment& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
+void parse_dht(const Segment& segment, std::map<int, std::unique_ptr<HuffCodes>>& dc_tables, std::map<int, std::unique_ptr<HuffCodes>>& ac_tables) {
 	if (segment.get_type() != Marker::DHT) {
 		throw std::runtime_error("Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DHT parser.");
 	}
@@ -77,7 +79,7 @@ void SegmentParser::parse_dht(const Segment& segment, std::map<int, std::unique_
 	}
 }
 
-void SegmentParser::parse_dht(const Segment& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
+void parse_dht(const Segment& segment, std::array<std::array<std::unique_ptr<HuffCodes>, 4>, 2>& hcodes) {
 	if (segment.get_type() != Marker::DHT) {
 		throw std::runtime_error(
 			"Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DHT parser.");
@@ -121,7 +123,7 @@ void SegmentParser::parse_dht(const Segment& segment, std::array<std::array<std:
 	}
 }
 
-void SegmentParser::parse_dqt(const Segment& segment, std::map<int, std::array<std::uint16_t, 64>>& qtables) {
+void parse_dqt(const Segment& segment, std::map<int, std::array<std::uint16_t, 64>>& qtables) {
 	if (segment.get_type() != Marker::DQT) {
 		throw std::runtime_error(
 			"Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DQT parser.");
@@ -165,7 +167,7 @@ void SegmentParser::parse_dqt(const Segment& segment, std::map<int, std::array<s
 	}
 }
 
-int SegmentParser::parse_dri(const Segment& segment) {
+int parse_dri(const Segment& segment) {
 	if (segment.get_type() != Marker::DRI) {
 		throw std::runtime_error(
 			"Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the DRI parser.");
@@ -180,137 +182,142 @@ int SegmentParser::parse_dri(const Segment& segment) {
 	return bitops::pack(first, second);
 }
 
-void SegmentParser::parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components) {
-	for (auto& component : components) {
-		component.jid = reader.read_byte();
-
-		const auto byte = reader.read_byte();
-
-		component.sfv = bitops::left_nibble(byte);
-		if (component.sfv == 0 || component.sfv > 4) {
-			throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
-		}
-
-		component.sfh = bitops::right_nibble(byte);
-		if (component.sfh == 0 || component.sfh > 4) {
-			throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
-		}
-
-		int quantization_table_index = reader.read_byte();
-		if (quantization_table_index > 3) {
-			throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
-		}
-
-		component.qtable = qtables[quantization_table_index];
-
-		component.mbs = component.sfv * component.sfh;
-
-	}
-}
-
-std::tuple<FrameInfo, std::vector<Component>> SegmentParser::parse_sof(const Segment& segment,  std::map<int, std::array<std::uint16_t, 64>> qtables) {
-	FrameInfo frame_info;
-	// Set the JPEG coding type:
-	const auto segment_type = segment.get_type();
-	if (segment_type == Marker::SOF2) {
-		frame_info.coding_process = JpegType::PROGRESSIVE;
-	} else if (segment_type == Marker::SOF0 || segment_type == Marker::SOF1) {
-		frame_info.coding_process = JpegType::SEQUENTIAL;
-	} else {
-		throw std::runtime_error("Tried to parse a " + std::to_string(int(segment_type)) + " segment in the SOF parser.");
-	}
-
-	auto reader = std::make_unique<MemoryReader>(segment.get_data());
-	reader->skip(4); // Skip the segment header.
-
-	// Check data precision, only 8 bit is allowed:
-	const int precision = reader->read_byte();
-	if (precision != 8) {
-		throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
-	}
-
-	auto first = reader->read_byte();
-	auto second = reader->read_byte();
-	frame_info.image_height = bitops::pack(first, second);
-	if (frame_info.image_height == 0) {
-		throw std::runtime_error("Image height is zero in the frame header.");
-	}
-
-	first = reader->read_byte();
-	second = reader->read_byte();
-	frame_info.image_width = bitops::pack(first, second);
-	if (frame_info.image_width == 0) {
-		throw std::runtime_error("Image width is zero in the frame header.");
-	}
-
-	const int component_count = reader->read_byte();
-	if (component_count == 0) {
-		throw std::runtime_error("Zero component count in the frame header.");
-	} else if (component_count > 4) {
-		throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
-	}
-	std::vector<Component> components(component_count);
-
-	parse_sof_component_info(qtables, *reader, components);
-
-	if (!reader->end_of_reader()) {
-		throw std::runtime_error("Too many bytes in SOF segment.");
-	}
-
-	int h_max = -1; // max horizontal sample factor
-	int v_max = -1; // max verical sample factor
-	for (const auto& component : components) {
-		h_max = std::max(component.sfh, h_max);
-		v_max = std::max(component.sfv, v_max);
-	}
-	frame_info.mcu_height = static_cast<int>(std::ceil(
-		static_cast<float>(frame_info.image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
-	frame_info.mcu_width = static_cast<int>(std::ceil(
-		static_cast<float>(frame_info.image_width) / static_cast<float>(8 * v_max)));
-	frame_info.mcu_count = frame_info.mcu_height * frame_info.mcu_width;
-	for (auto& component : components) {
-		component.bcv = frame_info.mcu_height * component.sfh;
-		component.bch = frame_info.mcu_width * component.sfv;
-		component.bc = component.bcv * component.bch;
-		component.ncv = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_height) *
-			(static_cast<float>(component.sfh) / (8.0 * h_max))));
-		component.nch = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_width) *
-			(static_cast<float>(component.sfv) / (8.0 * v_max))));
-
-		for (auto& coeffs : component.colldata) {
-			coeffs.resize(component.bc);
-		}
-	}
-
-	// Determine components' statistical ids:
-	if (components.size() <= 3) {
-		for (std::size_t component = 0; component < components.size(); component++) {
-			components[component].sid = component;
-		}
-	} else {
+namespace {
+	// Helper function for parsing SOF segments.
+	void parse_sof_component_info(std::map<int, std::array<std::uint16_t, 64>>& qtables, Reader& reader, std::vector<Component>& components) {
 		for (auto& component : components) {
-			component.sid = 0;
+			component.jid = reader.read_byte();
+
+			const auto byte = reader.read_byte();
+
+			component.sfv = bitops::left_nibble(byte);
+			if (component.sfv == 0 || component.sfv > 4) {
+				throw std::runtime_error("Invalid vertical sampling factor: " + std::to_string(component.sfv));
+			}
+
+			component.sfh = bitops::right_nibble(byte);
+			if (component.sfh == 0 || component.sfh > 4) {
+				throw std::runtime_error("Invalid horizontal sampling factor: " + std::to_string(component.sfh));
+			}
+
+			int quantization_table_index = reader.read_byte();
+			if (quantization_table_index > 3) {
+				throw std::runtime_error("Invalid quantization table index: " + std::to_string(quantization_table_index));
+			}
+
+			component.qtable = qtables[quantization_table_index];
+
+			component.mbs = component.sfv * component.sfh;
+
 		}
 	}
 
-	// Determine automatic settings:
-	for (auto& component : components) {
-		std::size_t set;
-		for (set = 0; pjg::conf_sets[set][component.sid] > static_cast<std::uint32_t>(component.bc); set++) {
-			if (pjg::conf_sets[set][component.sid] <= static_cast<std::uint32_t>(component.bc)) {
-				break; // This is guaranteed to happen, since the last array of conf_sets is filled with zeroes.
+	// Parses SOF0/SOF1/SOF2 segments. Throws a runtime_error exception if there is a problem parsing the segment.
+	std::tuple<FrameInfo, std::vector<Component>> parse_sof(const Segment& segment, std::map<int, std::array<std::uint16_t, 64>> qtables) {
+		FrameInfo frame_info;
+		// Set the JPEG coding type:
+		const auto segment_type = segment.get_type();
+		if (segment_type == Marker::SOF2) {
+			frame_info.coding_process = JpegType::PROGRESSIVE;
+		} else if (segment_type == Marker::SOF0 || segment_type == Marker::SOF1) {
+			frame_info.coding_process = JpegType::SEQUENTIAL;
+		} else {
+			throw std::runtime_error("Tried to parse a " + std::to_string(int(segment_type)) + " segment in the SOF parser.");
+		}
+
+		auto reader = std::make_unique<MemoryReader>(segment.get_data());
+		reader->skip(4); // Skip the segment header.
+
+		// Check data precision, only 8 bit is allowed:
+		const int precision = reader->read_byte();
+		if (precision != 8) {
+			throw std::runtime_error(std::to_string(precision) + " bit data precision is not supported");
+		}
+
+		auto first = reader->read_byte();
+		auto second = reader->read_byte();
+		frame_info.image_height = bitops::pack(first, second);
+		if (frame_info.image_height == 0) {
+			throw std::runtime_error("Image height is zero in the frame header.");
+		}
+
+		first = reader->read_byte();
+		second = reader->read_byte();
+		frame_info.image_width = bitops::pack(first, second);
+		if (frame_info.image_width == 0) {
+			throw std::runtime_error("Image width is zero in the frame header.");
+		}
+
+		const int component_count = reader->read_byte();
+		if (component_count == 0) {
+			throw std::runtime_error("Zero component count in the frame header.");
+		} else if (component_count > 4) {
+			throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
+		}
+		std::vector<Component> components(component_count);
+
+		parse_sof_component_info(qtables, *reader, components);
+
+		if (!reader->end_of_reader()) {
+			throw std::runtime_error("Too many bytes in SOF segment.");
+		}
+
+		int h_max = -1; // max horizontal sample factor
+		int v_max = -1; // max verical sample factor
+		for (const auto& component : components) {
+			h_max = std::max(component.sfh, h_max);
+			v_max = std::max(component.sfv, v_max);
+		}
+		frame_info.mcu_height = static_cast<int>(std::ceil(
+			static_cast<float>(frame_info.image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
+		frame_info.mcu_width = static_cast<int>(std::ceil(
+			static_cast<float>(frame_info.image_width) / static_cast<float>(8 * v_max)));
+		frame_info.mcu_count = frame_info.mcu_height * frame_info.mcu_width;
+		for (auto& component : components) {
+			component.bcv = frame_info.mcu_height * component.sfh;
+			component.bch = frame_info.mcu_width * component.sfv;
+			component.bc = component.bcv * component.bch;
+			component.ncv = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_height) *
+				(static_cast<float>(component.sfh) / (8.0 * h_max))));
+			component.nch = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_width) *
+				(static_cast<float>(component.sfv) / (8.0 * v_max))));
+
+			for (auto& coeffs : component.colldata) {
+				coeffs.resize(component.bc);
 			}
 		}
-		if (set >= pjg::conf_sets.size()) {
-			throw std::runtime_error("Failed to decide valid automatic setting.");
+
+		// Determine components' statistical ids:
+		if (components.size() <= 3) {
+			for (std::size_t component = 0; component < components.size(); component++) {
+				components[component].sid = component;
+			}
+		} else {
+			for (auto& component : components) {
+				component.sid = 0;
+			}
 		}
-		component.segm_cnt = pjg::conf_segm;
-		component.nois_trs = pjg::conf_ntrs[set][component.sid];
+
+		// Determine automatic settings:
+		for (auto& component : components) {
+			std::size_t set;
+			for (set = 0; pjg::conf_sets[set][component.sid] > static_cast<std::uint32_t>(component.bc); set++) {
+				if (pjg::conf_sets[set][component.sid] <= static_cast<std::uint32_t>(component.bc)) {
+					break; // This is guaranteed to happen, since the last array of conf_sets is filled with zeroes.
+				}
+			}
+			if (set >= pjg::conf_sets.size()) {
+				throw std::runtime_error("Failed to decide valid automatic setting.");
+			}
+			component.segm_cnt = pjg::conf_segm;
+			component.nois_trs = pjg::conf_ntrs[set][component.sid];
+		}
+		return std::make_tuple(frame_info, std::move(components));
 	}
-	return std::make_tuple(frame_info, std::move(components));
+
 }
 
-std::tuple<FrameInfo, std::vector<Component>> SegmentParser::get_frame_info(const std::vector<Segment>& segments) {
+std::tuple<FrameInfo, std::vector<Component>> get_frame_info(const std::vector<Segment>& segments) {
 	// Get the quantization tables:
 	std::map<int, std::array<std::uint16_t, 64>> qtables;
 	for (auto& segment : segments) {
@@ -367,7 +374,7 @@ std::tuple<FrameInfo, std::vector<Component>> SegmentParser::get_frame_info(cons
 	throw std::runtime_error("No SOF segment found.");
 }
 
-ScanInfo SegmentParser::get_scan_info(const Segment& segment, std::vector<Component>& components) {
+ScanInfo get_scan_info(const Segment& segment, std::vector<Component>& components) {
 	if (segment.get_type() != Marker::SOS) {
 		throw std::runtime_error(
 			"Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the SOS parser.");
@@ -414,4 +421,6 @@ ScanInfo SegmentParser::get_scan_info(const Segment& segment, std::vector<Compon
 	}
 
 	return scan_info;
+}
+
 }
