@@ -12,7 +12,7 @@ PjgToJpgController::PjgToJpgController(Reader& pjg_input, Writer& jpg_output, Im
 
 void PjgToJpgController::execute() {
 	auto pjg_decoder = std::make_unique<PjgDecoder>(pjg_input_);
-	auto [frame_info, segments, components] = pjg_decoder->decode();
+	auto [frame_info, segments, components, garbage_data, rst_err, padbit] = pjg_decoder->decode();
 
 	if (debug_.options_.fcoll_dump) {
 		debug_.dump_coll(components, debug_.options_.collmode);
@@ -43,20 +43,19 @@ void PjgToJpgController::execute() {
 		debug_.dump_pgm(components);
 	}
 
-	auto jpeg_encoder = std::make_unique<JpgEncoder>(frame_info, components, segments, pjg_decoder->get_padbit());
-	jpeg_encoder->encode();
+	auto jpeg_encoder = std::make_unique<JpgEncoder>(frame_info, segments, padbit);
+	const auto [huffman_data, restart_marker_pos, scan_pos] = jpeg_encoder->encode(components);
 
 	if (debug_.options_.split_dump) {
 		debug_.dump_header(segments);
-		debug_.dump_huffman(jpeg_encoder->get_huffman_data());
+		debug_.dump_huffman(huffman_data);
 	}
 
-	auto jpeg_writer = std::make_unique<JpgWriter>(jpg_output_,
-	                                               segments,
-	                                               jpeg_encoder->get_huffman_data(),
-	                                               pjg_decoder->get_garbage_data(),
-	                                               jpeg_encoder->get_restart_marker_pos(),
-	                                               pjg_decoder->get_rst_err(),
-	                                               jpeg_encoder->get_scan_pos());
-	jpeg_writer->write();
+	auto jpeg_writer = std::make_unique<JpgWriter>(jpg_output_);
+	jpeg_writer->write(segments,
+	                   huffman_data,
+	                   garbage_data,
+	                   restart_marker_pos,
+	                   rst_err,
+	                   scan_pos);
 }

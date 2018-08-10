@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <tuple>
 #include <vector>
 
 #include "bitwriter.h"
@@ -17,27 +18,23 @@
 
 class JpgEncoder {
 public:
-	JpgEncoder(FrameInfo& frame_info, std::vector<Component>& components, const std::vector<Segment>& segments, std::uint8_t padbit);
-	// JPEG encoding routine.
-	void encode();
-
-	std::vector<std::uint8_t> get_huffman_data() const;
-	std::vector<std::size_t> get_restart_marker_pos() const;
-	std::vector<std::size_t> get_scan_pos() const;
+	JpgEncoder(const FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
+	// JPEG encoding routine. Returns the huffman data, the restart marker positions, and the scan positions, in that order.
+	std::tuple<std::vector<std::uint8_t>, std::vector<std::size_t>, std::vector<std::size_t>> encode(std::vector<Component>& components);
 
 private:
 	// encoding for interleaved data.
-	CodingStatus encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_interleaved(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// encoding for non interleaved data.
-	CodingStatus encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw);
+	CodingStatus encode_noninterleaved(const Component& component, int rsti, int cmp_id, int& dpos, int& rstw);
 
 	CodingStatus encode_sequential_noninterleaved(const Component& component, int cmp, int rsti, int& dpos, int& rstw);
 	CodingStatus encode_progressive_noninterleaved_dc(const Component& component, int cmp, int rsti, int& dpos, int& rstw);
 	CodingStatus encode_progressive_noninterleaved_ac(const Component& component, int rsti, int& dpos, int& rstw);
 
-	CodingStatus encode_sequential_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_sequential_interleaved(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 	// Progressive interleaved DC encoding.
-	CodingStatus encode_progressive_interleaved_dc(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
+	CodingStatus encode_progressive_interleaved_dc(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub);
 
 	// Sequential block encoding routine.
 	void block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table);
@@ -74,7 +71,7 @@ private:
 		return length;
 	}
 
-	void encode_scan(int restart_interval, int& restart_markers);
+	void encode_scan(const std::vector<Component>& components, int restart_interval, int& restart_markers);
 
 	void copy_colldata_to_block_in_scan(const Component& component, int dpos);
 
@@ -85,8 +82,7 @@ private:
 	// DC successive approximation later stage.
 	void dc_succ_approx_later_stage(const Component& component, int dpos);
 
-	FrameInfo& frame_info_;
-	std::vector<Component>& components_;
+	const FrameInfo& frame_info_;
 
 	std::unique_ptr<BitWriter> huffman_writer_; // Bitwise writer for image data.
 	std::vector<std::uint8_t> correction_bits_; // Store for correction bits.
@@ -99,9 +95,7 @@ private:
 	std::array<std::int16_t, 4> lastdc_{};  // last dc for each component (used for diff coding)
 
 	const std::vector<Segment>& segments_;
-
-	std::vector<std::uint8_t> huffman_data_;
-
+	
 	std::vector<std::size_t> restart_marker_pos_; // restart markers positions in huffdata
 	std::vector<std::size_t> scan_pos_; // scan start positions in huffdata
 };

@@ -6,27 +6,13 @@
 #include "pjpgtbl.h"
 #include "segmentparser.h"
 
-JpgEncoder::JpgEncoder(FrameInfo& frame_info, std::vector<Component>& components, const std::vector<Segment>& segments, std::uint8_t padbit) :
+JpgEncoder::JpgEncoder(const FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
 	frame_info_(frame_info),
-	components_(components),
 	segments_(segments) {
-
 	huffman_writer_ = std::make_unique<BitWriter>(padbit);
 }
 
-std::vector<std::uint8_t> JpgEncoder::get_huffman_data() const {
-	return huffman_data_;
-}
-
-std::vector<std::size_t> JpgEncoder::get_restart_marker_pos() const {
-	return restart_marker_pos_;
-}
-
-std::vector<std::size_t> JpgEncoder::get_scan_pos() const {
-	return scan_pos_;
-}
-
-void JpgEncoder::encode() {
+std::tuple<std::vector<std::uint8_t>, std::vector<std::size_t>, std::vector<std::size_t>> JpgEncoder::encode(std::vector<Component>& components) {
 	int restart_marker_count = 0;
 	int restart_interval = 0;
 	scan_pos_ = { 0 };
@@ -40,7 +26,7 @@ void JpgEncoder::encode() {
 			restart_interval = SegmentParser::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = SegmentParser::get_scan_info(segment, components_);
+			scan_info_ = SegmentParser::get_scan_info(segment, components);
 			break;
 		default:
 			continue; // Ignore other segment types.
@@ -49,25 +35,26 @@ void JpgEncoder::encode() {
 		if (restart_interval > 0) {
 			int tmp = restart_marker_count + (scan_info_.cmp.size() > 1 ?
 				                                  frame_info_.mcu_count / restart_interval
-				                                  : components_[scan_info_.cmp[0]].bc / restart_interval);
+				                                  : components[scan_info_.cmp[0]].bc / restart_interval);
 			restart_marker_pos_.resize(tmp + 1);
 		}
 
-		encode_scan(restart_interval, restart_marker_count);
+		encode_scan(components, restart_interval, restart_marker_count);
 		scan_pos_.emplace_back(huffman_writer_->num_bytes_written()); // Store scan position.
 	}
-
-	huffman_data_ = huffman_writer_->get_data();
-
+	
 	// store last restart position
 	if (!restart_marker_pos_.empty()) {
-		restart_marker_pos_[restart_marker_count] = huffman_data_.size();
+		restart_marker_pos_[restart_marker_count] = huffman_writer_->num_bytes_written();
 	}
+
+	return std::tuple<std::vector<std::uint8_t>, std::vector<std::size_t>, std::vector<std::size_t>>
+		(huffman_writer_->get_data(), std::move(restart_marker_pos_), std::move(scan_pos_));
 }
 
-void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
+void JpgEncoder::encode_scan(const std::vector<Component>& components, int restart_interval, int& restart_markers) {
 	// intial variables set for encoding
-	int cmp = scan_info_.cmp[0];
+	int cmp_id = scan_info_.cmp[0];
 	int csc = 0;
 	int mcu = 0;
 	int sub = 0;
@@ -79,10 +66,10 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 
 		std::fill(std::begin(lastdc_), std::end(lastdc_), std::int16_t(0));
 		if (scan_info_.cmp.size() > 1) {
-			status = encode_interleaved(restart_interval, cmp, dpos, restart_wait_counter, csc, mcu, sub);
+			status = encode_interleaved(components, restart_interval, cmp_id, dpos, restart_wait_counter, csc, mcu, sub);
 		}
 		else {
-			status = encode_noninterleaved(restart_interval, cmp, dpos, restart_wait_counter);
+			status = encode_noninterleaved(components[cmp_id], restart_interval, cmp_id, dpos, restart_wait_counter);
 		}
 
 		huffman_writer_->pad();
@@ -97,22 +84,21 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 	}
 }
 
-CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw) {
-	const auto& component = components_[cmp];
+CodingStatus JpgEncoder::encode_noninterleaved(const Component& component, int rsti, int cmp_id, int& dpos, int& rstw) {
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
-		return this->encode_sequential_noninterleaved(component, cmp, rsti, dpos, rstw);
+		return this->encode_sequential_noninterleaved(component, cmp_id, rsti, dpos, rstw);
 	} else if (scan_info_.to == 0) {
-		return this->encode_progressive_noninterleaved_dc(component, cmp, rsti, dpos, rstw);
+		return this->encode_progressive_noninterleaved_dc(component, cmp_id, rsti, dpos, rstw);
 	} else {
 		return this->encode_progressive_noninterleaved_ac(component, rsti, dpos, rstw);
 	}
 }
 
-CodingStatus JpgEncoder::encode_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+CodingStatus JpgEncoder::encode_interleaved(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
-		return encode_sequential_interleaved(rsti, cmp, dpos, rstw, csc, mcu, sub);
+		return encode_sequential_interleaved(components, rsti, cmp_id, dpos, rstw, csc, mcu, sub);
 	} else {
-		return encode_progressive_interleaved_dc(rsti, cmp, dpos, rstw, csc, mcu, sub);
+		return encode_progressive_interleaved_dc(components, rsti, cmp_id, dpos, rstw, csc, mcu, sub);
 	}
 }
 
@@ -179,33 +165,33 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& c
 	return status;
 }
 
-CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+CodingStatus JpgEncoder::encode_progressive_interleaved_dc(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	auto status = CodingStatus::OKAY;
 	if (scan_info_.sah == 0) {
 		while (status == CodingStatus::OKAY) {
-			dc_succ_approx_first_stage(components_[cmp], cmp, dpos);
+			dc_succ_approx_first_stage(components[cmp_id], cmp_id, dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu, cmp, csc, sub, rstw);
-			dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components[cmp_id], rsti, mcu, cmp_id, csc, sub, rstw);
+			dpos = components[cmp_id].next_mcupos(frame_info_, mcu, sub);
 		}
 	} else {
 		while (status == CodingStatus::OKAY) {
-			dc_succ_approx_later_stage(components_[cmp], dpos);
+			dc_succ_approx_later_stage(components[cmp_id], dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu, cmp, csc, sub, rstw);
-			dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components[cmp_id], rsti, mcu, cmp_id, csc, sub, rstw);
+			dpos = components[cmp_id].next_mcupos(frame_info_, mcu, sub);
 		}
 	}
 	return status;
 }
 
-CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
+CodingStatus JpgEncoder::encode_sequential_interleaved(const std::vector<Component>& components, int rsti, int& cmp_id, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	auto status = CodingStatus::OKAY;
 	while (status == CodingStatus::OKAY) {
-		encode_sequential(components_[cmp], cmp, dpos);
+		encode_sequential(components[cmp_id], cmp_id, dpos);
 
-		status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu,  cmp, csc, sub, rstw);
-		dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
+		status = jfif::increment_counts(frame_info_, scan_info_, components[cmp_id], rsti, mcu,  cmp_id, csc, sub, rstw);
+		dpos = components[cmp_id].next_mcupos(frame_info_, mcu, sub);
 	}
 	return status;
 }

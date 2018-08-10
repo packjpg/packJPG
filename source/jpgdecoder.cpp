@@ -12,7 +12,7 @@ JpgDecoder::JpgDecoder(const FrameInfo& frame_info, const std::vector<Segment>& 
 	huffman_reader_ = std::make_unique<BitReader>(huffman_data);
 }
 
-void JpgDecoder::decode(std::vector<Component>& components) {
+std::uint8_t JpgDecoder::decode(std::vector<Component>& components) {
 	int scans_decoded = 0; // The number of SOS segments decoded so far.
 	int restart_interval = 0;
 
@@ -44,6 +44,8 @@ void JpgDecoder::decode(std::vector<Component>& components) {
 	if (!huffman_reader_->eof()) {
 		throw std::runtime_error("Coded image data longer than expected.");
 	}
+
+	return padbit_;
 }
 
 void JpgDecoder::check_huffman_tables_available(const std::vector<Component>& components, int scans_finished) {
@@ -262,10 +264,6 @@ void JpgDecoder::decode_sequential_block(Component& component, int cmp, int dpos
 	for (std::size_t bpos = 0; bpos < eob; bpos++) {
 		component.colldata[bpos][dpos] = block_[bpos];
 	}
-}
-
-std::uint8_t JpgDecoder::get_padbit() const {
-	return padbit_;
 }
 
 void JpgDecoder::build_trees() {

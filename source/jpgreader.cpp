@@ -2,7 +2,6 @@
 
 #include <string>
 
-#include "jfif.h"
 #include "segmentparser.h"
 
 JpgReader::JpgReader(Reader& reader) : reader_(reader) {}
@@ -40,10 +39,13 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 	return garbage;
 }
 
-std::tuple<std::vector<Segment>, std::vector<std::uint8_t>> JpgReader::read() {
-	segments_ = parse_segments();
-	garbage_data_ = read_garbage_data();
-	return std::make_tuple(segments_, huffman_data_);
+std::tuple<std::vector<Segment>,
+           std::vector<std::uint8_t>,
+           std::vector<std::uint8_t>,
+           std::vector<std::uint8_t>> JpgReader::read() {
+	const auto segments = parse_segments();
+	const auto garbage_data = read_garbage_data();
+	return std::make_tuple(segments, std::move(huffman_data_), garbage_data, std::move(rst_err_));
 }
 
 
@@ -89,20 +91,4 @@ void JpgReader::read_sos() {
 			break;
 		}
 	}
-}
-
-std::vector<Segment> JpgReader::get_segments() {
-	return segments_;
-}
-
-std::vector<std::uint8_t> JpgReader::get_huffman_data() {
-	return huffman_data_;
-}
-
-std::vector<std::uint8_t> JpgReader::get_garbage_data() {
-	return garbage_data_;
-}
-
-std::vector<std::uint8_t> JpgReader::get_rst_err() {
-	return rst_err_;
 }

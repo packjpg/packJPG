@@ -15,7 +15,7 @@ JpgToPjgController::JpgToPjgController(Reader& jpg_input, Writer& pjg_output, Im
 
 void JpgToPjgController::execute() {
 	auto reader = std::make_unique<JpgReader>(jpg_input_);
-	auto [segments, huffman_data] = reader->read();
+	auto [segments, huffman_data, garbage_data, rst_err] = reader->read();
 	auto [frame_info, components] = SegmentParser::get_frame_info(segments);
 
 	if (debug_.options_.split_dump) {
@@ -29,7 +29,7 @@ void JpgToPjgController::execute() {
 	}
 
 	auto jpeg_decoder = std::make_unique<JpgDecoder>(frame_info, segments, huffman_data);
-	jpeg_decoder->decode(components);
+	const auto padbit = jpeg_decoder->decode(components);
 
 	if (debug_.options_.coll_dump) {
 		debug_.dump_coll(components, debug_.options_.collmode);
@@ -62,11 +62,11 @@ void JpgToPjgController::execute() {
 	}
 
 	auto pjg_encoder = std::make_unique<PjgEncoder>(pjg_output_);
-	pjg_encoder->encode(jpeg_decoder->get_padbit(),
+	pjg_encoder->encode(padbit,
 	                    components,
 	                    segments,
-	                    reader->get_rst_err(),
-	                    reader->get_garbage_data());
+	                    rst_err,
+	                    garbage_data);
 
 }
 

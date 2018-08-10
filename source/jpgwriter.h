@@ -9,26 +9,23 @@
 
 class JpgWriter {
 public:
-	JpgWriter(Writer& writer,
-		const std::vector<Segment>& segments,
+	JpgWriter(Writer& writer);
+
+	void write(const std::vector<Segment>& segments,
 		const std::vector<std::uint8_t>& huffman_data,
 		const std::vector<std::uint8_t>& garbage_data,
 		const std::vector<std::size_t>& restart_marker_pos,
-		const std::vector<std::uint8_t>& rst_err,
+		std::vector<std::uint8_t> rst_err,
 		const std::vector<std::size_t>& scan_pos);
 
-	void write();
-
 private:
-	void write_scan_huffman_data(int& restart_pos, int scan);
+	void write_scan_huffman_data(int& restart_pos, int scans_processed,
+		const std::vector<std::uint8_t>& huffman_data,
+		const std::vector<std::size_t>& restart_marker_pos,
+		std::vector<std::uint8_t> rst_err,
+		const std::vector<std::size_t>& scan_pos);
 		
 	Writer& writer_;
-	const std::vector<Segment>& segments_;
-	const std::vector<std::uint8_t> huffman_data_;
-	const std::vector<std::uint8_t> garbage_data_;
-	const std::vector<std::size_t> restart_marker_pos_;
-	const std::vector<std::size_t> scan_pos_;
-	std::vector<std::uint8_t> rst_err_;
 };
 
 #endif

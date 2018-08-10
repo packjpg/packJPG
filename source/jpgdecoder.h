@@ -21,10 +21,8 @@ public:
 
 	JpgDecoder(const FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data);
 
-	// JPEG decoding routine.
-	void decode(std::vector<Component>& components);
-
-	std::uint8_t get_padbit() const;
+	// JPEG decoding routine. Returns the padbit used in the huffman coding.
+	std::uint8_t decode(std::vector<Component>& components);
 
 private:
 	// Sequential block decoding routine.
