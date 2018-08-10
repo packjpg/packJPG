@@ -8,6 +8,7 @@
 
 #include "bitwriter.h"
 
+#include "component.h"
 #include "codingstatus.h"
 #include "frameinfo.h"
 #include "huffcodes.h"
@@ -16,7 +17,7 @@
 
 class JpgEncoder {
 public:
-	JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit);
+	JpgEncoder(FrameInfo& frame_info, std::vector<Component>& components, const std::vector<Segment>& segments, std::uint8_t padbit);
 	// JPEG encoding routine.
 	void encode();
 
@@ -85,6 +86,7 @@ private:
 	void dc_succ_approx_later_stage(const Component& component, int dpos);
 
 	FrameInfo& frame_info_;
+	std::vector<Component>& components_;
 
 	std::unique_ptr<BitWriter> huffman_writer_; // Bitwise writer for image data.
 	std::vector<std::uint8_t> correction_bits_; // Store for correction bits.

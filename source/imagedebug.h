@@ -22,7 +22,7 @@ public:
 	void dump_dist(const std::vector<Component>& components) const;
 	void dump_header(const std::vector<Segment>& segments) const;
 	void dump_huffman(const std::vector<std::uint8_t>& huffman_data) const;
-	void dump_info(const FrameInfo& frame_info, const std::vector<Segment>& segments) const;
+	void dump_info(const FrameInfo& frame_info, const std::vector<Component>& components, const std::vector<Segment>& segments) const;
 	void dump_pgm(const std::vector<Component>& components) const;
 	void dump_zdst(const std::vector<Component>& components) const;
 

@@ -19,11 +19,9 @@ public:
 	PjgDecoder(Reader& decoding_stream);
 
 	// Decodes image encoded as pjg to colldata.
-	void decode();
+	std::tuple<FrameInfo, std::vector<Segment>, std::vector<Component>> decode();
 
-	std::vector<Segment> get_segments() const;
 	std::vector<std::uint8_t> get_garbage_data() const;
-	std::unique_ptr<FrameInfo> get_frame_info();
 	std::uint8_t get_padbit() const;
 	std::vector<std::uint8_t> get_rst_err() const;
 private:
@@ -52,9 +50,6 @@ private:
 	std::uint8_t decode_bit();
 
 	int decode_residual(BinaryModel& residual_model, int starting_bit, int context, int initial_residual = 1);
-
-	std::unique_ptr<FrameInfo> frame_info_;
-	std::vector<Segment> segments_;
 
 	std::uint8_t padbit_ = std::numeric_limits<std::uint8_t>::max();
 

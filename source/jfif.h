@@ -7,7 +7,7 @@
 
 namespace jfif {
 	// Increments all counts where needed.
-	CodingStatus increment_counts(const FrameInfo& frame_info, const ScanInfo& scan_info, int rsti, int& mcu, int& component, int& csc, int& sub, int& rstw);
+	CodingStatus increment_counts(const FrameInfo& frame_info, const ScanInfo& scan_info, const Component& component, int rsti, int& mcu, int& component_id, int& csc, int& sub, int& rstw);
 }
 
 #endif

@@ -19,10 +19,10 @@
 class JpgDecoder {
 public:
 
-	JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data);
+	JpgDecoder(const FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data);
 
 	// JPEG decoding routine.
-	void decode();
+	void decode(std::vector<Component>& components);
 
 	std::uint8_t get_padbit() const;
 
@@ -53,17 +53,17 @@ private:
 		return n + (1 << s);
 	}
 
-	void check_huffman_tables_available(int scans_finished);
-	void decode_scan(int restart_interval);
-	CodingStatus decode_interleaved_data(int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
-	CodingStatus decode_noninterleaved_data(int rsti, int cmp, int& dpos);
+	void check_huffman_tables_available(const std::vector<Component>& components, int scans_finished);
+	void decode_scan(std::vector<Component>& components, int restart_interval);
+	CodingStatus decode_interleaved_data(std::vector<Component>& components, int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub);
+	CodingStatus decode_noninterleaved_data(std::vector<Component>& components, int rsti, int cmp, int& dpos);
 
 	void check_eobrun(const Component& component, int eob, int& eobrun, int& peobrun);
 	void decode_sequential_block(Component& component, int cmp, int dpos);
 	void decode_successive_approx_first_stage(Component& component, int cmp, int dpos);
 	void decode_success_approx_later_stage(Component& component, int dpos);
 
-	FrameInfo& frame_info_;
+	const FrameInfo& frame_info_;
 	const std::vector<Segment>& segments_;
 
 	std::array<std::int16_t, 4> lastdc_{}; // last dc for each component

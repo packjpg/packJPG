@@ -40,9 +40,10 @@ std::vector<std::uint8_t> JpgReader::read_garbage_data() {
 	return garbage;
 }
 
-void JpgReader::read() {
+std::tuple<std::vector<Segment>, std::vector<std::uint8_t>> JpgReader::read() {
 	segments_ = parse_segments();
 	garbage_data_ = read_garbage_data();
+	return std::make_tuple(segments_, huffman_data_);
 }
 
 

@@ -13,7 +13,7 @@ class JpgReader {
 public:
 	JpgReader(Reader& reader);
 	// Read in header and image data.
-	void read();
+	std::tuple<std::vector<Segment>, std::vector<std::uint8_t>> read();
 
 	std::vector<Segment> get_segments();
 	std::vector<std::uint8_t> get_huffman_data();

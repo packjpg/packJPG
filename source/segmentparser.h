@@ -32,16 +32,16 @@ public:
 	static int parse_dri(const Segment& segment);
 
 	// Parses SOF0/SOF1/SOF2 segments. Throws a runtime_error exception if there is a problem parsing the segment.
-	static std::unique_ptr<FrameInfo> parse_sof(const Segment& segment, std::map<int, std::array<std::uint16_t, 64>> qtables);
+	static std::tuple<FrameInfo, std::vector<Component>> parse_sof(const Segment& segment, std::map<int, std::array<std::uint16_t, 64>> qtables);
 
 	/*
 	* Gets and sets the frame info (components, etc.) by parsing the appropriate segments. Throws an exception if there is an error parsing
 	* those segments or if a segment is invalid (e.g., an unsupported SOF type).
 	*/
-	static std::unique_ptr<FrameInfo> get_frame_info(const std::vector<Segment>& segments);
+	static std::tuple<FrameInfo, std::vector<Component>> get_frame_info(const std::vector<Segment>& segments);
 
 	// Parses SOS segments. Throws a runtime_error exception if there is a problem parsing the segment.
-	static ScanInfo get_scan_info(const Segment& segment, FrameInfo& frame_info);
+	static ScanInfo get_scan_info(const Segment& segment, std::vector<Component>& components);
 
 private:
 	SegmentParser() = default;

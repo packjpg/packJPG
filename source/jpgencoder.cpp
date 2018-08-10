@@ -6,8 +6,9 @@
 #include "pjpgtbl.h"
 #include "segmentparser.h"
 
-JpgEncoder::JpgEncoder(FrameInfo& frame_info, const std::vector<Segment>& segments, std::uint8_t padbit) :
+JpgEncoder::JpgEncoder(FrameInfo& frame_info, std::vector<Component>& components, const std::vector<Segment>& segments, std::uint8_t padbit) :
 	frame_info_(frame_info),
+	components_(components),
 	segments_(segments) {
 
 	huffman_writer_ = std::make_unique<BitWriter>(padbit);
@@ -39,7 +40,7 @@ void JpgEncoder::encode() {
 			restart_interval = SegmentParser::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = SegmentParser::get_scan_info(segment, frame_info_);
+			scan_info_ = SegmentParser::get_scan_info(segment, components_);
 			break;
 		default:
 			continue; // Ignore other segment types.
@@ -48,7 +49,7 @@ void JpgEncoder::encode() {
 		if (restart_interval > 0) {
 			int tmp = restart_marker_count + (scan_info_.cmp.size() > 1 ?
 				                                  frame_info_.mcu_count / restart_interval
-				                                  : frame_info_.components[scan_info_.cmp[0]].bc / restart_interval);
+				                                  : components_[scan_info_.cmp[0]].bc / restart_interval);
 			restart_marker_pos_.resize(tmp + 1);
 		}
 
@@ -97,7 +98,7 @@ void JpgEncoder::encode_scan(int restart_interval, int& restart_markers) {
 }
 
 CodingStatus JpgEncoder::encode_noninterleaved(int rsti, int cmp, int& dpos, int& rstw) {
-	const auto& component = frame_info_.components[cmp];
+	const auto& component = components_[cmp];
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		return this->encode_sequential_noninterleaved(component, cmp, rsti, dpos, rstw);
 	} else if (scan_info_.to == 0) {
@@ -182,17 +183,17 @@ CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, i
 	auto status = CodingStatus::OKAY;
 	if (scan_info_.sah == 0) {
 		while (status == CodingStatus::OKAY) {
-			dc_succ_approx_first_stage(frame_info_.components[cmp], cmp, dpos);
+			dc_succ_approx_first_stage(components_[cmp], cmp, dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu, cmp, csc, sub, rstw);
+			dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
 		}
 	} else {
 		while (status == CodingStatus::OKAY) {
-			dc_succ_approx_later_stage(frame_info_.components[cmp], dpos);
+			dc_succ_approx_later_stage(components_[cmp], dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu, cmp, csc, sub, rstw);
+			dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
 		}
 	}
 	return status;
@@ -201,10 +202,10 @@ CodingStatus JpgEncoder::encode_progressive_interleaved_dc(int rsti, int& cmp, i
 CodingStatus JpgEncoder::encode_sequential_interleaved(int rsti, int& cmp, int& dpos, int& rstw, int& csc, int& mcu, int& sub) {
 	auto status = CodingStatus::OKAY;
 	while (status == CodingStatus::OKAY) {
-		encode_sequential(frame_info_.components[cmp], cmp, dpos);
+		encode_sequential(components_[cmp], cmp, dpos);
 
-		status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu,  cmp, csc, sub, rstw);
-		dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+		status = jfif::increment_counts(frame_info_, scan_info_, components_[cmp], rsti, mcu,  cmp, csc, sub, rstw);
+		dpos = components_[cmp].next_mcupos(frame_info_, mcu, sub);
 	}
 	return status;
 }

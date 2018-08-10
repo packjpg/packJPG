@@ -7,12 +7,12 @@
 #include "marker.h"
 #include "segmentparser.h"
 
-JpgDecoder::JpgDecoder(FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data) :
+JpgDecoder::JpgDecoder(const FrameInfo& frame_info, const std::vector<Segment>& segments, const std::vector<std::uint8_t>& huffman_data) :
 	frame_info_(frame_info), segments_(segments) {
 	huffman_reader_ = std::make_unique<BitReader>(huffman_data);
 }
 
-void JpgDecoder::decode() {
+void JpgDecoder::decode(std::vector<Component>& components) {
 	int scans_decoded = 0; // The number of SOS segments decoded so far.
 	int restart_interval = 0;
 
@@ -26,14 +26,14 @@ void JpgDecoder::decode() {
 			restart_interval = SegmentParser::parse_dri(segment);
 			continue;
 		case Marker::SOS:
-			scan_info_ = SegmentParser::get_scan_info(segment, frame_info_);
+			scan_info_ = SegmentParser::get_scan_info(segment, components);
 			break;
 		default:
 			continue;
 		}
 
-		check_huffman_tables_available(scans_decoded);
-		decode_scan(restart_interval);
+		check_huffman_tables_available(components, scans_decoded);
+		decode_scan(components, restart_interval);
 		scans_decoded++;
 	}
 
@@ -46,10 +46,10 @@ void JpgDecoder::decode() {
 	}
 }
 
-void JpgDecoder::check_huffman_tables_available(int scans_finished) {
+void JpgDecoder::check_huffman_tables_available(const std::vector<Component>& components, int scans_finished) {
 	// check if huffman tables are available
 	for (std::size_t csc = 0; csc < scan_info_.cmp.size(); csc++) {
-		const auto& component = frame_info_.components[scan_info_.cmp[csc]];
+		const auto& component = components[scan_info_.cmp[csc]];
 		if ((scan_info_.sal == 0 && !htrees_[0][component.huffdc]) ||
 			(scan_info_.sah > 0 && !htrees_[1][component.huffac])) {
 			throw std::runtime_error("Huffman table missing in scan " + std::to_string(scans_finished));
@@ -57,7 +57,7 @@ void JpgDecoder::check_huffman_tables_available(int scans_finished) {
 	}
 }
 
-void JpgDecoder::decode_scan(int restart_interval) {
+void JpgDecoder::decode_scan(std::vector<Component>& components, int restart_interval) {
 	// intial variables set for decoding
 	int cmp = scan_info_.cmp[0];
 	int csc = 0;
@@ -72,9 +72,9 @@ void JpgDecoder::decode_scan(int restart_interval) {
 		std::fill(std::begin(lastdc_), std::end(lastdc_), std::int16_t(0));
 
 		if (scan_info_.cmp.size() > 1) {
-			status = decode_interleaved_data(restart_interval, cmp, dpos, mcu, csc, sub);
+			status = decode_interleaved_data(components, restart_interval, cmp, dpos, mcu, csc, sub);
 		} else {
-			status = decode_noninterleaved_data(restart_interval, cmp, dpos);
+			status = decode_noninterleaved_data(components, restart_interval, cmp, dpos);
 		}
 
 		// unpad huffman reader / check padbit
@@ -89,11 +89,11 @@ void JpgDecoder::decode_scan(int restart_interval) {
 	}
 }
 
-CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos) {
+CodingStatus JpgDecoder::decode_noninterleaved_data(std::vector<Component>& components, int rsti, int cmp, int& dpos) {
 	int rstw = rsti; // restart wait counter
 
 	CodingStatus status = CodingStatus::OKAY;
-	auto& component = frame_info_.components[cmp];
+	auto& component = components[cmp];
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential non interleaved decoding <---
 		while (status == CodingStatus::OKAY) {
@@ -177,17 +177,16 @@ CodingStatus JpgDecoder::decode_noninterleaved_data(int rsti, int cmp, int& dpos
 	return status;
 }
 
-CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub) {
+CodingStatus JpgDecoder::decode_interleaved_data(std::vector<Component>& components, int rsti, int& cmp, int& dpos, int& mcu, int& csc, int& sub) {
 	int rstw = rsti; // restart wait counter
-	auto& components = frame_info_.components;
 	CodingStatus status = CodingStatus::OKAY;
 	if (frame_info_.coding_process == JpegType::SEQUENTIAL) {
 		// ---> sequential interleaved decoding <---
 		while (status == CodingStatus::OKAY) {
 			this->decode_sequential_block(components[cmp], cmp, dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components[cmp], rsti, mcu, cmp, csc, sub, rstw);
+			dpos = components[cmp].next_mcupos(frame_info_, mcu, sub);
 		}
 	} else if (scan_info_.sah == 0) {
 		// ---> progressive interleaved DC decoding <---
@@ -195,8 +194,8 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		while (status == CodingStatus::OKAY) {
 			decode_successive_approx_first_stage(components[cmp], cmp, dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components[cmp], rsti, mcu, cmp, csc, sub, rstw);
+			dpos = components[cmp].next_mcupos(frame_info_, mcu, sub);
 		}
 	} else {
 		// ---> progressive interleaved DC decoding <---
@@ -204,8 +203,8 @@ CodingStatus JpgDecoder::decode_interleaved_data(int rsti, int& cmp, int& dpos, 
 		while (status == CodingStatus::OKAY) {
 			decode_success_approx_later_stage(components[cmp], dpos);
 
-			status = jfif::increment_counts(frame_info_, scan_info_, rsti, mcu, cmp, csc, sub, rstw);
-			dpos = frame_info_.next_mcupos(mcu, cmp, sub);
+			status = jfif::increment_counts(frame_info_, scan_info_, components[cmp], rsti, mcu, cmp, csc, sub, rstw);
+			dpos = components[cmp].next_mcupos(frame_info_, mcu, sub);
 		}
 	}
 	return status;

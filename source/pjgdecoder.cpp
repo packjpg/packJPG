@@ -23,12 +23,12 @@ PjgDecoder::PjgDecoder(Reader& decoding_stream) {
 	decoder_ = std::make_unique<ArithmeticDecoder>(decoding_stream);
 }
 
-void PjgDecoder::decode() {
-	segments_ = SegmentParser::parse_segments(this->decode_generic());
-	for (auto& segment : segments_) {
+std::tuple<FrameInfo, std::vector<Segment>, std::vector<Component>> PjgDecoder::decode() {
+	auto segments = SegmentParser::parse_segments(this->decode_generic());
+	for (auto& segment : segments) {
 		segment.undo_optimize();
 	}
-	frame_info_ = SegmentParser::get_frame_info(segments_);
+	auto [frame_info, components] = SegmentParser::get_frame_info(segments);
 
 	padbit_ = this->decode_bit();
 	const bool rst_err_used = this->decode_bit() == 1;
@@ -37,7 +37,7 @@ void PjgDecoder::decode() {
 		rst_err_ = this->decode_generic();
 	}
 
-	for (auto& component : frame_info_->components) {
+	for (auto& component : components) {
 		const auto zero_sorted_scan = this->decode_zero_sorted_scan();
 		const auto zero_dist_data = this->decode_zdst_high(component);
 		const auto eob_data = this->decode_ac_high(component, zero_sorted_scan, zero_dist_data);
@@ -50,14 +50,8 @@ void PjgDecoder::decode() {
 	if (garbage_exists) {
 		garbage_data_ = this->decode_generic();
 	}
-}
 
-std::unique_ptr<FrameInfo> PjgDecoder::get_frame_info() {
-	return std::move(frame_info_);
-}
-
-std::vector<Segment> PjgDecoder::get_segments() const {
-	return segments_;
+	return std::make_tuple(frame_info, segments, components);
 }
 
 std::uint8_t PjgDecoder::get_padbit() const {

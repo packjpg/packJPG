@@ -132,8 +132,7 @@ void ImageDebug::dump_huffman(const std::vector<std::uint8_t>& huffman_data) con
 	this->dump_data_to_file(huffman_data, huffman_filename);
 }
 
-void ImageDebug::dump_info(const FrameInfo & frame_info, const std::vector<Segment>& segments) const {
-	const auto& components = frame_info.components;
+void ImageDebug::dump_info(const FrameInfo & frame_info, const std::vector<Component>& components, const std::vector<Segment>& segments) const {
 	const auto info_filename = base_file_ + ".nfo";
 	auto writer = std::make_unique<FileWriter>(info_filename);
 

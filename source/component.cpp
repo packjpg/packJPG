@@ -293,3 +293,21 @@ int Component::dc_1ddct_predictor(std::size_t dpos) {
 
 	return pred;
 }
+
+int Component::next_mcupos(const FrameInfo& frame_info, int mcu, int sub) const {
+	// get correct position in image ( x & y )
+	int dpos;
+	if (sfh > 1) {
+		// to fix mcu order
+		dpos = (mcu / frame_info.mcu_width) * sfh + (sub / sfv);
+		dpos *= bch;
+		dpos += (mcu % frame_info.mcu_width) * sfv + (sub % sfv);
+	} else if (sfv > 1) {
+		// simple calculation to speed up things if simple fixing is enough
+		dpos = (mcu * mbs) + sub;
+	} else {
+		// no calculations needed without subsampling
+		dpos = mcu;
+	}
+	return dpos;
+}

@@ -208,14 +208,14 @@ void SegmentParser::parse_sof_component_info(std::map<int, std::array<std::uint1
 	}
 }
 
-std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std::map<int, std::array<std::uint16_t, 64>> qtables) {
-	auto frame_info = std::make_unique<FrameInfo>();
+std::tuple<FrameInfo, std::vector<Component>> SegmentParser::parse_sof(const Segment& segment,  std::map<int, std::array<std::uint16_t, 64>> qtables) {
+	FrameInfo frame_info;
 	// Set the JPEG coding type:
 	const auto segment_type = segment.get_type();
 	if (segment_type == Marker::SOF2) {
-		frame_info->coding_process = JpegType::PROGRESSIVE;
+		frame_info.coding_process = JpegType::PROGRESSIVE;
 	} else if (segment_type == Marker::SOF0 || segment_type == Marker::SOF1) {
-		frame_info->coding_process = JpegType::SEQUENTIAL;
+		frame_info.coding_process = JpegType::SEQUENTIAL;
 	} else {
 		throw std::runtime_error("Tried to parse a " + std::to_string(int(segment_type)) + " segment in the SOF parser.");
 	}
@@ -231,15 +231,15 @@ std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std
 
 	auto first = reader->read_byte();
 	auto second = reader->read_byte();
-	frame_info->image_height = bitops::pack(first, second);
-	if (frame_info->image_height == 0) {
+	frame_info.image_height = bitops::pack(first, second);
+	if (frame_info.image_height == 0) {
 		throw std::runtime_error("Image height is zero in the frame header.");
 	}
 
 	first = reader->read_byte();
 	second = reader->read_byte();
-	frame_info->image_width = bitops::pack(first, second);
-	if (frame_info->image_width == 0) {
+	frame_info.image_width = bitops::pack(first, second);
+	if (frame_info.image_width == 0) {
 		throw std::runtime_error("Image width is zero in the frame header.");
 	}
 
@@ -249,10 +249,9 @@ std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std
 	} else if (component_count > 4) {
 		throw std::runtime_error("Image has " + std::to_string(component_count) + " components, max 4 are supported");
 	}
+	std::vector<Component> components(component_count);
 
-	frame_info->components.resize(component_count);
-
-	parse_sof_component_info(qtables, *reader, frame_info->components);
+	parse_sof_component_info(qtables, *reader, components);
 
 	if (!reader->end_of_reader()) {
 		throw std::runtime_error("Too many bytes in SOF segment.");
@@ -260,22 +259,22 @@ std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std
 
 	int h_max = -1; // max horizontal sample factor
 	int v_max = -1; // max verical sample factor
-	for (const auto& component : frame_info->components) {
+	for (const auto& component : components) {
 		h_max = std::max(component.sfh, h_max);
 		v_max = std::max(component.sfv, v_max);
 	}
-	frame_info->mcu_height = static_cast<int>(std::ceil(
-		static_cast<float>(frame_info->image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
-	frame_info->mcu_width = static_cast<int>(std::ceil(
-		static_cast<float>(frame_info->image_width) / static_cast<float>(8 * v_max)));
-	frame_info->mcu_count = frame_info->mcu_height * frame_info->mcu_width;
-	for (auto& component : frame_info->components) {
-		component.bcv = frame_info->mcu_height * component.sfh;
-		component.bch = frame_info->mcu_width * component.sfv;
+	frame_info.mcu_height = static_cast<int>(std::ceil(
+		static_cast<float>(frame_info.image_height) / static_cast<float>(8 * h_max))); // MCUs per line.
+	frame_info.mcu_width = static_cast<int>(std::ceil(
+		static_cast<float>(frame_info.image_width) / static_cast<float>(8 * v_max)));
+	frame_info.mcu_count = frame_info.mcu_height * frame_info.mcu_width;
+	for (auto& component : components) {
+		component.bcv = frame_info.mcu_height * component.sfh;
+		component.bch = frame_info.mcu_width * component.sfv;
 		component.bc = component.bcv * component.bch;
-		component.ncv = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_height) *
+		component.ncv = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_height) *
 			(static_cast<float>(component.sfh) / (8.0 * h_max))));
-		component.nch = static_cast<int>(std::ceil(static_cast<float>(frame_info->image_width) *
+		component.nch = static_cast<int>(std::ceil(static_cast<float>(frame_info.image_width) *
 			(static_cast<float>(component.sfv) / (8.0 * v_max))));
 
 		for (auto& coeffs : component.colldata) {
@@ -284,18 +283,18 @@ std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std
 	}
 
 	// Determine components' statistical ids:
-	if (frame_info->components.size() <= 3) {
-		for (std::size_t component = 0; component < frame_info->components.size(); component++) {
-			frame_info->components[component].sid = component;
+	if (components.size() <= 3) {
+		for (std::size_t component = 0; component < components.size(); component++) {
+			components[component].sid = component;
 		}
 	} else {
-		for (auto& component : frame_info->components) {
+		for (auto& component : components) {
 			component.sid = 0;
 		}
 	}
 
 	// Determine automatic settings:
-	for (auto& component : frame_info->components) {
+	for (auto& component : components) {
 		std::size_t set;
 		for (set = 0; pjg::conf_sets[set][component.sid] > static_cast<std::uint32_t>(component.bc); set++) {
 			if (pjg::conf_sets[set][component.sid] <= static_cast<std::uint32_t>(component.bc)) {
@@ -308,10 +307,10 @@ std::unique_ptr<FrameInfo> SegmentParser::parse_sof(const Segment& segment,  std
 		component.segm_cnt = pjg::conf_segm;
 		component.nois_trs = pjg::conf_ntrs[set][component.sid];
 	}
-	return frame_info;
+	return std::make_tuple(frame_info, std::move(components));
 }
 
-std::unique_ptr<FrameInfo> SegmentParser::get_frame_info(const std::vector<Segment>& segments) {
+std::tuple<FrameInfo, std::vector<Component>> SegmentParser::get_frame_info(const std::vector<Segment>& segments) {
 	// Get the quantization tables:
 	std::map<int, std::array<std::uint16_t, 64>> qtables;
 	for (auto& segment : segments) {
@@ -368,7 +367,7 @@ std::unique_ptr<FrameInfo> SegmentParser::get_frame_info(const std::vector<Segme
 	throw std::runtime_error("No SOF segment found.");
 }
 
-ScanInfo SegmentParser::get_scan_info(const Segment& segment, FrameInfo& frame_info) {
+ScanInfo SegmentParser::get_scan_info(const Segment& segment, std::vector<Component>& components) {
 	if (segment.get_type() != Marker::SOS) {
 		throw std::runtime_error(
 			"Tried to parse a " + std::to_string(int(segment.get_type())) + " segment in the SOS parser.");
@@ -377,22 +376,22 @@ ScanInfo SegmentParser::get_scan_info(const Segment& segment, FrameInfo& frame_i
 	reader->skip(4); // Skip the segment header.
 	ScanInfo scan_info;
 	const std::uint32_t component_count = reader->read_byte();
-	if (component_count > frame_info.components.size()) {
-		throw std::range_error(std::to_string(component_count) + " components in scan, only " + std::to_string(frame_info.components.size()) + " are allowed");
+	if (component_count > components.size()) {
+		throw std::range_error(std::to_string(component_count) + " components in scan, only " + std::to_string(components.size()) + " are allowed");
 	}
 	scan_info.cmp.resize(component_count);
 	for (std::uint32_t i = 0; i < component_count; i++) {
 		const int jpg_id = reader->read_byte();
 		std::uint32_t cmp;
-		for (cmp = 0; cmp < frame_info.components.size(); cmp++) {
-			if (jpg_id == frame_info.components[cmp].jid) {
+		for (cmp = 0; cmp < components.size(); cmp++) {
+			if (jpg_id == components[cmp].jid) {
 				break;
 			}
 		}
-		if (cmp == frame_info.components.size()) {
+		if (cmp == components.size()) {
 			throw std::range_error("component id mismatch in start-of-scan");
 		}
-		auto& component = frame_info.components[cmp];
+		auto& component = components[cmp];
 		scan_info.cmp[i] = std::int32_t(cmp);
 		const auto byte = reader->read_byte();
 		component.huffdc = bitops::left_nibble(byte);

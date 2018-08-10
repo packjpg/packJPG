@@ -12,41 +12,38 @@ PjgToJpgController::PjgToJpgController(Reader& pjg_input, Writer& jpg_output, Im
 
 void PjgToJpgController::execute() {
 	auto pjg_decoder = std::make_unique<PjgDecoder>(pjg_input_);
-	pjg_decoder->decode();
-
-	auto frame_info = pjg_decoder->get_frame_info();
-	const auto segments = pjg_decoder->get_segments();
+	auto [frame_info, segments, components] = pjg_decoder->decode();
 
 	if (debug_.options_.fcoll_dump) {
-		debug_.dump_coll(frame_info->components, debug_.options_.collmode);
+		debug_.dump_coll(components, debug_.options_.collmode);
 	}
 
 	if (debug_.options_.zdst_dump) {
-		debug_.dump_zdst(frame_info->components);
+		debug_.dump_zdst(components);
 	}
 
 	if (debug_.options_.txt_info) {
-		debug_.dump_info(*frame_info, segments);
+		debug_.dump_info(frame_info, components, segments);
 	}
 
 	if (debug_.options_.dist_info) {
-		debug_.dump_dist(frame_info->components);
+		debug_.dump_dist(components);
 	}
 
-	for (auto& component : frame_info->components) {
+	for (auto& component : components) {
 		component.adapt_icos();
 		component.unpredict_dc();
 	}
 
 	if (debug_.options_.coll_dump) {
-		debug_.dump_coll(frame_info->components, debug_.options_.collmode);
+		debug_.dump_coll(components, debug_.options_.collmode);
 	}
 
 	if (debug_.options_.pgm_dump) {
-		debug_.dump_pgm(frame_info->components);
+		debug_.dump_pgm(components);
 	}
 
-	auto jpeg_encoder = std::make_unique<JpgEncoder>(*frame_info, segments, pjg_decoder->get_padbit());
+	auto jpeg_encoder = std::make_unique<JpgEncoder>(frame_info, components, segments, pjg_decoder->get_padbit());
 	jpeg_encoder->encode();
 
 	if (debug_.options_.split_dump) {

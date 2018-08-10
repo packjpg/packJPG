@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "codingstatus.h"
+#include "frameinfo.h"
 #include "zerodistribution.h"
 
 class Component {
@@ -31,6 +32,9 @@ public:
 	CodingStatus next_mcuposn(int rsti, int& dpos, int& rstw) const;
 
 	int idct_2d_fst_8x8(int dpos, int ix, int iy) const;
+
+	// Calculates next position for MCU.
+	int next_mcupos(const FrameInfo& frame_info, int mcu, int sub) const;
 
 	std::array<std::vector<int16_t>, 64> colldata; // Collection sorted DCT coefficients.
 
