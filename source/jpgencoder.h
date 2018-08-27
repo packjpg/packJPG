@@ -42,12 +42,13 @@ private:
 	void dc_prg_fs(const HuffCodes& dc_table);
 	// Progressive AC encoding routine.
 	void ac_prg_fs(const HuffCodes& ac_table, int& eobrun);
+	void vli_encode(const HuffCodes& ac_table, std::int16_t kth_elem, std::int32_t zero_run);
 	// Progressive DC SA encoding routine.
 	void dc_prg_sa();
 	// Progressive AC SA encoding routine.
 	void ac_prg_sa(const HuffCodes& ac_table, int& eobrun);
 	// Run of EOB encoding routine.
-	void eobrun(const HuffCodes& ac_table, int& eobrun);
+	void encode_eobrun(const HuffCodes& ac_table, int& eobrun);
 	// Correction bits encoding routine.
 	void write_correction_bits();
 
@@ -81,6 +82,8 @@ private:
 	void dc_succ_approx_first_stage(const Component& component, int cmp, int dpos);
 	// DC successive approximation later stage.
 	void dc_succ_approx_later_stage(const Component& component, int dpos);
+
+	void huffman_encode(const HuffCodes& table, int symbol);
 
 	const FrameInfo& frame_info_;
 

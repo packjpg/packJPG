@@ -144,7 +144,7 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& c
 		}
 
 		// encode remaining eobrun
-		this->eobrun(ac_table, eobrun);
+		this->encode_eobrun(ac_table, eobrun);
 	} else {
 		// successive approximation later stage
 		while (status == CodingStatus::OKAY) {
@@ -157,7 +157,7 @@ CodingStatus JpgEncoder::encode_progressive_noninterleaved_ac(const Component& c
 		}
 
 		// encode remaining eobrun
-		this->eobrun(ac_table, eobrun);
+		this->encode_eobrun(ac_table, eobrun);
 
 		// encode remaining correction bits
 		this->write_correction_bits();
@@ -216,36 +216,39 @@ void JpgEncoder::encode_sequential(const Component& component, int cmp, int dpos
 	this->block_seq(*dc_tables_[component.huffdc], *ac_tables_[component.huffac]);
 }
 
+void JpgEncoder::vli_encode(const HuffCodes& ac_table, std::int16_t kth_elem, std::int32_t zero_run) {
+	const auto size = pjg::bitlen2048n(kth_elem);
+	const std::uint16_t value = std::uint16_t(envli(size, kth_elem)); // This cast is fine since kth_elem will be -2048 <= 0 <= 2048.
+	const std::int32_t symbol = (zero_run << 4) + size;
+	// write to huffman writer
+	huffman_encode(ac_table, symbol);
+	huffman_writer_->write_u16(value, size);
+}
+
 void JpgEncoder::block_seq(const HuffCodes& dc_table, const HuffCodes& ac_table) {
 	// encode DC
 	this->dc_prg_fs(dc_table);
 
 	// encode AC
-	int z = 0;
-	for (std::size_t bpos = 1; bpos < block_.size(); bpos++) {
+	std::int32_t zero_run = 0;
+	for (std::size_t k = 1; k < block_.size(); k++) {
 		// if nonzero is encountered
-		if (block_[bpos] != 0) {
+		if (block_[k] != 0) {
 			// write remaining zeroes
-			while (z >= 16) {
-				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
-				z -= 16;
+			while (zero_run >= 16) {
+				huffman_encode(ac_table, 0xF0);
+				zero_run -= 16;
 			}
-			// vli encode
-			std::int32_t s = pjg::bitlen2048n(block_[bpos]);
-			std::uint16_t n = std::uint16_t(envli(s, block_[bpos])); // This cast is fine since block[bpos] will be -2048 <= 0 <= 2048.
-			int hc = ((z << 4) + s);
-			// write to huffman writer
-			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffman_writer_->write_u16(n, s);
+			vli_encode(ac_table, block_[k], zero_run);
 			// reset zeroes
-			z = 0;
-		} else { // increment zero counter
-			z++;
+			zero_run = 0;
+		} else {
+			zero_run++;
 		}
 	}
 	// write eob if needed
-	if (z > 0) {
-		huffman_writer_->write_u16(ac_table.cval[0], ac_table.clen[0]);
+	if (zero_run > 0) {
+		huffman_encode(ac_table, 0);
 	}
 }
 
@@ -261,10 +264,10 @@ void JpgEncoder::dc_succ_approx_first_stage(const Component& component, int cmp,
 
 void JpgEncoder::dc_prg_fs(const HuffCodes& dc_table) {
 	// encode DC	
-	std::int32_t s = pjg::bitlen2048n(block_[0]);
-	std::uint16_t n = std::uint16_t(envli(s, block_[0])); // This cast is fine since block[0] will be -2048 <= 0 <= 2048.
-	huffman_writer_->write_u16(dc_table.cval[s], dc_table.clen[s]);
-	huffman_writer_->write_u16(n, s);
+	const auto size = pjg::bitlen2048n(block_[0]);
+	const std::uint16_t value = std::uint16_t(envli(size, block_[0])); // This cast is fine since block[0] will be -2048 <= 0 <= 2048.
+	huffman_encode(dc_table, size);
+	huffman_writer_->write_u16(value, size);
 }
 
 void JpgEncoder::dc_succ_approx_later_stage(const Component& component, int dpos) {
@@ -276,100 +279,94 @@ void JpgEncoder::dc_succ_approx_later_stage(const Component& component, int dpos
 }
 
 void JpgEncoder::dc_prg_sa() {
-	// enocode next bit of dc coefficient
+	// encode next bit of dc coefficient
 	huffman_writer_->write_bit(std::uint8_t(block_[0]));
+}
+
+void JpgEncoder::huffman_encode(const HuffCodes& table, int symbol) {
+	const auto size = table.clen[symbol];
+	const auto code = table.cval[symbol];
+	huffman_writer_->write_u16(code, size);
 }
 
 void JpgEncoder::ac_prg_fs(const HuffCodes& ac_table, int& eobrun) {
 	// encode AC
-	std::uint8_t z = 0;
-	for (int bpos = scan_info_.from; bpos <= scan_info_.to; bpos++) {
+	std::int32_t zero_run = 0;
+	for (int k = scan_info_.from; k <= scan_info_.to; k++) {
 		// if nonzero is encountered
-		if (block_[bpos] != 0) {
+		if (block_[k] != 0) {
 			// encode eobrun
-			this->eobrun(ac_table, eobrun);
+			encode_eobrun(ac_table, eobrun);
 			// write remaining zeroes
-			while (z >= 16) {
-				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
-				z -= 16;
+			while (zero_run >= 16) {
+				huffman_encode(ac_table, 0xF0);
+				zero_run -= 16;
 			}
-			// vli encode
-			std::int32_t s = pjg::bitlen2048n(block_[bpos]);
-			std::uint16_t n = std::uint16_t(envli(s, block_[bpos])); // This cast is fine since block[bpos] will be -2048 <= 0 <= 2048.
-			int hc = ((z << 4) + s);
-			// write to huffman writer
-			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffman_writer_->write_u16(n, s);
+			vli_encode(ac_table, block_[k], zero_run);
 			// reset zeroes
-			z = 0;
+			zero_run = 0;
 		} else { // increment zero counter
-			z++;
+			zero_run++;
 		}
 	}
 
 	// check eob, increment eobrun if needed
-	if (z > 0) {
+	if (zero_run > 0) {
 		eobrun++;
 		// check eobrun, encode if needed
 		if (eobrun == ac_table.max_eobrun) {
-			this->eobrun(ac_table, eobrun);
+			this->encode_eobrun(ac_table, eobrun);
 		}
 	}
 }
 
 void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 	int eob = scan_info_.from;
-	int bpos;
+	int k;
 
 	// check if block contains any newly nonzero coefficients and find out position of eob
-	for (bpos = scan_info_.to; bpos >= scan_info_.from; bpos--) {
-		if ((block_[bpos] == 1) || (block_[bpos] == -1)) {
-			eob = bpos + 1;
+	for (k = scan_info_.to; k >= scan_info_.from; k--) {
+		if ((block_[k] == 1) || (block_[k] == -1)) {
+			eob = k + 1;
 			break;
 		}
 	}
 
 	// encode eobrun if needed
 	if ((eob > scan_info_.from) && (eobrun > 0)) {
-		this->eobrun(ac_table, eobrun);
+		this->encode_eobrun(ac_table, eobrun);
 		this->write_correction_bits();
 	}
 
 	// encode AC
-	std::uint8_t z = 0;
-	for (bpos = scan_info_.from; bpos < eob; bpos++) {
+	std::int32_t zero_run = 0;
+	for (k = scan_info_.from; k < eob; k++) {
 		// if zero is encountered
-		if (block_[bpos] == 0) {
-			z++; // increment zero counter
-			if (z == 16) { // write zeroes if needed
-				huffman_writer_->write_u16(ac_table.cval[0xF0], ac_table.clen[0xF0]);
+		if (block_[k] == 0) {
+			zero_run++; // increment zero counter
+			if (zero_run == 16) { // write zeroes if needed
+				huffman_encode(ac_table, 0xF0);
 				this->write_correction_bits();
-				z = 0;
+				zero_run = 0;
 			}
 		}
 		// if nonzero is encountered
-		else if ((block_[bpos] == 1) || (block_[bpos] == -1)) {
-			// vli encode			
-			std::int32_t s = pjg::bitlen2048n(block_[bpos]);
-			std::uint16_t n = std::uint16_t(envli(s, block_[bpos])); // This cast is fine since block[bpos] will be -2048 <= 0 <= 2048.
-			int hc = (z << 4) + s;
-			// write to huffman writer
-			huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-			huffman_writer_->write_u16(n, s);
+		else if ((block_[k] == 1) || (block_[k] == -1)) {
+			vli_encode(ac_table, block_[k], zero_run);
 			// write correction bits
 			this->write_correction_bits();
 			// reset zeroes
-			z = 0;
+			zero_run = 0;
 		} else { // store correction bits
-			std::uint8_t bit = block_[bpos] & 0x1;
+			std::uint8_t bit = block_[k] & 0x1;
 			correction_bits_.emplace_back(bit);
 		}
 	}
 
 	// fast processing after eob
-	for (; bpos <= scan_info_.to; bpos++) {
-		if (block_[bpos] != 0) { // store correction bits
-			std::uint8_t bit = block_[bpos] & 0x1;
+	for (; k <= scan_info_.to; k++) {
+		if (block_[k] != 0) { // store correction bits
+			std::uint8_t bit = block_[k] & 0x1;
 			correction_bits_.emplace_back(bit);
 		}
 	}
@@ -379,25 +376,27 @@ void JpgEncoder::ac_prg_sa(const HuffCodes& ac_table, int& eobrun) {
 		eobrun++;
 		// check eobrun, encode if needed
 		if (eobrun == ac_table.max_eobrun) {
-			this->eobrun(ac_table, eobrun);
+			this->encode_eobrun(ac_table, eobrun);
 			this->write_correction_bits();
 		}
 	}
 }
 
-void JpgEncoder::eobrun(const HuffCodes& ac_table, int& eobrun) {
+void JpgEncoder::encode_eobrun(const HuffCodes& ac_table, int& eobrun) {
 	if (eobrun > 0) {
 		while (eobrun > ac_table.max_eobrun) {
-			huffman_writer_->write_u16(ac_table.cval[0xE0], ac_table.clen[0xE0]);
-			huffman_writer_->write_u16(std::uint16_t(e_envli(14, 32767)), 14);
+			huffman_encode(ac_table, 0xE0);
+			constexpr std::size_t size = 14;
+			constexpr std::uint16_t value = e_envli(size, 32767);
+			huffman_writer_->write_u16(value, size);
 			eobrun -= ac_table.max_eobrun;
 		}
-		std::int32_t s = bitlen(eobrun);
-		s--;
-		std::uint16_t n = std::uint16_t(e_envli(s, eobrun));
-		int hc = s << 4;
-		huffman_writer_->write_u16(ac_table.cval[hc], ac_table.clen[hc]);
-		huffman_writer_->write_u16(n, s);
+		std::int32_t size = bitlen(eobrun);
+		size--;
+		const std::uint16_t value = std::uint16_t(e_envli(size, eobrun));
+		const std::int32_t symbol = size << 4;
+		huffman_encode(ac_table, symbol);
+		huffman_writer_->write_u16(value, size);
 		eobrun = 0;
 	}
 }
