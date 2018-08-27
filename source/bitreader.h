@@ -10,7 +10,6 @@ public:
 	~BitReader() = default;
 	std::uint16_t read_u16(std::size_t num_bits);
 	std::uint8_t read_bit();
-	void rewind_bits(std::size_t num_bits);
 	std::uint8_t unpad(std::uint8_t fillbit);
 	bool eof() const;
 	bool overread() const;
