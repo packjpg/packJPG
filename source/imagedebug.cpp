@@ -9,7 +9,7 @@
 ImageDebug::ImageDebug(const std::string& base_filename, DebugOptions options) : base_file_(base_filename), options_(options) {
 }
 
-void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) const {
+void ImageDebug::dump_coll(std::vector<Component>& components, CollectionMode collmode) const {
 	for (std::size_t c = 0; c < components.size(); c++) {
 		const auto coll_filename = base_file_ + ".coll" + std::to_string(c);
 		auto writer = std::make_unique<FileWriter>(coll_filename);
@@ -18,21 +18,21 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 
 		std::size_t dpos = 0;
 		switch (collmode) {
-		case 0: // standard collections
+		case CollectionMode::STANDARD:
 			for (std::size_t bpos = 0; bpos < colldata.size(); bpos++) {
 				for (dpos = 0; dpos < colldata[bpos].size(); dpos++) {
 					writer->write(colldata[bpos][dpos]);
 				}
 			}
 			break;
-		case 1: // sequential order collections, 'dhufs'
+		case CollectionMode::SEQUENTIAL:
 			for (dpos = 0; dpos < std::size_t(component.bc); dpos++) {
 				for (std::size_t bpos = 0; bpos < component.colldata.size(); bpos++) {
 					writer->write(colldata[bpos][dpos]);
 				}
 			}
 			break;
-		case 2: // square collections
+		case CollectionMode::SQUARE:
 			for (std::size_t i = 0; i < pjg::zigzag.size() && i >= 0;) {
 				const auto bpos = pjg::zigzag[i];
 				i++;
@@ -49,7 +49,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 				}
 			}
 			break;
-		case 3: // uncollections
+		case CollectionMode::UNCOLLECTION:
 			for (int i = 0; i < component.bcv * 8; i++) {
 				for (int j = 0; j < component.bch * 8; j++) {
 					const auto bpos = pjg::zigzag[((i % 8) * 8) + (j % 8)];
@@ -58,7 +58,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 				}
 			}
 			break;
-		case 4: // square collections / alt order (even/uneven)
+		case CollectionMode::ALTSQUARE:
 			for (std::size_t i = 0; i < pjg::even_zigzag.size() && i >= 0;) {
 				const auto bpos = pjg::even_zigzag[i];
 				i++;
@@ -75,7 +75,7 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 				}
 			}
 			break;
-		case 5: // uncollections / alt order (even/uneven)
+		case CollectionMode::ALTUNCOLLECTION:
 			for (int i = 0; i < (component.bcv * 8); i++) {
 				for (int j = 0; j < (component.bch * 8); j++) {
 					const auto bpos = pjg::even_zigzag[((i % 8) * 8) + (j % 8)];
@@ -83,9 +83,6 @@ void ImageDebug::dump_coll(std::vector<Component>& components, int collmode) con
 					writer->write(component.colldata[bpos][d_pos]);
 				}
 			}
-			break;
-		default:
-			// Do nothing
 			break;
 		}
 	}

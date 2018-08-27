@@ -1,9 +1,10 @@
 #ifndef DEBUGOPTIONS_H
 #define DEBUGOPTIONS_H
+#include "collectionmode.h"
 
 class DebugOptions {
 public:
-	int collmode = 0; // write mode for collections: 0 -> std, 1 -> dhf, 2 -> squ, 3 -> unc
+	CollectionMode collmode = CollectionMode::STANDARD;
 	bool coll_dump = false;
 	bool fcoll_dump = false;
 	bool split_dump = false;

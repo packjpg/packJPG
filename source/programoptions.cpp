@@ -28,7 +28,7 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 			const auto digit = arg.substr(5);
 			const auto digit_pos = digit.find_first_of("0123456789");
 			if (digit_pos != std::string::npos) {
-				options.debug_options.collmode = std::clamp(std::stoi(digit), 0, 5);
+				options.debug_options.collmode = CollectionMode(std::clamp(std::stoi(digit), 0, 5));
 				options.debug_options.coll_dump = true;
 			} else {
 				fprintf(stderr, "Invalid -coll argument: %s\n", arg.c_str());
@@ -37,7 +37,7 @@ std::pair<std::vector<std::string>, ProgramOptions> ProgramOptions::parse_input(
 			const auto digit = arg.substr(5);
 			const auto digit_pos = digit.find_first_of("0123456789");
 			if (digit_pos != std::string::npos) {
-				options.debug_options.collmode = std::clamp(std::stoi(digit), 0, 5);
+				options.debug_options.collmode = CollectionMode(std::clamp(std::stoi(digit), 0, 5));
 				options.debug_options.fcoll_dump = true;
 			} else {
 				fprintf(stderr, "Invalid -fcol argument: %s\n", arg.c_str());

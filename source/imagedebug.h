@@ -17,7 +17,7 @@ private:
 public:
 	ImageDebug() = default;
 	ImageDebug(const std::string& base_filename, DebugOptions options);
-	void dump_coll(std::vector<Component>& components, int collmode) const;
+	void dump_coll(std::vector<Component>& components, CollectionMode collmode) const;
 	void dump_data_to_file(const std::vector<std::uint8_t>& data, const std::string& file) const;
 	void dump_dist(const std::vector<Component>& components) const;
 	void dump_header(const std::vector<Segment>& segments) const;
