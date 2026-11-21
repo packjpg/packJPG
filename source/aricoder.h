@@ -151,7 +151,14 @@ struct table_s {
 class ArithmeticBitWriter {
 public:
 	template <std::uint8_t bit>
-	void write_bit();
+	inline void write_bit() {
+		curr_byte_ = (curr_byte_ << 1) | bit;
+		curr_bit_++;
+		if (curr_bit_ == 8) {
+			data_.emplace_back(curr_byte_);
+			curr_bit_ = 0;
+		}
+	}
 
 	void write_n_zero_bits(std::size_t n);
 

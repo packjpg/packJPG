@@ -29,6 +29,8 @@
 *.app
 /source/packJPG
 /source/packjpg
+/source/test_runner
+/source/fuzz_roundtrip
 
 # Folders to ignore
 /zzz_backup/

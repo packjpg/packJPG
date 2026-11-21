@@ -6,6 +6,7 @@ CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
 AR       ?= ar
 RANLIB   ?= ranlib
 WINDRES  ?= windres
+PYTHON   ?= python3
 UPX      ?= upx
 USE_UPX  ?= 0
 STATIC   ?= 0
@@ -68,14 +69,21 @@ STRIP ?= -s
 endif
 
 BIN          = $(TARGET)$(EXEEXT)
+TEST_BIN     = test_runner$(EXEEXT)
+FUZZ_BIN     = fuzz_roundtrip$(EXEEXT)
 STATIC_LIB   = $(TARGET)lib.a
 CPPSRC       = aricoder.cpp bitops.cpp packjpg.cpp
 DEPS         = aricoder.h bitops.h dct8x8.h packjpgdll.h packjpglib.h pjpgtbl.h Makefile
 OBJ          = $(CPPSRC:.cpp=.o)
+LIB_OBJ      = $(CPPSRC:.cpp=.lib.o)
+DLL_OBJ      = $(CPPSRC:.cpp=.dll.o)
+TEST_SRC     = ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_aricoder.cpp ../tests/test_library_api.cpp
 ALL_CXXFLAGS = -I. $(CXXSTD) $(OS_CPPFLAGS) $(TARGET_CPPFLAGS) $(CPPFLAGS) $(CXXFLAGS)
-CLEAN_FILES  = $(OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a $(TARGET) $(TARGET).exe $(TARGET).dll lib$(TARGET).so lib$(TARGET).dylib
+CLEAN_FILES  = $(OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a \
+               $(TARGET) $(TARGET).exe $(TARGET).dll lib$(TARGET).so lib$(TARGET).dylib \
+               test_runner test_runner.exe fuzz_roundtrip fuzz_roundtrip.exe
 
-.PHONY: all dev lib dll shared install uninstall clean
+.PHONY: all dev lib dll shared test fuzz install uninstall clean
 
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
@@ -85,6 +93,12 @@ all: $(BIN)
 
 %.o: %.cpp $(DEPS)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS)
+
+%.lib.o: %.cpp $(DEPS)
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_LIB $(PIC_FLAGS)
+
+%.dll.o: %.cpp $(DEPS)
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 
 %.res: %.rc app_icon.ico file_icon.ico
 	$(WINDRES) -O coff $< $@
@@ -98,20 +112,29 @@ endif
 dev: TARGET_CPPFLAGS += -DDEV_BUILD
 dev: $(BIN)
 
-lib: TARGET_CPPFLAGS += -DBUILD_LIB $(PIC_FLAGS)
 lib: $(STATIC_LIB)
 
-$(STATIC_LIB): $(OBJ)
-	$(AR) rcs $@ $(OBJ)
+$(STATIC_LIB): $(LIB_OBJ)
+	$(AR) rcs $@ $(LIB_OBJ)
 	$(RANLIB) $@
 
 shared: dll
 
-dll: TARGET_CPPFLAGS += -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 dll: $(SHLIB)
 
-$(SHLIB): $(OBJ)
+$(SHLIB): $(DLL_OBJ)
 	$(CXX) $(SHLIB_LDFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
+	$(CXX) $(ALL_CXXFLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(OS_LDFLAGS) $(LDFLAGS)
+
+test: $(BIN) $(TEST_BIN)
+	./$(TEST_BIN)
+	$(PYTHON) ../tests/run_tests.py ./$(BIN)
+
+fuzz:
+	clang++ -I. $(CXXSTD) $(OS_CPPFLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=fuzzer,address,undefined $(CPPSRC) ../tests/fuzz_roundtrip.cpp -o $(FUZZ_BIN)
 
 install: $(BIN)
 	install -d "$(DESTDIR)$(BINDIR)"

@@ -8,19 +8,6 @@
 #include <limits>
 #include <stdexcept>
 
-template <std::uint8_t bit>
-void ArithmeticBitWriter::write_bit() {
-    // add bit at last position
-    curr_byte_ = (curr_byte_ << 1) | bit;
-	// increment bit position
-	curr_bit_++;
-
-	// write bit if done
-	if (curr_bit_ == 8) {
-		data_.emplace_back(curr_byte_);
-		curr_bit_ = 0;
-	}
-}
 
 void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	if (n + curr_bit_ >= 8) {
