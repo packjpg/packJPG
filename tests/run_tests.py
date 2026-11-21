@@ -38,6 +38,7 @@ def run_cli(binary, args, stdin_bytes=None):
         or proc.returncode < 0
         or "ERROR: AddressSanitizer" in err_text
         or "ERROR: LeakSanitizer" in err_text
+        or "WARNING: ThreadSanitizer" in err_text
         or "runtime error:" in err_text
     ):
         out_text = proc.stdout.decode("utf-8", errors="replace")
@@ -64,7 +65,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="packjpg_suite_") as tmp:
         # 1. Golden v2.5k bitstream compatibility & byte-identical round-trip across all 10 JPEG modes
-        print("[1/5] Golden bitstream SHA-256 & round-trip matrix...")
+        print("[1/6] Golden bitstream SHA-256 & round-trip matrix...")
         first_jpg_bytes = None
         for name, entry in sorted(corpus["cases"].items()):
             jpg_bytes = zlib.decompress(base64.b64decode(entry["jpg_zb64"]))
@@ -105,7 +106,7 @@ def main():
             print(f"  [PASS] {name} (jpg={len(jpg_bytes)}B -> pjg={len(pjg_bytes)}B)")
 
         # 2. Metadata stripping (-d) check
-        print("[2/5] Metadata discard (-d) golden check...")
+        print("[2/6] Metadata discard (-d) golden check...")
         meta_jpg = zlib.decompress(base64.b64decode(corpus["cases"]["metadata_and_trailing_garbage"]["jpg_zb64"]))
         d_in = os.path.join(tmp, "discard_meta.jpg")
         d_pjg = os.path.join(tmp, "discard_meta.pjg")
@@ -130,7 +131,7 @@ def main():
         print("  [PASS] -d metadata discard & header rebuild")
 
         # 3. Pipe mode (-p: stdin -> stdout) compress, -ver, decompress, and clean error stdout
-        print("[3/5] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
+        print("[3/6] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
         rc, pjg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=first_jpg_bytes)
         assert rc == 0 and pjg_stdout.startswith(b"JS"), f"Pipe compress failed (rc={rc}, len={len(pjg_stdout)})"
         rc, jpg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=pjg_stdout)
@@ -140,7 +141,7 @@ def main():
         print("  [PASS] -p/-ver binary stdin/stdout round-trip and clean failure stdout")
 
         # 4. Non-overwrite suffixing, directory path, long filenames, and format-string filenames
-        print("[4/5] CLI file naming, directory rejection, long paths, and format-string safety...")
+        print("[4/6] CLI file naming, directory rejection, long paths, and format-string safety...")
         no_ow_dir = os.path.join(tmp, "no_overwrite")
         os.makedirs(no_ow_dir)
         # Passing a directory path must not crash with uncaught std::length_error
@@ -180,7 +181,7 @@ def main():
         print("  [PASS] non-overwrite suffixing, directory path, long paths, and format-string filenames")
 
         # 5. Malformed / truncated JPEG & PJG negative regression suite
-        print("[5/5] Malformed JPEG & PJG negative regressions...")
+        print("[5/6] Malformed JPEG & PJG negative regressions...")
         malformed_inputs = {
             "empty.jpg": b"",
             "soi_only.jpg": b"\xff\xd8",
@@ -218,6 +219,7 @@ def main():
             rc_neg, _, _ = run_cli(binary, ["-np", "-v1", fpath])
             assert rc_neg != 0, f"Expected non-zero exit code for malformed {fname}"
 
+        # Differential fuzzing regressions: non-injective sequential AC 0x30 symbol & mixed padbits
         raw_440 = zlib.decompress(base64.b64decode(corpus["cases"]["ycbcr_440_16x32"]["jpg_zb64"]))
         mut_0x30 = raw_440.replace(b"\x12\x21\x31\x41", b"\x12\x21\x30\x41", 1)
         assert mut_0x30 != raw_440
@@ -264,6 +266,96 @@ def main():
         with open(aligned_jpg_path, "rb") as f:
             assert f.read() == byte_aligned_jpg, "Byte-aligned scan round-trip mismatch"
         print(f"  [PASS] {len(malformed_inputs) + 3} malformed, padbit, & fuzz-discovered edge cases handled cleanly")
+
+        # 6. Output directory (-out), wildcards (*.jpg / ?), recursive (-r), and parallel batch (-j4)
+        print("[6/6] Output directory (-out), wildcards, recursive (-r), and parallel (-j4) batch...")
+        batch_in = os.path.join(tmp, "batch_in")
+        sub_a = os.path.join(batch_in, "album_a")
+        sub_b = os.path.join(batch_in, "album_b", "nested")
+        os.makedirs(sub_a)
+        os.makedirs(sub_b)
+
+        expected_jpgs = {}
+        case_items = sorted(corpus["cases"].items())
+        for idx, (cname, centry) in enumerate(case_items[:6]):
+            raw_jpg = zlib.decompress(base64.b64decode(centry["jpg_zb64"]))
+            target_dir = sub_a if (idx % 2 == 0) else sub_b
+            rel_path = os.path.relpath(os.path.join(target_dir, f"{cname}.jpg"), batch_in)
+            full_jpg = os.path.join(batch_in, rel_path)
+            with open(full_jpg, "wb") as f:
+                f.write(raw_jpg)
+            expected_jpgs[rel_path] = (raw_jpg, centry["pjg_sha256"])
+
+        # Unexpanded wildcard pattern passed directly in argv (simulating Windows cmd.exe)
+        glob_out = os.path.join(tmp, "glob_out")
+        glob_pattern = os.path.join(sub_a, "*.jpg")
+        rc, _, _ = run_cli(binary, ["-np", "-out", glob_out, glob_pattern])
+        assert rc == 0, f"Wildcard -out failed with rc={rc}"
+        assert len([f for f in os.listdir(glob_out) if f.endswith(".pjg")]) == 3
+
+        # Single-char '?' wildcard pattern + -out=<dir> syntax
+        q_out = os.path.join(tmp, "q_out")
+        first_sub_a_name = os.path.basename(next(k for k in expected_jpgs if k.startswith("album_a")))
+        q_pattern = os.path.join(sub_a, "?" + first_sub_a_name[1:])
+        rc, _, _ = run_cli(binary, ["-np", f"-out={q_out}", q_pattern])
+        assert rc == 0 and len(os.listdir(q_out)) == 1
+
+        # Recursive directory traversal (-r) + parallel workers (-j4) + -ver + -out hierarchy preservation
+        rec_pjg_out = os.path.join(tmp, "rec_pjg")
+        rec_jpg_out = os.path.join(tmp, "rec_jpg")
+        rc, _, _ = run_cli(binary, ["-np", "-r", "-j4", "-ver", "-out", rec_pjg_out, batch_in])
+        assert rc == 0, f"Parallel recursive compress failed (rc={rc})"
+        for rel_jpg, (_, exp_sha) in expected_jpgs.items():
+            rel_pjg = os.path.splitext(rel_jpg)[0] + ".pjg"
+            pjg_path = os.path.join(rec_pjg_out, rel_pjg)
+            assert os.path.isfile(pjg_path), f"Missing recursive output {pjg_path}"
+            with open(pjg_path, "rb") as f:
+                assert hashlib.sha256(f.read()).hexdigest() == exp_sha
+
+        rc, _, _ = run_cli(binary, ["-np", "-r", "-j4", "-out", rec_jpg_out, rec_pjg_out])
+        assert rc == 0, f"Parallel recursive decompress failed (rc={rc})"
+        for rel_jpg, (orig_bytes, _) in expected_jpgs.items():
+            restored_path = os.path.join(rec_jpg_out, rel_jpg)
+            assert os.path.isfile(restored_path), f"Missing restored JPEG {restored_path}"
+            with open(restored_path, "rb") as f:
+                assert f.read() == orig_bytes
+
+        # Collision-free non-overwrite reservation across threads when flattening duplicate basenames into one -out dir
+        dup_a = os.path.join(tmp, "dup_a")
+        dup_b = os.path.join(tmp, "dup_b")
+        dup_out = os.path.join(tmp, "dup_out")
+        os.makedirs(dup_a)
+        os.makedirs(dup_b)
+        with open(os.path.join(dup_a, "same.jpg"), "wb") as f:
+            f.write(first_jpg_bytes)
+        with open(os.path.join(dup_b, "same.jpg"), "wb") as f:
+            f.write(first_jpg_bytes)
+        rc, _, _ = run_cli(
+            binary,
+            ["-np", "-j2", "-out", dup_out, os.path.join(dup_a, "same.jpg"), os.path.join(dup_b, "same.jpg")],
+        )
+        assert rc == 0
+        assert os.path.isfile(os.path.join(dup_out, "same.pjg"))
+        assert os.path.isfile(os.path.join(dup_out, "same_.pjg"))
+
+        # Error handling when -out points to (or beneath) an existing regular file or is missing its argument
+        rc_bad1, _, _ = run_cli(binary, ["-np", "-out", os.path.join(dup_a, "same.jpg"), os.path.join(dup_a, "same.jpg")])
+        rc_bad2, _, _ = run_cli(binary, ["-np", "-out"])
+        rc_bad3, _, _ = run_cli(binary, ["-np", "-out", os.path.join(dup_a, "same.jpg", "sub"), os.path.join(dup_a, "same.jpg")])
+        assert rc_bad1 != 0 and rc_bad2 != 0 and rc_bad3 != 0
+
+        # Lazy -out creation: no-input help runs and invalid/missing inputs must NOT leave empty directories behind
+        lazy_no_args = os.path.join(tmp, "lazy_no_args")
+        lazy_bad_in = os.path.join(tmp, "lazy_bad_in")
+        bad_txt = os.path.join(tmp, "not_an_image.txt")
+        with open(bad_txt, "wb") as f:
+            f.write(b"plain text")
+        rc_l1, _, _ = run_cli(binary, ["-np", "-out", lazy_no_args])
+        rc_l2, _, _ = run_cli(binary, ["-np", "-out", lazy_bad_in, os.path.join(tmp, "does_not_exist.jpg"), bad_txt])
+        assert rc_l1 != 0 and rc_l2 != 0
+        assert not os.path.exists(lazy_no_args), "Empty -out directory should not be created when no inputs are given"
+        assert not os.path.exists(lazy_bad_in), "Empty -out directory should not be created when all inputs fail check_file"
+        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, and -j4 parallel batch")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0

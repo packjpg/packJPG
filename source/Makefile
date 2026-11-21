@@ -108,10 +108,10 @@ endif
 all: $(BIN)
 
 %.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS)
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS)
 
 %.dev.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS) -DDEV_BUILD
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -DDEV_BUILD
 
 %.lib.o: %.cpp $(DEPS)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_LIB $(PIC_FLAGS)
@@ -123,13 +123,13 @@ all: $(BIN)
 	$(WINDRES) -O coff $< $@
 
 $(BIN): $(OBJ) $(RES)
-	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) -o $@ $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $^ $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
 
 dev: $(DEV_OBJ) $(RES)
-	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) -o $(BIN) $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $^ $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif

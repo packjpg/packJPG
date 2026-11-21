@@ -63,12 +63,15 @@ Usage examples:
 Command line switches
 ~~~~~~~~~~~~~~~~~~~~~
 
- -ver  verify files after processing
- -v?   level of verbosity; 0,1 or 2 is allowed (default 0)
- -np   no pause after processing files
- -o    overwrite existing files
- -p    proceed on warnings
- -d    discard meta-info
+ -ver      verify files after processing
+ -v?       level of verbosity; 0,1 or 2 is allowed (default 0)
+ -np       no pause after processing files
+ -o        overwrite existing files
+ -out dir  write output files to specified directory
+ -r        recursively process directories and wildcard patterns
+ -j?       parallel worker threads (-j or -j0 uses available CPU cores)
+ -p        proceed on warnings
+ -d        discard meta-info
 
 By default, compression is cancelled on warnings. If warnings are 
 skipped by using "-p", most files with warnings can also be compressed, 
@@ -101,6 +104,7 @@ Usage examples:
  "packJPG -v1 -o baboon.pjg"
  "packJPG -ver lena.jpg"
  "packJPG -d tiffany.jpg"
+ "packJPG -r -j -out archive photos"
  "packJPG -p *.jpg"
 
 

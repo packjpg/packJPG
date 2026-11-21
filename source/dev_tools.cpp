@@ -10,10 +10,18 @@
 
 namespace {
 
+FILE* open_dump_file( const std::string& fn, const char* mode )
+{
+	if ( !ensure_parent_directory( fn ) ) {
+		return nullptr;
+	}
+	return std::fopen( fn.c_str(), mode );
+}
+
 bool dump_file( CodecContext& ctx, const std::string& base, const char* ext, const void* data, std::size_t bpv, std::size_t size )
 {
 	const std::string fn = make_filename( base, ext );
-	FILE* fp = std::fopen( fn.c_str(), "wb" );
+	FILE* fp = open_dump_file( fn, "wb" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
@@ -40,7 +48,7 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode )
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		const std::string fn = make_filename( base, ext[ cmp ] );
-		FILE* fp = std::fopen( fn.c_str(), "wb" );
+		FILE* fp = open_dump_file( fn, "wb" );
 		if ( fp == nullptr ) {
 			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 			ctx.errorlevel = 2;
@@ -129,7 +137,7 @@ bool dump_zdst( CodecContext& ctx, const std::string& base )
 bool dump_info( CodecContext& ctx, const std::string& base )
 {
 	const std::string fn = make_filename( base, "nfo" );
-	FILE* fp = std::fopen( fn.c_str(), "w" );
+	FILE* fp = open_dump_file( fn, "w" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
@@ -189,7 +197,7 @@ bool dump_info( CodecContext& ctx, const std::string& base )
 bool dump_dist( CodecContext& ctx, const std::string& base )
 {
 	const std::string fn = make_filename( base, "dist" );
-	FILE* fp = std::fopen( fn.c_str(), "wb" );
+	FILE* fp = open_dump_file( fn, "wb" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
@@ -218,7 +226,7 @@ bool dump_pgm( CodecContext& ctx, const std::string& base )
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		const std::string fn = make_filename( base, ext[ cmp ] );
-		FILE* fp = std::fopen( fn.c_str(), "wb" );
+		FILE* fp = open_dump_file( fn, "wb" );
 		if ( fp == nullptr ) {
 			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 			ctx.errorlevel = 2;
@@ -261,7 +269,7 @@ bool dump_errfile( CodecContext& ctx, const std::string& input_name )
 	if ( ctx.errorlevel == 0 ) return true;
 
 	const std::string fn = make_filename( input_name, ( ctx.errorlevel == 1 ) ? "wrn.nfo" : "err.nfo" );
-	FILE* fp = std::fopen( fn.c_str(), "w" );
+	FILE* fp = open_dump_file( fn, "w" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
