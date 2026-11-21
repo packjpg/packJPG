@@ -1,9 +1,15 @@
-#define DCT_RSC_FACTOR		8192
-#define DCT_RESCALE( v )	( ( ( v > 0 ) ? ( v + (DCT_RSC_FACTOR/2) ) : ( v - (DCT_RSC_FACTOR/2) ) ) / DCT_RSC_FACTOR )
+#ifndef DCT8X8_H
+#define DCT8X8_H
+
+inline constexpr int DCT_RSC_FACTOR = 8192;
+
+constexpr int dct_rescale( int v ) noexcept {
+	return ( ( v > 0 ) ? ( v + ( DCT_RSC_FACTOR / 2 ) ) : ( v - ( DCT_RSC_FACTOR / 2 ) ) ) / DCT_RSC_FACTOR;
+}
 
 
 // precalculated int values for 8x8 IDCT, multplied by 8192
-const int icos_idct_8x8[ 4096 ] =
+inline constexpr int icos_idct_8x8[ 4096 ] =
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1420,  1970,  1856,  1670,  1420,  1116,   769,   392, 
@@ -520,7 +526,7 @@ const int icos_idct_8x8[ 4096 ] =
 };
 
 // precalculated int values for 8x8 FDCT, multplied by 8192
-const int icos_fdct_8x8[ 4096 ] =
+inline constexpr int icos_fdct_8x8[ 4096 ] =
 {
 	 1024,  1024,  1024,  1024,  1024,  1024,  1024,  1024, 
 	 1024,  1024,  1024,  1024,  1024,  1024,  1024,  1024, 
@@ -1037,7 +1043,7 @@ const int icos_fdct_8x8[ 4096 ] =
 };
 
 // precalculated int base values for 8x8 DCT, multplied by 8192
-const int icos_base_8x8[ 64 ] =
+inline constexpr int icos_base_8x8[ 64 ] =
 {
 	 8192,  8192,  8192,  8192,  8192,  8192,  8192,  8192, 
 	11363,  9633,  6436,  2260, -2260, -6436, -9633, -11363, 
@@ -1050,7 +1056,7 @@ const int icos_base_8x8[ 64 ] =
 };
 
 // precalculated int values for 1x8 IDCT, multplied by 8192
-const int icos_idct_1x8[ 64 ] =
+inline constexpr int icos_idct_1x8[ 64 ] =
 {
 	 1024,  1420,  1338,  1204,  1024,   805,   554,   283, 
 	 1024,  1204,   554,  -283, -1024, -1420, -1338,  -805, 
@@ -1063,7 +1069,7 @@ const int icos_idct_1x8[ 64 ] =
 };
 
 // precalculated int values for 1x8 FDCT, multplied by 8192
-const int icos_fdct_1x8[ 64 ] =
+inline constexpr int icos_fdct_1x8[ 64 ] =
 {
 	 8192,  8192,  8192,  8192,  8192,  8192,  8192,  8192, 
 	11363,  9633,  6436,  2260, -2260, -6436, -9633, -11363, 
@@ -1076,12 +1082,12 @@ const int icos_fdct_1x8[ 64 ] =
 };
 
 
-// dct functions follow, you need to rescale the results using DCT_RESCALE
+// dct functions follow, you need to rescale the results using dct_rescale
 
 /* -----------------------------------------------
 	inverse 8x8 DCT transform
 	----------------------------------------------- */
-inline int idct_2d_fst_8x8( signed short* F, int ix, int iy )
+inline int idct_2d_fst_8x8( const signed short* F, int ix, int iy )
 {
 	int idct;
 	int ixy;
@@ -1103,7 +1109,7 @@ inline int idct_2d_fst_8x8( signed short* F, int ix, int iy )
 /* -----------------------------------------------
 	forward 8x8 DCT transform
 	----------------------------------------------- */
-inline int fdct_2d_fst_8x8( unsigned char* f, int iu, int iv )
+inline int fdct_2d_fst_8x8( const unsigned char* f, int iu, int iv )
 {
 	int fdct;
 	int iuv;
@@ -1125,7 +1131,7 @@ inline int fdct_2d_fst_8x8( unsigned char* f, int iu, int iv )
 /* -----------------------------------------------
 	inverse 1D-8 DCT transform
 	----------------------------------------------- */
-inline int idct_1d_fst_8( signed short* F, int ix )
+inline int idct_1d_fst_8( const signed short* F, int ix )
 {
 	int idct;
 	int i;
@@ -1146,7 +1152,7 @@ inline int idct_1d_fst_8( signed short* F, int ix )
 /* -----------------------------------------------
 	forward 1D-8 DCT transform
 	----------------------------------------------- */
-inline int fdct_1d_fst_8( unsigned char* f, int iu )
+inline int fdct_1d_fst_8( const unsigned char* f, int iu )
 {
 	int fdct;
 	int i;
@@ -1163,4 +1169,6 @@ inline int fdct_1d_fst_8( unsigned char* f, int iu )
 	
 	return fdct;
 }
+
+#endif
 

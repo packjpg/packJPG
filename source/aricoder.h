@@ -27,27 +27,12 @@ struct symbol {
 // table struct, used in in statistical models,
 // holding all info needed for one context
 struct table {
-	table() = default;
-	table(const table&) = delete;
-	table& operator=(const table&) = delete;
-
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
-	std::vector<table*> links;
+	std::vector<std::unique_ptr<table>> links;
 	// accumulated counts
 	uint32_t scale = uint32_t(0);
-
-	/* -----------------------------------------------
-	Recursively deletes all the tables pointed to in links.
-	----------------------------------------------- */
-	~table() {
-		for (auto& link : links) {
-			if (link != nullptr) {
-				delete link;
-			}
-		}
-	}
 
 	/* -----------------------------------------------
 	Checks if counts exist, creating it if it does not.
@@ -92,28 +77,13 @@ struct table {
 // special table struct, used in in model_s,
 // holding additional info for a speedier 'totalize_table'
 struct table_s {
-	table_s() = default;
-	table_s(const table_s&) = delete;
-	table_s& operator=(const table_s&) = delete;
-
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
-	std::vector<table_s*> links;
+	std::vector<std::unique_ptr<table_s>> links;
 	// speedup info
 	uint16_t max_count = uint16_t(0);
 	uint16_t max_symbol = uint16_t(0);
-
-	/* -----------------------------------------------
-	Recursively deletes all the tables pointed to in links.
-	----------------------------------------------- */
-	~table_s() {
-		for (auto& link : links) {
-			if (link != nullptr) {
-				delete link;
-			}
-		}
-	}
 
 	/* -----------------------------------------------
 	Resizes the table by rightshifting each count by 1.
@@ -191,7 +161,7 @@ private:
 class ArithmeticEncoder
 {
 	public:
-    ArithmeticEncoder(Writer& writer);
+    explicit ArithmeticEncoder(Writer& writer);
 	ArithmeticEncoder(const ArithmeticEncoder&) = delete;
 	ArithmeticEncoder& operator=(const ArithmeticEncoder&) = delete;
 	~ArithmeticEncoder();
@@ -216,8 +186,8 @@ class ArithmeticEncoder
 
 class ArithmeticDecoder {
 	public:
-    ArithmeticDecoder(Reader& reader);
-	~ArithmeticDecoder() {}
+    explicit ArithmeticDecoder(Reader& reader);
+	~ArithmeticDecoder() = default;
 	unsigned int decode_count( symbol* s );
 	void decode( symbol* s );
 	
@@ -247,9 +217,6 @@ class model_s
 	public:
 	
 	model_s( int max_s, int max_c, int max_o, int c_lim );
-	model_s(const model_s&) = delete;
-	model_s& operator=(const model_s&) = delete;
-	~model_s();
 	
 	void update_model( int symbol );
 	void shift_context( int c );
@@ -273,7 +240,9 @@ class model_s
 	int sb0_count;
 	
 	std::vector<uint32_t> totals;
-	bool* scoreboard;
+	std::vector<std::uint8_t> scoreboard;
+	std::unique_ptr<table_s> null_table_;
+	std::unique_ptr<table_s> start_table_;
 	std::vector<table_s*> contexts;
 };
 
@@ -287,9 +256,6 @@ class model_b
 	public:
 	
 	model_b( int max_c, int max_o, int c_lim );
-	model_b(const model_b&) = delete;
-	model_b& operator=(const model_b&) = delete;
-	~model_b();
 	
 	void update_model( int symbol );
 	void shift_context( int c );
@@ -305,16 +271,18 @@ class model_b
 	const int max_order;
 	const int max_count;
 	
+	std::unique_ptr<table> null_table_;
+	std::unique_ptr<table> start_table_;
 	std::vector<table*> contexts;
 };
 
 // Base case for shifting an arbitrary number of contexts into the model.
 template <typename M>
-static void shift_model(const M&) {}
+inline void shift_model(const M&) {}
 
 // Shift an arbitrary number of contexts into the model (at most max_c contexts).
 template <typename M, typename C, typename... Cargs>
-static void shift_model(const M& model, C context, Cargs ... contextList) {
+inline void shift_model(const M& model, C context, Cargs ... contextList) {
 	model->shift_context(context);
 	shift_model(model, contextList...);
 }
@@ -322,7 +290,7 @@ static void shift_model(const M& model, C context, Cargs ... contextList) {
 /* -----------------------------------------------
 	generic model_s encoder function
 	----------------------------------------------- */
-static inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c )
+inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c )
 {
 	symbol s;
 	int esc;
@@ -337,7 +305,7 @@ static inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c
 /* -----------------------------------------------
 	generic model_s decoder function
 	----------------------------------------------- */	
-static inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
+inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 {
 	symbol s;
 	uint32_t count;
@@ -357,7 +325,7 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 /* -----------------------------------------------
 	generic model_b encoder function
 	----------------------------------------------- */	
-static inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c )
+inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c )
 {
 	symbol s;
 	
@@ -369,7 +337,7 @@ static inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c
 /* -----------------------------------------------
 	generic model_b decoder function
 	----------------------------------------------- */	
-static inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
+inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 {
 	symbol s;
 	
@@ -382,22 +350,22 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 	return c;
 }
 
-static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_s>& model, int c )
+inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_s>& model, int c )
 {
 	encode_ari( encoder, model.get(), c );
 }
 
-static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_s>& model )
+inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_s>& model )
 {
 	return decode_ari( decoder, model.get() );
 }
 
-static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_b>& model, int c )
+inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_b>& model, int c )
 {
 	encode_ari( encoder, model.get(), c );
 }
 
-static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_b>& model )
+inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_b>& model )
 {
 	return decode_ari( decoder, model.get() );
 }

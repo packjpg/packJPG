@@ -1,18 +1,41 @@
 #ifndef BITOPS_H
 #define BITOPS_H
 
-#define RBITS( c, n )		( c & ( 0xFF >> (8 - n) ) )
-#define LBITS( c, n )		( c >> (8 - n) )
-#define MBITS( c, l, r )	( RBITS( c,l ) >> r )
-#define BITN( c, n )		( (c >> n) & 0x1 )
-#define BITLEN( l, v )		for ( l = 0; ( v >> l ) > 0; l++ )
-#define FDIV2( v, p )		( ( v < 0 ) ? -( (-v) >> p ) : ( v >> p ) )
-
+#include <array>
 #include <cstdio>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+
+constexpr unsigned int rbits_u8( std::uint8_t c, int n ) noexcept {
+	return ( n <= 0 ) ? 0u : ( static_cast<unsigned int>( c ) & ( 0xFFu >> ( 8 - n ) ) );
+}
+
+constexpr unsigned int lbits_u8( std::uint8_t c, int n ) noexcept {
+	return ( n <= 0 ) ? 0u : ( static_cast<unsigned int>( c ) >> ( 8 - n ) );
+}
+
+constexpr unsigned int mbits_u8( std::uint8_t c, int l, int r ) noexcept {
+	return rbits_u8( c, l ) >> r;
+}
+
+template <typename T>
+constexpr int bit_n( T c, int n ) noexcept {
+	return static_cast<int>( ( static_cast<int>( c ) >> n ) & 0x1 );
+}
+
+constexpr int bit_length_u32( unsigned int v ) noexcept {
+	int l = 0;
+	while ( ( v >> l ) > 0 ) {
+		++l;
+	}
+	return l;
+}
+
+constexpr int fdiv2( int v, int p ) noexcept {
+	return ( v < 0 ) ? -( ( -v ) >> p ) : ( v >> p );
+}
 
 	
 /* -----------------------------------------------
@@ -20,22 +43,22 @@
 	----------------------------------------------- */
 class BitReader {
 public:
-	BitReader( unsigned char* array, int size );
-	~BitReader();	
+	BitReader( const unsigned char* array, int size );
+	~BitReader() = default;	
 	unsigned int read( int nbits );
 	unsigned char read_bit();
 	int unpad( int fillbit );
-	int getpos();
-	int getbitp();
+	int getpos() const;
+	int getbitp() const;
 	void setpos( int pbyte, int pbit );
 	void rewind_bits( int nbits );
-	bool eof();
-	int peof();
+	bool eof() const;
+	int peof() const;
 	
 private:
     void update_curr_byte();
 
-	unsigned char* data = nullptr;
+	const unsigned char* data = nullptr;
 	int lbyte = 0;
 	int cbyte = 0;
 	int cbit = 8;
@@ -46,8 +69,8 @@ private:
 
 class BitWriter {
 public:
-	BitWriter(std::uint8_t padbit);
-	~BitWriter();
+	explicit BitWriter(std::uint8_t padbit);
+	~BitWriter() = default;
 	/*
 	* Writes the first (lowest) n bits from val (n is assumed to be less than or equal to 16).
 	*/
@@ -65,6 +88,10 @@ public:
     * Returns a copy of the bytes written to the writer, padding the current byte if necessary.
     */
 	std::vector<std::uint8_t> get_bytes();
+	/**
+	* Moves out the bytes written to the writer, padding the current byte if necessary.
+	*/
+	std::vector<std::uint8_t> take_bytes();
     /**
     * Allocates and returns a copy of the bytes written to the writer, padding the current byte if necessary.
     */
@@ -259,6 +286,7 @@ public:
 	bool write_byte(std::uint8_t byte) override;
 
 	std::vector<std::uint8_t> get_data() override;
+	std::vector<std::uint8_t> take_data();
 
 	void reset() override;
 	std::size_t num_bytes_written() override;

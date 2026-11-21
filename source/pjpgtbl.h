@@ -1,21 +1,24 @@
+#ifndef PJPGTBL_H
+#define PJPGTBL_H
+
 /* -----------------------------------------------
 	defines for use in packJPG processing
 	----------------------------------------------- */
 
-// action defines
-#define A_COMPRESS			1
-#define A_SPLIT_DUMP		2
-#define A_COLL_DUMP			3
-#define A_FCOLL_DUMP		4
-#define A_ZDST_DUMP			5
-#define A_TXT_INFO			6
-#define A_DIST_INFO			7
-#define A_PGM_DUMP			8
+// action constants
+inline constexpr int A_COMPRESS   = 1;
+inline constexpr int A_SPLIT_DUMP = 2;
+inline constexpr int A_COLL_DUMP  = 3;
+inline constexpr int A_FCOLL_DUMP = 4;
+inline constexpr int A_ZDST_DUMP  = 5;
+inline constexpr int A_TXT_INFO   = 6;
+inline constexpr int A_DIST_INFO  = 7;
+inline constexpr int A_PGM_DUMP   = 8;
 
-// file type defines
-#define F_JPG				1
-#define F_PJG				2
-#define F_UNK				3
+// file type constants
+inline constexpr int F_JPG = 1;
+inline constexpr int F_PJG = 2;
+inline constexpr int F_UNK = 3;
 
 
 /* -----------------------------------------------
@@ -24,7 +27,7 @@
 
 // maxima for each frequency in zigzag order
 // dc maximum is fixed by offset (+4/QUANT)
-static const unsigned short int freqmax[] =
+inline constexpr unsigned short int freqmax[] =
 {
 	1024,  931,  932,  985,  858,  985,  968,  884, 
 	 884,  967, 1020,  841,  871,  840, 1020,  968, 
@@ -137,7 +140,7 @@ int vdqu[ 3 ][ 64 ] =
 */
 
 // standard scan = zigzag scan
-static const unsigned char stdscan[] =
+inline constexpr unsigned char stdscan[] =
 {
 	 0,  1,  2,  3,  4,  5,  6,  7,
 	 8,  9, 10, 11, 12, 13, 14, 15,
@@ -150,7 +153,7 @@ static const unsigned char stdscan[] =
 };
 
 // zigzag scan conversion table
-static const unsigned char zigzag[] =
+inline constexpr unsigned char zigzag[] =
 {
 	 0,  1,  5,  6, 14, 15, 27, 28,
 	 2,  4,  7, 13, 16, 26, 29, 42,
@@ -163,7 +166,7 @@ static const unsigned char zigzag[] =
 };
 
 // zigzag scan reverse conversion table
-static const unsigned char unzigzag[] =
+inline constexpr unsigned char unzigzag[] =
 {
 	 0,  1,  8, 16,  9,  2,  3, 10,
 	17, 24, 32, 25, 18, 11,  4,  5,
@@ -176,7 +179,7 @@ static const unsigned char unzigzag[] =
 };
 
 // even/uneven zigzag scan conversion table
-static const unsigned char even_zigzag[] =
+inline constexpr unsigned char even_zigzag[] =
 {
 
 	 0,  5, 14, 27,  1,  6, 15, 28, 
@@ -190,7 +193,7 @@ static const unsigned char even_zigzag[] =
 };
 
 // context weighting for each band (luminance) (from POTY 2006/2007)
-static const signed int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
+inline constexpr signed int abs_ctx_weights_lum[ 64 ][ 3 ][ 5 ] =
 {
 	{ // DCT(0/0)
 		{  0,  0,  7,  0,  0, },
@@ -842,7 +845,7 @@ static const signed int abs_ctx_weights_chr[ 64 ][ 3 ][ 5 ] =
 */
 
 // tresholds (size of component) for configuration sets
-static const unsigned int conf_sets[][3] =
+inline constexpr unsigned int conf_sets[][3] =
 {
 	{ 76800, 19200, 19200 }, // 2480x1920
 	{ 19200,  4800,  4800 }, // 1280x960
@@ -853,7 +856,7 @@ static const unsigned int conf_sets[][3] =
 };
 
 // configuration sets for number of segments
-static const unsigned char conf_segm[][3] =
+inline constexpr unsigned char conf_segm[][3] =
 {
 	{ 10, 10, 10 },
 	{ 10, 10, 10 },
@@ -864,7 +867,7 @@ static const unsigned char conf_segm[][3] =
 };
 
 // configuration sets for noise thresholds
-static const unsigned char conf_ntrs[][3] =
+inline constexpr unsigned char conf_ntrs[][3] =
 {
 	{  7,  7,  7 },
 	{  6,  6,  6 },
@@ -876,7 +879,7 @@ static const unsigned char conf_ntrs[][3] =
 
 
 // standard huffman tables, found in JPEG specification, Chapter K.3
-static const unsigned char std_huff_tables[4][272] =
+inline constexpr unsigned char std_huff_tables[4][272] =
 {
 	{	// standard luma dc table (0/0)
 		0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -917,11 +920,11 @@ static const unsigned char std_huff_tables[4][272] =
 };
 
 // lengths of standard huffmann tables
-static const unsigned char std_huff_lengths[ 4 ] =	{ 28, 28, 178, 178 };
+inline constexpr unsigned char std_huff_lengths[ 4 ] =	{ 28, 28, 178, 178 };
 
 
 // precalculated bit lengths for values 0...1024
-int pbitlen_0_1024[] =
+inline constexpr int pbitlen_0_1024[] =
 {
 	 0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // 32
 	 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // 64
@@ -959,7 +962,7 @@ int pbitlen_0_1024[] =
 };
 
 // precalculated bit lengths for values -2048...2047
-int pbitlen_n2048_2047[] =
+inline constexpr int pbitlen_n2048_2047[] =
 {
 	12,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -2016
 	11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11, // -1984
@@ -1093,7 +1096,7 @@ int pbitlen_n2048_2047[] =
 
 
 // precalculated segmentation settings (the 0th setting corresponds to 1 segments)
-unsigned char segm_tables[ 49 ][ 50 ] =
+inline constexpr unsigned char segm_tables[ 49 ][ 50 ] =
 {
 	{  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
 	   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, }, // s0
@@ -1657,3 +1660,5 @@ static const signed int abs_ctx_weights[ 64 ][ 3 ][ 5 ] =
 	},
 };
 */
+
+#endif

@@ -253,7 +253,7 @@ unsigned char ArithmeticDecoder::read_bit()
 	// decrement current bit position
 	cbit--;	
 	// return bit at cbit position
-	return BITN( bbyte, cbit );
+	return static_cast<unsigned char>( bit_n( bbyte, cbit ) );
 }
 
 
@@ -280,54 +280,34 @@ model_s::model_s( int max_s, int max_c, int max_o, int c_lim ) :
 		sb0_count(max_s),
 
 		totals(max_s + 2),
-		scoreboard(new bool[max_s]),
+		scoreboard(max_s, std::uint8_t(0)),
+		null_table_(std::make_unique<table_s>()),
+		start_table_(std::make_unique<table_s>()),
 		contexts(max_o + 3)
 {
-	std::fill(scoreboard, scoreboard + max_symbol, false);
-	
 	// set up null table
-	table_s* null_table = new table_s;
-	null_table->counts = std::vector<uint16_t>(max_symbol, uint16_t(1));  // Set all probabilities to 1.
-
-	// set up internal counts
-	null_table->max_count = 1;
-	null_table->max_symbol = max_symbol;
+	null_table_->counts.assign(max_symbol, uint16_t(1)); // Set all probabilities to 1.
+	null_table_->max_count = 1;
+	null_table_->max_symbol = max_symbol;
 	
 	// set up start table
-	table_s* start_table = new table_s;
-	start_table->links = std::vector<table_s*>(max_context);
+	start_table_->links.resize(max_context);
 	
 	// integrate tables into contexts
-	contexts[ 0 ] = null_table;
-	contexts[ 1 ] = start_table;
+	contexts[ 0 ] = null_table_.get();
+	contexts[ 1 ] = start_table_.get();
 	
 	// build initial 'normal' tables
 	for (int i = 2; i <= max_order; i++ ) {
 		// set up current order table
-		contexts[i] = new table_s;
+		auto created = std::make_unique<table_s>();
 		// build forward links
 		if ( i < max_order ) {
-			contexts[i]->links = std::vector<table_s*>(max_context);
+			created->links.resize(max_context);
 		}
-		contexts[ i - 1 ]->links[ 0 ] = contexts[ i ];
+		contexts[ i ] = created.get();
+		contexts[ i - 1 ]->links[ 0 ] = std::move(created);
 	}
-}
-
-
-/* -----------------------------------------------
-	model class destructor - recursive cleanup of memory is done here
-	----------------------------------------------- */
-
-model_s::~model_s()
-{	
-	// clean up each 'normal' table
-	delete contexts[1];
-	
-	// clean up null table
-	delete contexts[0];
-	
-	// free everything else
-	delete[] scoreboard;
 }
 
 
@@ -359,7 +339,7 @@ void model_s::update_model( int symbol )
 	
 	// reset scoreboard and current order
 	current_order = max_order;
-	std::fill(scoreboard, scoreboard + max_symbol, false);
+	std::fill(scoreboard.begin(), scoreboard.end(), std::uint8_t(0));
 	sb0_count = max_symbol;
 }
 
@@ -380,19 +360,20 @@ void model_s::shift_context( int c )
 	// shift each orders' context
 	for (int i = max_order; i > 1; i-- ) {
 		// this is the new current order context
-		table_s* context = contexts[ i - 1 ]->links[ c ];
+		table_s* context = contexts[ i - 1 ]->links[ c ].get();
 		
 		// check if context exists, build if needed
 		if ( context == nullptr ) {
 			// reserve memory for next table_s
-			context = new table_s;
+			auto created = std::make_unique<table_s>();
 			// finished here if this is a max order context
 			if ( i < max_order ) {
 				// build links to higher order tables otherwise
-				context->links.resize(max_context);
+				created->links.resize(max_context);
 			}
+			context = created.get();
 			// put context to its right place
-			contexts[ i - 1 ]->links[ c ] = context;
+			contexts[ i - 1 ]->links[ c ] = std::move(created);
 		}
 		
 		// switch context
@@ -421,7 +402,7 @@ void model_s::exclude_symbols(int c)
 
 	for ( c = c + 1; c < max_symbol; c++ ) {
 		if ( !scoreboard[ c ] ) {
-			scoreboard[ c ] = true;
+			scoreboard[ c ] = 1;
 			sb0_count--;
 		}
 	}
@@ -548,7 +529,7 @@ void model_s::totalize_table( table_s* context )
 					// add counts for the current symbol
 					curr_total += curr_count;
 					// exclude symbol from scoreboard
-					scoreboard[i] = true;
+					scoreboard[i] = 1;
 					sb0_count--;
 				}
 			}
@@ -592,45 +573,32 @@ model_b::model_b( int max_c, int max_o, int c_lim ) :
 		max_order(max_o + 1),
 		max_count(c_lim),
 
+		null_table_(std::make_unique<table>()),
+		start_table_(std::make_unique<table>()),
 		contexts(max_o + 3)
 {
 	// set up null table
-	table* null_table = new table;
-	null_table->counts = std::vector<uint16_t>(2, uint16_t(1));
-	null_table->scale = uint32_t(2);
+	null_table_->counts.assign(2, uint16_t(1));
+	null_table_->scale = uint32_t(2);
 	
 	// set up start table
-	table* start_table = new table;
-	start_table->links = std::vector<table*>(max_context);
+	start_table_->links.resize(max_context);
 		
 	// integrate tables into contexts
-	contexts[ 0 ] = null_table;
-	contexts[ 1 ] = start_table;
+	contexts[ 0 ] = null_table_.get();
+	contexts[ 1 ] = start_table_.get();
 	
 	// build initial 'normal' tables
 	for (int i = 2; i <= max_order; i++ ) {
 		// set up current order table
-		contexts[i] = new table;
+		auto created = std::make_unique<table>();
 		// build forward links
 		if ( i < max_order ) {
-			contexts[i]->links = std::vector<table*>(max_context);
+			created->links.resize(max_context);
 		}
-		contexts[ i - 1 ]->links[ 0 ] = contexts[ i ];
+		contexts[ i ] = created.get();
+		contexts[ i - 1 ]->links[ 0 ] = std::move(created);
 	}
-}
-
-
-/* -----------------------------------------------
-	model class destructor - recursive cleanup of memory is done here
-	----------------------------------------------- */
-	
-model_b::~model_b()
-{
-	// clean up each 'normal' table
-	delete contexts[1];
-	
-	// clean up null table
-	delete contexts[0];
 }
 
 
@@ -674,19 +642,20 @@ void model_b::shift_context( int c )
 	// shift each orders' context
 	for (int i = max_order; i > 1; i-- ) {
 		// this is the new current order context
-		table* context = contexts[ i - 1 ]->links[ c ];
+		table* context = contexts[ i - 1 ]->links[ c ].get();
 		
 		// check if context exists, build if needed
 		if ( context == nullptr ) {
 			// reserve memory for next table
-			context = new table;		
+			auto created = std::make_unique<table>();		
 			// finished here if this is a max order context
 			if ( i < max_order) {
 				// build links to higher order tables otherwise
-				context->links.resize(max_context);
+				created->links.resize(max_context);
 			}
+			context = created.get();
 			// put context to its right place
-			contexts[ i - 1 ]->links[ c ] = context;
+			contexts[ i - 1 ]->links[ c ] = std::move(created);
 		}
 		
 		// switch context

@@ -24,16 +24,10 @@ reading and writing of arrays
 	constructor for BitReader class
 	----------------------------------------------- */	
 
-BitReader::BitReader( unsigned char* array, int size ) {
+BitReader::BitReader( const unsigned char* array, int size ) {
 	data = array;
 	lbyte = size;	
 }
-
-/* -----------------------------------------------
-	destructor for BitReader class
-	----------------------------------------------- */	
-
-BitReader::~BitReader() {}
 
 /* -----------------------------------------------
 	reads n bits from BitReader
@@ -49,7 +43,7 @@ unsigned int BitReader::read( int nbits ) {
 	
 	while ( nbits >= cbit ) {
 		nbits -= cbit;
-		retval |= ( RBITS( data[cbyte], cbit ) << nbits );		
+		retval |= ( rbits_u8( data[cbyte], cbit ) << nbits );		
         update_curr_byte();
         if (eof()) {
             peof_ = nbits;
@@ -58,7 +52,7 @@ unsigned int BitReader::read( int nbits ) {
 	}
 	
 	if ( nbits > 0 ) {		
-		retval |= ( MBITS( data[cbyte], cbit, (cbit-nbits) ) );
+		retval |= mbits_u8( data[cbyte], cbit, cbit - nbits );
 		cbit -= nbits;		
 	}
 	
@@ -76,7 +70,7 @@ unsigned char BitReader::read_bit() {
 	}
 	
 	// read one bit
-	unsigned char bit = BITN( data[cbyte], --cbit );
+	unsigned char bit = static_cast<unsigned char>( bit_n( data[cbyte], --cbit ) );
 	if ( cbit == 0 ) {
         update_curr_byte();
 	} 
@@ -113,7 +107,7 @@ int BitReader::unpad( int fillbit ) {
 	get current position in array
 	----------------------------------------------- */	
 
-int BitReader::getpos() {
+int BitReader::getpos() const {
 	return cbyte;
 }
 
@@ -121,7 +115,7 @@ int BitReader::getpos() {
 	get current bit position
 	----------------------------------------------- */
 	
-int BitReader::getbitp() {
+int BitReader::getbitp() const {
 	return cbit;
 }
 
@@ -171,17 +165,15 @@ void BitReader::rewind_bits( int nbits ) {
 	}
 }
 
-bool BitReader::eof() {
+bool BitReader::eof() const {
 	return eof_;
 }
 
-int BitReader::peof() {
+int BitReader::peof() const {
 	return peof_;
 }
 
 BitWriter::BitWriter(std::uint8_t padbit) : padbit_(padbit) {}
-
-BitWriter::~BitWriter() {}
 
 std::uint32_t rbits32(std::uint32_t val, std::size_t n) {
 	if (n == 0) {
@@ -233,6 +225,11 @@ void BitWriter::pad() {
 std::vector<std::uint8_t> BitWriter::get_bytes() {
 	pad(); // Pad the last bits of the current byte before returning the written bytes.
 	return bytes_;
+}
+
+std::vector<std::uint8_t> BitWriter::take_bytes() {
+	pad();
+	return std::move(bytes_);
 }
 
 unsigned char* BitWriter::get_c_bytes() {
@@ -398,6 +395,10 @@ bool MemoryWriter::write_byte(std::uint8_t byte) {
 
 std::vector<std::uint8_t> MemoryWriter::get_data() {
 	return data_;
+}
+
+std::vector<std::uint8_t> MemoryWriter::take_data() {
+	return std::move(data_);
 }
 
 void MemoryWriter::reset() {

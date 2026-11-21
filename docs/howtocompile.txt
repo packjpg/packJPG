@@ -30,23 +30,23 @@ target architecture (32-bit or 64-bit).
 
 To compile with Microsoft Visual Studio, create a C++ Console Application
 project with C++17 enabled (/std:c++17) and add 'aricoder.cpp',
-'bitops.cpp', and 'packjpg.cpp' (plus 'icons.rc' if desired).
+'bitops.cpp', 'codec_pipeline.cpp', 'jpeg_codec.cpp', 'pjg_codec.cpp', and
+'cli_main.cpp' (plus 'icons.rc' if desired).
 
 
 Compiling packJPG as a static or shared library
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Note: Always run 'make -C source clean' when switching between executable,
-'dev', 'lib', and 'dll'/'shared' targets so object files are rebuilt with
-the matching preprocessor defines.
-
   Static library ('packJPGlib.a'):
-    make -C source clean lib
+    make -C source lib
 
   Shared library ('libpackJPG.so', 'libpackJPG.dylib', or 'packJPG.dll'):
-    make -C source clean shared                # alias: make -C source dll
+    make -C source shared                      # alias: make -C source dll
 
 When building with another build system or IDE:
+- Compile the core modules ('aricoder.cpp', 'bitops.cpp',
+  'codec_pipeline.cpp', 'jpeg_codec.cpp', 'pjg_codec.cpp') together with
+  'packjpg_api.cpp' (instead of 'cli_main.cpp').
 - Define 'BUILD_LIB' when compiling a static library (include 'packjpglib.h'
   in consumer projects).
 - Define 'BUILD_DLL' (which also implies 'BUILD_LIB') when compiling a
@@ -58,11 +58,11 @@ Compiling developer functions
 
 To include developer/debugging functions in the packJPG executable:
 
-    make -C source clean dev
+    make -C source dev
 
-This defines 'DEV_BUILD'. Developer functions are not available in library
-builds and are not needed for normal compression or decompression. Read
-'developer.txt' for more information.
+This defines 'DEV_BUILD' and links 'dev_tools.cpp'. Developer functions are
+not available in library builds and are not needed for normal compression or
+decompression. Read 'developer.txt' for more information.
 
 
 Defines overview / summary
