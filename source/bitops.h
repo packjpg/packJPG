@@ -8,6 +8,7 @@
 #define BITLEN( l, v )		for ( l = 0; ( v >> l ) > 0; l++ )
 #define FDIV2( v, p )		( ( v < 0 ) ? -( (-v) >> p ) : ( v >> p ) )
 
+#include <cstdio>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -151,6 +152,7 @@ public:
 class MemoryReader : public Reader {
 public:
 	MemoryReader(const std::vector<std::uint8_t>& bytes);
+	MemoryReader(std::vector<std::uint8_t>&& bytes);
     MemoryReader(const std::uint8_t* bytes, std::size_t size);
 
 	~MemoryReader() {}
@@ -201,7 +203,7 @@ private:
 
 class StreamReader : public Reader {
 public:
-	StreamReader();
+	explicit StreamReader(FILE* stream = stdin);
 
 	~StreamReader() {}
 
@@ -240,6 +242,7 @@ public:
     unsigned char* get_c_data();
 
 	virtual void reset() = 0;
+	virtual bool flush() { return !error(); }
 	virtual std::size_t num_bytes_written() = 0;
 	virtual bool error() = 0;
 };
@@ -268,6 +271,8 @@ private:
 class FileWriter : public Writer {
 public:
 	FileWriter(const std::string& file_path);
+	FileWriter(const FileWriter&) = delete;
+	FileWriter& operator=(const FileWriter&) = delete;
 	~FileWriter();
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
@@ -278,6 +283,7 @@ public:
 	std::vector<std::uint8_t> get_data() override;
 
 	void reset() override;
+	bool flush() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
@@ -289,7 +295,9 @@ private:
 
 class StreamWriter : public Writer {
 public:
-	StreamWriter();
+	explicit StreamWriter(FILE* stream = stdout);
+	StreamWriter(const StreamWriter&) = delete;
+	StreamWriter& operator=(const StreamWriter&) = delete;
 	~StreamWriter();
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override;
@@ -300,11 +308,15 @@ public:
 	std::vector<std::uint8_t> get_data() override;
 
 	void reset() override;
+	bool flush() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
 private:
+	FILE* stream_ = stdout;
 	std::unique_ptr<MemoryWriter> writer_;
+	bool flushed_ = false;
+	bool error_ = false;
 };
 
 #endif

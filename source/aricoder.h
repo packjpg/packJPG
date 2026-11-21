@@ -27,6 +27,10 @@ struct symbol {
 // table struct, used in in statistical models,
 // holding all info needed for one context
 struct table {
+	table() = default;
+	table(const table&) = delete;
+	table& operator=(const table&) = delete;
+
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
@@ -88,6 +92,10 @@ struct table {
 // special table struct, used in in model_s,
 // holding additional info for a speedier 'totalize_table'
 struct table_s {
+	table_s() = default;
+	table_s(const table_s&) = delete;
+	table_s& operator=(const table_s&) = delete;
+
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
@@ -184,6 +192,8 @@ class ArithmeticEncoder
 {
 	public:
     ArithmeticEncoder(Writer& writer);
+	ArithmeticEncoder(const ArithmeticEncoder&) = delete;
+	ArithmeticEncoder& operator=(const ArithmeticEncoder&) = delete;
 	~ArithmeticEncoder();
 	void encode( symbol* s );
 
@@ -198,7 +208,6 @@ class ArithmeticEncoder
     std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
 	
 	// arithmetic coding variables
-	unsigned int ccode = 0;
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
 	unsigned int cstep = 0;
@@ -219,6 +228,7 @@ class ArithmeticDecoder {
     Reader& reader_;
 	unsigned char bbyte = 0;
 	unsigned char cbit = 0;
+	std::size_t eof_zero_bytes_ = 0;
 	
 	// arithmetic coding variables
 	unsigned int ccode = 0;
@@ -237,6 +247,8 @@ class model_s
 	public:
 	
 	model_s( int max_s, int max_c, int max_o, int c_lim );
+	model_s(const model_s&) = delete;
+	model_s& operator=(const model_s&) = delete;
 	~model_s();
 	
 	void update_model( int symbol );
@@ -275,6 +287,8 @@ class model_b
 	public:
 	
 	model_b( int max_c, int max_o, int c_lim );
+	model_b(const model_b&) = delete;
+	model_b& operator=(const model_b&) = delete;
 	~model_b();
 	
 	void update_model( int symbol );
@@ -334,7 +348,7 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 		count = decoder->decode_count( &s );
 		c = model->convert_symbol_to_int( count, &s );
 		decoder->decode( &s );	
-	} while ( c == ESCAPE_SYMBOL );
+	} while ( c == int(ESCAPE_SYMBOL) );
 	model->update_model( c );
 	
 	return c;

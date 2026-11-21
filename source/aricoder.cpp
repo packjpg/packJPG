@@ -10,6 +10,9 @@
 
 
 void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
+	if (n == 0) {
+		return;
+	}
 	if (n + curr_bit_ >= 8) {
 		auto remainingBits = 8 - curr_bit_;
 		n -= remainingBits;
@@ -28,6 +31,9 @@ void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 }
 
 void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
+	if (n == 0) {
+		return;
+	}
 	constexpr std::uint8_t all_ones = std::numeric_limits<std::uint8_t>::max();
 	if (n + curr_bit_ >= 8) {
 		auto remainingBits = 8 - curr_bit_;
@@ -43,8 +49,10 @@ void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
 		n -= 8;
 	}
 
-	curr_byte_ = (curr_byte_ << n) | (all_ones >> (8 - n));
-	curr_bit_ += n;
+	if (n > 0) {
+		curr_byte_ = (curr_byte_ << n) | (all_ones >> (8 - n));
+		curr_bit_ += n;
+	}
 }
 
 void ArithmeticBitWriter::pad() {
@@ -233,8 +241,12 @@ unsigned char ArithmeticDecoder::read_bit()
 {
 	// read in new byte if needed
 	if ( cbit == 0 ) {
-		if ( !reader_.read_byte(&bbyte)) // read next byte if available
+		if ( !reader_.read_byte(&bbyte) ) { // read next byte if available
+			if ( ++eof_zero_bytes_ > 64 ) {
+				throw std::runtime_error( "unexpected end of arithmetic stream" );
+			}
 			bbyte = 0; // if no more data is left in the stream
+		}
 		cbit = 8;
 	}
 	

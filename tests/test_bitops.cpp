@@ -135,4 +135,54 @@ TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and reset") {
 
 	std::filesystem::remove(tmp_path);
 	REQUIRE_THROWS(FileReader(tmp_path + ".nonexistent"));
+	REQUIRE_THROWS(FileReader(std::filesystem::temp_directory_path().string()));
+}
+
+TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* StreamReader/Writer") {
+	BitWriter bw(0);
+	bw.write_u16(0xFFFF, 0);
+	REQUIRE_EQ(bw.num_bytes_written(), std::size_t(0));
+	bw.write_u16(0xA5, 8);
+	REQUIRE(bw.get_bytes() == std::vector<std::uint8_t>{0xA5});
+
+	MemoryReader empty_mr(nullptr, 0);
+	REQUIRE(empty_mr.end_of_reader());
+	REQUIRE_EQ(empty_mr.get_size(), std::size_t(0));
+	REQUIRE_THROWS(MemoryReader(nullptr, 4));
+	REQUIRE_THROWS(StreamReader(nullptr));
+	REQUIRE_THROWS(StreamWriter(nullptr));
+
+	const auto stream_path = (std::filesystem::temp_directory_path() / "packjpg_stream_io.bin").string();
+	{
+		FILE* out = std::fopen(stream_path.c_str(), "wb");
+		REQUIRE(out != nullptr);
+		{
+			StreamWriter sw(out);
+			sw.write(std::vector<std::uint8_t>{1, 2, 3, 4});
+			REQUIRE(sw.flush());
+			REQUIRE(!sw.error());
+		}
+		std::fclose(out);
+	}
+	{
+		FILE* in = std::fopen(stream_path.c_str(), "rb");
+		REQUIRE(in != nullptr);
+		StreamReader sr(in);
+		std::fclose(in);
+		REQUIRE(sr.get_data() == (std::vector<std::uint8_t>{1, 2, 3, 4}));
+	}
+	// Verify StreamWriter::reset() discards buffered data so destructor writes nothing
+	{
+		FILE* out = std::fopen(stream_path.c_str(), "wb");
+		REQUIRE(out != nullptr);
+		{
+			StreamWriter sw(out);
+			sw.write(std::vector<std::uint8_t>{9, 9, 9});
+			sw.reset();
+		}
+		std::fclose(out);
+		FileReader fr(stream_path);
+		REQUIRE_EQ(fr.get_size(), std::size_t(0));
+	}
+	std::filesystem::remove(stream_path);
 }

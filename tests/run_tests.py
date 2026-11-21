@@ -129,18 +129,23 @@ def main():
         assert b"TRAILING_GARBAGE_BYTES_0123456789" in rebuilt
         print("  [PASS] -d metadata discard & header rebuild")
 
-        # 3. Pipe mode (-p: stdin -> stdout) compress & decompress round-trip
-        print("[3/5] Pipe mode (-p stdin/stdout) round-trip...")
-        rc, pjg_stdout, _ = run_cli(binary, ["-np", "-p", "-"], stdin_bytes=first_jpg_bytes)
+        # 3. Pipe mode (-p: stdin -> stdout) compress, -ver, decompress, and clean error stdout
+        print("[3/5] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
+        rc, pjg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=first_jpg_bytes)
         assert rc == 0 and pjg_stdout.startswith(b"JS"), f"Pipe compress failed (rc={rc}, len={len(pjg_stdout)})"
-        rc, jpg_stdout, _ = run_cli(binary, ["-np", "-p", "-"], stdin_bytes=pjg_stdout)
+        rc, jpg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=pjg_stdout)
         assert rc == 0 and jpg_stdout == first_jpg_bytes, "Pipe round-trip mismatch"
-        print("  [PASS] -p binary stdin/stdout round-trip")
+        rc, bad_stdout, _ = run_cli(binary, ["-np", "-p", "-"], stdin_bytes=b"JS\x19\xff\xff\xff")
+        assert bad_stdout == b"", f"Expected empty stdout on failed pipe decode, got {len(bad_stdout)} bytes"
+        print("  [PASS] -p/-ver binary stdin/stdout round-trip and clean failure stdout")
 
-        # 4. Non-overwrite suffixing, long filenames, and format-string filenames
-        print("[4/5] CLI file naming, long paths, and format-string safety...")
+        # 4. Non-overwrite suffixing, directory path, long filenames, and format-string filenames
+        print("[4/5] CLI file naming, directory rejection, long paths, and format-string safety...")
         no_ow_dir = os.path.join(tmp, "no_overwrite")
         os.makedirs(no_ow_dir)
+        # Passing a directory path must not crash with uncaught std::length_error
+        run_cli(binary, ["-np", "-v1", no_ow_dir])
+
         base_jpg = os.path.join(no_ow_dir, "sample.jpg")
         base_pjg = os.path.join(no_ow_dir, "sample.pjg")
         alt_pjg = os.path.join(no_ow_dir, "sample_.pjg")
@@ -172,7 +177,7 @@ def main():
                 run_cli(binary, ["-np", "-v1", ro_pjg])
             finally:
                 os.chmod(ro_dir, stat.S_IRWXU)
-        print("  [PASS] non-overwrite suffixing, long paths, and format-string filenames")
+        print("  [PASS] non-overwrite suffixing, directory path, long paths, and format-string filenames")
 
         # 5. Malformed / truncated JPEG & PJG negative regression suite
         print("[5/5] Malformed JPEG & PJG negative regressions...")
@@ -183,17 +188,26 @@ def main():
             "sof_qt64.jpg": b"\xff\xd8\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x40\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "sof_short.jpg": b"\xff\xd8\xff\xc0\x00\x05\x08\x00\x08\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "sof_zero_dim.jpg": b"\xff\xd8\xff\xc0\x00\x0b\x08\x00\x00\x00\x08\x01\x01\x11\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "sof_bad_sf15.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\xf1\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "sof_dup_jid.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x0e\x08\x00\x08\x00\x08\x02\x01\x11\x00\x01\x11\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "sof_duplicate_marker.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "sof_65535_oom.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x14\x08\xff\xff\xff\xff\x04\x01\x44\x00\x02\x44\x00\x03\x44\x00\x04\x44\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "dht_kraft_overflow.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00\xff\xc4\x00\x23\x00\x10" + b"\x00" * 15 + bytes(range(16)) + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "sos_dup_cmp.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00" + b"\x10" * 64 + b"\xff\xc0\x00\x0e\x08\x00\x08\x00\x08\x02\x01\x11\x00\x02\x11\x00\xff\xda\x00\x0a\x02\x01\x00\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "dri_short.jpg": b"\xff\xd8\xff\xdd\x00\x03\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "dqt_short.jpg": b"\xff\xd8\xff\xdb\x00\x10" + b"\x00" * 14 + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "dht_short.jpg": b"\xff\xd8\xff\xc4\x00\x10" + b"\x00" * 14 + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "sos_short.jpg": b"\xff\xd8\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00\xff\xda\x00\x04\x01\x00\x00\xff\xd9",
             "rst_in_hdr.jpg": b"\xff\xd8\xff\xd0\x00\x04\x00\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
+            "dqt_zero_entry.jpg": b"\xff\xd8\xff\xdb\x00\x43\x00\x10\x10\x10\x10\x10\x00" + b"\x10" * 58 + b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x00\xff\xd9",
             "pjg_magic_only.pjg": b"JS",
             "pjg_trunc_hdr.pjg": b"JS\x00\x01\x02",
             "pjg_bad_ver.pjg": b"JS\x18",
             "pjg_bad_hcode.pjg": b"JS\x05",
             "pjg_bad_custom_settings.pjg": b"JS\x00\xff\xff\xff\xff\x00\x00\x00\x00\x19\x00\x00\x00\x00",
             "pjg_corrupt_ari.pjg": b"JS\x19" + b"\xff" * 64,
+            "pjg_zero_bomb.pjg": b"JS\x19" + b"\x00" * 32,
+            "pjg_eof_spin.pjg": b"JS\x19\x80",
         }
         neg_dir = os.path.join(tmp, "negative")
         os.makedirs(neg_dir)
@@ -201,8 +215,55 @@ def main():
             fpath = os.path.join(neg_dir, fname)
             with open(fpath, "wb") as f:
                 f.write(payload)
-            run_cli(binary, ["-np", "-v1", fpath])
-        print(f"  [PASS] {len(malformed_inputs)} malformed inputs handled cleanly")
+            rc_neg, _, _ = run_cli(binary, ["-np", "-v1", fpath])
+            assert rc_neg != 0, f"Expected non-zero exit code for malformed {fname}"
+
+        raw_440 = zlib.decompress(base64.b64decode(corpus["cases"]["ycbcr_440_16x32"]["jpg_zb64"]))
+        mut_0x30 = raw_440.replace(b"\x12\x21\x31\x41", b"\x12\x21\x30\x41", 1)
+        assert mut_0x30 != raw_440
+        mut_0x30_path = os.path.join(neg_dir, "seq_ac_0x30.jpg")
+        with open(mut_0x30_path, "wb") as f:
+            f.write(mut_0x30)
+        rc_0x30, _, _ = run_cli(binary, ["-np", mut_0x30_path])
+        assert rc_0x30 != 0 and not os.path.exists(os.path.join(neg_dir, "seq_ac_0x30.pjg"))
+
+        raw_gray = bytearray(zlib.decompress(base64.b64decode(corpus["cases"]["gray_15x17"]["jpg_zb64"])))
+        assert raw_gray[-2:] == b"\xff\xd9"
+        if raw_gray[-3] == 0x00 and raw_gray[-4] == 0xFF:
+            raw_gray[-4] ^= 0x01
+        else:
+            raw_gray[-3] ^= 0x01
+        mixed_pad_path = os.path.join(neg_dir, "mixed_padbits.jpg")
+        with open(mixed_pad_path, "wb") as f:
+            f.write(raw_gray)
+        rc_pad_strict, _, _ = run_cli(binary, ["-np", mixed_pad_path])
+        assert rc_pad_strict != 0, "Expected strict mode to reject mixed padbits"
+        rc_pad_tol, _, _ = run_cli(binary, ["-np", "-p", mixed_pad_path])
+        assert rc_pad_tol == 0, "Expected -p mode to accept mixed padbits with warning"
+
+        # Exact byte-aligned Huffman scan (4-bit DC 0 + 4-bit AC EOB = 8 bits, 0 padbits -> padbit stays -1)
+        byte_aligned_jpg = (
+            b"\xff\xd8"
+            b"\xff\xdb\x00\x43\x00" + (b"\x10" * 64) +
+            b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00"
+            b"\xff\xc4\x00\x14\x00\x00\x00\x00\x01" + (b"\x00" * 12) + b"\x00"
+            b"\xff\xc4\x00\x14\x10\x00\x00\x00\x01" + (b"\x00" * 12) + b"\x00"
+            b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+            b"\x00"
+            b"\xff\xd9"
+        )
+        aligned_jpg_path = os.path.join(neg_dir, "byte_aligned_scan.jpg")
+        aligned_pjg_path = os.path.join(neg_dir, "byte_aligned_scan.pjg")
+        with open(aligned_jpg_path, "wb") as f:
+            f.write(byte_aligned_jpg)
+        rc_aligned, _, _ = run_cli(binary, ["-np", "-ver", "-o", aligned_jpg_path])
+        assert rc_aligned == 0 and os.path.isfile(aligned_pjg_path), "Byte-aligned scan compress failed"
+        os.remove(aligned_jpg_path)
+        rc_aligned_dec, _, _ = run_cli(binary, ["-np", "-o", aligned_pjg_path])
+        assert rc_aligned_dec == 0, "Byte-aligned scan decompress failed"
+        with open(aligned_jpg_path, "rb") as f:
+            assert f.read() == byte_aligned_jpg, "Byte-aligned scan round-trip mismatch"
+        print(f"  [PASS] {len(malformed_inputs) + 3} malformed, padbit, & fuzz-discovered edge cases handled cleanly")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0

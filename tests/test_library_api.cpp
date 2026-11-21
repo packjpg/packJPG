@@ -113,3 +113,121 @@ TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
 	std::filesystem::remove(out_pjg);
 	std::filesystem::remove(rt_jpg);
 }
+
+TEST_CASE("library: FILE* stream2stream round-trip and clean discard on failure") {
+	const auto dir = std::filesystem::temp_directory_path();
+	const auto in_path = (dir / "pjglib_fp_in.bin").string();
+	const auto mid_path = (dir / "pjglib_fp_mid.bin").string();
+	const auto out_path = (dir / "pjglib_fp_out.bin").string();
+
+	const auto jpg = make_minimal_jpeg();
+	{
+		std::ofstream ofs(in_path, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
+	}
+
+	char msg[256] = {0};
+	{
+		FILE* fin = std::fopen(in_path.c_str(), "rb");
+		FILE* fout = std::fopen(mid_path.c_str(), "wb");
+		REQUIRE(fin != nullptr && fout != nullptr);
+		pjglib_init_streams(fin, 2, 0, fout, 2);
+		REQUIRE(pjglib_convert_stream2stream(msg));
+		std::fclose(fin);
+		std::fclose(fout);
+	}
+	{
+		FILE* fin = std::fopen(mid_path.c_str(), "rb");
+		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		REQUIRE(fin != nullptr && fout != nullptr);
+		pjglib_init_streams(fin, 2, 0, fout, 2);
+		REQUIRE(pjglib_convert_stream2stream(msg));
+		std::fclose(fin);
+		std::fclose(fout);
+	}
+	{
+		std::ifstream ifs(out_path, std::ios::binary);
+		std::vector<unsigned char> restored((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE(restored == jpg);
+	}
+
+	// Corrupt input with FILE* output must leave output FILE* completely empty
+	{
+		std::ofstream ofs(in_path, std::ios::binary);
+		ofs.write("JS\x19\xff\xff\xff", 6);
+	}
+	{
+		FILE* fin = std::fopen(in_path.c_str(), "rb");
+		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		REQUIRE(fin != nullptr && fout != nullptr);
+		pjglib_init_streams(fin, 2, 0, fout, 2);
+		REQUIRE(!pjglib_convert_stream2stream(msg));
+		std::fclose(fin);
+		std::fclose(fout);
+		REQUIRE_EQ(std::filesystem::file_size(out_path), std::uintmax_t(0));
+	}
+
+	// Null/invalid pjglib_init_streams arguments fail gracefully
+	pjglib_init_streams(nullptr, 0, 0, nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	pjglib_init_streams(nullptr, 1, 10, nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	pjglib_init_streams(nullptr, 2, 0, nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+
+	std::filesystem::remove(in_path);
+	std::filesystem::remove(mid_path);
+	std::filesystem::remove(out_path);
+}
+
+TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nodes) round-trips") {
+	// Construct a valid 8x8 grayscale JPEG whose AC table has 256 symbols all of length 16
+	// (sum of 2^-16 over 256 symbols = 256 / 65536 <= 1 -> Kraft-valid, 8 + 255 = 263 internal nodes!)
+	std::vector<unsigned char> jpg = {
+		0xFF, 0xD8,
+		0xFF, 0xDB, 0x00, 0x43, 0x00,
+	};
+	jpg.insert(jpg.end(), 64, 16);
+	const unsigned char sof_and_dc[] = {
+		0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+		0xFF, 0xC4, 0x00, 0x14, 0x00,
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, // DC symbol 0 has 1-bit code '0'
+	};
+	jpg.insert(jpg.end(), std::begin(sof_and_dc), std::end(sof_and_dc));
+
+	// Wait: DHT clen[15] is a single byte (max 255 per length slot in JPEG!), so 1 symbol at len 15 + 255 symbols at len 16
+	// = 256 symbols total! Let's count internal nodes:
+	// len 15 code = 0 (000000000000000), len 16 codes = 2..256 (0000000000000010 .. 0000000100000000):
+	// Top 7 zero bits -> 7 unary internal nodes + 255 binary internal nodes = 262 internal nodes (> 256)!
+	const unsigned char ac_hdr[] = {
+		0xFF, 0xC4, 0x01, 0x13, 0x10,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF,
+	};
+	jpg.insert(jpg.end(), std::begin(ac_hdr), std::end(ac_hdr));
+	for (int s = 0; s < 256; ++s) {
+		jpg.push_back(static_cast<unsigned char>(s));
+	}
+	// DC symbol 0 = '0' (1 bit), AC symbol 0 (EOB, first symbol at len 15) = fifteen '0' bits -> total 16 '0' bits = 0x00, 0x00!
+	const unsigned char sos_and_scan[] = {
+		0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+		0x00, 0x00,
+		0xFF, 0xD9,
+	};
+	jpg.insert(jpg.end(), std::begin(sos_and_scan), std::end(sos_and_scan));
+
+	unsigned char* pjg = nullptr;
+	unsigned int pjg_sz = 0;
+	pjglib_init_streams(jpg.data(), 1, static_cast<int>(jpg.size()), nullptr, 1);
+	REQUIRE(pjglib_convert_stream2mem(&pjg, &pjg_sz, nullptr));
+
+	unsigned char* rt = nullptr;
+	unsigned int rt_sz = 0;
+	pjglib_init_streams(pjg, 1, static_cast<int>(pjg_sz), nullptr, 1);
+	REQUIRE(pjglib_convert_stream2mem(&rt, &rt_sz, nullptr));
+	REQUIRE_EQ(std::size_t(rt_sz), jpg.size());
+	REQUIRE_EQ(std::memcmp(rt, jpg.data(), jpg.size()), 0);
+
+	std::free(pjg);
+	std::free(rt);
+}
