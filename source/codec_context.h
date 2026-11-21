@@ -171,6 +171,8 @@ struct HuffCodes {
 struct HuffTree {
 	unsigned short l[ 512 ]{};
 	unsigned short r[ 512 ]{};
+	unsigned char  lut_sym[ 512 ]{};
+	unsigned char  lut_len[ 512 ]{};
 };
 
 /* -----------------------------------------------
@@ -208,7 +210,7 @@ struct CodecContext {
 	std::array<const unsigned char*, 4> freqscan{ stdscan, stdscan, stdscan, stdscan };
 	unsigned char zsrtscan[ 4 ][ 64 ]{};
 
-	int adpt_idct_8x8[ 4 ][ 8 * 8 * 8 * 8 ]{};
+	std::unique_ptr<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>> adpt_idct_8x8;
 	int adpt_idct_1x8[ 4 ][ 1 * 1 * 8 * 8 ]{};
 	int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ]{};
 

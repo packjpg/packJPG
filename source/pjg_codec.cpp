@@ -39,16 +39,35 @@ void pjg_aavrg_prepare( const CodecContext& ctx, int* offsets, int* weights, int
 	offsets[ 4 ] = -2 + ( (  0 ) * w ); // left-left
 	offsets[ 5 ] = -1 + ( (  0 ) * w ); // left
 
-	weights[ 0 ] = abs_ctx_weights_lum[ 0 ][ 0 ][ 2 ]; // top-top
-	weights[ 1 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 1 ]; // top-left
-	weights[ 2 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 2 ]; // top
-	weights[ 3 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 3 ]; // top-right
-	weights[ 4 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 0 ]; // left-left
-	weights[ 5 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 1 ]; // left
+	weights[ 0 ] = abs_ctx_weights_lum[ 0 ][ 0 ][ 2 ];
+	weights[ 1 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 1 ];
+	weights[ 2 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 2 ];
+	weights[ 3 ] = abs_ctx_weights_lum[ 0 ][ 1 ][ 3 ];
+	weights[ 4 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 0 ];
+	weights[ 5 ] = abs_ctx_weights_lum[ 0 ][ 2 ][ 1 ];
 }
 
-int pjg_aavrg_context( const unsigned short* abs_store, const int* offsets, const int* weights, int pos, int p_y, int p_x, int r_x )
+inline int pjg_aavrg_context( const unsigned short* abs_store, const int* offsets, const int* weights, int pos, int p_y, int p_x, int r_x )
 {
+	constexpr int kW0   = abs_ctx_weights_lum[ 0 ][ 0 ][ 2 ];
+	constexpr int kW1   = abs_ctx_weights_lum[ 0 ][ 1 ][ 1 ];
+	constexpr int kW2   = abs_ctx_weights_lum[ 0 ][ 1 ][ 2 ];
+	constexpr int kW3   = abs_ctx_weights_lum[ 0 ][ 1 ][ 3 ];
+	constexpr int kW4   = abs_ctx_weights_lum[ 0 ][ 2 ][ 0 ];
+	constexpr int kW5   = abs_ctx_weights_lum[ 0 ][ 2 ][ 1 ];
+	constexpr unsigned int kWAll = static_cast<unsigned int>( kW0 + kW1 + kW2 + kW3 + kW4 + kW5 );
+
+	if ( ( p_y >= 2 ) && ( p_x >= 2 ) && ( r_x >= 1 ) ) {
+		const unsigned int ctx_avr =
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 0 ] ] ) * kW0 +
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 1 ] ] ) * kW1 +
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 2 ] ] ) * kW2 +
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 3 ] ] ) * kW3 +
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 4 ] ] ) * kW4 +
+			static_cast<unsigned int>( abs_store[ pos + offsets[ 5 ] ] ) * kW5;
+		return static_cast<int>( ( ctx_avr + ( kWAll / 2u ) ) / kWAll );
+	}
+
 	int ctx_avr = 0;
 	int w_ctx   = 0;
 	int w_curr  = 0;
@@ -405,31 +424,32 @@ bool pjg_encode_dc( const CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 	const short* coeffs = ctx.colldata[ cmp ][ 0 ].data();
 	const unsigned char* zdstls = ctx.zdstdata[ cmp ].data();
 
-	for ( int dpos = 0; dpos < bc; dpos++ ) {
-		const int p_y = dpos / w;
-		const int p_x = dpos % w;
-		const int r_x = w - ( p_x + 1 );
+	for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+		const int row_w = std::min( w, bc - dpos );
+		for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+			const int r_x = w - ( p_x + 1 );
 
-		const int snum    = segm_tab[ zdstls[ dpos ] ];
-		const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
-		const int ctx_len = bitlen_1024p( ctx_avr );
-		shift_model( mod_len, ctx_len, snum );
+			const int snum    = segm_tab[ zdstls[ dpos ] ];
+			const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
+			const int ctx_len = bitlen_1024p( ctx_avr );
+			shift_model( mod_len, ctx_len, snum );
 
-		if ( coeffs[ dpos ] == 0 ) {
-			encode_ari( enc, mod_len, 0 );
-		}
-		else {
-			const int absv = abs_val( coeffs[ dpos ] );
-			const int clen = bitlen_1024p( absv );
-			const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
-			encode_ari( enc, mod_len, clen );
-			for ( int bp = clen - 2; bp >= 0; bp-- ) {
-				shift_model( mod_res, snum, bp );
-				const int bt = bit_n( absv, bp );
-				encode_ari( enc, mod_res, bt );
+			if ( coeffs[ dpos ] == 0 ) {
+				encode_ari( enc, mod_len, 0 );
 			}
-			encode_ari( enc, mod_sgn, sgn );
-			absv_store[ dpos ] = static_cast<unsigned short>( absv );
+			else {
+				const int absv = abs_val( coeffs[ dpos ] );
+				const int clen = bitlen_1024p( absv );
+				const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
+				encode_ari( enc, mod_len, clen );
+				for ( int bp = clen - 2; bp >= 0; bp-- ) {
+					shift_model( mod_res, snum, bp );
+					const int bt = bit_n( absv, bp );
+					encode_ari( enc, mod_res, bt );
+				}
+				encode_ari( enc, mod_sgn, sgn );
+				absv_store[ dpos ] = static_cast<unsigned short>( absv );
+			}
 		}
 	}
 
@@ -479,43 +499,44 @@ bool pjg_encode_ac_high( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 		const int max_val = ctx.max_v( cmp, bpos );
 		const int max_len = bitlen_1024p( max_val );
 
-		for ( int dpos = 0; dpos < bc; dpos++ ) {
-			if ( zdstls[ dpos ] == 0 )
-				continue;
+		for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+			const int row_w = std::min( w, bc - dpos );
+			for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+				if ( zdstls[ dpos ] == 0 )
+					continue;
 
-			const int p_y = dpos / w;
-			const int p_x = dpos % w;
-			const int r_x = w - ( p_x + 1 );
+				const int r_x = w - ( p_x + 1 );
 
-			const int snum    = segm_tab[ zdstls[ dpos ] ];
-			const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
-			const int ctx_len = bitlen_1024p( ctx_avr );
-			shift_model( mod_len, ctx_len, snum );
-			mod_len->exclude_symbols( max_len );
+				const int snum    = segm_tab[ zdstls[ dpos ] ];
+				const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
+				const int ctx_len = bitlen_1024p( ctx_avr );
+				shift_model( mod_len, ctx_len, snum );
+				mod_len->exclude_symbols( max_len );
 
-			if ( coeffs[ dpos ] == 0 ) {
-				encode_ari( enc, mod_len, 0 );
-			}
-			else {
-				const int absv = abs_val( coeffs[ dpos ] );
-				const int clen = bitlen_1024p( absv );
-				const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
-				encode_ari( enc, mod_len, clen );
-				for ( int bp = clen - 2; bp >= 0; bp-- ) {
-					shift_model( mod_res, snum, bp );
-					const int bt = bit_n( absv, bp );
-					encode_ari( enc, mod_res, bt );
+				if ( coeffs[ dpos ] == 0 ) {
+					encode_ari( enc, mod_len, 0 );
 				}
-				int ctx_sgn = ( p_x > 0 ) ? sgn_store[ dpos - 1 ] : 0;
-				if ( p_y > 0 ) ctx_sgn += 3 * sgn_store[ dpos - w ];
-				mod_sgn->shift_context( ctx_sgn );
-				encode_ari( enc, mod_sgn, sgn );
+				else {
+					const int absv = abs_val( coeffs[ dpos ] );
+					const int clen = bitlen_1024p( absv );
+					const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
+					encode_ari( enc, mod_len, clen );
+					for ( int bp = clen - 2; bp >= 0; bp-- ) {
+						shift_model( mod_res, snum, bp );
+						const int bt = bit_n( absv, bp );
+						encode_ari( enc, mod_res, bt );
+					}
+					int ctx_sgn = ( p_x > 0 ) ? sgn_store[ dpos - 1 ] : 0;
+					if ( p_y > 0 ) ctx_sgn += 3 * sgn_store[ dpos - w ];
+					mod_sgn->shift_context( ctx_sgn );
+					encode_ari( enc, mod_sgn, sgn );
 
-				absv_store[ dpos ] = static_cast<unsigned short>( absv );
-				sgn_store[ dpos ]  = static_cast<unsigned char>( sgn + 1 );
-				zdstls[ dpos ]--;
-				if ( b_x > eob_x[ dpos ] ) eob_x[ dpos ] = static_cast<unsigned char>( b_x );
-				if ( b_y > eob_y[ dpos ] ) eob_y[ dpos ] = static_cast<unsigned char>( b_y );
+					absv_store[ dpos ] = static_cast<unsigned short>( absv );
+					sgn_store[ dpos ]  = static_cast<unsigned char>( sgn + 1 );
+					zdstls[ dpos ]--;
+					if ( b_x > eob_x[ dpos ] ) eob_x[ dpos ] = static_cast<unsigned char>( b_x );
+					if ( b_y > eob_y[ dpos ] ) eob_y[ dpos ] = static_cast<unsigned char>( b_y );
+				}
 			}
 		}
 
@@ -548,11 +569,9 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 		const short* coeffs = ctx.colldata[ cmp ][ bpos ].data();
 		int neighbor_off = 0;
 		unsigned char* zdstls = nullptr;
-		int p_x = 0;
-		int p_y = 0;
-		int* edge_c = nullptr;
+		const bool check_x = ( b_x == 0 );
 
-		if ( b_x == 0 ) {
+		if ( check_x ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
 				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
@@ -560,7 +579,6 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
-			edge_c = &p_x;
 		}
 		else {
 			for ( ; b_y < 8; b_y++ ) {
@@ -570,7 +588,6 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
-			edge_c = &p_y;
 		}
 
 		const int max_valp = ctx.max_v( cmp, bpos );
@@ -578,48 +595,48 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 		const int max_len  = bitlen_1024p( max_valp );
 		const int thrs_bp  = ( max_len > ctx.nois_trs[ cmp ] ) ? ( max_len - ctx.nois_trs[ cmp ] ) : 0;
 
-		for ( int dpos = 0; dpos < bc; dpos++ ) {
-			if ( zdstls[ dpos ] == 0 )
-				continue;
+		for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+			const int row_w = std::min( w, bc - dpos );
+			for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+				if ( zdstls[ dpos ] == 0 )
+					continue;
 
-			p_y = dpos / w;
-			p_x = dpos % w;
+				int ctx_lak = ( ( check_x ? p_x : p_y ) > 0 )
+					? pjg_lakh_context( coeffs_x, neighbor_off, pred_cf, dpos )
+					: 0;
+				ctx_lak = clamped( max_valn, max_valp, ctx_lak );
+				const int ctx_len = bitlen_2048n( ctx_lak );
 
-			int ctx_lak = ( ( *edge_c ) > 0 )
-				? pjg_lakh_context( coeffs_x, neighbor_off, pred_cf, dpos )
-				: 0;
-			ctx_lak = clamped( max_valn, max_valp, ctx_lak );
-			const int ctx_len = bitlen_2048n( ctx_lak );
+				shift_model( mod_len, ctx_len, zdstls[ dpos ] );
+				mod_len->exclude_symbols( max_len );
 
-			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
-			mod_len->exclude_symbols( max_len );
-
-			if ( coeffs[ dpos ] == 0 ) {
-				encode_ari( enc, mod_len, 0 );
-			}
-			else {
-				const int absv = abs_val( coeffs[ dpos ] );
-				const int clen = bitlen_2048n( absv );
-				const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
-				encode_ari( enc, mod_len, clen );
-				int bp = clen - 2;
-				int ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				const int ctx_abs = abs_val( ctx_lak );
-				const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
-				for ( ; bp >= thrs_bp; bp-- ) {
-					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
-					const int bt = bit_n( absv, bp );
-					encode_ari( enc, mod_top, bt );
-					ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
+				if ( coeffs[ dpos ] == 0 ) {
+					encode_ari( enc, mod_len, 0 );
 				}
-				for ( ; bp >= 0; bp-- ) {
-					shift_model( mod_res, zdstls[ dpos ], bp );
-					const int bt = bit_n( absv, bp );
-					encode_ari( enc, mod_res, bt );
+				else {
+					const int absv = abs_val( coeffs[ dpos ] );
+					const int clen = bitlen_2048n( absv );
+					const int sgn  = ( coeffs[ dpos ] > 0 ) ? 0 : 1;
+					encode_ari( enc, mod_len, clen );
+					int bp = clen - 2;
+					int ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
+					const int ctx_abs = abs_val( ctx_lak );
+					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
+					for ( ; bp >= thrs_bp; bp-- ) {
+						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						const int bt = bit_n( absv, bp );
+						encode_ari( enc, mod_top, bt );
+						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
+					}
+					for ( ; bp >= 0; bp-- ) {
+						shift_model( mod_res, zdstls[ dpos ], bp );
+						const int bt = bit_n( absv, bp );
+						encode_ari( enc, mod_res, bt );
+					}
+					shift_model( mod_sgn, ctx_len, ctx_sgn );
+					encode_ari( enc, mod_sgn, sgn );
+					zdstls[ dpos ]--;
 				}
-				shift_model( mod_sgn, ctx_len, ctx_sgn );
-				encode_ari( enc, mod_sgn, sgn );
-				zdstls[ dpos ]--;
 			}
 		}
 
@@ -762,27 +779,28 @@ bool pjg_decode_dc( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 	short* coeffs = ctx.colldata[ cmp ][ 0 ].data();
 	const unsigned char* zdstls = ctx.zdstdata[ cmp ].data();
 
-	for ( int dpos = 0; dpos < bc; dpos++ ) {
-		const int p_y = dpos / w;
-		const int p_x = dpos % w;
-		const int r_x = w - ( p_x + 1 );
+	for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+		const int row_w = std::min( w, bc - dpos );
+		for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+			const int r_x = w - ( p_x + 1 );
 
-		const int snum    = segm_tab[ zdstls[ dpos ] ];
-		const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
-		const int ctx_len = bitlen_1024p( ctx_avr );
-		shift_model( mod_len, ctx_len, snum );
-		const int clen = decode_ari( dec, mod_len );
+			const int snum    = segm_tab[ zdstls[ dpos ] ];
+			const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
+			const int ctx_len = bitlen_1024p( ctx_avr );
+			shift_model( mod_len, ctx_len, snum );
+			const int clen = decode_ari( dec, mod_len );
 
-		if ( clen != 0 ) {
-			int absv = 1;
-			for ( int bp = clen - 2; bp >= 0; bp-- ) {
-				shift_model( mod_res, snum, bp );
-				const int bt = decode_ari( dec, mod_res );
-				absv = ( absv << 1 ) | ( bt ? 1 : 0 );
+			if ( clen != 0 ) {
+				int absv = 1;
+				for ( int bp = clen - 2; bp >= 0; bp-- ) {
+					shift_model( mod_res, snum, bp );
+					const int bt = decode_ari( dec, mod_res );
+					absv = ( absv << 1 ) | ( bt ? 1 : 0 );
+				}
+				const int sgn = decode_ari( dec, mod_sgn );
+				coeffs[ dpos ]     = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
+				absv_store[ dpos ] = static_cast<unsigned short>( absv );
 			}
-			const int sgn = decode_ari( dec, mod_sgn );
-			coeffs[ dpos ]     = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
-			absv_store[ dpos ] = static_cast<unsigned short>( absv );
 		}
 	}
 
@@ -832,39 +850,40 @@ bool pjg_decode_ac_high( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 		const int max_val = ctx.max_v( cmp, bpos );
 		const int max_len = bitlen_1024p( max_val );
 
-		for ( int dpos = 0; dpos < bc; dpos++ ) {
-			if ( zdstls[ dpos ] == 0 )
-				continue;
+		for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+			const int row_w = std::min( w, bc - dpos );
+			for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+				if ( zdstls[ dpos ] == 0 )
+					continue;
 
-			const int p_y = dpos / w;
-			const int p_x = dpos % w;
-			const int r_x = w - ( p_x + 1 );
+				const int r_x = w - ( p_x + 1 );
 
-			const int snum    = segm_tab[ zdstls[ dpos ] ];
-			const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
-			const int ctx_len = bitlen_1024p( ctx_avr );
-			shift_model( mod_len, ctx_len, snum );
-			mod_len->exclude_symbols( max_len );
+				const int snum    = segm_tab[ zdstls[ dpos ] ];
+				const int ctx_avr = pjg_aavrg_context( absv_store, c_absc_off, c_weight, dpos, p_y, p_x, r_x );
+				const int ctx_len = bitlen_1024p( ctx_avr );
+				shift_model( mod_len, ctx_len, snum );
+				mod_len->exclude_symbols( max_len );
 
-			const int clen = decode_ari( dec, mod_len );
-			if ( clen != 0 ) {
-				int absv = 1;
-				for ( int bp = clen - 2; bp >= 0; bp-- ) {
-					shift_model( mod_res, snum, bp );
-					const int bt = decode_ari( dec, mod_res );
-					absv = ( absv << 1 ) | ( bt ? 1 : 0 );
+				const int clen = decode_ari( dec, mod_len );
+				if ( clen != 0 ) {
+					int absv = 1;
+					for ( int bp = clen - 2; bp >= 0; bp-- ) {
+						shift_model( mod_res, snum, bp );
+						const int bt = decode_ari( dec, mod_res );
+						absv = ( absv << 1 ) | ( bt ? 1 : 0 );
+					}
+					int ctx_sgn = ( p_x > 0 ) ? sgn_store[ dpos - 1 ] : 0;
+					if ( p_y > 0 ) ctx_sgn += 3 * sgn_store[ dpos - w ];
+					mod_sgn->shift_context( ctx_sgn );
+					const int sgn = decode_ari( dec, mod_sgn );
+
+					coeffs[ dpos ]     = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
+					absv_store[ dpos ] = static_cast<unsigned short>( absv );
+					sgn_store[ dpos ]  = static_cast<unsigned char>( sgn + 1 );
+					zdstls[ dpos ]--;
+					if ( b_x > eob_x[ dpos ] ) eob_x[ dpos ] = static_cast<unsigned char>( b_x );
+					if ( b_y > eob_y[ dpos ] ) eob_y[ dpos ] = static_cast<unsigned char>( b_y );
 				}
-				int ctx_sgn = ( p_x > 0 ) ? sgn_store[ dpos - 1 ] : 0;
-				if ( p_y > 0 ) ctx_sgn += 3 * sgn_store[ dpos - w ];
-				mod_sgn->shift_context( ctx_sgn );
-				const int sgn = decode_ari( dec, mod_sgn );
-
-				coeffs[ dpos ]     = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
-				absv_store[ dpos ] = static_cast<unsigned short>( absv );
-				sgn_store[ dpos ]  = static_cast<unsigned char>( sgn + 1 );
-				zdstls[ dpos ]--;
-				if ( b_x > eob_x[ dpos ] ) eob_x[ dpos ] = static_cast<unsigned char>( b_x );
-				if ( b_y > eob_y[ dpos ] ) eob_y[ dpos ] = static_cast<unsigned char>( b_y );
 			}
 		}
 
@@ -897,11 +916,9 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 		short* coeffs = ctx.colldata[ cmp ][ bpos ].data();
 		int neighbor_off = 0;
 		unsigned char* zdstls = nullptr;
-		int p_x = 0;
-		int p_y = 0;
-		int* edge_c = nullptr;
+		const bool check_x = ( b_x == 0 );
 
-		if ( b_x == 0 ) {
+		if ( check_x ) {
 			for ( ; b_x < 8; b_x++ ) {
 				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
 				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
@@ -909,7 +926,6 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
-			edge_c = &p_x;
 		}
 		else {
 			for ( ; b_y < 8; b_y++ ) {
@@ -919,7 +935,6 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
-			edge_c = &p_y;
 		}
 
 		const int max_valp = ctx.max_v( cmp, bpos );
@@ -927,43 +942,43 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 		const int max_len  = bitlen_1024p( max_valp );
 		const int thrs_bp  = ( max_len > ctx.nois_trs[ cmp ] ) ? ( max_len - ctx.nois_trs[ cmp ] ) : 0;
 
-		for ( int dpos = 0; dpos < bc; dpos++ ) {
-			if ( zdstls[ dpos ] == 0 )
-				continue;
+		for ( int dpos = 0, p_y = 0; dpos < bc; ++p_y ) {
+			const int row_w = std::min( w, bc - dpos );
+			for ( int p_x = 0; p_x < row_w; ++p_x, ++dpos ) {
+				if ( zdstls[ dpos ] == 0 )
+					continue;
 
-			p_y = dpos / w;
-			p_x = dpos % w;
+				int ctx_lak = ( ( check_x ? p_x : p_y ) > 0 )
+					? pjg_lakh_context( coeffs_x, neighbor_off, pred_cf, dpos )
+					: 0;
+				ctx_lak = clamped( max_valn, max_valp, ctx_lak );
+				const int ctx_len = bitlen_2048n( ctx_lak );
 
-			int ctx_lak = ( ( *edge_c ) > 0 )
-				? pjg_lakh_context( coeffs_x, neighbor_off, pred_cf, dpos )
-				: 0;
-			ctx_lak = clamped( max_valn, max_valp, ctx_lak );
-			const int ctx_len = bitlen_2048n( ctx_lak );
+				shift_model( mod_len, ctx_len, zdstls[ dpos ] );
+				mod_len->exclude_symbols( max_len );
 
-			shift_model( mod_len, ctx_len, zdstls[ dpos ] );
-			mod_len->exclude_symbols( max_len );
-
-			const int clen = decode_ari( dec, mod_len );
-			if ( clen != 0 ) {
-				int bp = clen - 2;
-				int ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
-				const int ctx_abs = abs_val( ctx_lak );
-				const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
-				for ( ; bp >= thrs_bp; bp-- ) {
-					shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
-					const int bt = decode_ari( dec, mod_top );
-					ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
+				const int clen = decode_ari( dec, mod_len );
+				if ( clen != 0 ) {
+					int bp = clen - 2;
+					int ctx_res = ( bp >= thrs_bp ) ? 1 : 0;
+					const int ctx_abs = abs_val( ctx_lak );
+					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
+					for ( ; bp >= thrs_bp; bp-- ) {
+						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						const int bt = decode_ari( dec, mod_top );
+						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
+					}
+					int absv = ( ctx_res == 0 ) ? 1 : ctx_res;
+					for ( ; bp >= 0; bp-- ) {
+						shift_model( mod_res, zdstls[ dpos ], bp );
+						const int bt = decode_ari( dec, mod_res );
+						absv = ( absv << 1 ) | ( bt ? 1 : 0 );
+					}
+					shift_model( mod_sgn, zdstls[ dpos ], ctx_sgn );
+					const int sgn = decode_ari( dec, mod_sgn );
+					coeffs[ dpos ] = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
+					zdstls[ dpos ]--;
 				}
-				int absv = ( ctx_res == 0 ) ? 1 : ctx_res;
-				for ( ; bp >= 0; bp-- ) {
-					shift_model( mod_res, zdstls[ dpos ], bp );
-					const int bt = decode_ari( dec, mod_res );
-					absv = ( absv << 1 ) | ( bt ? 1 : 0 );
-				}
-				shift_model( mod_sgn, zdstls[ dpos ], ctx_sgn );
-				const int sgn = decode_ari( dec, mod_sgn );
-				coeffs[ dpos ] = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
-				zdstls[ dpos ]--;
 			}
 		}
 
@@ -1115,6 +1130,9 @@ int dc_1ddct_predictor( CodecContext& ctx, int cmp, int dpos )
 bool adapt_icos( CodecContext& ctx )
 {
 	unsigned short quant[ 64 ];
+	if ( ( ctx.action == A_PGM_DUMP ) && !ctx.adpt_idct_8x8 ) {
+		ctx.adpt_idct_8x8 = std::make_unique<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>>();
+	}
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		for ( int ipos = 0; ipos < 64; ipos++ ) {
@@ -1122,8 +1140,10 @@ bool adapt_icos( CodecContext& ctx )
 			if ( quant[ ipos ] >= 2048 )
 				quant[ ipos ] = 0;
 		}
-		for ( int ipos = 0; ipos < 64 * 64; ipos++ )
-			ctx.adpt_idct_8x8[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+		if ( ctx.action == A_PGM_DUMP ) {
+			for ( int ipos = 0; ipos < 64 * 64; ipos++ )
+				( *ctx.adpt_idct_8x8 )[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+		}
 		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
 			ctx.adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
 		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
@@ -1418,11 +1438,15 @@ bool unpack_pjg( CodecContext& ctx )
 	----------------------------------------------- */
 int idct_2d_fst_8x8( const CodecContext& ctx, int cmp, int dpos, int ix, int iy )
 {
+	if ( !ctx.adpt_idct_8x8 ) {
+		return 0;
+	}
 	int idct = 0;
 	const int ixy = ( ( iy << 3 ) + ix ) << 6;
+	const auto& tbl = ( *ctx.adpt_idct_8x8 )[ cmp ];
 
 	for ( int i = 0; i < 64; i++ ) {
-		idct += ctx.colldata[ cmp ][ zigzag[ i ] ][ dpos ] * ctx.adpt_idct_8x8[ cmp ][ ixy + i ];
+		idct += ctx.colldata[ cmp ][ zigzag[ i ] ][ dpos ] * tbl[ ixy + i ];
 	}
 
 	return idct;

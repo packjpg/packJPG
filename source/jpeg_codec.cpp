@@ -524,6 +524,7 @@ bool read_jpeg( CodecContext& ctx )
 
 	MemoryWriter hdrw;
 	MemoryWriter huffw;
+	huffw.reserve( ctx.str_in->get_size() );
 	ctx.hdrdata.clear();
 	ctx.huffdata.clear();
 	ctx.grbgdata.clear();
@@ -538,6 +539,23 @@ bool read_jpeg( CodecContext& ctx )
 			const std::size_t scan_start = huffw.num_bytes_written();
 			scan_rst.clear();
 			while ( true ) {
+				std::size_t avail = 0;
+				const std::uint8_t* span = ctx.str_in->peek_contiguous( avail );
+				if ( ( avail > 0 ) && ( span != nullptr ) ) {
+					const auto* ff_pos = static_cast<const std::uint8_t*>( std::memchr( span, 0xFF, avail ) );
+					const std::size_t run = ( ff_pos != nullptr )
+						? static_cast<std::size_t>( ff_pos - span )
+						: avail;
+					if ( run > 0 ) {
+						crst = 0;
+						huffw.write( span, run );
+						ctx.str_in->skip( run );
+					}
+					if ( ff_pos == nullptr ) {
+						break;
+					}
+				}
+
 				if ( !ctx.str_in->read_byte( &tmp ) )
 					break;
 
@@ -692,6 +710,21 @@ bool merge_jpeg( CodecContext& ctx )
 	unsigned int  cpos = 0;
 	unsigned int  scan = 1;
 
+	std::array<std::uint8_t, 65536> out_buf{};
+	std::size_t out_pos = 0;
+	auto flush_out = [&]() {
+		if ( out_pos > 0 ) {
+			ctx.str_out->write( out_buf.data(), out_pos );
+			out_pos = 0;
+		}
+	};
+	auto emit_byte = [&]( std::uint8_t b ) {
+		if ( out_pos == out_buf.size() ) {
+			flush_out();
+		}
+		out_buf[ out_pos++ ] = b;
+	};
+
 	ctx.str_out->write( SOI );
 
 	while ( true ) {
@@ -720,14 +753,15 @@ bool merge_jpeg( CodecContext& ctx )
 		}
 
 		for ( unsigned int ipos = ctx.scnp[ scan - 1 ]; ipos < ctx.scnp[ scan ]; ipos++ ) {
-			ctx.str_out->write_byte( ctx.huffdata[ ipos ] );
-			if ( ctx.huffdata[ ipos ] == 0xFF )
-				ctx.str_out->write_byte( stv );
+			const unsigned char b = ctx.huffdata[ ipos ];
+			emit_byte( b );
+			if ( b == 0xFF )
+				emit_byte( stv );
 			if ( !ctx.rstp.empty() && ( static_cast<int>( rpos ) < ctx.rstc ) ) {
 				if ( ipos == ctx.rstp[ rpos ] ) {
-					const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos % 8 ) );
-					ctx.str_out->write_byte( mrk );
-					ctx.str_out->write_byte( rst );
+					const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
+					emit_byte( mrk );
+					emit_byte( rst );
 					rpos++;
 					cpos++;
 				}
@@ -736,14 +770,15 @@ bool merge_jpeg( CodecContext& ctx )
 
 		if ( ctx.has_rst_err && ( ( scan - 1 ) < ctx.rst_err.size() ) ) {
 			while ( ctx.rst_err[ scan - 1 ] > 0 ) {
-				const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos % 8 ) );
-				ctx.str_out->write_byte( mrk );
-				ctx.str_out->write_byte( rst );
+				const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
+				emit_byte( mrk );
+				emit_byte( rst );
 				cpos++;
 				ctx.rst_err[ scan - 1 ]--;
 			}
 		}
 
+		flush_out();
 		scan++;
 	}
 
@@ -1181,6 +1216,7 @@ bool recode_jpeg( CodecContext& ctx )
 	short block[ 64 ];
 
 	BitWriter huffw_obj( static_cast<std::uint8_t>( ctx.padbit ) );
+	huffw_obj.reserve( static_cast<std::size_t>( std::max( 1, ctx.mcuc ) ) * 32 );
 	BitWriter* huffw = &huffw_obj;
 	std::vector<std::uint8_t> storw;
 
@@ -1847,10 +1883,19 @@ bool jpg_rebuild_header( CodecContext& ctx )
 	----------------------------------------------- */
 int jpg_next_huffcode( BitReader* huffr, const HuffTree* ctree )
 {
+	if ( huffr->has_fast_16() ) {
+		const unsigned int peek = huffr->peek_9_fast();
+		const int len = ctree->lut_len[ peek ];
+		if ( len > 0 ) {
+			huffr->consume_fast( len );
+			return static_cast<int>( ctree->lut_sym[ peek ] );
+		}
+	}
+
 	int node = 0;
 
 	while ( node < 512 ) {
-		node = ( huffr->read( 1 ) == 1 ) ? ctree->r[ node ] : ctree->l[ node ];
+		node = ( huffr->read_bit() == 1 ) ? ctree->r[ node ] : ctree->l[ node ];
 		if ( node == 0 ) break;
 	}
 
@@ -1867,6 +1912,8 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 	std::memset( hc->cval, 0, sizeof( hc->cval ) );
 	std::memset( ht->l, 0, sizeof( ht->l ) );
 	std::memset( ht->r, 0, sizeof( ht->r ) );
+	std::memset( ht->lut_sym, 0, sizeof( ht->lut_sym ) );
+	std::memset( ht->lut_len, 0, sizeof( ht->lut_len ) );
 
 	int k = 0;
 	int code = 0;
@@ -1891,8 +1938,19 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 
 	int nextfree = 1;
 	for ( int i = 0; i < 256; i++ ) {
+		const int len = hc->clen[ i ];
+		if ( ( len > 0 ) && ( len <= 9 ) ) {
+			const int shift = 9 - len;
+			const int base  = static_cast<int>( hc->cval[ i ] ) << shift;
+			const int count = 1 << shift;
+			if ( ( base >= 0 ) && ( base + count <= 512 ) ) {
+				std::memset( &ht->lut_sym[ base ], i, static_cast<std::size_t>( count ) );
+				std::memset( &ht->lut_len[ base ], len, static_cast<std::size_t>( count ) );
+			}
+		}
+
 		int node = 0;
-		for ( int j = hc->clen[ i ] - 1; j > 0; j-- ) {
+		for ( int j = len - 1; j > 0; j-- ) {
 			if ( bit_n( hc->cval[ i ], j ) == 1 ) {
 				if ( ht->r[ node ] == 0 ) {
 					if ( nextfree >= 512 ) return;
@@ -1908,7 +1966,7 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 				node = ht->l[ node ];
 			}
 		}
-		if ( hc->clen[ i ] > 0 ) {
+		if ( len > 0 ) {
 			if ( bit_n( hc->cval[ i ], 0 ) == 1 )
 				ht->r[ node ] = static_cast<unsigned short>( i + 512 );
 			else

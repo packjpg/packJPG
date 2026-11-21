@@ -9,6 +9,7 @@ WINDRES  ?= windres
 PYTHON   ?= python3
 UPX      ?= upx
 USE_UPX  ?= 0
+USE_LTO  ?= 1
 STATIC   ?= 0
 PREFIX   ?= /usr/local
 BINDIR   ?= $(PREFIX)/bin
@@ -71,6 +72,12 @@ else
 STRIP ?= -s
 endif
 
+ifeq ($(USE_LTO),1)
+ifeq ($(findstring -fsanitize,$(CXXFLAGS))$(findstring -g,$(CXXFLAGS)),)
+LTO_FLAGS ?= -flto
+endif
+endif
+
 BIN          = $(TARGET)$(EXEEXT)
 TEST_BIN     = test_runner$(EXEEXT)
 FUZZ_BIN     = fuzz_roundtrip$(EXEEXT)
@@ -101,28 +108,28 @@ endif
 all: $(BIN)
 
 %.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS)
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS)
 
 %.dev.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DDEV_BUILD
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS) -DDEV_BUILD
 
 %.lib.o: %.cpp $(DEPS)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_LIB $(PIC_FLAGS)
 
 %.dll.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 
 %.res: %.rc app_icon.ico file_icon.ico
 	$(WINDRES) -O coff $< $@
 
 $(BIN): $(OBJ) $(RES)
-	$(CXX) -o $@ $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) -o $@ $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
 
 dev: $(DEV_OBJ) $(RES)
-	$(CXX) -o $(BIN) $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) -o $(BIN) $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif
@@ -138,7 +145,7 @@ shared: dll
 dll: $(SHLIB)
 
 $(SHLIB): $(DLL_OBJ)
-	$(CXX) $(SHLIB_LDFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) $(SHLIB_LDFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
 	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)

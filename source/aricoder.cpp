@@ -3,11 +3,20 @@
 #include "bitops.h"
 
 #include <algorithm>
-#include <cstdlib>
-#include <functional>
 #include <limits>
 #include <stdexcept>
 
+
+void ArithmeticBitWriter::flush_buffer() {
+	if ( ( sink_ != nullptr ) && !data_.empty() ) {
+		sink_->write( data_.data(), data_.size() );
+		data_.clear();
+	}
+}
+
+void ArithmeticBitWriter::flush_to_sink() {
+	flush_buffer();
+}
 
 void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	if (n == 0) {
@@ -16,17 +25,17 @@ void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	if (n + curr_bit_ >= 8) {
 		auto remainingBits = 8 - curr_bit_;
 		n -= remainingBits;
-		curr_byte_ <<= remainingBits;
-		data_.emplace_back(curr_byte_);
+		curr_byte_ = static_cast<std::uint8_t>(curr_byte_ << remainingBits);
+		emit_byte(curr_byte_);
 		curr_bit_ = 0;
 	}
 
 	while (n >= 8) {
-		data_.emplace_back(0);
+		emit_byte(0);
 		n -= 8;
 	}
 
-	curr_byte_ <<= n;
+	curr_byte_ = static_cast<std::uint8_t>(curr_byte_ << n);
 	curr_bit_ += n;
 }
 
@@ -38,19 +47,18 @@ void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
 	if (n + curr_bit_ >= 8) {
 		auto remainingBits = 8 - curr_bit_;
 		n -= remainingBits;
-		curr_byte_ <<= remainingBits;
-		curr_byte_ |= all_ones >> (8 - remainingBits);
-		data_.emplace_back(curr_byte_);
+		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << remainingBits) | (all_ones >> (8 - remainingBits)));
+		emit_byte(curr_byte_);
 		curr_bit_ = 0;
 	}
 
 	while (n >= 8) {
-		data_.emplace_back(all_ones);
+		emit_byte(all_ones);
 		n -= 8;
 	}
 
 	if (n > 0) {
-		curr_byte_ = (curr_byte_ << n) | (all_ones >> (8 - n));
+		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << n) | (all_ones >> (8 - n)));
 		curr_bit_ += n;
 	}
 }
@@ -61,681 +69,206 @@ void ArithmeticBitWriter::pad() {
 	}
 }
 
-std::vector<std::uint8_t> ArithmeticBitWriter::get_data() const {
-	return data_;
-}
-
 ArithmeticDecoder::ArithmeticDecoder(Reader& reader) : reader_(reader) {
-    // code buffer has to be filled before starting decoding
-	for (std::uint32_t i = 0; i < CODER_USE_BITS; i++ ) {
-		ccode = ( ccode << 1 ) | read_bit();
-    }
+	ccode = read_bits( static_cast<int>( CODER_USE_BITS ) );
 }
 
-ArithmeticEncoder::ArithmeticEncoder(Writer& writer) : writer_(writer) {}
+bool ArithmeticDecoder::refill_buffer() {
+	buf_pos_ = 0;
+	buf_len_ = reader_.read( in_buf_.data(), in_buf_.size() );
+	return buf_len_ > 0;
+}
+
+void ArithmeticDecoder::fill_bit_reservoir() {
+	while ( bits_left_ <= 56 ) {
+		std::uint8_t next_b = 0;
+		if ( ( buf_pos_ < buf_len_ ) || refill_buffer() ) {
+			next_b = in_buf_[ buf_pos_++ ];
+		}
+		else if ( ++eof_zero_bytes_ > 64 ) {
+			throw std::runtime_error( "unexpected end of arithmetic stream" );
+		}
+		bit_buf_ = ( bit_buf_ << 8 ) | next_b;
+		bits_left_ += 8;
+	}
+}
+
+ArithmeticEncoder::ArithmeticEncoder(Writer& writer)
+	: bitwriter_(&writer) {}
 
 ArithmeticEncoder::~ArithmeticEncoder() {
-    if (!finalized) {
-        this->finalize();
-    }
+	if (!finalized) {
+		this->finalize();
+	}
 }
 
 void ArithmeticEncoder::finalize() {
-    if (finalized) {
-        return;
-    }
-    
-    // due to clow < CODER_LIMIT050, and chigh >= CODER_LIMIT050
-    // there are only two possible cases
-    if (clow < CODER_LIMIT025) {
-        bitwriter_->write_bit<0>();
-        bitwriter_->write_bit<1>();
-        bitwriter_->write_n_one_bits(nrbits);
-        nrbits = 0;
-    } else {
-         // case b.), clow >= CODER_LIMIT025
-        bitwriter_->write_bit<1>();
-    }
-     // done, zeroes are auto-read by the decoder
-
-    bitwriter_->pad(); // Pad code with zeroes.
-    writer_.write(bitwriter_->get_data());
-    
-    finalized = true;
-}
-
-/* -----------------------------------------------
-	arithmetic encoder function
-	----------------------------------------------- */
-	
-void ArithmeticEncoder::encode( symbol* s )
-{	
-	// Make local copies of clow_ and chigh_ for cache performance:
-	uint32_t clow_local = clow;
-	uint32_t chigh_local = chigh;
-	// update steps, low count, high count
-	cstep = (chigh_local - clow_local + 1) / s->scale;
-	chigh_local = clow_local + (cstep * s->high_count) - 1;
-	clow_local = clow_local + (cstep * s->low_count);
-	
-	// e3 scaling is performed for speed and to avoid underflows
-	// if both, low and high are either in the lower half or in the higher half
-	// one bit can be safely shifted out
-	while ( clow_local >= CODER_LIMIT050  || chigh_local < CODER_LIMIT050  ) {
-		if (chigh_local < CODER_LIMIT050 ) {	// this means both, high and low are below, and 0 can be safely shifted out
-			// write 0 bit
-			bitwriter_->write_bit<0>();
-			// shift out remaing e3 bits
-            bitwriter_->write_n_one_bits(nrbits);
-            nrbits = 0;
-		}
-		else { // if the first wasn't the case, it's clow >= CODER_LIMIT050
-			// write 1 bit
-			bitwriter_->write_bit<1>();
-			clow_local &= CODER_LIMIT050 - 1;
-			chigh_local &= CODER_LIMIT050 - 1;
-			// shift out remaing e3 bits
-			bitwriter_->write_n_zero_bits(nrbits);
-            nrbits = 0;
-		}
-		clow_local <<= 1;
-		chigh_local <<= 1;
-		chigh_local++;
-	}
-	
-	// e3 scaling, to make sure that theres enough space between low and high
-	while ( (clow_local >= CODER_LIMIT025 ) && (chigh_local < CODER_LIMIT075 ) ) {
-		nrbits++;
-		clow_local &= CODER_LIMIT025 - 1;
-		chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
-		// clow  -= CODER_LIMIT025;
-		// chigh -= CODER_LIMIT025;
-		clow_local <<= 1;
-		chigh_local <<= 1;
-		chigh_local++;
+	if (finalized) {
+		return;
 	}
 
-	clow = clow_local;
-	chigh = chigh_local;
-}
+	if (clow < CODER_LIMIT025) {
+		bitwriter_.write_bit<0>();
+		bitwriter_.write_bit<1>();
+		bitwriter_.write_n_one_bits(nrbits);
+		nrbits = 0;
+	} else {
+		bitwriter_.write_bit<1>();
+	}
 
+	bitwriter_.pad();
+	bitwriter_.flush_to_sink();
 
-/* -----------------------------------------------
-	arithmetic decoder get count function
-	----------------------------------------------- */
-	
-unsigned int ArithmeticDecoder::decode_count( symbol* s )
-{
-	if ( s->scale == 0 || chigh < clow || ccode < clow || ccode > chigh ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	// update cstep, which is needed to remove the symbol from the stream later
-	cstep = ( ( chigh - clow ) + 1 ) / s->scale;
-	if ( cstep == 0 ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	
-	// return counts, needed to decode the symbol from the statistical model
-	unsigned int count = ( ccode - clow ) / cstep;
-	if ( count >= s->scale ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	return count;
-}
-
-/* -----------------------------------------------
-	arithmetic decoder function
-	----------------------------------------------- */
-	
-void ArithmeticDecoder::decode( symbol* s )
-{
-	// no actual decoding takes place, as this has to happen in the statistical model
-	// the symbol has to be removed from the stream, though
-	
-	// alread have steps updated from decoder_count
-	// update low count and high count
-	uint32_t ccode_local = ccode;
-	uint32_t clow_local = clow;
-	uint32_t chigh_local = clow_local + (cstep * s->high_count) - 1;
-	clow_local = clow_local + (cstep * s->low_count);
-	
-	// e3 scaling is performed for speed and to avoid underflows
-	// if both, low and high are either in the lower half or in the higher half
-	// one bit can be safely shifted out
-	while ( (clow_local >= CODER_LIMIT050 ) || (chigh_local < CODER_LIMIT050 ) ) {
-		if (clow_local >= CODER_LIMIT050 ) {
-			clow_local &= CODER_LIMIT050 - 1;
-			chigh_local &= CODER_LIMIT050 - 1;
-			ccode_local &= CODER_LIMIT050 - 1;
-		} // if the first wasn't the case, it's chigh < CODER_LIMIT050
-		clow_local <<= 1;
-		chigh_local <<= 1;
-		chigh_local++;
-		ccode_local <<= 1;
-		ccode_local |= read_bit();
-	}
-	
-	// e3 scaling, to make sure that theres enough space between low and high
-	while ( (clow_local >= CODER_LIMIT025 ) && (chigh_local < CODER_LIMIT075 ) ) {
-		clow_local &= CODER_LIMIT025 - 1;
-		chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
-		// clow  -= CODER_LIMIT025;
-		// chigh -= CODER_LIMIT025;
-		ccode_local -= CODER_LIMIT025;
-		clow_local <<= 1;
-		chigh_local <<= 1;
-		chigh_local++;
-		ccode_local <<= 1;
-		ccode_local |= read_bit();
-	}	
-	chigh = chigh_local;
-	clow = clow_local;
-	ccode = ccode_local;
-}
-
-/* -----------------------------------------------
-	bit reader function
-	----------------------------------------------- */
-	
-unsigned char ArithmeticDecoder::read_bit()
-{
-	// read in new byte if needed
-	if ( cbit == 0 ) {
-		if ( !reader_.read_byte(&bbyte) ) { // read next byte if available
-			if ( ++eof_zero_bytes_ > 64 ) {
-				throw std::runtime_error( "unexpected end of arithmetic stream" );
-			}
-			bbyte = 0; // if no more data is left in the stream
-		}
-		cbit = 8;
-	}
-	
-	// decrement current bit position
-	cbit--;	
-	// return bit at cbit position
-	return static_cast<unsigned char>( bit_n( bbyte, cbit ) );
+	finalized = true;
 }
 
 
 /* -----------------------------------------------
 	universal statistical model for arithmetic coding
-	
-	boundaries of this model:
-	max_s (maximum symbol) -> 1 <= max_s <= 1024 (???)
-	max_c (maximum context) -> 1 <= max_c <= 1024 (???)
-	max_o (maximum order) -> -1 <= max_o <= 4
-	c_lim (maximum count) -> 2 <= c_lim <= 4096 (???)
-	WARNING: this can be memory intensive, so don't overdo it
-	max_s == 256; max_c == 256; max_o == 4 would be way too much
 	----------------------------------------------- */
-	
+
 model_s::model_s( int max_s, int max_c, int max_o, int c_lim ) :
-		// Copy settings into the model:
-		max_symbol(max_s),
-		max_context(max_c),
-		max_order(max_o + 1),
-		max_count(c_lim),
-
-		current_order(max_o + 1),
-		sb0_count(max_s),
-
-		totals(max_s + 2),
-		scoreboard(max_s, std::uint8_t(0)),
-		null_table_(std::make_unique<table_s>()),
-		start_table_(std::make_unique<table_s>()),
-		contexts(max_o + 3)
+	max_symbol(max_s),
+	max_context(max_c),
+	max_order(max_o + 1),
+	max_count(c_lim),
+	use_bitmask_(max_s <= 64),
+	current_order(max_o + 1),
+	sb0_count(max_s),
+	totals(static_cast<std::size_t>(max_s + 2), 0),
+	scoreboard_(use_bitmask_ ? 0 : static_cast<std::size_t>(max_s), std::uint8_t(0))
 {
-	// set up null table
-	null_table_->counts.assign(max_symbol, uint16_t(1)); // Set all probabilities to 1.
-	null_table_->max_count = 1;
-	null_table_->max_symbol = max_symbol;
-	
-	// set up start table
-	start_table_->links.resize(max_context);
-	
-	// integrate tables into contexts
-	contexts[ 0 ] = null_table_.get();
-	contexts[ 1 ] = start_table_.get();
-	
-	// build initial 'normal' tables
-	for (int i = 2; i <= max_order; i++ ) {
-		// set up current order table
-		auto created = std::make_unique<table_s>();
-		// build forward links
-		if ( i < max_order ) {
-			created->links.resize(max_context);
-		}
-		contexts[ i ] = created.get();
-		contexts[ i - 1 ]->links[ 0 ] = std::move(created);
+	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) || max_symbol <= 0 ) {
+		throw std::runtime_error( "invalid model_s configuration" );
+	}
+
+	nodes_.reserve( 64 );
+	counts_pool_.reserve( static_cast<std::size_t>( max_symbol ) * 16 );
+	links_pool_.reserve( static_cast<std::size_t>( std::max( 1, max_context ) ) * 16 );
+
+	// Node 0: null table (uniform probability 1 for all symbols)
+	const std::int32_t null_idx = alloc_node( false );
+	nodes_[ static_cast<std::size_t>( null_idx ) ].counts_offset = static_cast<std::int32_t>( counts_pool_.size() );
+	counts_pool_.resize( counts_pool_.size() + static_cast<std::size_t>( max_symbol ), std::uint16_t( 1 ) );
+	nodes_[ static_cast<std::size_t>( null_idx ) ].max_count  = 1;
+	nodes_[ static_cast<std::size_t>( null_idx ) ].max_symbol = static_cast<std::uint16_t>( max_symbol );
+
+	// Node 1: start table
+	const std::int32_t start_idx = alloc_node( max_context > 0 );
+
+	contexts_[ 0 ] = null_idx;
+	contexts_[ 1 ] = start_idx;
+
+	// Build initial chain along context 0
+	for ( int i = 2; i <= max_order; i++ ) {
+		const std::int32_t created = alloc_node( i < max_order );
+		contexts_[ static_cast<std::size_t>( i ) ] = created;
+		const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
+		links_pool_[ static_cast<std::size_t>( parent_links ) ] = created;
 	}
 }
 
-
-/* -----------------------------------------------
-	Updates statistics for a specific symbol / resets to highest order.
-	Use -1 if you just want to reset without updating statistics.
-	----------------------------------------------- */
-void model_s::update_model( int symbol )
-{		
-	// only contexts, that were actually used to encode
-	// the symbol get its count updated
-	if ( symbol >= 0 ) {
-		for (int local_order = ( current_order < 1 ) ? 1 : current_order;
-				local_order <= max_order; local_order++ ) {
-			table_s* context = contexts[ local_order ];
-			auto& count = context->counts[symbol];
-			// update count for specific symbol & scale
-			count++;
-			// store side information for totalize_table
-			context->max_count = std::max(count, context->max_count);
-			context->max_symbol = std::max(uint16_t(symbol + 1), context->max_symbol);
-			// if count for that symbol have gone above the maximum count
-			// the table has to be resized (scale factor 2)
-			if (count == max_count) {
-				context->rescale_table();
-			}
-		}
-	}
-	
-	// reset scoreboard and current order
-	current_order = max_order;
-	std::fill(scoreboard.begin(), scoreboard.end(), std::uint8_t(0));
-	sb0_count = max_symbol;
-}
-
-
-/* -----------------------------------------------
-	shift in one context (max no of contexts is max_c)
-	----------------------------------------------- */
-	
-void model_s::shift_context( int c )
-{	
-	// shifting is not possible if max_order is below 1
-	// or context index is out of range
-	if ( ( max_order < 2 ) || ( c < 0 ) ) return;
-	if ( c >= max_context ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	
-	// shift each orders' context
-	for (int i = max_order; i > 1; i-- ) {
-		// this is the new current order context
-		table_s* context = contexts[ i - 1 ]->links[ c ].get();
-		
-		// check if context exists, build if needed
-		if ( context == nullptr ) {
-			// reserve memory for next table_s
-			auto created = std::make_unique<table_s>();
-			// finished here if this is a max order context
-			if ( i < max_order ) {
-				// build links to higher order tables otherwise
-				created->links.resize(max_context);
-			}
-			context = created.get();
-			// put context to its right place
-			contexts[ i - 1 ]->links[ c ] = std::move(created);
-		}
-		
-		// switch context
-		contexts[ i ] = context;
-	}
-}
-
-
-/* -----------------------------------------------
-	Flushes the entire model by calling rescale_table on all contexts.
-	----------------------------------------------- */
-	
-void model_s::flush_model()
+std::int32_t model_s::alloc_node( bool with_links )
 {
-	contexts[1]->recursive_flush();
-}
-
-
-/* -----------------------------------------------
-	Excludes every symbol above c.
-	----------------------------------------------- */
-	
-void model_s::exclude_symbols(int c)
-{
-	// exclusions are back to normal after update_model is used	
-
-	for ( c = c + 1; c < max_symbol; c++ ) {
-		if ( !scoreboard[ c ] ) {
-			scoreboard[ c ] = 1;
-			sb0_count--;
-		}
+	const auto idx = static_cast<std::int32_t>( nodes_.size() );
+	SNode node{};
+	if ( with_links && ( max_context > 0 ) ) {
+		node.links_offset = static_cast<std::int32_t>( links_pool_.size() );
+		links_pool_.resize( links_pool_.size() + static_cast<std::size_t>( max_context ), -1 );
 	}
+	nodes_.push_back( node );
+	return idx;
 }
 
-
-/* -----------------------------------------------
-	converts an int to a symbol, needed only when encoding
-	----------------------------------------------- */
-	
-int model_s::convert_int_to_symbol( int c, symbol *s )
+void model_s::alloc_counts( std::int32_t node_idx )
 {
-	// search the symbol c in the current context table_s,
-	// return scale, low- and high counts	
+	const auto new_off = static_cast<std::int32_t>( counts_pool_.size() );
+	counts_pool_.resize( counts_pool_.size() + static_cast<std::size_t>( max_symbol ), 0 );
+	nodes_[ static_cast<std::size_t>( node_idx ) ].counts_offset = new_off;
+}
 
-	// totalize table for the current context
-	table_s* context = contexts[ current_order ];
-	totalize_table( context );
-	
-	// finding the scale is easy
-	s->scale = totals[ 0 ];
-	
-	// check if that symbol exists in the current table. send escape otherwise
-	if ( context->counts[ c ] > 0 ) {
-		// return high and low count for the current symbol
-		s->low_count  = totals[ c + 2 ];
-		s->high_count = totals[ c + 1 ];
-		return 0;
+void model_s::rescale_node( SNode& node ) noexcept
+{
+	if ( node.counts_offset < 0 ) {
+		return;
 	}
-	
-	// return high and low count for the escape symbol
-	s->low_count  = totals[ 1 ];
-	s->high_count = totals[ 0 ];
-	current_order--;
-	return 1;
-}
 
-
-/* -----------------------------------------------
-	returns the current context scale needed only when decoding
-	----------------------------------------------- */
-	
-void model_s::get_symbol_scale( symbol *s )
-{
-	if ( current_order < 0 || current_order >= static_cast<int>(contexts.size()) ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
+	std::uint16_t* counts = counts_pool_.data() + node.counts_offset;
+	const int lst_symbol = node.max_symbol;
+	for ( int i = 0; i < lst_symbol; i++ ) {
+		counts[ i ] >>= 1;
 	}
-	// getting the scale is easy: totalize the table_s, use accumulated count -> done
-	totalize_table( contexts[ current_order ] );
-	s->scale = totals[ 0 ];
-}
 
+	node.max_count >>= 1;
 
-/* -----------------------------------------------
-	converts a count to an int, called after get_symbol_scale
-	----------------------------------------------- */
-	
-int model_s::convert_symbol_to_int(uint32_t count, symbol *s)
-{
-	// seek the symbol that matches the count,
-	// also, set low- and high count for the symbol - it has to be removed from the stream
-
-
-	// go through the totals table, search the symbol that matches the count
-	int c;
-	for (c = 1; c < int(totals.size()); c++) {
-		if (count >= totals[c]) {
+	int i = lst_symbol - 1;
+	for ( ; i >= 0; i-- ) {
+		if ( counts[ i ] > 0 ) {
 			break;
 		}
 	}
-	if (c >= int(totals.size()) || totals[c - 1] <= totals[c]) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	// set up the current symbol
-	s->low_count = totals[c]; // It is guaranteed that there exists such a symbol.
-	s->high_count = totals[c - 1]; // This is guaranteed to not go out of bounds since the search started at index 1 of totals.
-	// send escape if escape symbol encountered
-	if (c == 1) {
-		if (current_order <= 0) {
-			throw std::runtime_error( "corrupted arithmetic stream" );
-		}
-		current_order--;
-		return ESCAPE_SYMBOL;
-	}
-	
-	// return symbol value
-	return c - 2 ; // Since c is not one and is a positive number, this will be nonnegative.
+	node.max_symbol = static_cast<std::uint16_t>( i + 1 );
 }
 
-
-/* -----------------------------------------------
-	totals are calculated by accumulating counts in the current table_s
-	----------------------------------------------- */
-
-void model_s::totalize_table( table_s* context )
+void model_s::flush_model()
 {
-	// update exclusion is used, so this has to be done each time
-	// escape probability calculation also takes place here
-	
-	// accumulated counts must never exceed CODER_MAXSCALE
-	// as CODER_MAXSCALE is big enough, though, (2^29), this shouldn't happen and is not checked
-	
-	const auto& counts = context->counts;
-	
-	// check counts
-	if (!counts.empty()) {	// if counts are already set
-		// locally store current fill/symbol count
-		int local_symb = sb0_count;
-
-		// set the last symbol of the totals to zero
-		int i = context->max_symbol - 1;
-		totals[i + 2] = 0;
-
-		// (re)set current total
-		uint32_t curr_total = 0;
-
-		// go reverse though the whole counts table and accumulate counts
-		// leave space at the beginning of the table for the escape symbol
-		for (; i >= 0; i--) {
-			// only count probability if the current symbol is not 'scoreboard - excluded'
-			if (!scoreboard[i]) {
-				uint16_t curr_count = counts[i];
-				if (curr_count > 0) {
-					// add counts for the current symbol
-					curr_total += curr_count;
-					// exclude symbol from scoreboard
-					scoreboard[i] = 1;
-					sb0_count--;
-				}
-			}
-			totals[i + 1] = curr_total;
-		}
-		// here the escape calculation needs to take place
-		uint32_t esc_prob;
-		if (local_symb == sb0_count) {
-			esc_prob = 1;
-		} else if (sb0_count == 0) {
-			esc_prob = 0;
-		} else {
-			// esc_prob = 1;
-			esc_prob  =  sb0_count * ( local_symb - sb0_count );
-			esc_prob /= ( local_symb * context->max_count );
-			esc_prob++;
-		}
-		// include escape probability in totals table
-		totals[ 0 ] = totals[ 1 ] + esc_prob;
-	} else { // if counts are not already set
-		// setup counts for current table
-		context->counts.resize(max_symbol);
-		// set totals table -> only escape probability included
-		totals[ 0 ] = 1;
-		totals[ 1 ] = 0;
-	}	
+	for ( std::size_t idx = 1; idx < nodes_.size(); ++idx ) {
+		rescale_node( nodes_[ idx ] );
+	}
 }
+
 
 /* -----------------------------------------------
 	special version of model_s for binary coding
-	
-	boundaries of this model:
-	... (maximum symbol) -> 2 (0 or 1 )
-	max_c (maximum context) -> 1 <= max_c <= 1024 (???)
-	max_o (maximum order) -> -1 <= max_o <= 4
 	----------------------------------------------- */
 
 model_b::model_b( int max_c, int max_o, int c_lim ) :
-		// Copy settings into the model:
-		max_context(max_c),
-		max_order(max_o + 1),
-		max_count(c_lim),
-
-		null_table_(std::make_unique<table>()),
-		start_table_(std::make_unique<table>()),
-		contexts(max_o + 3)
+	max_context(max_c),
+	max_order(max_o + 1),
+	max_count(c_lim)
 {
-	// set up null table
-	null_table_->counts.assign(2, uint16_t(1));
-	null_table_->scale = uint32_t(2);
-	
-	// set up start table
-	start_table_->links.resize(max_context);
-		
-	// integrate tables into contexts
-	contexts[ 0 ] = null_table_.get();
-	contexts[ 1 ] = start_table_.get();
-	
-	// build initial 'normal' tables
-	for (int i = 2; i <= max_order; i++ ) {
-		// set up current order table
-		auto created = std::make_unique<table>();
-		// build forward links
-		if ( i < max_order ) {
-			created->links.resize(max_context);
-		}
-		contexts[ i ] = created.get();
-		contexts[ i - 1 ]->links[ 0 ] = std::move(created);
+	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) ) {
+		throw std::runtime_error( "invalid model_b configuration" );
+	}
+
+	nodes_.reserve( 64 );
+	links_pool_.reserve( static_cast<std::size_t>( std::max( 1, max_context ) ) * 8 );
+
+	// Node 0: null table
+	const std::int32_t null_idx = alloc_node( false );
+	nodes_[ static_cast<std::size_t>( null_idx ) ].counts0 = 1;
+	nodes_[ static_cast<std::size_t>( null_idx ) ].counts1 = 1;
+	nodes_[ static_cast<std::size_t>( null_idx ) ].scale   = 2;
+
+	// Node 1: start table
+	const std::int32_t start_idx = alloc_node( max_context > 0 );
+
+	contexts_[ 0 ] = null_idx;
+	contexts_[ 1 ] = start_idx;
+
+	for ( int i = 2; i <= max_order; i++ ) {
+		const std::int32_t created = alloc_node( i < max_order );
+		contexts_[ static_cast<std::size_t>( i ) ] = created;
+		const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
+		links_pool_[ static_cast<std::size_t>( parent_links ) ] = created;
 	}
 }
 
-
-/* -----------------------------------------------
-	updates statistics for a specific symbol / resets to highest order
-	----------------------------------------------- */
-	
-void model_b::update_model( int symbol )
+std::int32_t model_b::alloc_node( bool with_links )
 {
-	// use -1 if you just want to reset without updating statistics
-	
-	table* context = contexts[ max_order ];
-	
-	// only contexts, that were actually used to encode
-	// the symbol get their counts updated
-	if ( ( symbol >= 0 ) && ( max_order >= 0 ) ) {
-		// update count for specific symbol & scale
-		context->counts[ symbol ]++;
-		context->scale++;
-		// if counts for that symbol have gone above the maximum count
-		// the table has to be resized (scale factor 2)
-		if ( context->counts[ symbol ] >= max_count )
-			context->rescale_table();
+	const auto idx = static_cast<std::int32_t>( nodes_.size() );
+	BNode node{};
+	if ( with_links && ( max_context > 0 ) ) {
+		node.links_offset = static_cast<std::int32_t>( links_pool_.size() );
+		links_pool_.resize( links_pool_.size() + static_cast<std::size_t>( max_context ), -1 );
 	}
+	nodes_.push_back( node );
+	return idx;
 }
 
-
-/* -----------------------------------------------
-	shift in one context (max no of contexts is max_c)
-	----------------------------------------------- */
-	
-void model_b::shift_context( int c )
-{
-	// shifting is not possible if max_order is below 1
-	// or context index is out of range
-	if ( (max_order < 2 ) || ( c < 0 ) ) return;
-	if ( c >= max_context ) {
-		throw std::runtime_error( "corrupted arithmetic stream" );
-	}
-	
-	// shift each orders' context
-	for (int i = max_order; i > 1; i-- ) {
-		// this is the new current order context
-		table* context = contexts[ i - 1 ]->links[ c ].get();
-		
-		// check if context exists, build if needed
-		if ( context == nullptr ) {
-			// reserve memory for next table
-			auto created = std::make_unique<table>();		
-			// finished here if this is a max order context
-			if ( i < max_order) {
-				// build links to higher order tables otherwise
-				created->links.resize(max_context);
-			}
-			context = created.get();
-			// put context to its right place
-			contexts[ i - 1 ]->links[ c ] = std::move(created);
-		}
-		
-		// switch context
-		contexts[ i ] = context;
-	}
-}
-
-
-/* -----------------------------------------------
-	Flushes the entire model by calling rescale_table on all contexts.
-	----------------------------------------------- */
-	
 void model_b::flush_model()
 {
-	contexts[1]->recursive_flush();
-}
-
-
-/* -----------------------------------------------
-	converts an int to a symbol, needed only when encoding
-	----------------------------------------------- */
-	
-int model_b::convert_int_to_symbol( int c, symbol *s )
-{
-	table* context = contexts[ max_order ];
-	
-	// check if counts are available
-	context->check_counts();
-	
-	// finding the scale is easy
-	s->scale = context->scale;
-	
-	// return high and low count for current symbol
-	if ( c == 0 ) { // if 0 is to be encoded
-		s->low_count  = uint32_t(0);
-		s->high_count = context->counts[ 0 ];
-	}
-	else { // if 1 is to be encoded
-		s->low_count  = context->counts[ 0 ];
-		s->high_count = context->scale;
-	}
-	
-	return 1;
-}
-
-
-/* -----------------------------------------------
-	returns the current context scale needed only when decoding
-	----------------------------------------------- */
-	
-void model_b::get_symbol_scale( symbol *s )
-{
-	table* context = contexts[ max_order ];
-	
-	// check if counts are available
-	context->check_counts();
-	
-	// getting the scale is easy
-	s->scale = context->scale;
-}
-
-
-/* -----------------------------------------------
-	converts a count to an int, called after get_symbol_scale
-	----------------------------------------------- */
-	
-int model_b::convert_symbol_to_int(uint32_t count, symbol *s)
-{
-	table* context = contexts[ max_order ];
-	auto counts0 = context->counts[ 0 ];
-	
-	// set up the current symbol
-	if ( count < counts0 ) {
-		s->low_count  = uint32_t(0);
-		s->high_count = counts0;
-		return 0;
-	}
-	else {
-		s->low_count  = counts0;
-		s->high_count = s->scale;
-		return 1;
+	for ( std::size_t idx = 1; idx < nodes_.size(); ++idx ) {
+		nodes_[ idx ].rescale();
 	}
 }

@@ -21,67 +21,33 @@ reading and writing of arrays
 
 
 /* -----------------------------------------------
-	constructor for BitReader class
-	----------------------------------------------- */	
+	reads n bits from BitReader (boundary/long fallback)
+	----------------------------------------------- */
 
-BitReader::BitReader( const unsigned char* array, int size ) {
-	data = array;
-	lbyte = size;	
-}
-
-/* -----------------------------------------------
-	reads n bits from BitReader
-	----------------------------------------------- */	
-
-unsigned int BitReader::read( int nbits ) {
+unsigned int BitReader::read_slow( int nbits ) {
 	unsigned int retval = 0;
-	
-	if ( eof()) {
+
+	if ( eof() ) {
 		peof_ += nbits;
 		return 0;
 	}
-	
+
 	while ( nbits >= cbit ) {
 		nbits -= cbit;
-		retval |= ( rbits_u8( data[cbyte], cbit ) << nbits );		
-        update_curr_byte();
-        if (eof()) {
-            peof_ = nbits;
-            return retval;
-        }
+		retval |= ( rbits_u8( data[ cbyte ], cbit ) << nbits );
+		update_curr_byte();
+		if ( eof() ) {
+			peof_ = nbits;
+			return retval;
+		}
 	}
-	
-	if ( nbits > 0 ) {		
-		retval |= mbits_u8( data[cbyte], cbit, cbit - nbits );
-		cbit -= nbits;		
+
+	if ( nbits > 0 ) {
+		retval |= mbits_u8( data[ cbyte ], cbit, cbit - nbits );
+		cbit -= nbits;
 	}
-	
+
 	return retval;
-}
-
-/* -----------------------------------------------
-	reads one bit from BitReader
-	----------------------------------------------- */	
-	
-unsigned char BitReader::read_bit() {
-	if (eof()) {
-		peof_++;
-		return 0;
-	}
-	
-	// read one bit
-	unsigned char bit = static_cast<unsigned char>( bit_n( data[cbyte], --cbit ) );
-	if ( cbit == 0 ) {
-        update_curr_byte();
-	} 
-	
-	return bit;
-}
-
-void BitReader::update_curr_byte() {
-    cbyte++;
-    eof_ = cbyte == lbyte;
-    cbit = 8;
 }
 
 /* -----------------------------------------------
@@ -89,64 +55,44 @@ void BitReader::update_curr_byte() {
 	----------------------------------------------- */
 
 int BitReader::unpad( int fillbit ) {
-	if ( ( cbit == 8 ) || eof()) {
-        return fillbit;
-    } else {
-		fillbit = static_cast<int>( read( 1 ) );
+	if ( ( cbit == 8 ) || eof() ) {
+		return fillbit;
+	} else {
+		fillbit = static_cast<int>( read_bit() );
 		while ( cbit != 8 ) {
-            if ( static_cast<int>( read( 1 ) ) != fillbit ) {
+			if ( static_cast<int>( read_bit() ) != fillbit ) {
 				fillbit = 2;
 			}
-        }
+		}
 	}
-	
+
 	return fillbit;
-}
-
-/* -----------------------------------------------
-	get current position in array
-	----------------------------------------------- */	
-
-int BitReader::getpos() const {
-	return cbyte;
-}
-
-/* -----------------------------------------------
-	get current bit position
-	----------------------------------------------- */
-	
-int BitReader::getbitp() const {
-	return cbit;
 }
 
 /* -----------------------------------------------
 	set byte and bit position
 	----------------------------------------------- */
-	
+
 void BitReader::setpos( int pbyte, int pbit ) {
 	if ( pbyte < lbyte ) {
-		// reset eof
 		eof_ = false;
-		// set positions
 		cbyte = pbyte;
 		cbit = pbit;
 	} else {
-		// set eof
 		eof_ = true;
-		// set positions
 		cbyte = lbyte;
 		cbit = 8;
 		peof_ = ( ( pbyte - lbyte ) * 8 ) + 8 - pbit;
-	}	
+	}
 }
 
 /* -----------------------------------------------
 	rewind n bits
 	----------------------------------------------- */
-	
+
 void BitReader::rewind_bits( int nbits ) {
-	if (eof()) {
-		if (nbits > peof_) {
+	if ( eof() ) {
+		if ( nbits > peof_ ) {
 			nbits -= peof_;
 			peof_ = 0;
 		} else {
@@ -165,57 +111,6 @@ void BitReader::rewind_bits( int nbits ) {
 	}
 }
 
-bool BitReader::eof() const {
-	return eof_;
-}
-
-int BitReader::peof() const {
-	return peof_;
-}
-
-BitWriter::BitWriter(std::uint8_t padbit) : padbit_(padbit) {}
-
-std::uint32_t rbits32(std::uint32_t val, std::size_t n) {
-	if (n == 0) {
-		return 0u;
-	}
-	if (n >= 32) {
-		return val;
-	}
-	return val & (0xFFFFFFFFu >> (32 - n));
-}
-
-std::uint32_t mbits32(std::uint32_t val, std::size_t l, std::size_t r) {
-    return rbits32(val, l) >> r;
-}
-
-void BitWriter::write_u16(std::uint16_t val, std::size_t num_bits) {
-	while (num_bits >= curr_bit_) {
-		curr_byte_ |= mbits32(val, num_bits, num_bits - curr_bit_);
-		num_bits -= curr_bit_;
-		write_curr_byte();
-	}
-
-	if (num_bits > 0) {
-		curr_byte_ |= rbits32(val, num_bits) << (curr_bit_ - num_bits);
-		curr_bit_ -= num_bits;
-	}
-}
-
-void BitWriter::write_bit(std::uint8_t bit) {
-	curr_bit_--;
-	curr_byte_ |= bit << curr_bit_;
-	if (curr_bit_ == 0) {
-		write_curr_byte();
-	}
-}
-
-void BitWriter::write_curr_byte() {
-	bytes_.emplace_back(curr_byte_);
-	curr_byte_ = 0;
-	curr_bit_ = 8;
-}
-
 void BitWriter::pad() {
 	while (curr_bit_ < 8) {
 		write_bit(padbit_);
@@ -223,7 +118,7 @@ void BitWriter::pad() {
 }
 
 std::vector<std::uint8_t> BitWriter::get_bytes() {
-	pad(); // Pad the last bits of the current byte before returning the written bytes.
+	pad();
 	return bytes_;
 }
 
@@ -233,28 +128,24 @@ std::vector<std::uint8_t> BitWriter::take_bytes() {
 }
 
 unsigned char* BitWriter::get_c_bytes() {
-    pad(); // Pad the last bits of the current byte before returning the written bytes.
-    auto c_bytes = static_cast<unsigned char*>(std::malloc(bytes_.size() * sizeof bytes_[0]));
-    if (c_bytes == nullptr) {
-        return nullptr;
-    }
-    std::copy(std::begin(bytes_), std::end(bytes_), c_bytes);
-    return c_bytes;
-}
-
-std::size_t BitWriter::num_bytes_written() const {
-	return bytes_.size();
+	pad();
+	auto c_bytes = static_cast<unsigned char*>(std::malloc(bytes_.size() * sizeof bytes_[0]));
+	if (c_bytes == nullptr) {
+		return nullptr;
+	}
+	std::copy(std::begin(bytes_), std::end(bytes_), c_bytes);
+	return c_bytes;
 }
 
 unsigned char* Reader::get_c_data() {
-    const auto data = this->get_data();
-    auto c_data_copy = (unsigned char*)std::malloc(data.size() * sizeof data[0]);
-    if (c_data_copy == nullptr) {
-        return nullptr;
-    }
+	const auto data = this->get_data();
+	auto c_data_copy = static_cast<unsigned char*>(std::malloc(data.size() * sizeof data[0]));
+	if (c_data_copy == nullptr) {
+		return nullptr;
+	}
 
-    std::copy(std::begin(data), std::end(data), c_data_copy);
-    return c_data_copy;
+	std::copy(std::begin(data), std::end(data), c_data_copy);
+	return c_data_copy;
 }
 
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
@@ -268,8 +159,8 @@ MemoryReader::MemoryReader(std::vector<std::uint8_t>&& bytes) :
 }
 
 MemoryReader::MemoryReader(const std::uint8_t* bytes, std::size_t size) :
-    data_((bytes != nullptr && size > 0) ? std::vector<std::uint8_t>(bytes, bytes + size) : std::vector<std::uint8_t>{}),
-    cbyte_(std::begin(data_)) {
+	data_((bytes != nullptr && size > 0) ? std::vector<std::uint8_t>(bytes, bytes + size) : std::vector<std::uint8_t>{}),
+	cbyte_(std::begin(data_)) {
 	if (bytes == nullptr && size > 0) {
 		throw std::runtime_error("MemoryReader: null pointer with non-zero size.");
 	}
@@ -288,8 +179,8 @@ std::size_t MemoryReader::read(std::uint8_t* to, std::size_t num_to_read) {
 }
 
 std::size_t MemoryReader::read(std::vector<std::uint8_t>& into, std::size_t n, std::size_t offset) {
-	const std::size_t num_available = get_size() - num_bytes_read(); // The number of bytes in the reader not yet read.
-	const std::size_t num_to_read = std::min(n, num_available); // How many bytes will be read.
+	const std::size_t num_available = get_size() - num_bytes_read();
+	const std::size_t num_to_read = std::min(n, num_available);
 	if (into.size() < num_to_read + offset) {
 		into.resize(num_to_read + offset);
 	}
@@ -319,6 +210,16 @@ bool MemoryReader::read_byte(std::uint8_t* byte) {
 		++cbyte_;
 		return true;
 	}
+}
+
+const std::uint8_t* MemoryReader::peek_contiguous(std::size_t& avail) const {
+	const auto rem = static_cast<std::size_t>(std::distance(cbyte_, std::end(data_)));
+	avail = rem;
+	if (rem == 0) {
+		return nullptr;
+	}
+	const auto off = static_cast<std::size_t>(std::distance(std::begin(data_), cbyte_));
+	return data_.data() + off;
 }
 
 void MemoryReader::skip(std::size_t n) {
@@ -357,40 +258,18 @@ bool MemoryReader::end_of_reader() {
 }
 
 unsigned char* Writer::get_c_data() {
-    try {
-        const auto data = this->get_data();
-        auto c_data_copy = (unsigned char*)std::malloc(data.size() * sizeof data[0]);
-        if (c_data_copy == nullptr) {
-            return nullptr;
-        }
+	try {
+		const auto data = this->get_data();
+		auto c_data_copy = static_cast<unsigned char*>(std::malloc(data.size() * sizeof data[0]));
+		if (c_data_copy == nullptr) {
+			return nullptr;
+		}
 
-        std::copy(std::begin(data), std::end(data), c_data_copy);
-        return c_data_copy;
-    } catch (const std::exception&) {
-        return nullptr;
-    }
-}
-
-MemoryWriter::MemoryWriter() {}
-
-std::size_t MemoryWriter::write(const std::uint8_t* from, std::size_t n) {
-	data_.insert(std::end(data_), from, from + n);
-	return n;
-}
-
-std::size_t MemoryWriter::write(const std::vector<std::uint8_t>& bytes) {
-	data_.insert(std::end(data_), std::begin(bytes), std::end(bytes));
-	return bytes.size();
-}
-
-std::size_t MemoryWriter::write(const std::array<std::uint8_t, 2>& bytes) {
-	data_.insert(std::end(data_), std::begin(bytes), std::end(bytes));
-	return bytes.size();
-}
-
-bool MemoryWriter::write_byte(std::uint8_t byte) {
-	data_.emplace_back(byte);
-	return true;
+		std::copy(std::begin(data), std::end(data), c_data_copy);
+		return c_data_copy;
+	} catch (const std::exception&) {
+		return nullptr;
+	}
 }
 
 std::vector<std::uint8_t> MemoryWriter::get_data() {
@@ -421,7 +300,6 @@ FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
 	} else {
 		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
 	}
-
 }
 
 FileWriter::~FileWriter() {
@@ -578,8 +456,6 @@ bool StreamWriter::error() {
 	return error_ || writer_->error() || (stream_ == nullptr) || std::ferror(stream_);
 }
 
-
-
 FileReader::FileReader(const std::string& file_path) {
 	std::error_code ec;
 	if (std::filesystem::is_directory(file_path, ec)) {
@@ -618,6 +494,10 @@ std::uint8_t FileReader::read_byte() {
 
 bool FileReader::read_byte(std::uint8_t* to) {
 	return reader_->read_byte(to);
+}
+
+const std::uint8_t* FileReader::peek_contiguous(std::size_t& avail) const {
+	return reader_->peek_contiguous(avail);
 }
 
 void FileReader::skip(std::size_t n) {
@@ -664,7 +544,6 @@ StreamReader::StreamReader(FILE* stream) {
 		}
 	}
 #endif
-	// read whole stream into memory buffer
 	std::vector<std::uint8_t> stream_data;
 	constexpr auto buffer_capacity = 1024 * 1024;
 	std::vector<std::uint8_t> buffer(buffer_capacity);
@@ -695,6 +574,10 @@ std::uint8_t StreamReader::read_byte() {
 
 bool StreamReader::read_byte(std::uint8_t* to) {
 	return reader_->read_byte(to);
+}
+
+const std::uint8_t* StreamReader::peek_contiguous(std::size_t& avail) const {
+	return reader_->peek_contiguous(avail);
 }
 
 void StreamReader::skip(std::size_t n) {

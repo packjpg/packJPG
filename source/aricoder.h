@@ -4,8 +4,10 @@
 #include "bitops.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 // defines for coder
@@ -17,6 +19,20 @@ constexpr uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
 constexpr uint32_t CODER_MAXSCALE = CODER_LIMIT025 - 1;
 constexpr uint32_t ESCAPE_SYMBOL = CODER_LIMIT025;
 
+inline int ari_popcount_u64( std::uint64_t x ) noexcept
+{
+#if defined(__GNUC__) || defined(__clang__)
+	return __builtin_popcountll( x );
+#else
+	int count = 0;
+	while ( x != 0 ) {
+		x &= ( x - 1 );
+		++count;
+	}
+	return count;
+#endif
+}
+
 // symbol struct, used in arithmetic coding
 struct symbol {
 	uint32_t low_count;
@@ -24,130 +40,44 @@ struct symbol {
 	uint32_t scale;
 };
 
-// table struct, used in in statistical models,
-// holding all info needed for one context
-struct table {
-	// counts for each symbol contained in the table
-	std::vector<uint16_t> counts;
-	// links to higher order contexts
-	std::vector<std::unique_ptr<table>> links;
-	// accumulated counts
-	uint32_t scale = uint32_t(0);
-
-	/* -----------------------------------------------
-	Checks if counts exist, creating it if it does not.
-	----------------------------------------------- */
-	inline void check_counts() {
-		// check if counts are available
-		if (counts.empty()) {
-			// setup counts for current table
-			counts.resize(2, uint16_t(1));
-			// set scale
-			scale = uint32_t(2);
-		}
-	}
-
-	/* -----------------------------------------------
-	Resizes the table by rightshifting each count by 1.
-	----------------------------------------------- */
-	inline void rescale_table() {
-		// Do nothing if counts is not set:
-		if (!counts.empty()) {
-			// Scale the table by bitshifting each count, be careful not to set any count zero:
-			counts[0] = std::max(uint16_t(1), uint16_t(counts[0] >> 1));
-			counts[1] = std::max(uint16_t(1), uint16_t(counts[1] >> 1));
-			scale = counts[0] + counts[1];
-		}
-	}
-
-	/* -----------------------------------------------
-	Recursively runs rescale_table on this and all linked contexts.
-	----------------------------------------------- */
-	inline void recursive_flush() {
-		for (auto& link : links) {
-			if (link != nullptr) {
-				link->recursive_flush();
-			}
-		}
-		// rescale specific table
-		rescale_table();
-	}
-};
-
-// special table struct, used in in model_s,
-// holding additional info for a speedier 'totalize_table'
-struct table_s {
-	// counts for each symbol contained in the table
-	std::vector<uint16_t> counts;
-	// links to higher order contexts
-	std::vector<std::unique_ptr<table_s>> links;
-	// speedup info
-	uint16_t max_count = uint16_t(0);
-	uint16_t max_symbol = uint16_t(0);
-
-	/* -----------------------------------------------
-	Resizes the table by rightshifting each count by 1.
-	----------------------------------------------- */
-	inline void rescale_table() {
-		// Nothing to do if counts has not been set.
-		if (counts.empty()) return;
-
-		// now scale the table by bitshifting each count
-		int lst_symbol = max_symbol;
-		int i;
-		for (i = 0; i < lst_symbol; i++) {
-			counts[i] >>= 1; // Counts will not become negative since it is an unsigned type.
-		}
-
-		// also rescale tables max count
-		max_count >>= 1;
-
-		// seek for new last symbol
-		for (i = lst_symbol - 1; i >= 0; i--) {
-			if (counts[i] > 0) {
-				break;
-			}
-		}
-		max_symbol = i + 1;
-	}
-
-	/* -----------------------------------------------
-	Recursively runs rescale_table on this and all linked contexts.
-	----------------------------------------------- */
-	inline void recursive_flush() {
-		for (auto& link : links) {
-			if (link != nullptr) {
-				link->recursive_flush();
-			}
-		}
-
-		// rescale specific table
-		rescale_table();
-	}
-};
-
 class ArithmeticBitWriter {
 public:
+	static constexpr std::size_t kFlushThreshold = 65536;
+
+	explicit ArithmeticBitWriter(Writer* sink = nullptr) : sink_(sink) {
+		data_.reserve(sink != nullptr ? kFlushThreshold : 256);
+	}
+
 	template <std::uint8_t bit>
 	inline void write_bit() {
-		curr_byte_ = (curr_byte_ << 1) | bit;
+		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << 1) | bit);
 		curr_bit_++;
 		if (curr_bit_ == 8) {
-			data_.emplace_back(curr_byte_);
+			emit_byte(curr_byte_);
 			curr_bit_ = 0;
 		}
 	}
 
 	void write_n_zero_bits(std::size_t n);
-
 	void write_n_one_bits(std::size_t n);
-
 	void pad();
+	void flush_to_sink();
 
-	std::vector<std::uint8_t> get_data() const;
-
+	const std::vector<std::uint8_t>& get_data() const noexcept {
+		return data_;
+	}
 
 private:
+	void flush_buffer();
+
+	inline void emit_byte(std::uint8_t b) {
+		data_.push_back(b);
+		if ((sink_ != nullptr) && (data_.size() >= kFlushThreshold)) {
+			flush_buffer();
+		}
+	}
+
+	Writer* sink_ = nullptr;
 	std::vector<std::uint8_t> data_;
 	std::uint8_t curr_byte_ = 0;
 	std::size_t curr_bit_ = 0;
@@ -160,24 +90,59 @@ private:
 
 class ArithmeticEncoder
 {
-	public:
-    explicit ArithmeticEncoder(Writer& writer);
+public:
+	explicit ArithmeticEncoder(Writer& writer);
 	ArithmeticEncoder(const ArithmeticEncoder&) = delete;
 	ArithmeticEncoder& operator=(const ArithmeticEncoder&) = delete;
 	~ArithmeticEncoder();
-	void encode( symbol* s );
 
-    void finalize();
-	
-	private:
-	
-	// i/o variables
-    
-    bool finalized = false;
-    Writer& writer_;
-    std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
-	
-	// arithmetic coding variables
+	inline void encode( symbol* s )
+	{
+		uint32_t clow_local = clow;
+		uint32_t chigh_local = chigh;
+		cstep = (chigh_local - clow_local + 1) / s->scale;
+		chigh_local = clow_local + (cstep * s->high_count) - 1;
+		clow_local = clow_local + (cstep * s->low_count);
+
+		while ( clow_local >= CODER_LIMIT050 || chigh_local < CODER_LIMIT050 ) {
+			if ( chigh_local < CODER_LIMIT050 ) {
+				bitwriter_.write_bit<0>();
+				if ( nrbits > 0 ) {
+					bitwriter_.write_n_one_bits( nrbits );
+					nrbits = 0;
+				}
+			}
+			else {
+				bitwriter_.write_bit<1>();
+				clow_local &= CODER_LIMIT050 - 1;
+				chigh_local &= CODER_LIMIT050 - 1;
+				if ( nrbits > 0 ) {
+					bitwriter_.write_n_zero_bits( nrbits );
+					nrbits = 0;
+				}
+			}
+			clow_local <<= 1;
+			chigh_local = ( chigh_local << 1 ) + 1;
+		}
+
+		while ( ( clow_local >= CODER_LIMIT025 ) && ( chigh_local < CODER_LIMIT075 ) ) {
+			nrbits++;
+			clow_local &= CODER_LIMIT025 - 1;
+			chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
+			clow_local <<= 1;
+			chigh_local = ( chigh_local << 1 ) + 1;
+		}
+
+		clow = clow_local;
+		chigh = chigh_local;
+	}
+
+	void finalize();
+
+private:
+	bool finalized = false;
+	ArithmeticBitWriter bitwriter_;
+
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
 	unsigned int cstep = 0;
@@ -185,22 +150,86 @@ class ArithmeticEncoder
 };
 
 class ArithmeticDecoder {
-	public:
-    explicit ArithmeticDecoder(Reader& reader);
+public:
+	explicit ArithmeticDecoder(Reader& reader);
 	~ArithmeticDecoder() = default;
-	unsigned int decode_count( symbol* s );
-	void decode( symbol* s );
-	
-	private:
-	unsigned char read_bit();
-	
-	// i/o variables
-    Reader& reader_;
-	unsigned char bbyte = 0;
-	unsigned char cbit = 0;
+
+	inline unsigned int decode_count( symbol* s )
+	{
+		if ( s->scale == 0 || chigh < clow || ccode < clow || ccode > chigh ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+		cstep = ( ( chigh - clow ) + 1 ) / s->scale;
+		if ( cstep == 0 ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+
+		const unsigned int count = ( ccode - clow ) / cstep;
+		if ( count >= s->scale ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+		return count;
+	}
+
+	inline void decode( symbol* s )
+	{
+		constexpr uint32_t kMask100 = CODER_LIMIT100 - 1u;
+		uint32_t ccode_local = ccode;
+		uint32_t clow_local  = clow;
+		uint32_t chigh_local = clow_local + ( cstep * s->high_count ) - 1u;
+		clow_local           = clow_local + ( cstep * s->low_count );
+
+		if ( ( ( clow_local ^ chigh_local ) & CODER_LIMIT050 ) == 0u ) {
+#if defined(__GNUC__) || defined(__clang__)
+			const int k = __builtin_clz( ( ( clow_local ^ chigh_local ) << 1 ) | 1u );
+#else
+			int k = 0;
+			uint32_t diff = ( ( clow_local ^ chigh_local ) << 1 ) | 1u;
+			while ( ( diff & 0x80000000u ) == 0u ) {
+				diff <<= 1;
+				++k;
+			}
+#endif
+			clow_local  = ( clow_local << k ) & kMask100;
+			chigh_local = ( ( chigh_local << k ) | ( ( 1u << k ) - 1u ) ) & kMask100;
+			ccode_local = ( ( ccode_local << k ) | read_bits( k ) ) & kMask100;
+		}
+
+		while ( ( clow_local >= CODER_LIMIT025 ) && ( chigh_local < CODER_LIMIT075 ) ) {
+			clow_local &= CODER_LIMIT025 - 1u;
+			chigh_local ^= CODER_LIMIT025 + CODER_LIMIT050;
+			ccode_local -= CODER_LIMIT025;
+			clow_local <<= 1;
+			chigh_local = ( chigh_local << 1 ) + 1u;
+			ccode_local = ( ccode_local << 1 ) | read_bits( 1 );
+		}
+
+		chigh = chigh_local;
+		clow  = clow_local;
+		ccode = ccode_local;
+	}
+
+private:
+	bool refill_buffer();
+	void fill_bit_reservoir();
+
+	inline uint32_t read_bits( int k )
+	{
+		if ( bits_left_ < k ) {
+			fill_bit_reservoir();
+		}
+		bits_left_ -= k;
+		return static_cast<uint32_t>( ( bit_buf_ >> bits_left_ ) & ( ( 1u << k ) - 1u ) );
+	}
+
+	Reader& reader_;
+	std::array<std::uint8_t, 4096> in_buf_{};
+	std::size_t buf_pos_ = 0;
+	std::size_t buf_len_ = 0;
+	std::uint64_t bit_buf_ = 0;
+	int bits_left_ = 0;
 	std::size_t eof_zero_bytes_ = 0;
-	
-	// arithmetic coding variables
+
 	unsigned int ccode = 0;
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
@@ -211,69 +240,369 @@ class ArithmeticDecoder {
 /* -----------------------------------------------
 	universal statistical model for arithmetic coding
 	----------------------------------------------- */
-	
+
 class model_s
-{	
-	public:
-	
+{
+public:
 	model_s( int max_s, int max_c, int max_o, int c_lim );
-	
-	void update_model( int symbol );
-	void shift_context( int c );
+
+	inline void update_model( int symbol )
+	{
+		if ( symbol >= 0 ) {
+			for ( int local_order = ( current_order < 1 ) ? 1 : current_order;
+				  local_order <= max_order; local_order++ ) {
+				const std::int32_t node_idx = contexts_[ static_cast<std::size_t>( local_order ) ];
+				if ( nodes_[ static_cast<std::size_t>( node_idx ) ].counts_offset < 0 ) {
+					alloc_counts( node_idx );
+				}
+				SNode& context = nodes_[ static_cast<std::size_t>( node_idx ) ];
+				std::uint16_t& count = counts_pool_[ static_cast<std::size_t>( context.counts_offset + symbol ) ];
+				count++;
+				context.max_count  = std::max( count, context.max_count );
+				context.max_symbol = std::max( std::uint16_t( symbol + 1 ), context.max_symbol );
+				if ( count == max_count ) {
+					rescale_node( context );
+				}
+			}
+		}
+
+		current_order = max_order;
+		if ( use_bitmask_ ) {
+			sb_mask_ = 0;
+		}
+		else {
+			std::fill( scoreboard_.begin(), scoreboard_.end(), std::uint8_t( 0 ) );
+		}
+		sb0_count = max_symbol;
+	}
+
+	inline void shift_context( int c )
+	{
+		if ( ( max_order < 2 ) || ( c < 0 ) ) return;
+		if ( c >= max_context ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+
+		for ( int i = max_order; i > 1; i-- ) {
+			const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
+			std::int32_t child = links_pool_[ static_cast<std::size_t>( parent_links + c ) ];
+			if ( child < 0 ) {
+				child = alloc_node( i < max_order );
+				links_pool_[ static_cast<std::size_t>( parent_links + c ) ] = child;
+			}
+			contexts_[ static_cast<std::size_t>( i ) ] = child;
+		}
+	}
+
 	void flush_model();
-	void exclude_symbols(int c);
-	
-	int  convert_int_to_symbol( int c, symbol *s );
-	void get_symbol_scale( symbol *s );
-	int  convert_symbol_to_int(uint32_t count, symbol *s);
-	
-	private:
 
-	inline void totalize_table(table_s* context);
+	inline void exclude_symbols( int c )
+	{
+		const int start = std::max( 0, c + 1 );
+		if ( start >= max_symbol ) {
+			return;
+		}
 
-	const int max_symbol;
-	const int max_context;
-	const int max_order;
-	const int max_count;
+		if ( use_bitmask_ ) {
+			const std::uint64_t valid_bits = ( max_symbol == 64 )
+				? ~std::uint64_t( 0 )
+				: ( ( std::uint64_t( 1 ) << max_symbol ) - 1u );
+			const std::uint64_t range_mask = valid_bits & ( ~std::uint64_t( 0 ) << start );
+			sb_mask_ |= range_mask;
+			sb0_count = max_symbol - ari_popcount_u64( sb_mask_ );
+		}
+		else {
+			for ( int sym = start; sym < max_symbol; sym++ ) {
+				if ( !scoreboard_[ static_cast<std::size_t>( sym ) ] ) {
+					scoreboard_[ static_cast<std::size_t>( sym ) ] = 1;
+					sb0_count--;
+				}
+			}
+		}
+	}
+
+	inline int convert_int_to_symbol( int c, symbol* s )
+	{
+		const std::int32_t node_idx = contexts_[ static_cast<std::size_t>( current_order ) ];
+		totalize_table( node_idx );
+
+		s->scale = totals[ 0 ];
+
+		const SNode& context = nodes_[ static_cast<std::size_t>( node_idx ) ];
+		if ( counts_pool_[ static_cast<std::size_t>( context.counts_offset + c ) ] > 0 ) {
+			s->low_count  = totals[ static_cast<std::size_t>( c + 2 ) ];
+			s->high_count = totals[ static_cast<std::size_t>( c + 1 ) ];
+			return 0;
+		}
+
+		s->low_count  = totals[ 1 ];
+		s->high_count = totals[ 0 ];
+		current_order--;
+		return 1;
+	}
+
+	inline void get_symbol_scale( symbol* s )
+	{
+		if ( current_order < 0 || current_order > max_order ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+		totalize_table( contexts_[ static_cast<std::size_t>( current_order ) ] );
+		s->scale = totals[ 0 ];
+	}
+
+	inline int convert_symbol_to_int( uint32_t count, symbol* s )
+	{
+		int c = 1;
+		if ( totals_end_ <= 16 ) {
+			// For small alphabets (DC/AC bit lengths), symbol 0 (c=2) or escape (c=1)
+			// occurs ~85% of the time, making a short sequential scan much friendlier
+			// to the branch predictor than binary search.
+			while ( ( c < totals_end_ ) && ( count < totals[ static_cast<std::size_t>( c ) ] ) ) {
+				++c;
+			}
+		}
+		else {
+			int lo = 1;
+			int hi = totals_end_;
+			while ( lo < hi ) {
+				const int mid = ( lo + hi ) >> 1;
+				if ( count >= totals[ static_cast<std::size_t>( mid ) ] ) {
+					hi = mid;
+				}
+				else {
+					lo = mid + 1;
+				}
+			}
+			c = lo;
+		}
+
+		if ( c > totals_end_ || count < totals[ static_cast<std::size_t>( c ) ] ||
+			 totals[ static_cast<std::size_t>( c - 1 ) ] <= totals[ static_cast<std::size_t>( c ) ] ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+
+		s->low_count  = totals[ static_cast<std::size_t>( c ) ];
+		s->high_count = totals[ static_cast<std::size_t>( c - 1 ) ];
+
+		if ( c == 1 ) {
+			if ( current_order <= 0 ) {
+				throw std::runtime_error( "corrupted arithmetic stream" );
+			}
+			current_order--;
+			return ESCAPE_SYMBOL;
+		}
+
+		return c - 2;
+	}
+
+private:
+	struct SNode {
+		std::int32_t  counts_offset = -1;
+		std::int32_t  links_offset  = -1;
+		std::uint16_t max_count     = 0;
+		std::uint16_t max_symbol    = 0;
+	};
+
+	std::int32_t alloc_node( bool with_links );
+	void alloc_counts( std::int32_t node_idx );
+	void rescale_node( SNode& node ) noexcept;
+
+	inline void totalize_table( std::int32_t node_idx )
+	{
+		SNode& context = nodes_[ static_cast<std::size_t>( node_idx ) ];
+
+		if ( context.counts_offset >= 0 ) {
+			const std::uint16_t* counts = counts_pool_.data() + context.counts_offset;
+			const int local_symb = sb0_count;
+
+			int i = static_cast<int>( context.max_symbol ) - 1;
+			totals_end_ = i + 2;
+			totals[ static_cast<std::size_t>( totals_end_ ) ] = 0;
+
+			uint32_t curr_total = 0;
+
+			if ( use_bitmask_ ) {
+				const std::uint64_t mask = sb_mask_;
+				std::uint64_t new_nonzero = 0;
+				for ( ; i >= 0; i-- ) {
+					const std::uint32_t c = counts[ i ];
+					const std::uint32_t allow = static_cast<std::uint32_t>( ( ~mask >> i ) & 1u );
+					curr_total += c * allow;
+					new_nonzero |= static_cast<std::uint64_t>( c != 0 ) << i;
+					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+				}
+				sb_mask_ = mask | new_nonzero;
+				sb0_count = max_symbol - ari_popcount_u64( sb_mask_ );
+			}
+			else {
+				for ( ; i >= 0; i-- ) {
+					if ( !scoreboard_[ static_cast<std::size_t>( i ) ] ) {
+						const uint16_t curr_count = counts[ i ];
+						if ( curr_count > 0 ) {
+							curr_total += curr_count;
+							scoreboard_[ static_cast<std::size_t>( i ) ] = 1;
+							sb0_count--;
+						}
+					}
+					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+				}
+			}
+
+			uint32_t esc_prob;
+			if ( local_symb == sb0_count ) {
+				esc_prob = 1;
+			}
+			else if ( sb0_count == 0 ) {
+				esc_prob = 0;
+			}
+			else {
+				esc_prob  = static_cast<uint32_t>( sb0_count * ( local_symb - sb0_count ) );
+				esc_prob /= static_cast<uint32_t>( local_symb * context.max_count );
+				esc_prob++;
+			}
+			totals[ 0 ] = totals[ 1 ] + esc_prob;
+		}
+		else {
+			alloc_counts( node_idx );
+			totals[ 0 ] = 1;
+			totals[ 1 ] = 0;
+			totals_end_ = 1;
+		}
+	}
+
+	const int  max_symbol;
+	const int  max_context;
+	const int  max_order;
+	const int  max_count;
+	const bool use_bitmask_;
 
 	int current_order;
 	int sb0_count;
-	
+	int totals_end_ = 1;
+	std::uint64_t sb_mask_ = 0;
+
 	std::vector<uint32_t> totals;
-	std::vector<std::uint8_t> scoreboard;
-	std::unique_ptr<table_s> null_table_;
-	std::unique_ptr<table_s> start_table_;
-	std::vector<table_s*> contexts;
+	std::vector<std::uint8_t> scoreboard_;
+	std::vector<SNode> nodes_;
+	std::vector<std::uint16_t> counts_pool_;
+	std::vector<std::int32_t> links_pool_;
+	std::array<std::int32_t, 8> contexts_{};
 };
 
 
 /* -----------------------------------------------
 	binary statistical model for arithmetic coding
 	----------------------------------------------- */
-	
+
 class model_b
-{	
-	public:
-	
+{
+public:
 	model_b( int max_c, int max_o, int c_lim );
-	
-	void update_model( int symbol );
-	void shift_context( int c );
+
+	inline void update_model( int symbol )
+	{
+		if ( ( symbol >= 0 ) && ( max_order >= 0 ) ) {
+			BNode& ctx_node = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( max_order ) ] ) ];
+			const std::uint16_t updated = ( symbol == 0 ) ? ++ctx_node.counts0 : ++ctx_node.counts1;
+			ctx_node.scale++;
+			if ( updated >= max_count ) {
+				ctx_node.rescale();
+			}
+		}
+	}
+
+	inline void shift_context( int c )
+	{
+		if ( ( max_order < 2 ) || ( c < 0 ) ) return;
+		if ( c >= max_context ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+
+		for ( int i = max_order; i > 1; i-- ) {
+			const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
+			std::int32_t child = links_pool_[ static_cast<std::size_t>( parent_links + c ) ];
+			if ( child < 0 ) {
+				child = alloc_node( i < max_order );
+				links_pool_[ static_cast<std::size_t>( parent_links + c ) ] = child;
+			}
+			contexts_[ static_cast<std::size_t>( i ) ] = child;
+		}
+	}
+
 	void flush_model();
-	
-	int  convert_int_to_symbol( int c, symbol *s );
-	void get_symbol_scale( symbol *s );
-	int  convert_symbol_to_int(uint32_t count, symbol *s);	
-	
-	private:
-	
+
+	inline int convert_int_to_symbol( int c, symbol* s )
+	{
+		BNode& ctx_node = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( max_order ) ] ) ];
+		ctx_node.check_counts();
+		s->scale = ctx_node.scale;
+		if ( c == 0 ) {
+			s->low_count  = 0u;
+			s->high_count = ctx_node.counts0;
+		}
+		else {
+			s->low_count  = ctx_node.counts0;
+			s->high_count = ctx_node.scale;
+		}
+		return 1;
+	}
+
+	inline void get_symbol_scale( symbol* s )
+	{
+		BNode& ctx_node = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( max_order ) ] ) ];
+		ctx_node.check_counts();
+		s->scale = ctx_node.scale;
+	}
+
+	inline int convert_symbol_to_int( uint32_t count, symbol* s )
+	{
+		const BNode& ctx_node = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( max_order ) ] ) ];
+		const std::uint32_t counts0 = ctx_node.counts0;
+		if ( count < counts0 ) {
+			s->low_count  = 0u;
+			s->high_count = counts0;
+			return 0;
+		}
+		else {
+			s->low_count  = counts0;
+			s->high_count = s->scale;
+			return 1;
+		}
+	}
+
+private:
+	struct BNode {
+		std::int32_t  links_offset = -1;
+		std::uint32_t scale        = 0;
+		std::uint16_t counts0      = 0;
+		std::uint16_t counts1      = 0;
+
+		inline void check_counts() noexcept {
+			if ( scale == 0 ) {
+				counts0 = 1;
+				counts1 = 1;
+				scale   = 2;
+			}
+		}
+
+		inline void rescale() noexcept {
+			if ( scale != 0 ) {
+				counts0 = std::max<std::uint16_t>( 1, static_cast<std::uint16_t>( counts0 >> 1 ) );
+				counts1 = std::max<std::uint16_t>( 1, static_cast<std::uint16_t>( counts1 >> 1 ) );
+				scale   = static_cast<std::uint32_t>( counts0 ) + static_cast<std::uint32_t>( counts1 );
+			}
+		}
+	};
+
+	std::int32_t alloc_node( bool with_links );
+
 	const int max_context;
 	const int max_order;
 	const int max_count;
-	
-	std::unique_ptr<table> null_table_;
-	std::unique_ptr<table> start_table_;
-	std::vector<table*> contexts;
+
+	std::vector<BNode> nodes_;
+	std::vector<std::int32_t> links_pool_;
+	std::array<std::int32_t, 8> contexts_{};
 };
 
 // Base case for shifting an arbitrary number of contexts into the model.
@@ -294,8 +623,8 @@ inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c )
 {
 	symbol s;
 	int esc;
-	
-	do {		
+
+	do {
 		esc = model->convert_int_to_symbol( c, &s );
 		encoder->encode( &s );
 	} while ( esc );
@@ -304,31 +633,31 @@ inline void encode_ari( ArithmeticEncoder* encoder, model_s* model, int c )
 
 /* -----------------------------------------------
 	generic model_s decoder function
-	----------------------------------------------- */	
+	----------------------------------------------- */
 inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 {
 	symbol s;
 	uint32_t count;
 	int c;
-	
-	do{
+
+	do {
 		model->get_symbol_scale( &s );
 		count = decoder->decode_count( &s );
 		c = model->convert_symbol_to_int( count, &s );
-		decoder->decode( &s );	
+		decoder->decode( &s );
 	} while ( c == int(ESCAPE_SYMBOL) );
 	model->update_model( c );
-	
+
 	return c;
 }
 
 /* -----------------------------------------------
 	generic model_b encoder function
-	----------------------------------------------- */	
+	----------------------------------------------- */
 inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c )
 {
 	symbol s;
-	
+
 	model->convert_int_to_symbol( c, &s );
 	encoder->encode( &s );
 	model->update_model( c );
@@ -336,17 +665,17 @@ inline void encode_ari( ArithmeticEncoder* encoder, model_b* model, int c )
 
 /* -----------------------------------------------
 	generic model_b decoder function
-	----------------------------------------------- */	
+	----------------------------------------------- */
 inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 {
 	symbol s;
-	
+
 	model->get_symbol_scale( &s );
 	uint32_t count = decoder->decode_count( &s );
 	int c = model->convert_symbol_to_int( count, &s );
-	decoder->decode( &s );	
+	decoder->decode( &s );
 	model->update_model( c );
-	
+
 	return c;
 }
 
