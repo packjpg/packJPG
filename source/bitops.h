@@ -23,7 +23,7 @@ public:
 	~BitReader();	
 	unsigned int read( int nbits );
 	unsigned char read_bit();
-	unsigned char unpad( unsigned char fillbit );
+	int unpad( int fillbit );
 	int getpos();
 	int getbitp();
 	void setpos( int pbyte, int pbit );

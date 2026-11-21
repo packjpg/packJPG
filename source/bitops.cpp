@@ -93,11 +93,11 @@ void BitReader::update_curr_byte() {
 	to skip padding from current byte
 	----------------------------------------------- */
 
-unsigned char BitReader::unpad( unsigned char fillbit ) {
+int BitReader::unpad( int fillbit ) {
 	if ( ( cbit == 8 ) || eof()) {
         return fillbit;
     } else {
-		fillbit = read( 1 );
+		fillbit = static_cast<int>( read( 1 ) );
 		while ( cbit != 8 ) {
             read( 1 );
         }
@@ -228,7 +228,10 @@ std::vector<std::uint8_t> BitWriter::get_bytes() {
 
 unsigned char* BitWriter::get_c_bytes() {
     pad(); // Pad the last bits of the current byte before returning the written bytes.
-    unsigned char* c_bytes = new unsigned char[bytes_.size()];
+    auto c_bytes = static_cast<unsigned char*>(std::malloc(bytes_.size() * sizeof bytes_[0]));
+    if (c_bytes == nullptr) {
+        return nullptr;
+    }
     std::copy(std::begin(bytes_), std::end(bytes_), c_bytes);
     return c_bytes;
 }

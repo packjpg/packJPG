@@ -269,6 +269,7 @@ ____________________________________
 packJPG by Matthias Stirner, 01/2016
 */
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -294,8 +295,8 @@ packJPG by Matthias Stirner, 01/2016
 
 #define INTERN static
 
-#define INIT_MODEL_S(a,b,c) new model_s( a, b, c, 255 )
-#define INIT_MODEL_B(a,b)   new model_b( a, b, 255 )
+#define INIT_MODEL_S(a,b,c) std::make_unique<model_s>( a, b, c, 255 )
+#define INIT_MODEL_B(a,b)   std::make_unique<model_b>( a, b, 255 )
 
 // #define USE_PLOCOI // uncomment to use loco-i predictor instead of 1DDCT predictor
 // #define DEV_BUILD // uncomment to include developer functions
@@ -306,7 +307,7 @@ packJPG by Matthias Stirner, 01/2016
 // #define QUN_V(v,cm,bp)	( ( QUANT(cm,bp) > 0 ) ? ( ( v > 0 ) ? ( v + (QUANT(cm,bp)/2) ) /  QUANT(cm,bp) : ( v - (QUANT(cm,bp)/2) ) /  QUANT(cm,bp) ) : 0 )
 
 #define ENVLI(s,v)		( ( v > 0 ) ? v : ( v - 1 ) + ( 1 << s ) )
-#define DEVLI(s,n)		( ( n >= ( 1 << (s - 1) ) ) ? n : n + 1 - ( 1 << s ) )
+#define DEVLI(s,n)		( ( (s) == 0 ) ? 0 : ( ( (n) >= ( 1 << ( (s) - 1 ) ) ) ? (n) : (n) + 1 - ( 1 << (s) ) ) )
 #define E_ENVLI(s,v)	( v - ( 1 << s ) )
 #define E_DEVLI(s,n)	( n + ( 1 << s ) )
 
@@ -561,7 +562,7 @@ INTERN unsigned int*  scnp             =   NULL;   // scan start positions in hu
 INTERN int            rstc             =    0  ;   // count of restart markers
 INTERN int            scnc             =    0  ;   // count of scans
 INTERN int            rsti             =    0  ;   // restart interval
-INTERN char           padbit           =    -1 ;   // padbit (for huffman coding)
+INTERN int            padbit           =    -1 ;   // padbit (for huffman coding)
 INTERN unsigned char* rst_err          =   NULL;   // number of wrong-set RST markers per scan
 
 INTERN unsigned char* zdstdata[4]      = { NULL }; // zero distribution (# of non-zeroes) lists (for higher 7x7 block)
@@ -629,8 +630,8 @@ INTERN char** filelist = NULL;		// list of files to process
 INTERN int    file_cnt = 0;			// count of files in list
 INTERN int    file_no  = 0;			// number of current file
 
-INTERN char** err_list = NULL;		// list of error messages 
-INTERN int*   err_tp   = NULL;		// list of error types
+INTERN std::vector<std::string> err_list;	// list of error messages 
+INTERN std::vector<int>         err_tp;		// list of error types
 #endif
 
 #if defined(DEV_INFOS)
@@ -649,7 +650,7 @@ INTERN int    dev_size_zdl[ 4 ] = { 0 };
 	global variables: messages
 	----------------------------------------------- */
 
-INTERN char errormessage [ MSG_SIZE ];
+INTERN std::string errormessage;
 INTERN bool (*errorfunction)();
 INTERN int  errorlevel;
 // meaning of errorlevel:
@@ -657,6 +658,45 @@ INTERN int  errorlevel;
 // 0 -> no error
 // 1 -> warning
 // 2 -> fatal error
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 1, 2)))
+#endif
+INTERN void set_errormessage( const char* fmt, ... )
+{
+	va_list args;
+	va_start( args, fmt );
+	va_list args_copy;
+	va_copy( args_copy, args );
+	int needed = std::vsnprintf( nullptr, 0, fmt, args_copy );
+	va_end( args_copy );
+	if ( needed > 0 ) {
+		std::vector<char> buf( static_cast<std::size_t>( needed ) + 1 );
+		std::vsnprintf( buf.data(), buf.size(), fmt, args );
+		errormessage.assign( buf.data(), static_cast<std::size_t>( needed ) );
+	} else {
+		errormessage.clear();
+	}
+	va_end( args );
+}
+
+INTERN bool read_header_segment( unsigned int hpos, unsigned char& type, unsigned int& len )
+{
+	if ( ( hdrs < 0 ) || ( hpos > static_cast<unsigned int>( hdrs ) ) ||
+		 ( static_cast<unsigned int>( hdrs ) - hpos < 4 ) ) {
+		errormessage = "unexpected end of header data";
+		errorlevel = 2;
+		return false;
+	}
+	type = hdrdata[ hpos + 1 ];
+	len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+	if ( ( len < 4 ) || ( len > static_cast<unsigned int>( hdrs ) - hpos ) ) {
+		errormessage = "unexpected end of header data";
+		errorlevel = 2;
+		return false;
+	}
+	return true;
+}
 
 
 /* -----------------------------------------------
@@ -718,7 +758,7 @@ INTERN const char   pjg_magic[] = { 'J', 'S' };
 #if !defined(BUILD_LIB)
 int main( int argc, char** argv )
 {	
-	sprintf( errormessage, "no errormessage specified" );
+	errormessage = "no errormessage specified";
 	
 	clock_t begin, end;
 	
@@ -771,10 +811,8 @@ int main( int argc, char** argv )
 		process_ui();
 		// store error message and type if any
 		if ( errorlevel > 0 ) {
-			err_list[ file_no ] = (char*) calloc( MSG_SIZE, sizeof( char ) );
 			err_tp[ file_no ] = errorlevel;
-			if ( err_list[ file_no ] != NULL )
-				strcpy( err_list[ file_no ], errormessage );
+			err_list[ file_no ] = errormessage;
 		}
 		// count errors / warnings / file sizes
 		if ( errorlevel >= err_tol ) error_cnt++;
@@ -794,7 +832,7 @@ int main( int argc, char** argv )
 			fprintf( stderr, "------------------\n" );
 			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
 				if ( err_tp[ file_no ] >= err_tol ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ].c_str() );
 				}
 			}
 		}
@@ -804,7 +842,7 @@ int main( int argc, char** argv )
 			fprintf( stderr, "------------------\n" );
 			for ( file_no = 0; file_no < file_cnt; file_no++ ) {
 				if ( err_tp[ file_no ] == 1 ) {
-					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ] );
+					fprintf( stderr, "%s (%s)\n", filelist[ file_no ], err_list[ file_no ].c_str() );
 				}
 			}
 		}
@@ -942,7 +980,7 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 				if ( file_exists( jpgfilename ) ) remove( jpgfilename );
 			}
 		}
-		if ( msg != NULL ) strcpy( msg, errormessage );
+		if ( msg != NULL ) std::snprintf( msg, MSG_SIZE, "%s", errormessage.c_str() );
 		return false;
 	}
 	
@@ -955,15 +993,15 @@ EXPORT bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* o
 		switch( filetype )
 		{
 			case F_JPG:
-				sprintf( msg, "Compressed to %s (%.2f%%) in %ims",
+				std::snprintf( msg, MSG_SIZE, "Compressed to %s (%.2f%%) in %ims",
 					pjgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_PJG:
-				sprintf( msg, "Decompressed to %s (%.2f%%) in %ims",
+				std::snprintf( msg, MSG_SIZE, "Decompressed to %s (%.2f%%) in %ims",
 					jpgfilename, cr, ( total >= 0 ) ? total : -1 );
 				break;
 			case F_UNK:
-				sprintf( msg, "Unknown filetype" );
+				std::snprintf( msg, MSG_SIZE, "Unknown filetype" );
 				break;	
 		}
 	}
@@ -1003,7 +1041,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	
 	vice versa for output streams! */
 	
-	unsigned char buffer[ 2 ];
+	unsigned char buffer[ 2 ] = { 0, 0 };
 	
 	// (re)set errorlevel
 	errorfunction = NULL;
@@ -1017,7 +1055,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
             try {
                 str_in = std::make_unique<FileReader>((char*)in_src);
             } catch (const std::runtime_error&) {
-                sprintf(errormessage, "error opening input file %s", (char*)in_src);
+                set_errormessage("error opening input file %s", (char*)in_src);
 		        errorlevel = 2;
 		        return;
             }
@@ -1029,13 +1067,13 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 			try {
 				str_in = std::make_unique<StreamReader>();
 			} catch (const std::runtime_error& e) {
-				sprintf(errormessage, e.what());
+				errormessage = e.what();
 				errorlevel = 2;
 				return;
 			}
             break;
         default:
-            sprintf(errormessage, "Invalid input type: %i", in_type);
+            set_errormessage("Invalid input type: %i", in_type);
 		    errorlevel = 2;
 		    return;
     }
@@ -1045,7 +1083,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
             try {
                 str_out = std::make_unique<FileWriter>((char*)out_dest);
             } catch (const std::runtime_error&) {
-                sprintf(errormessage, "error opening output file %s", (char*)out_dest);
+                set_errormessage("error opening output file %s", (char*)out_dest);
 		        errorlevel = 2;
 		        return;
             }
@@ -1057,13 +1095,13 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 			try {
 				str_out = std::make_unique<StreamWriter>();
 			} catch (const std::runtime_error& e) {
-				sprintf(errormessage, e.what());
+				errormessage = e.what();
 				errorlevel = 2;
 				return;
 			}
             break;
         default:
-            sprintf(errormessage, "Invalid output type: %i", out_type);
+            set_errormessage("Invalid output type: %i", out_type);
 		    errorlevel = 2;
 		    return;
     }
@@ -1101,7 +1139,7 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	else {
 		// file is neither
 		filetype = F_UNK;
-		sprintf( errormessage, "filetype of input stream is unknown" );
+		errormessage = "filetype of input stream is unknown";
 		errorlevel = 2;
 		return;
 	}
@@ -1289,8 +1327,8 @@ INTERN void initialize_options( int argc, char** argv )
 	for ( file_cnt = 0; filelist[ file_cnt ] != NULL; file_cnt++ );
 	
 	// alloc arrays for error messages and types storage
-	err_list = (char**) calloc( file_cnt, sizeof( char* ) );
-	err_tp   = (int*) calloc( file_cnt, sizeof( int ) );
+	err_list.assign( file_cnt, std::string() );
+	err_tp.assign( file_cnt, 0 );
 	
 	// backup settings - needed to restore original setting later
 	if ( !auto_set ) {
@@ -1439,7 +1477,7 @@ INTERN void process_ui( void )
 		// error/ warning message
 		if ( errorlevel > 0 ) {
 			fprintf( msgout, " %s -> %s:\n", get_status( errorfunction ), errtypemsg  );
-			fprintf( msgout, " %s\n", errormessage );
+			fprintf( msgout, " %s\n", errormessage.c_str() );
 		}
 		if ( (verbosity > 0) && (errorlevel < err_tol) && (action == A_COMPRESS) ) {
 			if ( total >= 0 ) {
@@ -1761,7 +1799,6 @@ INTERN void execute( bool (*function)() )
 	if ( errorlevel < err_tol ) {
 		#if !defined BUILD_LIB
 		clock_t begin, end;
-		bool success;
 		int total;
 		
 		// write statusmessage
@@ -1773,8 +1810,19 @@ INTERN void execute( bool (*function)() )
 		
 		// set starttime
 		begin = clock();
+		#endif
 		// call function
-		success = ( *function )();
+		bool success = false;
+		try {
+			success = ( *function )();
+		} catch ( const std::bad_alloc& ) {
+			errormessage = MEM_ERRMSG;
+			errorlevel = 2;
+		} catch ( const std::runtime_error& e ) {
+			errormessage = e.what();
+			errorlevel = 2;
+		}
+		#if !defined BUILD_LIB
 		// set endtime
 		end = clock();
 		
@@ -1791,9 +1839,7 @@ INTERN void execute( bool (*function)() )
 			if ( verbosity == 2 ) fprintf( msgout,  "%8s", "ERROR" );
 		}
 		#else
-		// call function
-		( *function )();
-		
+		(void) success;
 		// store errorfunction if needed
 		if ( ( errorlevel > 0 ) && ( errorfunction == NULL ) )
 			errorfunction = function;
@@ -1823,7 +1869,7 @@ INTERN bool check_file( void )
 			str_in = std::make_unique<FileReader>(std::string(filename));
 		}
 	} catch (const std::runtime_error& e) {
-		std::strcpy(errormessage, e.what());
+		errormessage = e.what();
 		errorlevel = 2;
 		return false;
 	}
@@ -1841,7 +1887,7 @@ INTERN bool check_file( void )
 	// immediately return error if 2 bytes can't be read
 	if ( str_in->read( fileid, 2 ) != 2 ) { 
 		filetype = F_UNK;
-		sprintf( errormessage, "file doesn't contain enough data" );
+		errormessage = "file doesn't contain enough data";
 		errorlevel = 2;
 		return false;
 	}
@@ -1870,7 +1916,7 @@ INTERN bool check_file( void )
 				str_out = std::make_unique<FileWriter>(std::string(pjgfilename));
 			}
 		} catch (const std::runtime_error& e) {
-			std::strcpy(errormessage, e.what());
+			errormessage = e.what();
             errorlevel = 2;
             return false;
 		}
@@ -1905,18 +1951,24 @@ INTERN bool check_file( void )
 			pjgfilename = create_filename( "STDIN", NULL );
 		}
 		// open output stream, check for errors
-        if (pipe_on) {
-            str_out = std::make_unique<StreamWriter>();
-        } else {
-            str_out = std::make_unique<FileWriter>(std::string(jpgfilename));
-        }
+		try {
+			if (pipe_on) {
+				str_out = std::make_unique<StreamWriter>();
+			} else {
+				str_out = std::make_unique<FileWriter>(std::string(jpgfilename));
+			}
+		} catch (const std::runtime_error& e) {
+			errormessage = e.what();
+			errorlevel = 2;
+			return false;
+		}
 		// PJG specific settings - auto unless specified otherwise
 		auto_set = true;
 	}
 	else {
 		// file is neither
 		filetype = F_UNK;
-		sprintf( errormessage, "filetype of file \"%s\" is unknown", filename );
+		set_errormessage( "filetype of file \"%s\" is unknown", filename );
 		errorlevel = 2;
 		return false;		
 	}
@@ -1960,15 +2012,15 @@ INTERN bool swap_streams( void )
 INTERN bool compare_output( void )
 {
     if (str_out->error()) {
-        sprintf(errormessage, "error in comparison stream");
+        errormessage = "error in comparison stream";
         errorlevel = 2;
         return false;
     } else if (str_in->error()) {
-        sprintf(errormessage, "error in output stream");
+        errormessage = "error in output stream";
         errorlevel = 2;
         return false;
     } else if (str_str->error()) {
-        sprintf(errormessage, "error in input stream");
+        errormessage = "error in input stream";
         errorlevel = 2;
         return false;
     }
@@ -1977,7 +2029,7 @@ INTERN bool compare_output( void )
     const auto orig_data = str_str->get_data();
     
 	if (verif_data.size() != orig_data.size()) {
-		sprintf( errormessage, "file sizes do not match" );
+		errormessage = "file sizes do not match";
 		errorlevel = 2;
 		return false;
 	}
@@ -1987,7 +2039,7 @@ INTERN bool compare_output( void )
 	                                  std::end(verif_data));
 	if (result.first != std::end(orig_data) || result.second != std::end(verif_data)) {
 		const auto first_diff = std::distance(std::begin(orig_data), result.first);
-        sprintf( errormessage, "difference found at 0x%ld", first_diff );
+        set_errormessage( "difference found at 0x%ld", static_cast<long>( first_diff ) );
 		errorlevel = 2;
 		return false;
 	}
@@ -2101,7 +2153,6 @@ INTERN bool reset_buffers( void )
 	
 INTERN bool read_jpeg( void )
 {
-	unsigned char* segment = NULL; // storage for current segment
 	unsigned int   ssize = 1024; // current size of segment array
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
@@ -2109,29 +2160,20 @@ INTERN bool read_jpeg( void )
 	unsigned int   cpos = 0; // rst marker counter
 	unsigned char  tmp;	
 	
-	MemoryWriter* huffw;	
-	MemoryWriter* hdrw;
-	MemoryWriter* grbgw;	
-	
 	
 	// preset count of scans
 	scnc = 0;
 	
 	// start headerwriter
-	hdrw = new MemoryWriter();
+	MemoryWriter hdrw;
 	hdrs = 0; // size of header data, start with 0
 	
 	// start huffman writer
-	huffw = new MemoryWriter();
+	MemoryWriter huffw;
 	hufs  = 0; // size of image data, start with 0
 	
 	// alloc memory for segment data first
-	segment = ( unsigned char* ) calloc( ssize, sizeof( char ) );
-	if ( segment == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<unsigned char> segment( ssize, 0 );
 	
 	// JPEG reader loop
 	while ( true ) {
@@ -2148,7 +2190,7 @@ INTERN bool read_jpeg( void )
 				if ( tmp != 0xFF ) {
 					crst = 0;
 					while ( tmp != 0xFF ) {
-						huffw->write_byte( tmp );
+						huffw.write_byte( tmp );
 						if ( str_in->read_byte(&tmp) == 0 )
 							break;
 					}
@@ -2161,7 +2203,7 @@ INTERN bool read_jpeg( void )
 					if ( tmp == 0x00 ) {
 						crst = 0;
 						// no zeroes needed -> ignore 0x00. write 0xFF
-						huffw->write_byte( 0xFF );
+						huffw.write_byte( 0xFF );
 					}
 					else if ( tmp == 0xD0 + ( cpos % 8 ) ) { // restart marker
 						// increment rst counters
@@ -2174,7 +2216,7 @@ INTERN bool read_jpeg( void )
 							if ( rst_err == NULL ) {
 								rst_err = (unsigned char*) calloc( scnc + 1, sizeof( char ) );
 								if ( rst_err == NULL ) {
-									sprintf( errormessage, MEM_ERRMSG );
+									errormessage = MEM_ERRMSG;
 									errorlevel = 2;
 									return false;
 								}
@@ -2184,12 +2226,12 @@ INTERN bool read_jpeg( void )
 							// realloc and set only if needed
 							rst_err = ( unsigned char* ) frealloc( rst_err, ( scnc + 1 ) * sizeof( char ) );
 							if ( rst_err == NULL ) {
-								sprintf( errormessage, MEM_ERRMSG );
+								errormessage = MEM_ERRMSG;
 								errorlevel = 2;
 								return false;
 							}
 							if ( crst > 255 ) {
-								sprintf( errormessage, "Severe false use of RST markers (%i)", (int) crst );
+								set_errormessage( "Severe false use of RST markers (%i)", (int) crst );
 								errorlevel = 1;
 								crst = 255;
 							}
@@ -2211,19 +2253,16 @@ INTERN bool read_jpeg( void )
 		}
 		else {
 			// read in next marker
-			if ( str_in->read( segment, 2 ) != 2 ) break;
+			if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 			if ( segment[ 0 ] != 0xFF ) {
 				// ugly fix for incorrect marker segment sizes
-				sprintf( errormessage, "size mismatch in marker segment FF %2X", type );
+				set_errormessage( "size mismatch in marker segment FF %2X", type );
 				errorlevel = 2;
 				if ( type == 0xFE ) { //  if last marker was COM try again
-					if ( str_in->read( segment, 2 ) != 2 ) break;
+					if ( str_in->read( segment.data(), 2 ) != 2 ) break;
 					if ( segment[ 0 ] == 0xFF ) errorlevel = 1;
 				}
 				if ( errorlevel == 2 ) {
-					delete ( hdrw );
-					delete ( huffw );
-					free ( segment );
 					return false;
 				}
 			}
@@ -2235,47 +2274,36 @@ INTERN bool read_jpeg( void )
 		// if EOI is encountered make a quick exit
 		if ( type == 0xD9 ) {
 			// get pointer for header data & size
-			hdrdata  = hdrw->get_c_data();
-			hdrs     = hdrw->num_bytes_written();
+			hdrdata  = hdrw.get_c_data();
+			hdrs     = hdrw.num_bytes_written();
 			// get pointer for huffman data & size
-			huffdata = huffw->get_c_data();
-			hufs     = huffw->num_bytes_written();
+			huffdata = huffw.get_c_data();
+			hufs     = huffw.num_bytes_written();
 			// everything is done here now
 			break;			
 		}
 		
 		// read in next segments' length and check it
-		if ( str_in->read( segment + 2, 2 ) != 2 ) break;
+		if ( str_in->read( segment.data() + 2, 2 ) != 2 ) break;
 		len = 2 + B_SHORT( segment[ 2 ], segment[ 3 ] );
 		if ( len < 4 ) break;
 		
 		// realloc segment data if needed
 		if ( ssize < len ) {
-			segment = ( unsigned char* ) frealloc( segment, len );
-			if ( segment == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
-				errorlevel = 2;
-				delete ( hdrw );
-				delete ( huffw );
-				return false;
-			}
+			segment.resize( len );
 			ssize = len;
 		}
 		
 		// read rest of segment, store back in header writer
-		if ( str_in->read( ( segment + 4 ), ( len - 4 ) ) !=
+		if ( str_in->read( ( segment.data() + 4 ), ( len - 4 ) ) !=
 			( unsigned short ) ( len - 4 ) ) break;
-		hdrw->write( segment, len );
+		hdrw.write( segment.data(), len );
 	}
 	// JPEG reader loop end
 	
-	// free writers
-	delete ( hdrw );
-	delete ( huffw );
-	
 	// check if everything went OK
 	if ( ( hdrs == 0 ) || ( hufs == 0 ) ) {
-		sprintf( errormessage, "unexpected end of data encountered" );
+		errormessage = "unexpected end of data encountered";
 		errorlevel = 2;
 		return false;
 	}
@@ -2283,20 +2311,16 @@ INTERN bool read_jpeg( void )
 	// store garbage after EOI if needed
 	grbs = str_in->read_byte(&tmp);
 	if ( grbs > 0 ) {
-		grbgw = new MemoryWriter();
-		grbgw->write_byte( tmp );
+		MemoryWriter grbgw;
+		grbgw.write_byte( tmp );
 		while( true ) {
-			len = str_in->read( segment, ssize );
+			len = str_in->read( segment.data(), ssize );
 			if ( len == 0 ) break;
-			grbgw->write( segment, len );
+			grbgw.write( segment.data(), len );
 		}
-		grbgdata = grbgw->get_c_data();
-		grbs     = grbgw->num_bytes_written();
-		delete grbgw;
+		grbgdata = grbgw.get_c_data();
+		grbs     = grbgw.num_bytes_written();
 	}
-	
-	// free segment
-	free( segment );
 	
 	// get filesize
 	jpgfilesize = str_in->get_size();	
@@ -2345,8 +2369,7 @@ INTERN bool merge_jpeg( void )
 		// seek till start-of-scan
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
-			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			if ( !read_header_segment( hpos, type, len ) ) return false;
 			hpos += len;
 		}
 		
@@ -2400,7 +2423,7 @@ INTERN bool merge_jpeg( void )
 	
 	// errormessage if write error
 	if ( str_out->error() ) {
-		sprintf( errormessage, "write error, possibly drive is full" );
+		errormessage = "write error, possibly drive is full";
 		errorlevel = 2;		
 		return false;
 	}
@@ -2419,8 +2442,6 @@ INTERN bool merge_jpeg( void )
 
 INTERN bool decode_jpeg( void )
 {
-	BitReader* huffr; // bitwise reader for image data
-	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // current position in header
@@ -2437,7 +2458,8 @@ INTERN bool decode_jpeg( void )
 	
 	
 	// open huffman coded image data for input in BitReader
-	huffr = new BitReader( huffdata, hufs );
+	BitReader huffr_obj( huffdata, hufs );
+	BitReader* huffr = &huffr_obj;
 	
 	// preset count of scans
 	scnc = 0;
@@ -2448,8 +2470,7 @@ INTERN bool decode_jpeg( void )
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
-			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			if ( !read_header_segment( hpos, type, len ) ) return false;
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2467,8 +2488,7 @@ INTERN bool decode_jpeg( void )
 			if ( ( ( jpegtype == 1 || ( ( cs_cmpc > 1 || cs_to == 0 ) && cs_sah == 0 ) ) && htset[ 0 ][ cmpnfo[cmp].huffdc ] == 0 ) || 
 			   ( jpegtype == 1 && htset[ 1 ][ cmpnfo[cmp].huffdc ] == 0 ) ||
 			   ( cs_cmpc == 1 && cs_to > 0 && cs_sah == 0 && htset[ 1 ][ cmpnfo[cmp].huffac ] == 0 ) ) {
-				sprintf( errormessage, "huffman table missing in scan%i", scnc );
-				delete huffr;
+				set_errormessage( "huffman table missing in scan%i", scnc );
 				errorlevel = 2;
 				return false;
 			}
@@ -2516,7 +2536,7 @@ INTERN bool decode_jpeg( void )
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
-							sprintf( errormessage, "reconstruction of inefficient coding not supported" );
+							errormessage = "reconstruction of inefficient coding not supported";
 							errorlevel = 1;
 						}
 						
@@ -2546,7 +2566,7 @@ INTERN bool decode_jpeg( void )
 						lastdc[ cmp ] = colldata[cmp][0][dpos];
 						
 						// bitshift for succesive approximation
-						colldata[cmp][0][dpos] <<= cs_sal;
+						colldata[cmp][0][dpos] *= ( 1 << cs_sal );
 						
 						// next mcupos if no error happened
 						if ( sta != -1 )
@@ -2562,7 +2582,7 @@ INTERN bool decode_jpeg( void )
 							block );
 						
 						// shift in next bit
-						colldata[cmp][0][dpos] += block[0] << cs_sal;
+						colldata[cmp][0][dpos] += block[0] * ( 1 << cs_sal );
 						
 						// next mcupos if no error happened
 						if ( sta != -1 )
@@ -2583,7 +2603,7 @@ INTERN bool decode_jpeg( void )
 						
 						// check for non optimal coding
 						if ( ( eob > 1 ) && ( block[ eob - 1 ] == 0 ) ) {
-							sprintf( errormessage, "reconstruction of inefficient coding not supported" );
+							errormessage = "reconstruction of inefficient coding not supported";
 							errorlevel = 1;
 						}
 						
@@ -2614,7 +2634,7 @@ INTERN bool decode_jpeg( void )
 							lastdc[ cmp ] = colldata[cmp][0][dpos];
 							
 							// bitshift for succesive approximation
-							colldata[cmp][0][dpos] <<= cs_sal;
+							colldata[cmp][0][dpos] *= ( 1 << cs_sal );
 							
 							// check for errors, increment dpos otherwise
 							if ( sta != -1 )
@@ -2630,7 +2650,7 @@ INTERN bool decode_jpeg( void )
 								block );
 							
 							// shift in next bit
-							colldata[cmp][0][dpos] += block[0] << cs_sal;
+							colldata[cmp][0][dpos] += block[0] * ( 1 << cs_sal );
 							
 							// check for errors, increment dpos otherwise
 							if ( sta != -1 )
@@ -2653,8 +2673,7 @@ INTERN bool decode_jpeg( void )
 									// check for non optimal coding
 									if ( ( eob == cs_from )  && ( peobrun > 0 ) &&
 										( peobrun <	hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
-										sprintf( errormessage,
-											"reconstruction of inefficient coding not supported" );
+										errormessage = "reconstruction of inefficient coding not supported";
 										errorlevel = 1;
 									}
 									peobrun = eobrun;
@@ -2663,7 +2682,7 @@ INTERN bool decode_jpeg( void )
 							
 								// copy to colldata
 								for ( bpos = cs_from; bpos < eob; bpos++ )
-									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] << cs_sal;
+									colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ] * ( 1 << cs_sal );
 							} else eobrun--;
 							
 							// check for errors
@@ -2693,8 +2712,7 @@ INTERN bool decode_jpeg( void )
 									// check for non optimal coding
 									if ( ( eob == cs_from ) && ( peobrun > 0 ) &&
 										( peobrun < hcodes[ 1 ][ cmpnfo[cmp].huffac ].max_eobrun - 1 ) ) {
-										sprintf( errormessage,
-											"reconstruction of inefficient coding not supported" );
+										errormessage = "reconstruction of inefficient coding not supported";
 										errorlevel = 1;
 									}
 									
@@ -2709,10 +2727,10 @@ INTERN bool decode_jpeg( void )
 									block, &eobrun, cs_from, cs_to );
 								eobrun--;
 							}
-								
+							
 							// copy back to colldata
 							for ( bpos = cs_from; bpos <= cs_to; bpos++ )
-								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] << cs_sal;
+								colldata[ cmp ][ bpos ][ dpos ] += block[ bpos ] * ( 1 << cs_sal );
 							
 							// proceed only if no error encountered
 							if ( eob < 0 ) sta = -1;
@@ -2725,7 +2743,7 @@ INTERN bool decode_jpeg( void )
 			// unpad huffman reader / check padbit
 			if ( padbit != -1 ) {
 				if ( padbit != huffr->unpad( padbit ) ) {
-					sprintf( errormessage, "inconsistent use of padbits" );
+					errormessage = "inconsistent use of padbits";
 					padbit = 1;
 					errorlevel = 1;
 				}
@@ -2736,9 +2754,8 @@ INTERN bool decode_jpeg( void )
 			
 			// evaluate status
 			if ( sta == -1 ) { // status -1 means error
-				sprintf( errormessage, "decode error in scan%i / mcu%i",
+				set_errormessage( "decode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffr;
 				errorlevel = 2;
 				return false;
 			}
@@ -2752,18 +2769,15 @@ INTERN bool decode_jpeg( void )
 	
 	// check for missing data
 	if ( huffr->peof() > 0 ) {
-		sprintf( errormessage, "coded image data truncated / too short" );
+		errormessage = "coded image data truncated / too short";
 		errorlevel = 1;
 	}
 	
 	// check for surplus data
 	if ( !huffr->eof()) {
-		sprintf( errormessage, "surplus data found after coded image data" );
+		errormessage = "surplus data found after coded image data";
 		errorlevel = 1;
 	}
-	
-	// clean up
-	delete( huffr );
 	
 	
 	return true;
@@ -2776,12 +2790,10 @@ INTERN bool decode_jpeg( void )
 
 INTERN bool recode_jpeg( void )
 {
-	BitWriter*  huffw; // bitwise writer for image data
-	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // current position in header
-		
+	
 	int lastdc[ 4 ]; // last dc for each component0
 	short block[ 64 ]; // store block for coeffs
 	int eobrun; // run of eobs
@@ -2794,7 +2806,8 @@ INTERN bool recode_jpeg( void )
 	
 	
 	// open huffman coded image data in BitWriter
-	huffw = new BitWriter(padbit);
+	BitWriter huffw_obj( static_cast<std::uint8_t>( padbit ) );
+	BitWriter* huffw = &huffw_obj;
 	
 	// init storage writer
 	std::vector<std::uint8_t> storw; // Storage for correction bits.
@@ -2809,8 +2822,7 @@ INTERN bool recode_jpeg( void )
 		// seek till start-of-scan, parse only DHT, DRI and SOS
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( ( int ) hpos >= hdrs ) break;
-			type = hdrdata[ hpos + 1 ];
-			len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+			if ( !read_header_segment( hpos, type, len ) ) return false;
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
 				if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) ) {
 					return false;
@@ -2831,7 +2843,7 @@ INTERN bool recode_jpeg( void )
 		if ( scnp == NULL ) scnp = ( unsigned int* ) calloc( scnc + 2, sizeof( int ) );
 		else scnp = ( unsigned int* ) frealloc( scnp, ( scnc + 2 ) * sizeof( int ) );
 		if ( scnp == NULL ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			errormessage = MEM_ERRMSG;
 			errorlevel = 2;
 			return false;
 		}
@@ -2843,7 +2855,7 @@ INTERN bool recode_jpeg( void )
 			if ( rstp == NULL ) rstp = ( unsigned int* ) calloc( tmp + 1, sizeof( int ) );
 			else rstp = ( unsigned int* ) frealloc( rstp, ( tmp + 1 ) * sizeof( int ) );
 			if ( rstp == NULL ) {
-				sprintf( errormessage, MEM_ERRMSG );
+				errormessage = MEM_ERRMSG;
 				errorlevel = 2;
 				return false;
 			}
@@ -3057,9 +3069,8 @@ INTERN bool recode_jpeg( void )
 			
 			// evaluate status
 			if ( sta == -1 ) { // status -1 means error
-				sprintf( errormessage, "encode error in scan%i / mcu%i",
+				set_errormessage( "encode error in scan%i / mcu%i",
 					scnc, ( cs_cmpc > 1 ) ? mcu : dpos );
-				delete huffw;
 				errorlevel = 2;
 				return false;
 			}
@@ -3077,7 +3088,6 @@ INTERN bool recode_jpeg( void )
 	// get data into huffdata
 	huffdata = huffw->get_c_bytes();
 	hufs = huffw->num_bytes_written();	
-	delete huffw;
 	
 	// store last scan & restart positions
 	scnp[ scnc ] = hufs;
@@ -3214,7 +3224,7 @@ INTERN bool check_value_range( void )
 		for ( dpos = 0; dpos < cmpnfo[cmp].bc; dpos++ )
 		if ( ( colldata[cmp][bpos][dpos] > absmax ) ||
 			 ( colldata[cmp][bpos][dpos] < -absmax ) ) {
-			sprintf( errormessage, "value out of range error: cmp%i, frq%i, val %i, max %i",
+			set_errormessage( "value out of range error: cmp%i, frq%i, val %i, max %i",
 					cmp, bpos, colldata[cmp][bpos][dpos], absmax );
 			errorlevel = 2;
 			return false;
@@ -3296,7 +3306,8 @@ INTERN bool pack_pjg( void )
 	
 	
 	// init arithmetic compression
-	auto encoder = new ArithmeticEncoder(*str_out);
+	ArithmeticEncoder encoder_obj(*str_out);
+	ArithmeticEncoder* encoder = &encoder_obj;
 	
 	// discard meta information from header if option set
 	if ( disc_meta )
@@ -3315,7 +3326,7 @@ INTERN bool pack_pjg( void )
 	dev_size_hdr += str_out->getpos() - dev_size;
 	#endif
 	// store padbit (padbit can't be retrieved from the header)
-	if ( !pjg_encode_bit( encoder, padbit ) ) return false;	
+	if ( !pjg_encode_bit( encoder, static_cast<unsigned char>( padbit ) ) ) return false;	
 	// also encode one bit to signal false/correct use of RST markers
 	if ( !pjg_encode_bit( encoder, ( rst_err == NULL ) ? 0 : 1 ) ) return false;
 	// encode # of false set RST markers per scan
@@ -3375,12 +3386,12 @@ INTERN bool pack_pjg( void )
 		if ( !pjg_encode_generic( encoder, grbgdata, grbs ) ) return false;
 	
 	// finalize arithmetic compression
-	delete( encoder );
+	encoder_obj.finalize();
 	
 	
 	// errormessage if write error
 	if ( str_out->error() ) {
-		sprintf( errormessage, "write error, possibly drive is full" );
+		errormessage = "write error, possibly drive is full";
 		errorlevel = 2;		
 		return false;
 	}
@@ -3406,17 +3417,32 @@ INTERN bool unpack_pjg( void )
 	
 	// check header codes ( maybe position in other function ? )
 	while( true ) {
-		str_in->read_byte(&hcode);
+		if ( !str_in->read_byte(&hcode) ) {
+			errormessage = "unexpected end of data encountered";
+			errorlevel = 2;
+			return false;
+		}
 		if ( hcode == 0x00 ) {
 			// retrieve compression settings from file
-			str_in->read( nois_trs, 4 );
-			str_in->read( segm_cnt, 4 );
+			if ( ( str_in->read( nois_trs, 4 ) != 4 ) ||
+				 ( str_in->read( segm_cnt, 4 ) != 4 ) ) {
+				errormessage = "unexpected end of data encountered";
+				errorlevel = 2;
+				return false;
+			}
+			for ( cmp = 0; cmp < 4; cmp++ ) {
+				if ( ( nois_trs[ cmp ] > 10 ) || ( segm_cnt[ cmp ] < 1 ) || ( segm_cnt[ cmp ] > 49 ) ) {
+					errormessage = "invalid compression settings in header";
+					errorlevel = 2;
+					return false;
+				}
+			}
 			auto_set = false;
 		}
 		else if ( hcode >= 0x14 ) {
 			// compare version number
 			if ( hcode != appversion ) {
-				sprintf( errormessage, "incompatible file, use %s v%i.%i",
+				set_errormessage( "incompatible file, use %s v%i.%i",
 					appname, hcode / 10, hcode % 10 );
 				errorlevel = 2;
 				return false;
@@ -3424,7 +3450,7 @@ INTERN bool unpack_pjg( void )
 			else break;
 		}
 		else {
-			sprintf( errormessage, "unknown header code, use newer version of %s", appname );
+			set_errormessage( "unknown header code, use newer version of %s", appname );
 			errorlevel = 2;
 			return false;
 		}
@@ -3432,7 +3458,8 @@ INTERN bool unpack_pjg( void )
 	
 	
 	// init arithmetic compression
-	auto decoder = new ArithmeticDecoder(*str_in);
+	ArithmeticDecoder decoder_obj(*str_in);
+	ArithmeticDecoder* decoder = &decoder_obj;
 	
 	// decode JPG header
 	if ( !pjg_decode_generic( decoder, &hdrdata, &hdrs ) ) return false;
@@ -3478,9 +3505,6 @@ INTERN bool unpack_pjg( void )
 	if ( cb == 0 ) grbs = 0;
 	else if ( !pjg_decode_generic( decoder, &grbgdata, &grbs ) ) return false;
 	
-	// finalize arithmetic compression
-	delete( decoder );
-	
 	
 	// get filesize
 	pjgfilesize = str_in->get_size();
@@ -3508,8 +3532,7 @@ INTERN bool jpg_setup_imginfo( void )
 	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		if ( !read_header_segment( hpos, type, len ) ) return false;
 		// do not parse DHT & DRI
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
 			if ( !jpg_parse_jfif( type, len, &( hdrdata[ hpos ] ) ) )
@@ -3520,7 +3543,7 @@ INTERN bool jpg_setup_imginfo( void )
 	
 	// check if information is complete
 	if ( cmpc == 0 ) {
-		sprintf( errormessage, "header contains incomplete information" );
+		errormessage = "header contains incomplete information";
 		errorlevel = 2;
 		return false;
 	}
@@ -3530,7 +3553,7 @@ INTERN bool jpg_setup_imginfo( void )
 			 ( cmpnfo[cmp].qtable == NULL ) ||
 			 ( cmpnfo[cmp].qtable[0] == 0 ) ||
 			 ( jpegtype == 0 ) ) {
-			sprintf( errormessage, "header information is incomplete" );
+			errormessage = "header information is incomplete";
 			errorlevel = 2;
 			return false;
 		}
@@ -3571,7 +3594,7 @@ INTERN bool jpg_setup_imginfo( void )
 		for ( bpos = 0; bpos < 64; bpos++ ) {
 			colldata[cmp][bpos] = (short int*) calloc ( cmpnfo[cmp].bc, sizeof( short ) );
 			if (colldata[cmp][bpos] == NULL) {
-				sprintf( errormessage, MEM_ERRMSG );
+				errormessage = MEM_ERRMSG;
 				errorlevel = 2;
 				return false;
 			}
@@ -3586,7 +3609,7 @@ INTERN bool jpg_setup_imginfo( void )
 		if ( ( zdstdata[cmp] == NULL ) ||
 			( eobxhigh[cmp] == NULL ) || ( eobyhigh[cmp] == NULL ) ||
 			( zdstxlow[cmp] == NULL ) || ( zdstylow[cmp] == NULL ) ) {
-			sprintf( errormessage, MEM_ERRMSG );
+			errormessage = MEM_ERRMSG;
 			errorlevel = 2;
 			return false;
 		}
@@ -3625,26 +3648,30 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 		case 0xC4: // DHT segment
 			// build huffman trees & codes
 			while ( hpos < len ) {
+				if ( hpos + 17 > len )
+					break;
 				lval = LBITS( segment[ hpos ], 4 );
 				rval = RBITS( segment[ hpos ], 4 );
 				if ( ((lval < 0) || (lval >= 2)) || ((rval < 0) || (rval >= 4)) )
 					break;
 					
 				hpos++;
+				skip = 16;
+				for ( i = 0; i < 16; i++ )		
+					skip += ( int ) segment[ hpos + i ];
+				if ( ( skip - 16 > 256 ) || ( hpos + static_cast<unsigned int>( skip ) > len ) )
+					break;
 				// build huffman codes & trees
 				jpg_build_huffcodes( &(segment[ hpos + 0 ]), &(segment[ hpos + 16 ]),
 					&(hcodes[ lval ][ rval ]), &(htrees[ lval ][ rval ]) );
 				htset[ lval ][ rval ] = 1;
 				
-				skip = 16;
-				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) segment[ hpos + i ];				
 				hpos += skip;
 			}
 			
 			if ( hpos != len ) {
 				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dht marker" );
+				errormessage = "size mismatch in dht marker";
 				errorlevel = 2;
 				return false;
 			}
@@ -3659,6 +3686,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 				if ( (rval < 0) || (rval >= 4) ) break;
 				hpos++;				
 				if ( lval == 0 ) { // 8 bit precision
+					if ( hpos + 64 > len ) break;
 					for ( i = 0; i < 64; i++ ) {
 						qtables[ rval ][ i ] = ( unsigned short ) segment[ hpos + i ];
 						if ( qtables[ rval ][ i ] == 0 ) break;
@@ -3666,6 +3694,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 					hpos += 64;
 				}
 				else { // 16 bit precision
+					if ( hpos + 128 > len ) break;
 					for ( i = 0; i < 64; i++ ) {
 						qtables[ rval ][ i ] =
 							B_SHORT( segment[ hpos + (2*i) ], segment[ hpos + (2*i) + 1 ] );
@@ -3677,7 +3706,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			
 			if ( hpos != len ) {
 				// if we get here, something went wrong
-				sprintf( errormessage, "size mismatch in dqt marker" );
+				errormessage = "size mismatch in dqt marker";
 				errorlevel = 2;
 				return false;
 			}
@@ -3685,23 +3714,38 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			
 		case 0xDD: // DRI segment
 			// define restart interval
+			if ( hpos + 2 > len ) {
+				errormessage = "size mismatch in dri marker";
+				errorlevel = 2;
+				return false;
+			}
 			rsti = B_SHORT( segment[ hpos ], segment[ hpos + 1 ] );			
 			return true;
 			
 		case 0xDA: // SOS segment
 			// prepare next scan
+			if ( hpos + 1 > len ) {
+				errormessage = "size mismatch in sos marker";
+				errorlevel = 2;
+				return false;
+			}
 			cs_cmpc = segment[ hpos ];
-			if ( cs_cmpc > cmpc ) {
-				sprintf( errormessage, "%i components in scan, only %i are allowed",
+			if ( ( cs_cmpc == 0 ) || ( cs_cmpc > cmpc ) ) {
+				set_errormessage( "%i components in scan, only %i are allowed",
 							cs_cmpc, cmpc );
 				errorlevel = 2;
 				return false;
 			}
 			hpos++;
+			if ( hpos + static_cast<unsigned int>( cs_cmpc ) * 2 + 3 > len ) {
+				errormessage = "size mismatch in sos marker";
+				errorlevel = 2;
+				return false;
+			}
 			for ( i = 0; i < cs_cmpc; i++ ) {
-				for ( cmp = 0; ( segment[ hpos ] != cmpnfo[ cmp ].jid ) && ( cmp < cmpc ); cmp++ );
+				for ( cmp = 0; ( cmp < cmpc ) && ( segment[ hpos ] != cmpnfo[ cmp ].jid ); cmp++ );
 				if ( cmp == cmpc ) {
-					sprintf( errormessage, "component id mismatch in start-of-scan" );
+					errormessage = "component id mismatch in start-of-scan";
 					errorlevel = 2;
 					return false;
 				}
@@ -3710,7 +3754,7 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 				cmpnfo[ cmp ].huffac = RBITS( segment[ hpos + 1 ], 4 );
 				if ( ( cmpnfo[ cmp ].huffdc < 0 ) || ( cmpnfo[ cmp ].huffdc >= 4 ) ||
 					 ( cmpnfo[ cmp ].huffac < 0 ) || ( cmpnfo[ cmp ].huffac >= 4 ) ) {
-					sprintf( errormessage, "huffman table number mismatch" );
+					errormessage = "huffman table number mismatch";
 					errorlevel = 2;
 					return false;
 				}
@@ -3722,12 +3766,12 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			cs_sal  = RBITS( segment[ hpos + 2 ], 4 );
 			// check for errors
 			if ( ( cs_from > cs_to ) || ( cs_from > 63 ) || ( cs_to > 63 ) ) {
-				sprintf( errormessage, "spectral selection parameter out of range" );
+				errormessage = "spectral selection parameter out of range";
 				errorlevel = 2;
 				return false;
 			}
 			if ( ( cs_sah >= 12 ) || ( cs_sal >= 12 ) ) {
-				sprintf( errormessage, "successive approximation parameter out of range" );
+				errormessage = "successive approximation parameter out of range";
 				errorlevel = 2;
 				return false;
 			}
@@ -3748,10 +3792,15 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			else
 				jpegtype = 1;
 				
+			if ( hpos + 6 > len ) {
+				errormessage = "size mismatch in sof marker";
+				errorlevel = 2;
+				return false;
+			}
 			// check data precision, only 8 bit is allowed
 			lval = segment[ hpos ];
 			if ( lval != 8 ) {
-				sprintf( errormessage, "%i bit data precision is not supported", lval );
+				set_errormessage( "%i bit data precision is not supported", lval );
 				errorlevel = 2;
 				return false;
 			}
@@ -3761,22 +3810,32 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 			imgwidth  = B_SHORT( segment[ hpos + 3 ], segment[ hpos + 4 ] );
 			cmpc      = segment[ hpos + 5 ];
 			if ( ( imgwidth == 0 ) || ( imgheight == 0 ) ) {
-				sprintf( errormessage, "resolution is %ix%i, possible malformed JPEG", imgwidth, imgheight );
+				set_errormessage( "resolution is %ix%i, possible malformed JPEG", imgwidth, imgheight );
 				errorlevel = 2;
 				return false;
 			}
 			if ( cmpc > 4 ) {
-				sprintf( errormessage, "image has %i components, max 4 are supported", cmpc );
+				set_errormessage( "image has %i components, max 4 are supported", cmpc );
 				errorlevel = 2;
 				return false;
 			}
 			
 			hpos += 6;
+			if ( hpos + static_cast<unsigned int>( cmpc ) * 3 > len ) {
+				errormessage = "size mismatch in sof marker";
+				errorlevel = 2;
+				return false;
+			}
 			// components contained in image
 			for ( cmp = 0; cmp < cmpc; cmp++ ) {
 				cmpnfo[ cmp ].jid = segment[ hpos ];
 				cmpnfo[ cmp ].sfv = LBITS( segment[ hpos + 1 ], 4 );
-				cmpnfo[ cmp ].sfh = RBITS( segment[ hpos + 1 ], 4 );				
+				cmpnfo[ cmp ].sfh = RBITS( segment[ hpos + 1 ], 4 );
+				if ( segment[ hpos + 2 ] >= 4 ) {
+					errormessage = "quantization table index out of range";
+					errorlevel = 2;
+					return false;
+				}
 				cmpnfo[ cmp ].qtable = qtables[ segment[ hpos + 2 ] ];
 				hpos += 3;
 			}
@@ -3785,61 +3844,61 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 		
 		case 0xC3: // SOF3 segment
 			// coding process: lossless sequential
-			sprintf( errormessage, "sof3 marker found, image is coded lossless" );
+			errormessage = "sof3 marker found, image is coded lossless";
 			errorlevel = 2;
 			return false;
 		
 		case 0xC5: // SOF5 segment
 			// coding process: differential sequential DCT
-			sprintf( errormessage, "sof5 marker found, image is coded diff. sequential" );
+			errormessage = "sof5 marker found, image is coded diff. sequential";
 			errorlevel = 2;
 			return false;
 		
 		case 0xC6: // SOF6 segment
 			// coding process: differential progressive DCT
-			sprintf( errormessage, "sof6 marker found, image is coded diff. progressive" );
+			errormessage = "sof6 marker found, image is coded diff. progressive";
 			errorlevel = 2;
 			return false;
 		
 		case 0xC7: // SOF7 segment
 			// coding process: differential lossless
-			sprintf( errormessage, "sof7 marker found, image is coded diff. lossless" );
+			errormessage = "sof7 marker found, image is coded diff. lossless";
 			errorlevel = 2;
 			return false;
 			
 		case 0xC9: // SOF9 segment
 			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof9 marker found, image is coded arithm. sequential" );
+			errormessage = "sof9 marker found, image is coded arithm. sequential";
 			errorlevel = 2;
 			return false;
 			
 		case 0xCA: // SOF10 segment
 			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof10 marker found, image is coded arithm. progressive" );
+			errormessage = "sof10 marker found, image is coded arithm. progressive";
 			errorlevel = 2;
 			return false;
 			
 		case 0xCB: // SOF11 segment
 			// coding process: arithmetic extended sequential DCT
-			sprintf( errormessage, "sof11 marker found, image is coded arithm. lossless" );
+			errormessage = "sof11 marker found, image is coded arithm. lossless";
 			errorlevel = 2;
 			return false;
 			
 		case 0xCD: // SOF13 segment
 			// coding process: arithmetic differntial sequential DCT
-			sprintf( errormessage, "sof13 marker found, image is coded arithm. diff. sequential" );
+			errormessage = "sof13 marker found, image is coded arithm. diff. sequential";
 			errorlevel = 2;
 			return false;
 			
 		case 0xCE: // SOF14 segment
 			// coding process: arithmetic differential progressive DCT
-			sprintf( errormessage, "sof14 marker found, image is coded arithm. diff. progressive" );
+			errormessage = "sof14 marker found, image is coded arithm. diff. progressive";
 			errorlevel = 2;
 			return false;
 		
 		case 0xCF: // SOF15 segment
 			// coding process: arithmetic differntial lossless
-			sprintf( errormessage, "sof15 marker found, image is coded arithm. diff. lossless" );
+			errormessage = "sof15 marker found, image is coded arithm. diff. lossless";
 			errorlevel = 2;
 			return false;
 			
@@ -3872,25 +3931,25 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 		case 0xD6: // RST6 segment
 		case 0xD7: // RST7 segment
 			// return errormessage - RST is out of place here
-			sprintf( errormessage, "rst marker found out of place" );
+			errormessage = "rst marker found out of place";
 			errorlevel = 2;
 			return false;
 		
 		case 0xD8: // SOI segment
 			// return errormessage - start-of-image is out of place here
-			sprintf( errormessage, "soi marker found out of place" );
+			errormessage = "soi marker found out of place";
 			errorlevel = 2;
 			return false;
 		
 		case 0xD9: // EOI segment
 			// return errormessage - end-of-image is out of place here
-			sprintf( errormessage, "eoi marker found out of place" );
+			errormessage = "eoi marker found out of place";
 			errorlevel = 2;
 			return false;
 			
 		default: // unknown marker segment
 			// return warning
-			sprintf( errormessage, "unknown marker found: FF %2X", type );
+			set_errormessage( "unknown marker found: FF %2X", type );
 			errorlevel = 1;
 			return true;
 	}
@@ -3902,34 +3961,30 @@ INTERN bool jpg_parse_jfif( unsigned char type, unsigned int len, unsigned char*
 	----------------------------------------------- */
 INTERN bool jpg_rebuild_header( void )
 {	
-	MemoryWriter* hdrw; // new header writer
-	
 	unsigned char  type = 0x00; // type of current marker segment
 	unsigned int   len  = 0; // length of current marker segment
 	unsigned int   hpos = 0; // position in header	
 	
 	
 	// start headerwriter
-	hdrw = new MemoryWriter();
+	MemoryWriter hdrw;
 	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		if ( !read_header_segment( hpos, type, len ) ) return false;
 		// discard any unneeded meta info
 		if ( ( type == 0xDA ) || ( type == 0xC4 ) || ( type == 0xDB ) ||
 			 ( type == 0xC0 ) || ( type == 0xC1 ) || ( type == 0xC2 ) ||
 			 ( type == 0xDD ) ) {
-			hdrw->write( &(hdrdata[ hpos ]), len );
+			hdrw.write( &(hdrdata[ hpos ]), len );
 		}
 		hpos += len;
 	}
 	
 	// replace current header with the new one
 	free( hdrdata );
-	hdrdata = hdrw->get_c_data();
-	hdrs    = hdrw->num_bytes_written();
-	delete( hdrw );
+	hdrdata = hdrw.get_c_data();
+	hdrs    = hdrw.num_bytes_written();
 	
 	
 	return true;
@@ -3951,7 +4006,7 @@ INTERN int jpg_decode_block_seq( BitReader* huffr, huffTree* dctree, huffTree* a
 	
 	// decode dc
 	hc = jpg_next_huffcode( huffr, dctree );
-	if ( hc < 0 ) return -1; // return error
+	if ( ( hc < 0 ) || ( hc > 15 ) ) return -1; // return error
 	else s = ( unsigned char ) hc;
 	n = huffr->read( s );	
 	block[ 0 ] = DEVLI( s, n );
@@ -4055,7 +4110,7 @@ INTERN int jpg_decode_dc_prg_fs( BitReader* huffr, huffTree* dctree, short* bloc
 	
 	// decode dc
 	hc = jpg_next_huffcode( huffr, dctree );
-	if ( hc < 0 ) return -1; // return error
+	if ( ( hc < 0 ) || ( hc > 15 ) ) return -1; // return error
 	else s = ( unsigned char ) hc;
 	n = huffr->read( s );	
 	block[ 0 ] = DEVLI( s, n );
@@ -4665,8 +4720,6 @@ INTERN void jpg_build_huffcodes( unsigned char *clen, unsigned char *cval,	huffC
 	----------------------------------------------- */
 INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 {
-	model_s* model;
-	
 	unsigned char freqlist[ 64 ];
 	int tpos; // true position
 	int cpos; // coded position
@@ -4681,7 +4734,7 @@ INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 		freqlist[ i ] = stdscan[ i ];
 		
 	// init model
-	model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S( 64, 64, 1 );
 	
 	// encode scanorder
 	for ( i = 1; i < 64; i++ )
@@ -4717,9 +4770,6 @@ INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 		model->shift_context( cpos );		
 	}
 	
-	// delete model
-	delete( model );
-	
 	// set zero sort scan as freqscan
 	freqscan[ cmp ] = zsrtscan[ cmp ];
 	
@@ -4733,8 +4783,6 @@ INTERN bool pjg_encode_zstscan( ArithmeticEncoder* enc, int cmp )
 	----------------------------------------------- */	
 INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp )
 {
-	model_s* model;
-	
 	unsigned char* zdstls;
 	int dpos;
 	int a, b;
@@ -4743,7 +4791,7 @@ INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp )
 	
 	
 	// init model, constants
-	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
 	zdstls = zdstdata[ cmp ];
 	w = cmpnfo[cmp].bch;
 	bc = cmpnfo[cmp].bc;
@@ -4760,9 +4808,6 @@ INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp )
 		encode_ari( enc, model, zdstls[ dpos ] );
 	}
 	
-	// clean up
-	delete( model );
-	
 	
 	return true;
 }
@@ -4773,8 +4818,6 @@ INTERN bool pjg_encode_zdst_high( ArithmeticEncoder* enc, int cmp )
 	----------------------------------------------- */	
 INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp )
 {
-	model_s* model;
-	
 	unsigned char* zdstls_x;
 	unsigned char* zdstls_y;
 	unsigned char* ctx_zdst;
@@ -4786,7 +4829,7 @@ INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp )
 	
 	
 	// init model, constants
-	model = INIT_MODEL_S( 8, 8, 2 );
+	auto model = INIT_MODEL_S( 8, 8, 2 );
 	zdstls_x = zdstxlow[ cmp ];
 	zdstls_y = zdstylow[ cmp ];
 	ctx_eobx = eobxhigh[ cmp ];
@@ -4807,9 +4850,6 @@ INTERN bool pjg_encode_zdst_low( ArithmeticEncoder* enc, int cmp )
 		encode_ari( enc, model, zdstls_y[ dpos ] ); // encode symbol
 	}
 	
-	// clean up
-	delete( model );
-	
 	
 	return true;
 }
@@ -4822,14 +4862,9 @@ INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
 	unsigned char* zdstls; // pointer to zero distribution list
 	signed short* coeffs; // pointer to current coefficent data
 	
-	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 
@@ -4857,21 +4892,17 @@ INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 	max_len = BITLEN1024P( max_val );
 	
 	// init models for bitlenghts and -patterns	
-	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 1, 0 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
 	w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values storage
-	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
-	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<unsigned short> absv_store_vec( bc, 0 );
+	unsigned short* absv_store = absv_store_vec.data();
 	
 	// set up context quick access array
 	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
@@ -4924,12 +4955,6 @@ INTERN bool pjg_encode_dc( ArithmeticEncoder* enc, int cmp )
 		}
 	}
 	
-	// free memory / clear models
-	free( absv_store );
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -4942,20 +4967,13 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 {
 	unsigned char* segm_tab;
 	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* zdstls; // pointer to zero distribution list
 	unsigned char* eob_x; // pointer to x eobs
 	unsigned char* eob_y; // pointer to y eobs
 	signed short* coeffs; // pointer to current coefficent data
 	
-	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 	
-	unsigned char* sgn_store; // sign storage for context	
 	unsigned char* sgn_nbh; // left signs neighbor
 	unsigned char* sgn_nbv; // upper signs neighbor
 
@@ -4982,26 +5000,21 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 9, 1 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
 	w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values & signs storage
-	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );	
-	sgn_store = (unsigned char*) calloc ( bc, sizeof( char ) );
-	zdstls = (unsigned char*) calloc ( bc, sizeof( char ) );
-	if ( ( absv_store == NULL ) || ( sgn_store == NULL ) || ( zdstls == NULL ) ) {
-		if ( absv_store != NULL ) free( absv_store );
-		if ( sgn_store != NULL ) free( sgn_store );
-		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<unsigned short> absv_store_vec( bc, 0 );
+	std::vector<unsigned char>  sgn_store_vec( bc, 0 );
+	std::vector<unsigned char>  zdstls_vec( bc, 0 );
+	unsigned short* absv_store = absv_store_vec.data();
+	unsigned char*  sgn_store  = sgn_store_vec.data();
+	unsigned char*  zdstls     = zdstls_vec.data();
 	
 	// set up quick access arrays for signs context
 	sgn_nbh = sgn_store - 1;
@@ -5106,14 +5119,6 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 		mod_sgn->flush_model();
 	}
 	
-	// free memory / clear models
-	free( absv_store );
-	free( sgn_store );
-	free( zdstls );
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -5124,11 +5129,6 @@ INTERN bool pjg_encode_ac_high( ArithmeticEncoder* enc, int cmp )
 	----------------------------------------------- */
 INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 {
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	model_b* mod_top;
-	
 	unsigned char* zdstls; // pointer to row/col # of non-zeroes
 	signed short* coeffs; // pointer to current coefficent data
 	
@@ -5159,10 +5159,10 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 	
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
+	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
+	auto mod_sgn = INIT_MODEL_B( 11, 1 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
@@ -5272,12 +5272,6 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 		mod_sgn->flush_model();
 	}
 	
-	// free memory / clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_top );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -5288,12 +5282,11 @@ INTERN bool pjg_encode_ac_low( ArithmeticEncoder* enc, int cmp )
 	----------------------------------------------- */
 INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int len )
 {
-	model_s* model;
 	int i;
 	
 	
 	// arithmetic encode data
-	model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
 	for ( i = 0; i < len; i++ )
 	{
 		encode_ari( enc, model, data[ i ] );
@@ -5301,7 +5294,6 @@ INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int
 	}
 	// encode end-of-data symbol (256)
 	encode_ari( enc, model, 256 );
-	delete( model );
 	
 	
 	return true;
@@ -5313,13 +5305,9 @@ INTERN bool pjg_encode_generic( ArithmeticEncoder* enc, unsigned char* data, int
 	----------------------------------------------- */
 INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit )
 {
-	model_b* model;
-	
-	
 	// encode one bit
-	model = INIT_MODEL_B( 1, -1 );
+	auto model = INIT_MODEL_B( 1, -1 );
 	encode_ari( enc, model, bit );
-	delete( model );
 	
 	
 	return true;
@@ -5331,8 +5319,6 @@ INTERN bool pjg_encode_bit( ArithmeticEncoder* enc, unsigned char bit )
 	----------------------------------------------- */
 INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 {	
-	model_s* model;;
-	
 	unsigned char freqlist[ 64 ];
 	int tpos; // true position
 	int cpos; // coded position
@@ -5347,7 +5333,7 @@ INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 		freqlist[ i ] = stdscan[ i ];
 		
 	// init model
-	model = INIT_MODEL_S( 64, 64, 1 );
+	auto model = INIT_MODEL_S( 64, 64, 1 );
 	
 	// encode scanorder
 	for ( i = 1; i < 64; i++ )
@@ -5363,7 +5349,10 @@ INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 			// remaining list is identical to scan
 			// fill the scan & make a quick exit				
 			for ( tpos = 0; i < 64; i++ ) {
-				while ( freqlist[ ++tpos ] == 0 );
+				while ( ( ++tpos < 64 ) && ( freqlist[ tpos ] == 0 ) );
+				if ( tpos >= 64 ) {
+					throw std::runtime_error( "corrupted arithmetic stream" );
+				}
 				zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
 			}
 			break;
@@ -5374,15 +5363,15 @@ INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 			if ( freqlist[ tpos ] != 0 ) cpos--;
 			if ( cpos == 0 ) break;
 		}
+		if ( tpos >= 64 ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
 			
 		// write decoded position to zero sort scan
 		zsrtscan[ cmp ][ i ] = freqlist[ tpos ];
 		// remove from list
 		freqlist[ tpos ] = 0;
 	}
-	
-	// delete model
-	delete( model  );		
 	
 	// set zero sort scan as freqscan
 	freqscan[ cmp ] = zsrtscan[ cmp ];
@@ -5397,8 +5386,6 @@ INTERN bool pjg_decode_zstscan( ArithmeticDecoder* dec, int cmp )
 	----------------------------------------------- */
 INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp )
 {
-	model_s* model;
-	
 	unsigned char* zdstls;
 	int dpos;
 	int a, b;
@@ -5407,7 +5394,7 @@ INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp )
 	
 	
 	// init model, constants
-	model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
+	auto model = INIT_MODEL_S( 49 + 1, 25 + 1, 1 );
 	zdstls = zdstdata[ cmp ];
 	w = cmpnfo[cmp].bch;
 	bc = cmpnfo[cmp].bc;
@@ -5424,9 +5411,6 @@ INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp )
 		zdstls[ dpos ] = decode_ari( dec, model );
 	}
 	
-	// clean up
-	delete( model );
-	
 	
 	return true;
 }
@@ -5437,8 +5421,6 @@ INTERN bool pjg_decode_zdst_high( ArithmeticDecoder* dec, int cmp )
 	----------------------------------------------- */	
 INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp )
 {
-	model_s* model;
-	
 	unsigned char* zdstls_x;
 	unsigned char* zdstls_y;
 	unsigned char* ctx_zdst;
@@ -5450,7 +5432,7 @@ INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp )
 	
 	
 	// init model, constants
-	model = INIT_MODEL_S( 8, 8, 2 );
+	auto model = INIT_MODEL_S( 8, 8, 2 );
 	zdstls_x = zdstxlow[ cmp ];
 	zdstls_y = zdstylow[ cmp ];
 	ctx_eobx = eobxhigh[ cmp ];
@@ -5471,9 +5453,6 @@ INTERN bool pjg_decode_zdst_low( ArithmeticDecoder* dec, int cmp )
 		zdstls_y[ dpos ] = decode_ari( dec, model ); // decode symbol
 	}
 	
-	// clean up
-	delete( model );
-	
 	
 	return true;
 }
@@ -5486,14 +5465,9 @@ INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
 	unsigned char* zdstls; // pointer to zero distribution list
 	signed short* coeffs; // pointer to current coefficent data
 	
-	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 
@@ -5521,21 +5495,17 @@ INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 	max_len = BITLEN1024P( max_val );
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 1, 0 );
+	auto mod_len = INIT_MODEL_S( max_len + 1, ( segm_cnt[cmp] > max_len ) ? segm_cnt[cmp] : max_len + 1, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 1, 0 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
 	w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values storage
-	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );
-	if ( absv_store == NULL ) {
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<unsigned short> absv_store_vec( bc, 0 );
+	unsigned short* absv_store = absv_store_vec.data();
 	
 	// set up context quick access array
 	pjg_aavrg_prepare( c_absc, c_weight, absv_store, cmp );
@@ -5588,12 +5558,6 @@ INTERN bool pjg_decode_dc( ArithmeticDecoder* dec, int cmp )
 		}
 	}
 	
-	// free memory / clear models
-	free( absv_store );
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -5606,20 +5570,13 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 {
 	unsigned char* segm_tab;
 	
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	
-	unsigned char* zdstls; // pointer to zero distribution list
 	unsigned char* eob_x; // pointer to x eobs
 	unsigned char* eob_y; // pointer to y eobs
 	signed short* coeffs; // pointer to current coefficent data
 	
-	unsigned short* absv_store; // absolute coefficients values storage
 	unsigned short* c_absc[ 6 ]; // quick access array for contexts
 	int c_weight[ 6 ]; // weighting for contexts
 	
-	unsigned char* sgn_store; // sign storage for context	
 	unsigned char* sgn_nbh; // left signs neighbor
 	unsigned char* sgn_nbv; // upper signs neighbor
 
@@ -5646,26 +5603,21 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 	segm_tab = segm_tables[ segm_cnt[ cmp ] - 1 ];
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
-	mod_sgn = INIT_MODEL_B( 9, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( ( segm_cnt[cmp] < 16 ) ? 1 << 4 : segm_cnt[cmp], 2 );
+	auto mod_sgn = INIT_MODEL_B( 9, 1 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
 	w = cmpnfo[cmp].bch;
 	
 	// allocate memory for absolute values & signs storage
-	absv_store = (unsigned short*) calloc ( bc, sizeof( short ) );	
-	sgn_store = (unsigned char*) calloc ( bc, sizeof( char ) );
-	zdstls = (unsigned char*) calloc ( bc, sizeof( char ) );
-	if ( ( absv_store == NULL ) || ( sgn_store == NULL ) || ( zdstls == NULL ) ) {
-		if ( absv_store != NULL ) free( absv_store );
-		if ( sgn_store != NULL ) free( sgn_store );
-		if ( zdstls != NULL ) free( zdstls );
-		sprintf( errormessage, MEM_ERRMSG );
-		errorlevel = 2;
-		return false;
-	}
+	std::vector<unsigned short> absv_store_vec( bc, 0 );
+	std::vector<unsigned char>  sgn_store_vec( bc, 0 );
+	std::vector<unsigned char>  zdstls_vec( bc, 0 );
+	unsigned short* absv_store = absv_store_vec.data();
+	unsigned char*  sgn_store  = sgn_store_vec.data();
+	unsigned char*  zdstls     = zdstls_vec.data();
 	
 	// set up quick access arrays for signs context
 	sgn_nbh = sgn_store - 1;
@@ -5770,14 +5722,6 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 		mod_sgn->flush_model();
 	}
 	
-	// free memory / clear models
-	free( absv_store );
-	free( sgn_store );
-	free( zdstls );
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -5788,11 +5732,6 @@ INTERN bool pjg_decode_ac_high( ArithmeticDecoder* dec, int cmp )
 	----------------------------------------------- */
 INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 {
-	model_s* mod_len;
-	model_b* mod_sgn;
-	model_b* mod_res;
-	model_b* mod_top;
-	
 	unsigned char* zdstls; // pointer to row/col # of non-zeroes
 	signed short* coeffs; // pointer to current coefficent data
 	
@@ -5823,10 +5762,10 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 	
 	
 	// init models for bitlenghts and -patterns
-	mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
-	mod_res = INIT_MODEL_B( 1 << 4, 2 );
-	mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
-	mod_sgn = INIT_MODEL_B( 11, 1 );
+	auto mod_len = INIT_MODEL_S( 11, ( segm_cnt[cmp] > 11 ) ? segm_cnt[cmp] : 11, 2 );
+	auto mod_res = INIT_MODEL_B( 1 << 4, 2 );
+	auto mod_top = INIT_MODEL_B( ( nois_trs[cmp] > 4 ) ? 1 << nois_trs[cmp] : 1 << 4, 3 );
+	auto mod_sgn = INIT_MODEL_B( 11, 1 );
 	
 	// set width/height of each band
 	bc = cmpnfo[cmp].bc;
@@ -5934,12 +5873,6 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 		mod_sgn->flush_model();
 	}
 	
-	// free memory / clear models
-	delete ( mod_len );
-	delete ( mod_res );
-	delete ( mod_top );
-	delete ( mod_sgn );
-	
 	
 	return true;
 }
@@ -5950,36 +5883,31 @@ INTERN bool pjg_decode_ac_low( ArithmeticDecoder* dec, int cmp )
 	----------------------------------------------- */
 INTERN bool pjg_decode_generic( ArithmeticDecoder* dec, unsigned char** data, int* len )
 {
-	MemoryWriter* bwrt;
-	model_s* model;
 	int c;
 	
 	
 	// start byte writer
-	bwrt = new MemoryWriter();
+	MemoryWriter bwrt;
 	
 	// decode header, ending with 256 symbol
-	model = INIT_MODEL_S( 256 + 1, 256, 1 );
+	auto model = INIT_MODEL_S( 256 + 1, 256, 1 );
 	while ( true ) {
 		c = decode_ari( dec, model );
 		if ( c == 256 ) break;
-		bwrt->write_byte( (unsigned char) c );
+		bwrt.write_byte( (unsigned char) c );
 		model->shift_context( c );
 	}
-	delete( model );
 	
 	// check for out of memory
-	if ( bwrt->error() ) {
-		delete bwrt;
-		sprintf( errormessage, MEM_ERRMSG );
+	if ( bwrt.error() ) {
+		errormessage = MEM_ERRMSG;
 		errorlevel = 2;
 		return false;
 	}
 	
 	// get data/length and close byte writer
-	(*data) = bwrt->get_c_data();
-	if ( len != NULL ) (*len) = bwrt->num_bytes_written();
-	delete bwrt;
+	(*data) = bwrt.get_c_data();
+	if ( len != NULL ) (*len) = bwrt.num_bytes_written();
 	
 	
 	return true;
@@ -5991,12 +5919,8 @@ INTERN bool pjg_decode_generic( ArithmeticDecoder* dec, unsigned char** data, in
 	----------------------------------------------- */
 INTERN bool pjg_decode_bit( ArithmeticDecoder* dec, unsigned char* bit )
 {
-	model_b* model;
-	
-	
-	model = INIT_MODEL_B( 1, -1 );
+	auto model = INIT_MODEL_B( 1, -1 );
 	(*bit) = decode_ari( dec, model );
-	delete( model );
 	
 	
 	return true;
@@ -6065,15 +5989,21 @@ INTERN bool pjg_optimize_header( void )
 	// search for DHT (0xFFC4) & DQT (0xFFDB) marker segments	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		if ( !read_header_segment( hpos, type, len ) ) return false;
 		if ( type == 0xC4 ) { // for DHT
 			fpos = hpos + len; // reassign length to end position
 			hpos += 4; // skip marker & length
 			while ( hpos < fpos ) {			
+				if ( hpos + 17 > fpos ) {
+					errormessage = "size mismatch in dht marker";
+					errorlevel = 2;
+					return false;
+				}
 				hpos++;				
 				// table found - compare with each of the four standard tables		
 				for ( i = 0; i < 4; i++ ) {
+					if ( hpos + std_huff_lengths[ i ] > fpos )
+						continue;
 					for ( spos = 0; spos < std_huff_lengths[ i ]; spos++ ) {
 						if ( hdrdata[ hpos + spos ] != std_huff_tables[ i ][ spos ] )
 							break;
@@ -6094,7 +6024,12 @@ INTERN bool pjg_optimize_header( void )
 								
 				skip = 16;
 				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) hdrdata[ hpos + i ];				
+					skip += ( int ) hdrdata[ hpos + i ];
+				if ( hpos + skip > fpos ) {
+					errormessage = "size mismatch in dht marker";
+					errorlevel = 2;
+					return false;
+				}
 				hpos += skip;
 			}
 		}
@@ -6106,8 +6041,18 @@ INTERN bool pjg_optimize_header( void )
 				hpos++;
 				// table found
 				if ( i == 1 ) { // get out for 16 bit precision
+					if ( hpos + 128 > fpos ) {
+						errormessage = "size mismatch in dqt marker";
+						errorlevel = 2;
+						return false;
+					}
 					hpos += 128;
 					continue;
+				}
+				if ( hpos + 64 > fpos ) {
+					errormessage = "size mismatch in dqt marker";
+					errorlevel = 2;
+					return false;
 				}
 				// do diff coding for 8 bit precision
 				for ( spos = 63; spos > 0; spos-- )
@@ -6144,18 +6089,27 @@ INTERN bool pjg_unoptimize_header( void )
 	// search for DHT (0xFFC4) & DQT (0xFFDB) marker segments	
 	// header parser loop
 	while ( ( int ) hpos < hdrs ) {
-		type = hdrdata[ hpos + 1 ];
-		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		if ( !read_header_segment( hpos, type, len ) ) return false;
 		
 		if ( type == 0xC4 ) { // for DHT
 			fpos = hpos + len; // reassign length to end position
 			hpos += 4; // skip marker & length
 			while ( hpos < fpos ) {			
+				if ( hpos + 17 > fpos ) {
+					errormessage = "size mismatch in dht marker";
+					errorlevel = 2;
+					return false;
+				}
 				hpos++;
 				// table found - check if modified
 				if ( hdrdata[ hpos ] > 2 ) {	
 					// reinsert the standard table
 					i = hdrdata[ hpos + 1 ];
+					if ( ( i < 0 ) || ( i >= 4 ) || ( hpos + std_huff_lengths[ i ] > fpos ) ) {
+						errormessage = "size mismatch in dht marker";
+						errorlevel = 2;
+						return false;
+					}
 					for ( spos = 0; spos < std_huff_lengths[ i ]; spos++ ) {
 						hdrdata[ hpos + spos ] = std_huff_tables[ i ][ spos ];
 					}
@@ -6163,7 +6117,12 @@ INTERN bool pjg_unoptimize_header( void )
 								
 				skip = 16;
 				for ( i = 0; i < 16; i++ )		
-					skip += ( int ) hdrdata[ hpos + i ];				
+					skip += ( int ) hdrdata[ hpos + i ];
+				if ( hpos + skip > fpos ) {
+					errormessage = "size mismatch in dht marker";
+					errorlevel = 2;
+					return false;
+				}
 				hpos += skip;
 			}
 		}
@@ -6175,8 +6134,18 @@ INTERN bool pjg_unoptimize_header( void )
 				hpos++;
 				// table found
 				if ( i == 1 ) { // get out for 16 bit precision
+					if ( hpos + 128 > fpos ) {
+						errormessage = "size mismatch in dqt marker";
+						errorlevel = 2;
+						return false;
+					}
 					hpos += 128;
 					continue;
+				}
+				if ( hpos + 64 > fpos ) {
+					errormessage = "size mismatch in dqt marker";
+					errorlevel = 2;
+					return false;
 				}
 				// undo diff coding for 8 bit precision
 				for ( spos = 1; spos < 64; spos++ )
@@ -6849,7 +6818,7 @@ INTERN bool dump_coll( void )
 		// open file for output
 		fp = fopen( fn, "wb" );
 		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn);
+			set_errormessage( FWR_ERRMSG, fn );
 			errorlevel = 2;
 			return false;
 		}
@@ -6973,7 +6942,7 @@ INTERN bool dump_file( const char* base, const char* ext, void* data, int bpv, i
 	// open file for output
 	fp = fopen( fn, "wb" );	
 	if ( fp == NULL ) {
-		sprintf( errormessage, FWR_ERRMSG, fn);
+		set_errormessage( FWR_ERRMSG, fn );
 		errorlevel = 2;
 		return false;
 	}
@@ -7012,7 +6981,7 @@ INTERN bool dump_errfile( void )
 	// open file for output
 	fp = fopen( fn, "w" );
 	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+		set_errormessage( FWR_ERRMSG, fn );
 		errorlevel = 2;
 		return false;
 	}
@@ -7024,7 +6993,7 @@ INTERN bool dump_errfile( void )
 	// write error specification to file
 	fprintf( fp, " %s -> %s:\n", get_status( errorfunction ),
 			( errorlevel == 1 ) ? "warning" : "error" );
-	fprintf( fp, " %s\n", errormessage );
+	fprintf( fp, " %s\n", errormessage.c_str() );
 	
 	// done, close file
 	fclose( fp );
@@ -7058,7 +7027,7 @@ INTERN bool dump_info( void )
 	// open file for output
 	fp = fopen( fn, "w" );
 	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+		set_errormessage( FWR_ERRMSG, fn );
 		errorlevel = 2;
 		return false;
 	}
@@ -7076,9 +7045,10 @@ INTERN bool dump_info( void )
 	fprintf( fp, "\nfile header structure:\n" );
 	fprintf( fp, " type  length   hpos\n" );
 	// header parser loop
-	for ( hpos = 0; (int) hpos < hdrs; hpos += len ) {
+	for ( hpos = 0; (int) ( hpos + 4 ) <= hdrs; hpos += len ) {
 		type = hdrdata[ hpos + 1 ];
 		len = 2 + B_SHORT( hdrdata[ hpos + 2 ], hdrdata[ hpos + 3 ] );
+		if ( ( len < 4 ) || ( (int) ( hpos + len ) > hdrs ) ) break;
 		fprintf( fp, " FF%2X  %6i %6i\n", (int) type, (int) len, (int) hpos );
 	}
 	fprintf( fp, " _END       0 %6i\n", (int) hpos );
@@ -7146,12 +7116,13 @@ INTERN bool dump_dist( void )
 	
 	// open file for output
 	fp = fopen( fn, "wb" );
-	free( fn );
 	if ( fp == NULL ){
-		sprintf( errormessage, FWR_ERRMSG, fn);
+		set_errormessage( FWR_ERRMSG, fn );
+		free( fn );
 		errorlevel = 2;
 		return false;
 	}
+	free( fn );
 	
 	// calculate & write distributions for each frequency
 	for ( cmp = 0; cmp < cmpc; cmp++ )
@@ -7206,7 +7177,8 @@ INTERN bool dump_pgm( void )
 		// open file for output
 		fp = fopen( fn, "wb" );		
 		if ( fp == NULL ){
-			sprintf( errormessage, FWR_ERRMSG, fn );
+			set_errormessage( FWR_ERRMSG, fn );
+			free( fn );
 			errorlevel = 2;
 			return false;
 		}
@@ -7216,7 +7188,7 @@ INTERN bool dump_pgm( void )
 		imgdata = (unsigned char*) calloc ( cmpnfo[cmp].bc * 64, sizeof( char ) );
 		if ( imgdata == NULL ) {
 			fclose( fp );
-			sprintf( errormessage, MEM_ERRMSG );
+			errormessage = MEM_ERRMSG;
 			errorlevel = 2;
 			return false;
 		}

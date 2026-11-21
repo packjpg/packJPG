@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <functional>
 #include <limits>
+#include <stdexcept>
 
 template <std::uint8_t bit>
 void ArithmeticBitWriter::write_bit() {
@@ -170,11 +171,21 @@ void ArithmeticEncoder::encode( symbol* s )
 	
 unsigned int ArithmeticDecoder::decode_count( symbol* s )
 {
+	if ( s->scale == 0 || chigh < clow || ccode < clow || ccode > chigh ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	// update cstep, which is needed to remove the symbol from the stream later
 	cstep = ( ( chigh - clow ) + 1 ) / s->scale;
+	if ( cstep == 0 ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	
 	// return counts, needed to decode the symbol from the statistical model
-	return ( ccode - clow ) / cstep;
+	unsigned int count = ( ccode - clow ) / cstep;
+	if ( count >= s->scale ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
+	return count;
 }
 
 /* -----------------------------------------------
@@ -361,8 +372,11 @@ void model_s::update_model( int symbol )
 void model_s::shift_context( int c )
 {	
 	// shifting is not possible if max_order is below 1
-	// or context index is negative
+	// or context index is out of range
 	if ( ( max_order < 2 ) || ( c < 0 ) ) return;
+	if ( c >= max_context ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	
 	// shift each orders' context
 	for (int i = max_order; i > 1; i-- ) {
@@ -453,6 +467,9 @@ int model_s::convert_int_to_symbol( int c, symbol *s )
 	
 void model_s::get_symbol_scale( symbol *s )
 {
+	if ( current_order < 0 || current_order >= static_cast<int>(contexts.size()) ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	// getting the scale is easy: totalize the table_s, use accumulated count -> done
 	totalize_table( contexts[ current_order ] );
 	s->scale = totals[ 0 ];
@@ -476,11 +493,17 @@ int model_s::convert_symbol_to_int(uint32_t count, symbol *s)
 			break;
 		}
 	}
+	if (c >= int(totals.size()) || totals[c - 1] <= totals[c]) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	// set up the current symbol
 	s->low_count = totals[c]; // It is guaranteed that there exists such a symbol.
 	s->high_count = totals[c - 1]; // This is guaranteed to not go out of bounds since the search started at index 1 of totals.
 	// send escape if escape symbol encountered
 	if (c == 1) {
+		if (current_order <= 0) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
 		current_order--;
 		return ESCAPE_SYMBOL;
 	}
@@ -643,8 +666,11 @@ void model_b::update_model( int symbol )
 void model_b::shift_context( int c )
 {
 	// shifting is not possible if max_order is below 1
-	// or context index is negative
+	// or context index is out of range
 	if ( (max_order < 2 ) || ( c < 0 ) ) return;
+	if ( c >= max_context ) {
+		throw std::runtime_error( "corrupted arithmetic stream" );
+	}
 	
 	// shift each orders' context
 	for (int i = max_order; i > 1; i-- ) {

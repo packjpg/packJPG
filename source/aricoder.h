@@ -10,7 +10,7 @@
 
 // defines for coder
 constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
-constexpr uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
+constexpr uint32_t CODER_LIMIT100 = uint32_t(1) << CODER_USE_BITS;
 constexpr uint32_t CODER_LIMIT025 = CODER_LIMIT100 / 4;
 constexpr uint32_t CODER_LIMIT050 = (CODER_LIMIT100 / 4) * 2;
 constexpr uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
@@ -289,11 +289,11 @@ class model_b
 
 // Base case for shifting an arbitrary number of contexts into the model.
 template <typename M>
-static void shift_model(M) {}
+static void shift_model(const M&) {}
 
 // Shift an arbitrary number of contexts into the model (at most max_c contexts).
 template <typename M, typename C, typename... Cargs>
-static void shift_model(M model, C context, Cargs ... contextList) {
+static void shift_model(const M& model, C context, Cargs ... contextList) {
 	model->shift_context(context);
 	shift_model(model, contextList...);
 }
@@ -359,6 +359,26 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 	model->update_model( c );
 	
 	return c;
+}
+
+static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_s>& model, int c )
+{
+	encode_ari( encoder, model.get(), c );
+}
+
+static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_s>& model )
+{
+	return decode_ari( decoder, model.get() );
+}
+
+static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_b>& model, int c )
+{
+	encode_ari( encoder, model.get(), c );
+}
+
+static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_b>& model )
+{
+	return decode_ari( decoder, model.get() );
 }
 
 #endif
