@@ -161,3 +161,40 @@ TEST_CASE("aricoder: rejects out-of-bounds context shifts and zero-scale decode"
 	symbol bad{0, 0, 0};
 	REQUIRE_THROWS(dec.decode_count(&bad));
 }
+
+TEST_CASE("aricoder: large-alphabet model_s (max_s > 64) and >64KB streaming flush") {
+	// Exercises vector-backed scoreboard (max_s=257) and >64KB ArithmeticBitWriter sink flushing
+	constexpr std::size_t kCount = 90000;
+	std::vector<int> data;
+	data.reserve(kCount);
+	for (std::size_t i = 0; i < kCount; ++i) {
+		const std::uint32_t mod_bound = ((i & 63u) == 0u) ? 256u : 257u;
+		data.push_back(static_cast<int>((i * 131u + (i >> 5)) % mod_bound));
+	}
+
+	MemoryWriter mw;
+	{
+		ArithmeticEncoder enc(mw);
+		model_s mod(257, 4, 1, 255);
+		for (std::size_t i = 0; i < kCount; ++i) {
+			mod.shift_context(static_cast<int>(i & 3u));
+			if ((i & 63u) == 0u) {
+				mod.exclude_symbols(255);
+			}
+			encode_with_model_s(enc, mod, data[i]);
+		}
+		enc.finalize();
+	}
+	REQUIRE(mw.num_bytes_written() > ArithmeticBitWriter::kFlushThreshold);
+
+	MemoryReader mr(mw.take_data());
+	ArithmeticDecoder dec(mr);
+	model_s mod(257, 4, 1, 255);
+	for (std::size_t i = 0; i < kCount; ++i) {
+		mod.shift_context(static_cast<int>(i & 3u));
+		if ((i & 63u) == 0u) {
+			mod.exclude_symbols(255);
+		}
+		REQUIRE_EQ(decode_with_model_s(dec, mod), data[i]);
+	}
+}
