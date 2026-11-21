@@ -1,6 +1,12 @@
 // packJPGlib.h - function declarations for the packJPG library
 #if defined BUILD_DLL
-	#define EXPORT __declspec( dllexport )
+	#if defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__)
+		#define EXPORT __declspec( dllexport )
+	#elif defined(__GNUC__) && __GNUC__ >= 4
+		#define EXPORT __attribute__((visibility("default")))
+	#else
+		#define EXPORT extern
+	#endif
 #else
 	#define EXPORT extern
 #endif

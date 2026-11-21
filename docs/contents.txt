@@ -22,26 +22,25 @@ These files are included as well, but are not necessarily needed for
 compiling packJPG: 
 
 - 'packjpg.spec' (RPM spec file, provided by Bryan Stillwell)
-- 'Makefile_osx' (special OS X Makefile, provided by Ryan Flynn)
-- 'packjpgdll.h' (packJPG DLL header file)
+- 'Makefile_osx' (macOS compatibility Makefile wrapper)
+- 'packjpgdll.h' (packJPG shared library header file)
 - 'file_icon.ico' (suggested .pjg icon in .ico format)
 - 'app_icon.ico' (application icon in .ico format)
-- 'icon.res' (application icon in Windows .res format)
+- 'icons.rc' (Windows resource script for application and .pjg icons)
 
 
 Documentation
 ~~~~~~~~~~~~~
 
-The packJPG source code is well commented. Additionally, these files are 
-included in the 'doc' subdirectory. 
+The packJPG source code is well commented. Additionally, 'Readme.txt' and
+'LICENSE' are provided in the root directory, and these files are included
+in the 'docs' subdirectory:
 
 - 'developer.txt' (information about developer functions)
 - 'sample_images.zip' (sample images, referenced in 'developer.txt')
-- 'AalenUniv.jpg' (sample image, showing Aalen University)
-- 'dsci0692.jpg' (sample image, showing a flower)
-- 'usage.txt' (generic usage information)
 - 'howtocompile.txt' (compile instructions)
 - 'versionnumbering.txt' (version numbering guideline)
+- 'lgpl-3.0.txt' (GNU Lesser General Public License v3.0)
 - 'contents.txt' (the file you are currently reading)
 
 

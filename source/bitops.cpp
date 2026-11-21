@@ -9,9 +9,10 @@ reading and writing of arrays
 #include <array>
 #include <cstdio>
 #include <cstdlib>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
 
 #if defined(_WIN32) || defined(WIN32)
 #include <fcntl.h>
@@ -93,13 +94,15 @@ void BitReader::update_curr_byte() {
 	to skip padding from current byte
 	----------------------------------------------- */
 
-unsigned char BitReader::unpad( unsigned char fillbit ) {
+int BitReader::unpad( int fillbit ) {
 	if ( ( cbit == 8 ) || eof()) {
         return fillbit;
     } else {
-		fillbit = read( 1 );
+		fillbit = static_cast<int>( read( 1 ) );
 		while ( cbit != 8 ) {
-            read( 1 );
+            if ( static_cast<int>( read( 1 ) ) != fillbit ) {
+				fillbit = 2;
+			}
         }
 	}
 	
@@ -181,7 +184,13 @@ BitWriter::BitWriter(std::uint8_t padbit) : padbit_(padbit) {}
 BitWriter::~BitWriter() {}
 
 std::uint32_t rbits32(std::uint32_t val, std::size_t n) {
-    return val & (0xFFFFFFFF >> (32 - n));
+	if (n == 0) {
+		return 0u;
+	}
+	if (n >= 32) {
+		return val;
+	}
+	return val & (0xFFFFFFFFu >> (32 - n));
 }
 
 std::uint32_t mbits32(std::uint32_t val, std::size_t l, std::size_t r) {
@@ -228,7 +237,10 @@ std::vector<std::uint8_t> BitWriter::get_bytes() {
 
 unsigned char* BitWriter::get_c_bytes() {
     pad(); // Pad the last bits of the current byte before returning the written bytes.
-    unsigned char* c_bytes = new unsigned char[bytes_.size()];
+    auto c_bytes = static_cast<unsigned char*>(std::malloc(bytes_.size() * sizeof bytes_[0]));
+    if (c_bytes == nullptr) {
+        return nullptr;
+    }
     std::copy(std::begin(bytes_), std::end(bytes_), c_bytes);
     return c_bytes;
 }
@@ -253,9 +265,17 @@ MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
 	cbyte_(std::begin(data_)) {
 }
 
+MemoryReader::MemoryReader(std::vector<std::uint8_t>&& bytes) :
+	data_(std::move(bytes)),
+	cbyte_(std::begin(data_)) {
+}
+
 MemoryReader::MemoryReader(const std::uint8_t* bytes, std::size_t size) :
-    data_(bytes, bytes + size),
+    data_((bytes != nullptr && size > 0) ? std::vector<std::uint8_t>(bytes, bytes + size) : std::vector<std::uint8_t>{}),
     cbyte_(std::begin(data_)) {
+	if (bytes == nullptr && size > 0) {
+		throw std::runtime_error("MemoryReader: null pointer with non-zero size.");
+	}
 }
 
 std::size_t MemoryReader::read(std::uint8_t* to, std::size_t num_to_read) {
@@ -395,8 +415,8 @@ bool MemoryWriter::error() {
 FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
 	fptr_ = std::fopen(file_path.c_str(), "wb");
 	if (fptr_ != nullptr) {
-		file_buffer_.reserve(32768);
-		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.capacity());
+		file_buffer_.resize(32768);
+		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 	} else {
 		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
 	}
@@ -430,7 +450,10 @@ std::vector<std::uint8_t> FileWriter::get_data() {
 	std::fflush(fptr_);
 	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
 		const auto size = is.tellg();
-		std::vector<std::uint8_t> data_copy(size);
+		if (size < 0) {
+			throw std::runtime_error("FileWriter::get_data: invalid file size.");
+		}
+		std::vector<std::uint8_t> data_copy(static_cast<std::size_t>(size));
 		is.seekg(0);
 		if (is.read(reinterpret_cast<char*>(data_copy.data()), size)) {
 			return data_copy;
@@ -443,46 +466,66 @@ std::vector<std::uint8_t> FileWriter::get_data() {
 }
 
 void FileWriter::reset() {
-	std::fseek(fptr_, 0, SEEK_SET);
+	if (fptr_ != nullptr) {
+		std::fseek(fptr_, 0, SEEK_SET);
+	}
+}
+
+bool FileWriter::flush() {
+	if (fptr_ == nullptr) {
+		return false;
+	}
+	return std::fflush(fptr_) == 0 && !std::ferror(fptr_);
 }
 
 std::size_t FileWriter::num_bytes_written() {
-	std::fflush(fptr_);
-	return std::experimental::filesystem::file_size(file_path_);
+	if (fptr_ != nullptr) {
+		std::fflush(fptr_);
+	}
+	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		if (size >= 0) {
+			return static_cast<std::size_t>(size);
+		}
+	}
+	const long pos = (fptr_ != nullptr) ? std::ftell(fptr_) : -1L;
+	return (pos >= 0) ? static_cast<std::size_t>(pos) : 0;
 }
 
 bool FileWriter::error() {
 	return fptr_ == nullptr || std::ferror(fptr_);
 }
 
-StreamWriter::StreamWriter() {
+StreamWriter::StreamWriter(FILE* stream) : stream_(stream) {
+	if (stream_ == nullptr) {
+		throw std::runtime_error("StreamWriter: null FILE* stream.");
+	}
 	writer_ = std::make_unique<MemoryWriter>();
 }
 
 StreamWriter::~StreamWriter() {
-#if defined(_WIN32) || defined(WIN32)
-	const int result = _setmode(_fileno(stdout), _O_BINARY);
-	if (result == -1) {
-		return;
+	if (!flushed_) {
+		flush();
 	}
-#endif
-	const auto& data = writer_->get_data();
-	fwrite(data.data(), sizeof data[0], data.size(), stdout);
 }
 
 std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
+	flushed_ = false;
 	return writer_->write(from, n);
 }
 
 std::size_t StreamWriter::write(const std::vector<std::uint8_t>& bytes) {
+	flushed_ = false;
 	return writer_->write(bytes);
 }
 
 std::size_t StreamWriter::write(const std::array<std::uint8_t, 2>& bytes) {
+	flushed_ = false;
 	return writer_->write(bytes);
 }
 
 bool StreamWriter::write_byte(std::uint8_t byte) {
+	flushed_ = false;
 	return writer_->write_byte(byte);
 }
 
@@ -492,6 +535,38 @@ std::vector<std::uint8_t> StreamWriter::get_data() {
 
 void StreamWriter::reset() {
 	writer_->reset();
+	flushed_ = true;
+}
+
+bool StreamWriter::flush() {
+	if (flushed_) {
+		return !error_;
+	}
+	if (stream_ == nullptr) {
+		error_ = true;
+		return false;
+	}
+#if defined(_WIN32) || defined(WIN32)
+	if (stream_ == stdout) {
+		const int result = _setmode(_fileno(stdout), _O_BINARY);
+		if (result == -1) {
+			error_ = true;
+			return false;
+		}
+	}
+#endif
+	const auto data = writer_->get_data();
+	if (!data.empty()) {
+		const std::size_t written = std::fwrite(data.data(), sizeof data[0], data.size(), stream_);
+		if (written != data.size()) {
+			error_ = true;
+		}
+	}
+	if (std::fflush(stream_) != 0 || std::ferror(stream_)) {
+		error_ = true;
+	}
+	flushed_ = true;
+	return !error_;
 }
 
 std::size_t StreamWriter::num_bytes_written() {
@@ -499,18 +574,25 @@ std::size_t StreamWriter::num_bytes_written() {
 }
 
 bool StreamWriter::error() {
-	return writer_->error();
+	return error_ || writer_->error() || (stream_ == nullptr) || std::ferror(stream_);
 }
 
 
 
 FileReader::FileReader(const std::string& file_path) {
+	std::error_code ec;
+	if (std::filesystem::is_directory(file_path, ec)) {
+		throw std::runtime_error("FileReader: path is a directory: " + file_path);
+	}
 	if (std::ifstream is{ file_path, std::ios::binary | std::ios::ate }) {
 		const auto size = is.tellg();
-		std::vector<std::uint8_t> data(size);
+		if (size < 0) {
+			throw std::runtime_error("FileReader: unable to determine size of " + file_path);
+		}
+		std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
 		is.seekg(0);
-		if (is.read(reinterpret_cast<char*>(data.data()), size)) {
-			reader_ = std::make_unique<MemoryReader>(data);
+		if (size == 0 || is.read(reinterpret_cast<char*>(data.data()), size)) {
+			reader_ = std::make_unique<MemoryReader>(std::move(data));
 		} else {
 			throw std::runtime_error("FileReader: unable to read bytes from " + file_path);
 		}
@@ -569,11 +651,16 @@ bool FileReader::end_of_reader() {
 	return reader_->end_of_reader();
 }
 
-StreamReader::StreamReader() {
+StreamReader::StreamReader(FILE* stream) {
+	if (stream == nullptr) {
+		throw std::runtime_error("StreamReader: null FILE* stream.");
+	}
 #if defined(_WIN32) || defined(WIN32)
-	const int result = _setmode(_fileno(stdin), _O_BINARY);
-	if (result == -1) {
-		throw std::runtime_error("Unable to set mode for stdin");
+	if (stream == stdin) {
+		const int result = _setmode(_fileno(stdin), _O_BINARY);
+		if (result == -1) {
+			throw std::runtime_error("Unable to set mode for stdin");
+		}
 	}
 #endif
 	// read whole stream into memory buffer
@@ -581,13 +668,16 @@ StreamReader::StreamReader() {
 	constexpr auto buffer_capacity = 1024 * 1024;
 	std::vector<std::uint8_t> buffer(buffer_capacity);
 
-	auto bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+	auto bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stream);
 	while (bytes_read > 0) {
 		stream_data.insert(std::end(stream_data), std::begin(buffer), std::begin(buffer) + bytes_read);
-		bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stdin);
+		bytes_read = std::fread(buffer.data(), sizeof buffer[0], buffer_capacity, stream);
+	}
+	if (std::ferror(stream)) {
+		throw std::runtime_error("StreamReader: error reading from stream.");
 	}
 
-	reader_ = std::make_unique<MemoryReader>(stream_data);
+	reader_ = std::make_unique<MemoryReader>(std::move(stream_data));
 }
 
 std::size_t StreamReader::read(std::uint8_t* to, std::size_t num_to_read) {

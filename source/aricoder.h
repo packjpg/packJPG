@@ -10,7 +10,7 @@
 
 // defines for coder
 constexpr uint32_t CODER_USE_BITS = 31; // Must never be above 31.
-constexpr uint32_t CODER_LIMIT100 = uint32_t(1 << CODER_USE_BITS);
+constexpr uint32_t CODER_LIMIT100 = uint32_t(1) << CODER_USE_BITS;
 constexpr uint32_t CODER_LIMIT025 = CODER_LIMIT100 / 4;
 constexpr uint32_t CODER_LIMIT050 = (CODER_LIMIT100 / 4) * 2;
 constexpr uint32_t CODER_LIMIT075 = (CODER_LIMIT100 / 4) * 3;
@@ -27,6 +27,10 @@ struct symbol {
 // table struct, used in in statistical models,
 // holding all info needed for one context
 struct table {
+	table() = default;
+	table(const table&) = delete;
+	table& operator=(const table&) = delete;
+
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
@@ -88,6 +92,10 @@ struct table {
 // special table struct, used in in model_s,
 // holding additional info for a speedier 'totalize_table'
 struct table_s {
+	table_s() = default;
+	table_s(const table_s&) = delete;
+	table_s& operator=(const table_s&) = delete;
+
 	// counts for each symbol contained in the table
 	std::vector<uint16_t> counts;
 	// links to higher order contexts
@@ -151,7 +159,14 @@ struct table_s {
 class ArithmeticBitWriter {
 public:
 	template <std::uint8_t bit>
-	void write_bit();
+	inline void write_bit() {
+		curr_byte_ = (curr_byte_ << 1) | bit;
+		curr_bit_++;
+		if (curr_bit_ == 8) {
+			data_.emplace_back(curr_byte_);
+			curr_bit_ = 0;
+		}
+	}
 
 	void write_n_zero_bits(std::size_t n);
 
@@ -177,6 +192,8 @@ class ArithmeticEncoder
 {
 	public:
     ArithmeticEncoder(Writer& writer);
+	ArithmeticEncoder(const ArithmeticEncoder&) = delete;
+	ArithmeticEncoder& operator=(const ArithmeticEncoder&) = delete;
 	~ArithmeticEncoder();
 	void encode( symbol* s );
 
@@ -191,7 +208,6 @@ class ArithmeticEncoder
     std::unique_ptr<ArithmeticBitWriter> bitwriter_ = std::make_unique<ArithmeticBitWriter>();
 	
 	// arithmetic coding variables
-	unsigned int ccode = 0;
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
 	unsigned int cstep = 0;
@@ -212,6 +228,7 @@ class ArithmeticDecoder {
     Reader& reader_;
 	unsigned char bbyte = 0;
 	unsigned char cbit = 0;
+	std::size_t eof_zero_bytes_ = 0;
 	
 	// arithmetic coding variables
 	unsigned int ccode = 0;
@@ -230,6 +247,8 @@ class model_s
 	public:
 	
 	model_s( int max_s, int max_c, int max_o, int c_lim );
+	model_s(const model_s&) = delete;
+	model_s& operator=(const model_s&) = delete;
 	~model_s();
 	
 	void update_model( int symbol );
@@ -268,6 +287,8 @@ class model_b
 	public:
 	
 	model_b( int max_c, int max_o, int c_lim );
+	model_b(const model_b&) = delete;
+	model_b& operator=(const model_b&) = delete;
 	~model_b();
 	
 	void update_model( int symbol );
@@ -289,11 +310,11 @@ class model_b
 
 // Base case for shifting an arbitrary number of contexts into the model.
 template <typename M>
-static void shift_model(M) {}
+static void shift_model(const M&) {}
 
 // Shift an arbitrary number of contexts into the model (at most max_c contexts).
 template <typename M, typename C, typename... Cargs>
-static void shift_model(M model, C context, Cargs ... contextList) {
+static void shift_model(const M& model, C context, Cargs ... contextList) {
 	model->shift_context(context);
 	shift_model(model, contextList...);
 }
@@ -327,7 +348,7 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_s* model )
 		count = decoder->decode_count( &s );
 		c = model->convert_symbol_to_int( count, &s );
 		decoder->decode( &s );	
-	} while ( c == ESCAPE_SYMBOL );
+	} while ( c == int(ESCAPE_SYMBOL) );
 	model->update_model( c );
 	
 	return c;
@@ -359,6 +380,26 @@ static inline int decode_ari( ArithmeticDecoder* decoder, model_b* model )
 	model->update_model( c );
 	
 	return c;
+}
+
+static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_s>& model, int c )
+{
+	encode_ari( encoder, model.get(), c );
+}
+
+static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_s>& model )
+{
+	return decode_ari( decoder, model.get() );
+}
+
+static inline void encode_ari( ArithmeticEncoder* encoder, const std::unique_ptr<model_b>& model, int c )
+{
+	encode_ari( encoder, model.get(), c );
+}
+
+static inline int decode_ari( ArithmeticDecoder* decoder, const std::unique_ptr<model_b>& model )
+{
+	return decode_ari( decoder, model.get() );
 }
 
 #endif

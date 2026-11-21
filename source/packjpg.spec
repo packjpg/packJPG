@@ -1,13 +1,12 @@
 Name:		packjpg
-Version:	2.5j
+Version:	2.5k
 Release:	1%{?dist}
 Summary:	Lossless JPEG re-compression
-URL:		http://www.elektronik.htw-aalen.de/packjpg/
-License:	LGPL
+URL:		https://github.com/packjpg/packJPG
+License:	LGPLv3
 Group:		Applications/File
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Source0:	%{name}-%{version}.tar.xz
-Patch0:		%{name}-build-fix.patch
 
 %description
 packJPG is a compression program specially designed for further
@@ -16,17 +15,15 @@ it reduces the file size of a JPEG file by 20%.
 
 %prep
 %setup -q
-%patch0 -p1
 
 
 %build
-cd source
-CFLAGS="%{optflags}" LDFLAGS="%{?__global_ldflags}" make -f Makefile_linux %{?_smp_mflags}
+CXXFLAGS="%{optflags}" LDFLAGS="%{?__global_ldflags}" make -C source %{?_smp_mflags} STRIP=
 
 
 %install
 rm -rf %{buildroot}
-install -D -m755 source/%{name} %{buildroot}%{_bindir}/%{name}
+make -C source install DESTDIR=%{buildroot} PREFIX=%{_prefix} BINDIR=%{_bindir}
 
 
 %clean
@@ -35,7 +32,7 @@ rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
-%{_bindir}/%{name}
+%{_bindir}/packJPG
 
 
 %changelog

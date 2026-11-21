@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.cxx }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CLI, libraries, and run full test suite
+        run: |
+          make -C source clean all lib shared test CXX=${{ matrix.cxx }} -j2
+          cat > /tmp/link_dll.cpp <<'CPP'
+          #include "packjpgdll.h"
+          #include <cstdio>
+          int main() {
+              const char* info = pjglib_version_info();
+              return (info != nullptr && info[0] != '\0') ? 0 : 1;
+          }
+          CPP
+          ${{ matrix.cxx }} -std=c++17 -Isource /tmp/link_dll.cpp -Lsource -lpackJPG -Wl,-rpath,"$PWD/source" -o /tmp/link_dll
+          /tmp/link_dll
+
+      - name: Test dev, install, and uninstall targets
+        run: |
+          make -C source clean dev CXX=${{ matrix.cxx }} -j2
+          make -C source install CXX=${{ matrix.cxx }} DESTDIR=/tmp/stage PREFIX=/usr
+          test -x /tmp/stage/usr/bin/packJPG
+          make -C source uninstall DESTDIR=/tmp/stage PREFIX=/usr
+          test ! -e /tmp/stage/usr/bin/packJPG
+
+      - name: Static build and ASan/UBSan test suite (g++)
+        if: matrix.cxx == 'g++'
+        run: |
+          make -C source clean all CXX=g++ STATIC=1 -j2
+          make -C source clean test CXX=g++ \
+            CXXFLAGS="-O1 -g -Wall -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" -j2
+          make -C source clean
+
+      - name: Unsigned-char (ARM64 ABI) ASan/UBSan test suite (clang++)
+        if: matrix.cxx == 'clang++'
+        run: |
+          make -C source clean test CXX=clang++ \
+            CXXFLAGS="-O1 -g -Wall -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" -j2
+          make -C source clean
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CLI, Makefile_osx, libraries, and run test suite
+        run: |
+          make -C source clean all lib shared test -j2
+          test -f source/packJPGlib.a
+          test -f source/libpackJPG.dylib
+          make -C source -f Makefile_osx clean all -j2
+          make -C source clean dev -j2
+          make -C source clean
+
+  windows:
+    name: Windows (${{ matrix.msystem }})
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msystem: MINGW64
+            pkg_prefix: mingw-w64-x86_64
+          - msystem: MINGW32
+            pkg_prefix: mingw-w64-i686
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          path-type: inherit
+          update: true
+          install: >-
+            make
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-binutils
+
+      - name: Build CLI (with windres icons.res), libraries, and run test suite
+        run: |
+          make -C source clean all lib shared test PYTHON=python -j2
+          test -f source/icons.res
+          test -f source/packJPG.exe
+          test -f source/packJPGlib.a
+          test -f source/packJPG.dll
+          test -f source/libpackJPG.a
+          make -C source clean dev -j2
+          make -C source clean
+          test ! -e source/icons.res
+          test ! -e source/packJPG.exe
