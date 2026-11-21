@@ -1,56 +1,128 @@
-# packXXX Makefile, based on UniMake: Universal Makefile
-# Created by Matthias Stirner, 01/2016
+# packJPG universal Makefile (Linux, macOS, Windows MinGW-w64)
 
-TARGET   = packJPG
-CC       = gcc
-CPP      = g++
-RC       = windres -O coff
-CPPFLAGS = -I. -O3 -Wall -pedantic -funroll-loops -ffast-math -fsched-spec-load -fomit-frame-pointer -std=c++14
-LDFLAGS  = -static -static-libgcc -static-libstdc++ -lstdc++fs
-CSRC     = $(wildcard *.c)
-CPPSRC   = $(wildcard *.cpp)
-DEPS     = $(wildcard *.h) Makefile
-OBJ      = $(patsubst %.c,%.o,$(CSRC)) $(patsubst %.cpp,%.o,$(CPPSRC))
+TARGET   ?= packJPG
+CXXSTD   ?= -std=c++17
+CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
+AR       ?= ar
+RANLIB   ?= ranlib
+WINDRES  ?= windres
+UPX      ?= upx
+USE_UPX  ?= 0
+STATIC   ?= 0
+PREFIX   ?= /usr/local
+BINDIR   ?= $(PREFIX)/bin
 
-# conditional stuff
+ifeq ($(origin TARGET_OS),undefined)
 ifeq ($(OS),Windows_NT)
-LDFLAGS  += -lpthread -L libwinpthread-1.dll
-RES       = icons.res
-UPX      := -upx --best --lzma $(TARGET).exe
+TARGET_OS := Windows_NT
 else
-CPPFLAGS += -DUNIX
-RC        = 
-RES       =
-UPX       =
+TARGET_OS := $(shell uname -s 2>/dev/null || echo Unix)
+endif
 endif
 
+ifeq ($(TARGET_OS),Windows_NT)
+ifeq ($(origin CXX),default)
+CXX            = g++
+endif
+EXEEXT         = .exe
+RES            = icons.res
+OS_CPPFLAGS    =
+PIC_FLAGS      =
+OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -lpthread
+SHLIB          = $(TARGET).dll
+SHLIB_LDFLAGS  = -shared -Wl,--out-implib,lib$(TARGET).a -fvisibility=hidden $(OS_LDFLAGS)
+else ifeq ($(TARGET_OS),Darwin)
+ifeq ($(origin CXX),default)
+CXX            = c++
+endif
+EXEEXT         =
+RES            =
+OS_CPPFLAGS    = -DUNIX
+PIC_FLAGS      = -fPIC
+OS_LDFLAGS     =
+SHLIB          = lib$(TARGET).dylib
+SHLIB_LDFLAGS  = -dynamiclib -fvisibility=hidden
+else
+ifeq ($(origin CXX),default)
+CXX            = g++
+endif
+EXEEXT         =
+RES            =
+OS_CPPFLAGS    = -DUNIX
+PIC_FLAGS      = -fPIC
+ifeq ($(STATIC),1)
+OS_LDFLAGS     = -static -static-libgcc -static-libstdc++
+else
+OS_LDFLAGS     =
+endif
+SHLIB          = lib$(TARGET).so
+SHLIB_LDFLAGS  = -shared -fvisibility=hidden
+endif
+
+ifeq ($(TARGET_OS),Darwin)
+STRIP ?=
+else ifneq ($(findstring -g,$(CXXFLAGS)),)
+STRIP ?=
+else
+STRIP ?= -s
+endif
+
+BIN          = $(TARGET)$(EXEEXT)
+STATIC_LIB   = $(TARGET)lib.a
+CPPSRC       = aricoder.cpp bitops.cpp packjpg.cpp
+DEPS         = aricoder.h bitops.h dct8x8.h packjpgdll.h packjpglib.h pjpgtbl.h Makefile
+OBJ          = $(CPPSRC:.cpp=.o)
+ALL_CXXFLAGS = -I. $(CXXSTD) $(OS_CPPFLAGS) $(TARGET_CPPFLAGS) $(CPPFLAGS) $(CXXFLAGS)
+CLEAN_FILES  = $(OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a $(TARGET) $(TARGET).exe $(TARGET).dll lib$(TARGET).so lib$(TARGET).dylib
+
+.PHONY: all dev lib dll shared install uninstall clean
+
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+.NOTPARALLEL:
+endif
+
+all: $(BIN)
+
 %.o: %.cpp $(DEPS)
-	$(CPP) -c -o $@ $< $(CPPFLAGS)
-	
-%.res: %.rc
-	@-$(RC) $< $@
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS)
 
-$(TARGET): $(OBJ) $(RES)
-	$(CPP) -o $@ $^ -s $(LDFLAGS)
-	$(UPX)
+%.res: %.rc app_icon.ico file_icon.ico
+	$(WINDRES) -O coff $< $@
 
-.PHONY: all dev lib dll
+$(BIN): $(OBJ) $(RES)
+	$(CXX) -o $@ $^ $(STRIP) $(OS_LDFLAGS) $(LDFLAGS)
+ifeq ($(USE_UPX),1)
+	$(UPX) --best --lzma $@
+endif
 
-all: $(TARGET)
+dev: TARGET_CPPFLAGS += -DDEV_BUILD
+dev: $(BIN)
 
-dev: CPPFLAGS += -DDEV_BUILD
-dev: $(TARGET)
+lib: TARGET_CPPFLAGS += -DBUILD_LIB $(PIC_FLAGS)
+lib: $(STATIC_LIB)
 
-lib: CPPFLAGS += -DBUILD_LIB
-lib: $(OBJ)
-	ar r $(TARGET)lib.a $(OBJ)
-	ranlib $(TARGET)lib.a
-    
-dll: CPPFLAGS += -DBUILD_DLL
-dll: LDFLAGS  += -Wl,--out-implib,libpackJPG.a -fvisibility=hidden
-dll: $(OBJ)
-	$(CPP) -shared -o $(TARGET).dll $^ $(LDFLAGS)
+$(STATIC_LIB): $(OBJ)
+	$(AR) rcs $@ $(OBJ)
+	$(RANLIB) $@
+
+shared: dll
+
+dll: TARGET_CPPFLAGS += -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
+dll: $(SHLIB)
+
+$(SHLIB): $(OBJ)
+	$(CXX) $(SHLIB_LDFLAGS) -o $@ $^ $(LDFLAGS)
+
+install: $(BIN)
+	install -d "$(DESTDIR)$(BINDIR)"
+	install -m 755 $(BIN) "$(DESTDIR)$(BINDIR)/$(BIN)"
+
+uninstall:
+	$(RM) "$(DESTDIR)$(BINDIR)/$(BIN)"
 
 clean:
-	@echo clean...
-	@-rm *.o *.a $(TARGET) $(TARGET).exe $(TARGET).dll
+ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
+	@for %%f in ($(CLEAN_FILES)) do @if exist "%%f" del /F /Q "%%f"
+else
+	$(RM) $(CLEAN_FILES)
+endif

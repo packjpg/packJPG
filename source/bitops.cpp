@@ -9,7 +9,6 @@ reading and writing of arrays
 #include <array>
 #include <cstdio>
 #include <cstdlib>
-#include <experimental/filesystem>
 #include <fstream>
 #include <stdexcept>
 
@@ -450,8 +449,17 @@ void FileWriter::reset() {
 }
 
 std::size_t FileWriter::num_bytes_written() {
-	std::fflush(fptr_);
-	return std::experimental::filesystem::file_size(file_path_);
+	if (fptr_ != nullptr) {
+		std::fflush(fptr_);
+	}
+	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
+		const auto size = is.tellg();
+		if (size >= 0) {
+			return static_cast<std::size_t>(size);
+		}
+	}
+	const long pos = (fptr_ != nullptr) ? std::ftell(fptr_) : -1L;
+	return (pos >= 0) ? static_cast<std::size_t>(pos) : 0;
 }
 
 bool FileWriter::error() {

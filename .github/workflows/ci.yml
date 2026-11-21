@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FIXTURE_JPG_B64: >-
+    /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEP
+    ERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4e
+    Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAYACADASIA
+    AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA
+    AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3
+    ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm
+    p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA
+    AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx
+    BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK
+    U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3
+    uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5n03Q
+    unyfpXTaboXT5P0rrNN0Lp8n6V02m6F0+T9K0w9Y48l4i21OT03QunyfpXTaboXT5P0rrNN0Lp8n
+    6V02m6F0+T9K97D1j9cyXiHbUwNN0Lp8n6V02m6F0+T9KKK+Pw8mfyBkuNraanTaboXT5P0robbS
+    I7eLzZVwB7ck+goorpzTH1cDl1bE0rc0Itq+10j9fyDF1ZTimz//2Q==
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.cxx }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate test fixtures
+        run: |
+          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > /tmp/fixture.jpg
+          head -c 25 /tmp/fixture.jpg > /tmp/truncated.jpg
+          printf 'JS\0\0\0\0' > /tmp/bad.pjg
+
+      - name: Build CLI and verify round-trip
+        run: |
+          make -C source clean all CXX=${{ matrix.cxx }} -j2
+          cp /tmp/fixture.jpg /tmp/work.jpg
+          ./source/packJPG -np -ver -o /tmp/work.jpg
+          cp /tmp/work.pjg /tmp/restore.pjg
+          ./source/packJPG -np -o /tmp/restore.pjg
+          cmp -s /tmp/fixture.jpg /tmp/restore.jpg
+
+      - name: Test install and uninstall targets
+        run: |
+          make -C source install CXX=${{ matrix.cxx }} DESTDIR=/tmp/stage PREFIX=/usr
+          test -x /tmp/stage/usr/bin/packJPG
+          make -C source uninstall DESTDIR=/tmp/stage PREFIX=/usr
+          test ! -e /tmp/stage/usr/bin/packJPG
+
+      - name: Build dev, static library, and shared library targets
+        run: |
+          make -C source clean dev CXX=${{ matrix.cxx }} -j2
+          test -x source/packJPG
+          make -C source clean lib CXX=${{ matrix.cxx }} -j2
+          test -f source/packJPGlib.a
+          make -C source clean shared CXX=${{ matrix.cxx }} -j2
+          test -f source/libpackJPG.so
+          cat > /tmp/link_dll.cpp <<'CPP'
+          #include "packjpgdll.h"
+          #include <cstdio>
+          #include <cstdlib>
+          #include <cstring>
+          int main() {
+              const char* info = pjglib_version_info();
+              if (!info || info[0] == '\0') return 1;
+              FILE* f = std::fopen("/tmp/fixture.jpg", "rb");
+              unsigned char buf[1024];
+              int len = (int)std::fread(buf, 1, sizeof(buf), f);
+              std::fclose(f);
+              unsigned char* pjg = nullptr;
+              unsigned int pjg_size = 0;
+              pjglib_init_streams(buf, 1, len, nullptr, 1);
+              if (!pjglib_convert_stream2mem(&pjg, &pjg_size, nullptr)) return 2;
+              unsigned char* jpg_rt = nullptr;
+              unsigned int jpg_rt_size = 0;
+              pjglib_init_streams(pjg, 1, (int)pjg_size, nullptr, 1);
+              if (!pjglib_convert_stream2mem(&jpg_rt, &jpg_rt_size, nullptr)) return 3;
+              if ((int)jpg_rt_size != len || std::memcmp(buf, jpg_rt, len) != 0) return 4;
+              std::free(pjg);
+              std::free(jpg_rt);
+              return 0;
+          }
+          CPP
+          ${{ matrix.cxx }} -std=c++17 -Isource /tmp/link_dll.cpp -Lsource -lpackJPG -Wl,-rpath,"$PWD/source" -o /tmp/link_dll
+          /tmp/link_dll
+
+      - name: Static build and ASan/UBSan checks (g++)
+        if: matrix.cxx == 'g++'
+        run: |
+          make -C source clean all CXX=g++ STATIC=1 -j2
+          cp /tmp/fixture.jpg /tmp/static_work.jpg
+          ./source/packJPG -np -ver -o /tmp/static_work.jpg
+          make -C source clean all CXX=g++ \
+            CXXFLAGS="-O1 -g -Wall -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" -j2
+          cp /tmp/fixture.jpg /tmp/asan_work.jpg
+          ./source/packJPG -np -ver -o /tmp/asan_work.jpg
+          ./source/packJPG -np -o /tmp/truncated.jpg || true
+          ./source/packJPG -np -o /tmp/bad.pjg || true
+          make -C source clean
+
+      - name: Unsigned-char (ARM64 ABI) ASan/UBSan checks (clang++)
+        if: matrix.cxx == 'clang++'
+        run: |
+          make -C source clean all CXX=clang++ \
+            CXXFLAGS="-O1 -g -Wall -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" -j2
+          cp /tmp/fixture.jpg /tmp/uch_work.jpg
+          ./source/packJPG -np -ver -o /tmp/uch_work.jpg
+          ./source/packJPG -np -o /tmp/truncated.jpg || true
+          ./source/packJPG -np -o /tmp/bad.pjg || true
+          make -C source clean
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CLI, Makefile_osx, dev, static and shared libraries
+        run: |
+          make -C source clean all -j2
+          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > /tmp/fixture.jpg
+          cp /tmp/fixture.jpg /tmp/work.jpg
+          ./source/packJPG -np -ver -o /tmp/work.jpg
+          cp /tmp/work.pjg /tmp/restore.pjg
+          ./source/packJPG -np -o /tmp/restore.pjg
+          cmp -s /tmp/fixture.jpg /tmp/restore.jpg
+          make -C source -f Makefile_osx clean all -j2
+          test -x source/packJPG
+          make -C source clean dev -j2
+          make -C source clean lib -j2
+          test -f source/packJPGlib.a
+          make -C source clean shared -j2
+          test -f source/libpackJPG.dylib
+          make -C source clean
+
+  windows:
+    name: Windows (${{ matrix.msystem }})
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msystem: MINGW64
+            pkg_prefix: mingw-w64-x86_64
+          - msystem: MINGW32
+            pkg_prefix: mingw-w64-i686
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            make
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-binutils
+
+      - name: Build CLI (with windres icons.res), dev, lib, and DLL
+        run: |
+          make -C source clean all -j2
+          test -f source/icons.res
+          test -f source/packJPG.exe
+          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > fixture.jpg
+          cp fixture.jpg work.jpg
+          ./source/packJPG.exe -np -ver -o work.jpg
+          cp work.pjg restore.pjg
+          ./source/packJPG.exe -np -o restore.pjg
+          test "$(sha256sum < fixture.jpg)" = "$(sha256sum < restore.jpg)"
+          rm -f fixture.jpg work.jpg work.pjg restore.pjg restore.jpg
+          make -C source clean dev -j2
+          make -C source clean lib -j2
+          test -f source/packJPGlib.a
+          make -C source clean shared -j2
+          test -f source/packJPG.dll
+          test -f source/libpackJPG.a
+          make -C source clean
+          test ! -e source/icons.res
+          test ! -e source/packJPG.exe

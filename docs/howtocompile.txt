@@ -1,63 +1,83 @@
-How to compile packJPG (01/30/2012)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+How to compile packJPG
+~~~~~~~~~~~~~~~~~~~~~~
 
-This document gives detailed instructions on compiling packJPG either as 
-an executable or a static/shared libary. 
+This document gives instructions on compiling packJPG either as an
+executable or as a static/shared library. A C++17-capable compiler is
+required (e.g. GCC 7+, Clang 5+, AppleClang, MinGW-w64, or MSVC 2017+).
 
 
 Compiling packJPG as an executable
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Makefiles or provided for Microsoft Windows NT ('Makefile') and Unix 
-('Makefile.unix'). Both have been tested and verified to work in GCC 
-v3.4.5, but they should work with other compilers and newer/older 
-versions of the GCC as well. If you want to compile packJPG in Microsoft 
-Visual Studio for Microsoft Windows, just create a new project and add 
-all source files to it. 
+A single cross-platform 'Makefile' is provided in the 'source' directory
+for Linux, macOS, and Windows (MSYS2 / MinGW-w64):
+
+  Linux / macOS:
+    make -C source
+    make -C source install PREFIX=/usr/local   # optional install
+
+  Portable static Linux binary (requires static libc/libstdc++):
+    make -C source STATIC=1
+
+  Windows (MSYS2 MINGW64 / MINGW32 or MinGW-w64):
+    make -C source                             # or mingw32-make -C source
+
+  Optional UPX executable compression (requires 'upx' in PATH):
+    make -C source USE_UPX=1
+
+On Windows, 'windres' compiles 'icons.rc' into 'icons.res' for the active
+target architecture (32-bit or 64-bit).
+
+To compile with Microsoft Visual Studio, create a C++ Console Application
+project with C++17 enabled (/std:c++17) and add 'aricoder.cpp',
+'bitops.cpp', and 'packjpg.cpp' (plus 'icons.rc' if desired).
 
 
-Compiling packJPG as a static or shared library 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+Compiling packJPG as a static or shared library
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you want to compile packJPG as a static or shared library, add all 
-the source files to a new static/shared library project. 'BUILD_LIB' 
-(without the ') has to be defined either at the beginning of 
-'packJPG.cpp' or from the compilers options. 'BUILD_DLL' has to be 
-defined in addition only if a shared library is to be compiled (don't 
-define this for a static library!).
+Note: Always run 'make -C source clean' when switching between executable,
+'dev', 'lib', and 'dll'/'shared' targets so object files are rebuilt with
+the matching preprocessor defines.
 
-The source file 'packJPGdll.h' contains all public function declarations 
-of the library and can be included in external projects which use the 
-packJPG shared library. 
+  Static library ('packJPGlib.a'):
+    make -C source clean lib
+
+  Shared library ('libpackJPG.so', 'libpackJPG.dylib', or 'packJPG.dll'):
+    make -C source clean shared                # alias: make -C source dll
+
+When building with another build system or IDE:
+- Define 'BUILD_LIB' when compiling a static library (include 'packjpglib.h'
+  in consumer projects).
+- Define 'BUILD_DLL' (which also implies 'BUILD_LIB') when compiling a
+  shared library (include 'packjpgdll.h' in consumer projects).
 
 
 Compiling developer functions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you want to include developer functions in the packJPG executable, 
-'DEV_BUILD' has to be defined. Developer functions are not available in 
-the packJPG library. They are not needed in any way for basic packJPG 
-functionality (i.e. compression and decompression) and can be left out 
-to compile a smaller executable. Read 'developer.txt' for more 
-information. 
+To include developer/debugging functions in the packJPG executable:
+
+    make -C source clean dev
+
+This defines 'DEV_BUILD'. Developer functions are not available in library
+builds and are not needed for normal compression or decompression. Read
+'developer.txt' for more information.
 
 
 Defines overview / summary
-~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-This paragraph gives a short overview over preprocessor defines 
-mentioned in the above paragraphs. 
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 BUILD_LIB
-Has to be defined when compiling a static or shared library. 
+Has to be defined when compiling a static or shared library.
 
 BUILD_DLL
-Has to defined when compiling a shared library only. 
+Has to be defined when compiling a shared library (implies BUILD_LIB).
 
-BUILD_DEV
-If this is defined, developer functions are included in the executable. 
-In library builds developer functions are not available.
+DEV_BUILD
+If defined, developer functions are included in the executable. In library
+builds developer functions are not available.
 
 
 ____________________________________
-packJPG by Matthias Stirner, 01/2012 
+packJPG by Matthias Stirner

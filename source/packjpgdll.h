@@ -1,5 +1,9 @@
 // packJPGdll.h - function import declarations for the packJPG DLL
-#define IMPORT __declspec( dllimport )
+#if defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__)
+	#define IMPORT __declspec( dllimport )
+#else
+	#define IMPORT extern
+#endif
 
 /* -----------------------------------------------
 	function declarations: library only functions

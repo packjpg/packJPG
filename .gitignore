@@ -3,6 +3,7 @@
 *.lo
 *.o
 *.obj
+*.res
 
 # Precompiled Headers
 *.gch
@@ -26,6 +27,8 @@
 *.exe
 *.out
 *.app
+/source/packJPG
+/source/packjpg
 
 # Folders to ignore
 /zzz_backup/
