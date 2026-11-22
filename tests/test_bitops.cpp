@@ -352,5 +352,18 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	REQUIRE(had_glob);
 	REQUIRE_EQ(items.size(), std::size_t(3));
 #endif
+
+	// 6. Multi-part extension unique filename keeps underscore on base stem ("photo_.cmp0.pgm")
+	const auto pgm_first = (tmp_dir.path() / "photo.cmp0.pgm").string();
+	FileWriter(pgm_first).close();
+	REQUIRE_EQ(
+		make_unique_filename((tmp_dir.path() / "photo.jpg").string(), "cmp0.pgm"),
+		(tmp_dir.path() / "photo_.cmp0.pgm").string());
+
+	// 7. can_overwrite_or_create_target reports user-facing display_name when target is a directory
+	std::string dir_err;
+	const std::string display_link = "user_link.pjg";
+	REQUIRE(!can_overwrite_or_create_target(sub_b.string(), dir_err, &display_link));
+	REQUIRE(dir_err.find(display_link) != std::string::npos);
 }
 

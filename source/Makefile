@@ -68,24 +68,12 @@ SHLIB          = lib$(TARGET).so
 SHLIB_FLAGS    = -shared -fvisibility=hidden
 endif
 
-ifeq ($(origin STRIP),command line)
-ifeq ($(STRIP),)
-STRIP_FLAGS ?=
-else ifneq (,$(filter -%,$(STRIP)))
-STRIP_FLAGS ?= $(STRIP)
-else ifeq ($(TARGET_OS),Darwin)
-STRIP_FLAGS ?=
-else
-STRIP_FLAGS ?= -s
-endif
-else ifeq ($(TARGET_OS),Darwin)
-STRIP_FLAGS ?=
-else ifneq ($(findstring -g,$(CXXFLAGS)),)
-STRIP_FLAGS ?=
-else ifneq (,$(filter -%,$(STRIP)))
-STRIP_FLAGS ?= $(STRIP)
-else
-STRIP_FLAGS ?= -s
+ifeq ($(TARGET_OS),Darwin)
+STRIP_FLAGS ?= $(filter -%,$(STRIP))
+else ifeq ($(origin STRIP),command line)
+STRIP_FLAGS ?= $(if $(STRIP),$(if $(filter -%,$(STRIP)),$(STRIP),-s),)
+else ifeq ($(findstring -g,$(CXXFLAGS)),)
+STRIP_FLAGS ?= $(if $(filter -%,$(STRIP)),$(STRIP),-s)
 endif
 
 ifeq ($(USE_LTO),1)
@@ -108,7 +96,7 @@ OBJ          = $(CLI_SRC:.cpp=.o)
 DEV_OBJ      = $(DEV_SRC:.cpp=.dev.o)
 LIB_OBJ      = $(LIB_SRC:.cpp=.lib.o)
 DLL_OBJ      = $(LIB_SRC:.cpp=.dll.o)
-TEST_SRC     = ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_aricoder.cpp \
+TEST_SRC     = dev_tools.cpp ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_aricoder.cpp \
                ../tests/test_library_api.cpp ../tests/test_huffman_and_concurrency.cpp
 ALL_CXXFLAGS = -I. $(CXXSTD) $(OS_CPPFLAGS) $(CPPFLAGS) $(CXXFLAGS)
 CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a \

@@ -763,7 +763,7 @@ bool check_file(
 					throw std::runtime_error( "could not create output directory for: " + display_candidate );
 				}
 				std::string target_err;
-				if ( !resolve_overwrite_target_utf8( display_candidate, candidate, target_err ) ) {
+				if ( !resolve_overwrite_target_utf8( display_candidate, candidate, target_err, &display_candidate ) ) {
 					throw std::runtime_error( target_err );
 				}
 				if ( !ensure_parent_directory( candidate ) ) {
@@ -780,26 +780,17 @@ bool check_file(
 				if ( path_guard.matches_claimed_output( candidate, out_key ) ) {
 					throw std::runtime_error( "output path collision in batch: " + display_candidate );
 				}
-				if ( !can_overwrite_or_create_target( candidate, target_err ) ) {
+				if ( !can_overwrite_or_create_target( candidate, target_err, &display_candidate ) ) {
 					throw std::runtime_error( target_err );
 				}
 				path_guard.claim_output( candidate, out_key );
 			}
 			else {
-				const std::filesystem::path p = path_from_utf8( out_base );
-				const std::filesystem::path dir = p.parent_path();
-				std::string stem = path_to_utf8( p.stem() );
-				const std::string suffix = ( ext != nullptr ) ? ( std::string( "." ) + ext ) : std::string();
-				auto build = [&]() {
-					const std::filesystem::path leaf_p = path_from_utf8( stem + suffix );
-					return path_to_utf8( dir.empty() ? leaf_p : ( dir / leaf_p ) );
-				};
-
-				candidate = build();
+				candidate = make_filename( out_base, ext );
 				if ( !ensure_parent_directory( candidate ) ) {
 					throw std::runtime_error( "could not create output directory for: " + candidate );
 				}
-				while ( true ) {
+				for ( unsigned int attempt = 0; ; ++attempt ) {
 					out_key = normalize_path_key( candidate );
 					const bool clash = file_exists( candidate ) ||
 					                   paths_refer_to_same_target_location( item.path, candidate ) ||
@@ -808,33 +799,25 @@ bool check_file(
 					if ( !clash ) {
 						break;
 					}
-					stem.push_back( '_' );
-					candidate = build();
+					if ( attempt >= 4096 ) {
+						throw std::runtime_error( "Unable to open " + candidate + " for writing." );
+					}
+					candidate = append_stem_underscore( candidate );
 				}
 				display_candidate = candidate;
 				path_guard.claim_output( candidate, out_key );
 			}
 
 			try {
-				if ( cli.overwrite && is_non_regular_stream_target( candidate ) ) {
-					ctx.str_out         = std::make_unique<FileWriter>( candidate );
-					out_name            = display_candidate;
-					commit_target_path  = candidate;
-					staging_output_path.clear();
+				std::string staging;
+				FILE* fp = open_target_or_staging_cstream( candidate, cli.overwrite, "wb", staging );
+				if ( fp == nullptr ) {
+					throw std::runtime_error( "Unable to open " + display_candidate + " for writing." );
 				}
-				else {
-					unsigned int existing_mode = 0666u;
-					const bool has_mode = cli.overwrite && query_existing_regular_file_mode( candidate, existing_mode );
-					std::string staging;
-					FILE* fp = open_exclusive_staging_stream( candidate, has_mode, existing_mode, staging );
-					if ( fp == nullptr ) {
-						throw std::runtime_error( "Unable to open " + display_candidate + " for writing." );
-					}
-					ctx.str_out         = std::make_unique<FileWriter>( fp, staging );
-					out_name            = display_candidate;
-					commit_target_path  = candidate;
-					staging_output_path = std::move( staging );
-				}
+				ctx.str_out         = std::make_unique<FileWriter>( fp, staging.empty() ? candidate : staging );
+				out_name            = display_candidate;
+				commit_target_path  = candidate;
+				staging_output_path = std::move( staging );
 			} catch ( ... ) {
 				path_guard.unclaim_output( candidate, out_key );
 				throw;
@@ -1060,24 +1043,21 @@ void finalize_and_cleanup_streams(
 				commit_err );
 
 			if ( ( st == CommitStatus::TargetExists ) && !cli.overwrite ) {
-				const std::filesystem::path orig_p = path_from_utf8( commit_target_path );
-				const std::filesystem::path dir    = orig_p.parent_path();
-				std::string stem                   = path_to_utf8( orig_p.stem() );
-				const std::string suffix           = path_to_utf8( orig_p.extension() );
-
+				std::string cand_cursor = commit_target_path;
 				for ( unsigned int attempt = 0; ( st == CommitStatus::TargetExists ) && ( attempt < 4096 ); ++attempt ) {
 					std::string next_cand;
+					bool picked = false;
 					{
 						auto pick_next = [&]() {
-							while ( true ) {
-								stem.push_back( '_' );
-								const std::filesystem::path leaf_p = path_from_utf8( stem + suffix );
-								next_cand = path_to_utf8( dir.empty() ? leaf_p : ( dir / leaf_p ) );
-								const std::string next_key = normalize_path_key( next_cand );
-								if ( !file_exists( next_cand ) &&
-								     !path_guard.matches_any_input( next_cand, next_key ) &&
-								     !path_guard.matches_claimed_output( next_cand, next_key ) ) {
-									path_guard.claim_output( next_cand, next_key );
+							for ( unsigned int step = 0; step < 4096; ++step ) {
+								cand_cursor = append_stem_underscore( cand_cursor );
+								const std::string next_key = normalize_path_key( cand_cursor );
+								if ( !file_exists( cand_cursor ) &&
+								     !path_guard.matches_any_input( cand_cursor, next_key ) &&
+								     !path_guard.matches_claimed_output( cand_cursor, next_key ) ) {
+									path_guard.claim_output( cand_cursor, next_key );
+									next_cand = cand_cursor;
+									picked = true;
 									break;
 								}
 							}
@@ -1090,10 +1070,14 @@ void finalize_and_cleanup_streams(
 							pick_next();
 						}
 					}
+					if ( !picked ) {
+						break;
+					}
 
 					commit_err.clear();
 					st = commit_staging_file( staging_output_path, next_cand, false, commit_err );
 					if ( st == CommitStatus::Ok ) {
+						unclaim_slot( commit_target_path );
 						commit_target_path = next_cand;
 						if ( ctx.filetype == F_JPG ) {
 							ctx.pjgfilename = next_cand;

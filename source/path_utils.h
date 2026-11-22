@@ -77,6 +77,48 @@ inline std::string narrow_utf8_from_wide( std::wstring_view ws )
 		CP_UTF8, 0, ws.data(), static_cast<int>( ws.size() ), out.data(), n, nullptr, nullptr );
 	return out;
 }
+
+inline void lowercase_wide_inplace( std::wstring& ws ) noexcept
+{
+	if ( !ws.empty() ) {
+		LCMapStringW(
+			LOCALE_INVARIANT,
+			LCMAP_LOWERCASE,
+			ws.data(),
+			static_cast<int>( ws.size() ),
+			ws.data(),
+			static_cast<int>( ws.size() ) );
+	}
+}
+
+inline std::wstring widen_win32_path( const std::string& path_utf8 )
+{
+	std::wstring p = widen_utf8_or_acp( path_utf8 );
+	if ( p.empty() || ( p.rfind( L"\\\\?\\", 0 ) == 0 ) || ( p.rfind( L"\\\\.\\", 0 ) == 0 ) ) {
+		return p;
+	}
+	const DWORD need = GetFullPathNameW( p.c_str(), 0, nullptr, nullptr );
+	if ( need > 1 ) {
+		std::wstring full_buf( static_cast<std::size_t>( need ), L'\0' );
+		const DWORD got = GetFullPathNameW( p.c_str(), need, full_buf.data(), nullptr );
+		if ( ( got > 0 ) && ( got < need ) ) {
+			full_buf.resize( static_cast<std::size_t>( got ) );
+			p = std::move( full_buf );
+		}
+	}
+	if ( p.size() >= 240 ) {
+		for ( wchar_t& wc : p ) {
+			if ( wc == L'/' ) wc = L'\\';
+		}
+		if ( p.rfind( L"\\\\", 0 ) == 0 ) {
+			return L"\\\\?\\UNC\\" + p.substr( 2 );
+		}
+		if ( ( p.size() >= 3 ) && ( p[ 1 ] == L':' ) && ( p[ 2 ] == L'\\' ) ) {
+			return L"\\\\?\\" + p;
+		}
+	}
+	return p;
+}
 #endif
 
 inline std::filesystem::path path_from_utf8( const std::string& s )
@@ -104,12 +146,9 @@ inline FILE* fopen_utf8( const std::string& path_utf8, const char* mode ) noexce
 	}
 	try {
 #if defined(_WIN32) || defined(WIN32)
-		const std::wstring wpath = widen_utf8_or_acp( path_utf8 );
+		const std::wstring wpath = widen_win32_path( path_utf8 );
 		const std::wstring wmode = widen_utf8_or_acp( mode );
-		if ( wpath.empty() || wmode.empty() ) {
-			return nullptr;
-		}
-		return _wfopen( wpath.c_str(), wmode.c_str() );
+		return ( wpath.empty() || wmode.empty() ) ? nullptr : _wfopen( wpath.c_str(), wmode.c_str() );
 #else
 		return std::fopen( path_utf8.c_str(), mode );
 #endif
@@ -188,9 +227,7 @@ inline std::filesystem::path resolve_symlink_chain_checked( std::filesystem::pat
 		cur = target.is_absolute() ? target : ( cur.parent_path() / target );
 	}
 	const auto final_st = std::filesystem::symlink_status( cur, ec );
-	if ( !ec && std::filesystem::is_symlink( final_st ) ) {
-		loop_detected = true;
-	}
+	loop_detected = !ec && std::filesystem::is_symlink( final_st );
 	return cur;
 }
 
@@ -203,8 +240,10 @@ inline std::filesystem::path resolve_symlink_chain( std::filesystem::path cur )
 inline bool resolve_overwrite_target_utf8(
 	const std::string& raw_target_utf8,
 	std::string& effective_target_utf8,
-	std::string& err ) noexcept
+	std::string& err,
+	const std::string* display_name = nullptr ) noexcept
 {
+	const std::string& shown = ( display_name != nullptr && !display_name->empty() ) ? *display_name : raw_target_utf8;
 	if ( raw_target_utf8.empty() ) {
 		err = "empty output filename";
 		return false;
@@ -212,12 +251,11 @@ inline bool resolve_overwrite_target_utf8(
 	try {
 		const std::filesystem::path p = path_from_utf8( raw_target_utf8 );
 		std::error_code ec;
-		const auto st = std::filesystem::symlink_status( p, ec );
-		if ( !ec && std::filesystem::is_symlink( st ) ) {
+		if ( std::filesystem::is_symlink( std::filesystem::symlink_status( p, ec ) ) && !ec ) {
 			bool loop_detected = false;
 			const std::filesystem::path resolved = resolve_symlink_chain_checked( p, loop_detected );
 			if ( loop_detected ) {
-				err = "Unable to open " + raw_target_utf8 + " for writing (symbolic link loop).";
+				err = "Unable to open " + shown + " for writing (symbolic link loop).";
 				return false;
 			}
 			effective_target_utf8 = path_to_utf8( resolved );
@@ -226,7 +264,7 @@ inline bool resolve_overwrite_target_utf8(
 		effective_target_utf8 = raw_target_utf8;
 		return true;
 	} catch ( ... ) {
-		err = "Unable to open " + raw_target_utf8 + " for writing.";
+		err = "Unable to open " + shown + " for writing.";
 		return false;
 	}
 }
@@ -235,29 +273,17 @@ inline std::string fold_filename_for_platform( const std::filesystem::path& leaf
 {
 #if defined(_WIN32) || defined(WIN32)
 	std::wstring wleaf = leaf.wstring();
-	if ( !wleaf.empty() ) {
-		LCMapStringW(
-			LOCALE_INVARIANT,
-			LCMAP_LOWERCASE,
-			wleaf.data(),
-			static_cast<int>( wleaf.size() ),
-			wleaf.data(),
-			static_cast<int>( wleaf.size() ) );
-	}
+	lowercase_wide_inplace( wleaf );
 	return narrow_utf8_from_wide( wleaf );
 #elif defined(__APPLE__)
 	std::string s = leaf.string();
-	for ( char& c : s ) {
-		c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
-	}
+	for ( char& c : s ) c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
 	return s;
 #else
 	return leaf.string();
 #endif
 }
 
-// Detects whether two (possibly non-existent) target paths refer to the same physical
-// output slot, including across bind mounts, directory symlinks, or junctions.
 inline bool paths_refer_to_same_target_location( const std::string& a, const std::string& b ) noexcept
 {
 	if ( a.empty() || b.empty() ) {
@@ -272,10 +298,8 @@ inline bool paths_refer_to_same_target_location( const std::string& a, const std
 		const std::filesystem::path dir_a = pa.parent_path().empty() ? std::filesystem::path( "." ) : pa.parent_path();
 		const std::filesystem::path dir_b = pb.parent_path().empty() ? std::filesystem::path( "." ) : pb.parent_path();
 		std::error_code ec;
-		if ( !std::filesystem::equivalent( dir_a, dir_b, ec ) || ec ) {
-			return false;
-		}
-		return fold_filename_for_platform( pa.filename() ) == fold_filename_for_platform( pb.filename() );
+		return std::filesystem::equivalent( dir_a, dir_b, ec ) && !ec &&
+		       ( fold_filename_for_platform( pa.filename() ) == fold_filename_for_platform( pb.filename() ) );
 	} catch ( ... ) {
 		return false;
 	}
@@ -299,19 +323,9 @@ inline std::string normalize_path_key( const std::string& raw )
 #if defined(_WIN32) || defined(WIN32)
 	std::wstring wkey = norm.wstring();
 	for ( wchar_t& wc : wkey ) {
-		if ( wc == L'/' ) {
-			wc = L'\\';
-		}
+		if ( wc == L'/' ) wc = L'\\';
 	}
-	if ( !wkey.empty() ) {
-		LCMapStringW(
-			LOCALE_INVARIANT,
-			LCMAP_LOWERCASE,
-			wkey.data(),
-			static_cast<int>( wkey.size() ),
-			wkey.data(),
-			static_cast<int>( wkey.size() ) );
-	}
+	lowercase_wide_inplace( wkey );
 	return narrow_utf8_from_wide( wkey );
 #else
 	return norm.string();
@@ -323,11 +337,17 @@ inline std::string make_filename( const std::string& base, const char* extension
 	const std::filesystem::path p = path_from_utf8( base );
 	const std::filesystem::path dir = p.parent_path();
 	const std::string stem = path_to_utf8( p.stem() );
-	const std::string leaf = ( extension != nullptr )
-		? ( stem + "." + extension )
-		: stem;
+	const std::string leaf = ( extension != nullptr ) ? ( stem + "." + extension ) : stem;
 	const std::filesystem::path leaf_p = path_from_utf8( leaf );
 	return path_to_utf8( dir.empty() ? leaf_p : ( dir / leaf_p ) );
+}
+
+inline std::string append_stem_underscore( const std::string& path_utf8 )
+{
+	const std::filesystem::path p = path_from_utf8( path_utf8 );
+	const std::filesystem::path dir = p.parent_path();
+	const std::filesystem::path leaf = path_from_utf8( path_to_utf8( p.stem() ) + "_" + path_to_utf8( p.extension() ) );
+	return path_to_utf8( dir.empty() ? leaf : ( dir / leaf ) );
 }
 
 inline std::string make_unique_filename( const std::string& base, const char* extension )
@@ -335,21 +355,17 @@ inline std::string make_unique_filename( const std::string& base, const char* ex
 	const std::filesystem::path p = path_from_utf8( base );
 	const std::filesystem::path dir = p.parent_path();
 	std::string stem = path_to_utf8( p.stem() );
-	const std::string suffix = ( extension != nullptr )
-		? ( std::string( "." ) + extension )
-		: std::string();
-
-	auto build = [&]() {
-		const std::filesystem::path leaf_p = path_from_utf8( stem + suffix );
-		return dir.empty() ? leaf_p : ( dir / leaf_p );
-	};
-
-	std::filesystem::path candidate = build();
-	while ( path_or_symlink_exists( candidate ) ) {
+	const std::string suffix = ( extension != nullptr ) ? ( std::string( "." ) + extension ) : std::string();
+	for ( unsigned int i = 0; i < 4096; ++i ) {
+		const std::filesystem::path leaf = path_from_utf8( stem + suffix );
+		const std::string candidate = path_to_utf8( dir.empty() ? leaf : ( dir / leaf ) );
+		if ( !file_exists( candidate ) ) {
+			return candidate;
+		}
 		stem.push_back( '_' );
-		candidate = build();
 	}
-	return path_to_utf8( candidate );
+	const std::filesystem::path leaf = path_from_utf8( stem + suffix );
+	return path_to_utf8( dir.empty() ? leaf : ( dir / leaf ) );
 }
 
 inline std::string make_output_base(
@@ -360,21 +376,15 @@ inline std::string make_output_base(
 	if ( out_dir.empty() ) {
 		return input_file;
 	}
-
 	const std::filesystem::path in_path = path_from_utf8( input_file );
 	std::filesystem::path dest_dir = path_from_utf8( out_dir );
-
 	if ( !rel_root.empty() ) {
 		const std::filesystem::path rel_parent =
 			in_path.parent_path().lexically_relative( path_from_utf8( rel_root ) );
-		if ( !rel_parent.empty() && ( rel_parent != "." ) ) {
-			const std::string first_part = path_to_utf8( *rel_parent.begin() );
-			if ( first_part != ".." ) {
-				dest_dir /= rel_parent;
-			}
+		if ( !rel_parent.empty() && ( rel_parent != "." ) && ( path_to_utf8( *rel_parent.begin() ) != ".." ) ) {
+			dest_dir /= rel_parent;
 		}
 	}
-
 	return path_to_utf8( dest_dir / in_path.filename() );
 }
 
@@ -392,9 +402,7 @@ inline bool is_non_regular_stream_target( const std::string& target_utf8 ) noexc
 		const std::filesystem::path p( wp );
 		if ( p.parent_path().empty() ) {
 			std::string stem = path_to_utf8( p.stem() );
-			for ( char& c : stem ) {
-				c = static_cast<char>( std::toupper( static_cast<unsigned char>( c ) ) );
-			}
+			for ( char& c : stem ) c = static_cast<char>( std::toupper( static_cast<unsigned char>( c ) ) );
 			if ( stem == "NUL" || stem == "CON" || stem == "PRN" || stem == "AUX" ) {
 				return true;
 			}
@@ -425,11 +433,8 @@ inline bool query_existing_regular_file_mode( const std::string& target_utf8, un
 	(void)target_utf8;
 	return false;
 #else
-	if ( target_utf8.empty() ) {
-		return false;
-	}
 	struct stat st{};
-	if ( ( ::stat( target_utf8.c_str(), &st ) == 0 ) && S_ISREG( st.st_mode ) ) {
+	if ( !target_utf8.empty() && ( ::stat( target_utf8.c_str(), &st ) == 0 ) && S_ISREG( st.st_mode ) ) {
 		mode_out = static_cast<unsigned int>( st.st_mode & 07777 );
 		return true;
 	}
@@ -459,8 +464,12 @@ inline bool ensure_parent_directory( const std::string& file_path ) noexcept
 	}
 }
 
-inline bool can_overwrite_or_create_target( const std::string& target_utf8, std::string& err ) noexcept
+inline bool can_overwrite_or_create_target(
+	const std::string& target_utf8,
+	std::string& err,
+	const std::string* display_name = nullptr ) noexcept
 {
+	const std::string& shown = ( display_name != nullptr && !display_name->empty() ) ? *display_name : target_utf8;
 	if ( target_utf8.empty() ) {
 		err = "empty output filename";
 		return false;
@@ -473,7 +482,7 @@ inline bool can_overwrite_or_create_target( const std::string& target_utf8, std:
 		if ( is_non_regular_stream_target( effective_target ) ) {
 #if !defined(_WIN32) && !defined(WIN32)
 			if ( ::access( effective_target.c_str(), W_OK ) != 0 ) {
-				err = "Unable to open " + target_utf8 + " for writing.";
+				err = "Unable to open " + shown + " for writing.";
 				return false;
 			}
 #endif
@@ -483,16 +492,16 @@ inline bool can_overwrite_or_create_target( const std::string& target_utf8, std:
 		const std::filesystem::path p = path_from_utf8( effective_target );
 		std::error_code ec;
 		if ( std::filesystem::is_directory( p, ec ) ) {
-			err = "Unable to open " + target_utf8 + " for writing (target is a directory).";
+			err = "Unable to open " + shown + " for writing (target is a directory).";
 			return false;
 		}
 		ec.clear();
 		if ( std::filesystem::exists( p, ec ) ) {
 #if defined(_WIN32) || defined(WIN32)
-			const std::wstring wp = p.wstring();
+			const std::wstring wp = widen_win32_path( effective_target );
 			const DWORD attrs = GetFileAttributesW( wp.c_str() );
 			if ( ( attrs != INVALID_FILE_ATTRIBUTES ) && ( ( attrs & FILE_ATTRIBUTE_READONLY ) != 0 ) ) {
-				err = "Unable to open " + target_utf8 + " for writing.";
+				err = "Unable to open " + shown + " for writing.";
 				return false;
 			}
 			HANDLE h = CreateFileW(
@@ -504,20 +513,20 @@ inline bool can_overwrite_or_create_target( const std::string& target_utf8, std:
 				FILE_ATTRIBUTE_NORMAL,
 				nullptr );
 			if ( h == INVALID_HANDLE_VALUE ) {
-				err = "Unable to open " + target_utf8 + " for writing.";
+				err = "Unable to open " + shown + " for writing.";
 				return false;
 			}
 			CloseHandle( h );
 #else
 			if ( ::access( effective_target.c_str(), W_OK ) != 0 ) {
-				err = "Unable to open " + target_utf8 + " for writing.";
+				err = "Unable to open " + shown + " for writing.";
 				return false;
 			}
 #endif
 		}
 		return true;
 	} catch ( ... ) {
-		err = "Unable to open " + target_utf8 + " for writing.";
+		err = "Unable to open " + shown + " for writing.";
 		return false;
 	}
 }
@@ -536,17 +545,6 @@ inline std::uint64_t next_staging_token() noexcept
 	return z ^ ( z >> 31 );
 }
 
-inline std::string format_hex64( std::uint64_t v )
-{
-	static constexpr char kHex[] = "0123456789abcdef";
-	std::string out( 16, '0' );
-	for ( int i = 15; i >= 0; --i ) {
-		out[ static_cast<std::size_t>( i ) ] = kHex[ v & 0xFu ];
-		v >>= 4;
-	}
-	return out;
-}
-
 inline FILE* open_exclusive_file_utf8(
 	const std::string& path_utf8,
 	bool has_existing_mode = false,
@@ -563,7 +561,7 @@ inline FILE* open_exclusive_file_utf8(
 #if defined(_WIN32) || defined(WIN32)
 		(void)has_existing_mode;
 		(void)existing_mode;
-		const std::wstring wpath = widen_utf8_or_acp( path_utf8 );
+		const std::wstring wpath = widen_win32_path( path_utf8 );
 		if ( wpath.empty() ) {
 			return nullptr;
 		}
@@ -634,16 +632,17 @@ inline FILE* open_exclusive_staging_stream(
 	std::string& out_staging_utf8 )
 {
 	out_staging_utf8.clear();
-	const std::filesystem::path target_p = path_from_utf8( effective_target_utf8 );
-	const std::filesystem::path dir = target_p.parent_path();
+	const std::filesystem::path dir = path_from_utf8( effective_target_utf8 ).parent_path();
 #if defined(_WIN32) || defined(WIN32)
 	const unsigned long pid = static_cast<unsigned long>( GetCurrentProcessId() );
 #else
 	const unsigned long pid = static_cast<unsigned long>( ::getpid() );
 #endif
+	char leaf[ 64 ];
 	for ( unsigned int attempt = 0; attempt < 4096; ++attempt ) {
-		const std::string leaf = ".packjpg_tmp_" + std::to_string( pid ) + "_" +
-		                         format_hex64( next_staging_token() ) + ".part";
+		std::snprintf(
+			leaf, sizeof( leaf ), ".packjpg_tmp_%lu_%016llx.part",
+			pid, static_cast<unsigned long long>( next_staging_token() ) );
 		const std::filesystem::path cand = dir.empty()
 			? path_from_utf8( leaf )
 			: ( dir / path_from_utf8( leaf ) );
@@ -661,6 +660,27 @@ inline FILE* open_exclusive_staging_stream(
 	return nullptr;
 }
 
+inline FILE* open_target_or_staging_cstream(
+	const std::string& effective_target_utf8,
+	bool overwrite,
+	const char* direct_mode,
+	std::string& out_staging_utf8 )
+{
+	out_staging_utf8.clear();
+	if ( overwrite && is_non_regular_stream_target( effective_target_utf8 ) ) {
+		return fopen_utf8( effective_target_utf8, direct_mode );
+	}
+	unsigned int existing_mode = 0666u;
+	const bool has_mode = overwrite && query_existing_regular_file_mode( effective_target_utf8, existing_mode );
+	FILE* fp = open_exclusive_staging_stream( effective_target_utf8, has_mode, existing_mode, out_staging_utf8 );
+#if defined(_WIN32) || defined(WIN32)
+	if ( ( fp != nullptr ) && ( direct_mode != nullptr ) && ( direct_mode[ 0 ] == 'w' ) && ( direct_mode[ 1 ] == '\0' ) ) {
+		(void)_setmode( _fileno( fp ), _O_TEXT );
+	}
+#endif
+	return fp;
+}
+
 enum class CommitStatus {
 	Ok,
 	TargetExists,
@@ -675,8 +695,8 @@ inline CommitStatus commit_staging_file(
 {
 	try {
 #if defined(_WIN32) || defined(WIN32)
-		const std::wstring wsrc = widen_utf8_or_acp( staging_utf8 );
-		const std::wstring wdst = widen_utf8_or_acp( target_utf8 );
+		const std::wstring wsrc = widen_win32_path( staging_utf8 );
+		const std::wstring wdst = widen_win32_path( target_utf8 );
 		if ( wsrc.empty() || wdst.empty() ) {
 			err = "failed to commit output file " + target_utf8;
 			return CommitStatus::Error;
@@ -705,14 +725,12 @@ inline CommitStatus commit_staging_file(
 				return CommitStatus::Ok;
 			}
 			if ( ( dst_attrs & ( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) ) != 0 ) {
-				SetFileAttributesW(
-					wdst.c_str(),
-					dst_attrs & ~( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
-				if ( MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
-					SetFileAttributesW( wdst.c_str(), dst_attrs );
+				SetFileAttributesW( wdst.c_str(), dst_attrs & ~( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
+				const BOOL moved = MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING );
+				SetFileAttributesW( wdst.c_str(), dst_attrs );
+				if ( moved ) {
 					return CommitStatus::Ok;
 				}
-				SetFileAttributesW( wdst.c_str(), dst_attrs );
 			}
 		}
 
@@ -807,20 +825,10 @@ inline std::size_t utf8_next_char_len( std::string_view s, std::size_t pos ) noe
 	if ( b0 < 0x80u ) {
 		return 1;
 	}
-	std::size_t len = 0;
-	if ( ( b0 & 0xE0u ) == 0xC0u ) {
-		len = 2;
-	}
-	else if ( ( b0 & 0xF0u ) == 0xE0u ) {
-		len = 3;
-	}
-	else if ( ( b0 & 0xF8u ) == 0xF0u ) {
-		len = 4;
-	}
-	else {
-		return 1;
-	}
-	if ( pos + len > s.size() ) {
+	const std::size_t len = ( ( b0 & 0xE0u ) == 0xC0u ) ? 2u
+	                      : ( ( b0 & 0xF0u ) == 0xE0u ) ? 3u
+	                      : ( ( b0 & 0xF8u ) == 0xF0u ) ? 4u : 1u;
+	if ( ( len == 1u ) || ( pos + len > s.size() ) ) {
 		return 1;
 	}
 	for ( std::size_t k = 1; k < len; ++k ) {
@@ -831,27 +839,8 @@ inline std::size_t utf8_next_char_len( std::string_view s, std::size_t pos ) noe
 	return len;
 }
 
-inline bool utf8_codepoint_equal(
-	std::string_view a,
-	std::size_t ai,
-	std::size_t alen,
-	std::string_view b,
-	std::size_t bi,
-	std::size_t blen,
-	bool case_insensitive ) noexcept
-{
-	if ( alen == 1 && blen == 1 ) {
-		return ascii_fold( a[ ai ], case_insensitive ) == ascii_fold( b[ bi ], case_insensitive );
-	}
-	if ( alen != blen ) {
-		return false;
-	}
-	return a.substr( ai, alen ) == b.substr( bi, blen );
-}
-
 inline bool wildcard_match( std::string_view pattern, std::string_view text, bool case_insensitive ) noexcept
 {
-	// Leading-dot hidden entries (e.g. ".jpg", "._photo.jpg") require an explicit leading '.' in pattern.
 	if ( !text.empty() && ( text.front() == '.' ) && ( pattern.empty() || ( pattern.front() != '.' ) ) ) {
 		return false;
 	}
@@ -871,9 +860,12 @@ inline bool wildcard_match( std::string_view pattern, std::string_view text, boo
 			star_pi  = pi++;
 			match_ti = ti;
 		}
-		else if ( pi < pattern.size() ) {
-			const std::size_t plen = utf8_next_char_len( pattern, pi );
-			if ( utf8_codepoint_equal( pattern, pi, plen, text, ti, tlen, case_insensitive ) ) {
+		else {
+			const std::size_t plen = ( pi < pattern.size() ) ? utf8_next_char_len( pattern, pi ) : 0u;
+			const bool eq = ( plen > 0u ) && ( ( plen == 1u && tlen == 1u )
+				? ( ascii_fold( pattern[ pi ], case_insensitive ) == ascii_fold( text[ ti ], case_insensitive ) )
+				: ( pattern.substr( pi, plen ) == text.substr( ti, tlen ) ) );
+			if ( eq ) {
 				pi += plen;
 				ti += tlen;
 			}
@@ -885,14 +877,6 @@ inline bool wildcard_match( std::string_view pattern, std::string_view text, boo
 			else {
 				return false;
 			}
-		}
-		else if ( star_pi != std::string_view::npos ) {
-			pi = star_pi + 1;
-			match_ti += utf8_next_char_len( text, match_ti );
-			ti = match_ti;
-		}
-		else {
-			return false;
 		}
 	}
 
@@ -939,24 +923,20 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 		}
 		try {
 			const std::string s = path_to_utf8( dir_path );
-			if ( paths_refer_to_same_existing_file( s, out_dir ) ) {
-				return true;
-			}
-			return !norm_out_dir.empty() && ( normalize_path_key( s ) == norm_out_dir );
+			return paths_refer_to_same_existing_file( s, out_dir ) ||
+			       ( !norm_out_dir.empty() && ( normalize_path_key( s ) == norm_out_dir ) );
 		} catch ( ... ) {
 			return false;
 		}
 	};
 
-	// Explicit stack-based directory walk: keeps only 1 open directory descriptor at a time
-	// (preventing EMFILE on deep trees) and isolates per-subdirectory errors instead of aborting.
 	auto walk_directory_tree = [&](
 		const std::filesystem::path& root_dir,
+		bool recurse_subdirs,
 		bool allow_dot_dirs,
 		auto&& accept_regular_file,
 		std::vector<std::string>& out_files ) {
-		std::vector<std::filesystem::path> stack;
-		stack.push_back( root_dir );
+		std::vector<std::filesystem::path> stack{ root_dir };
 		const auto opts = std::filesystem::directory_options::skip_permission_denied;
 		while ( !stack.empty() ) {
 			const std::filesystem::path cur_dir = std::move( stack.back() );
@@ -973,7 +953,7 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 				const std::string entry_name = path_to_utf8( entry_path.filename() );
 				const bool is_link = it->is_symlink( entry_ec );
 				entry_ec.clear();
-				if ( !is_link && it->is_directory( entry_ec ) ) {
+				if ( recurse_subdirs && !is_link && it->is_directory( entry_ec ) ) {
 					if ( ( allow_dot_dirs || entry_name.empty() || ( entry_name.front() != '.' ) ) &&
 					     !is_excluded_out_subdir( entry_path ) ) {
 						stack.push_back( entry_path );
@@ -1000,18 +980,13 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 
 		std::error_code ec;
 		const std::filesystem::path p = path_from_utf8( raw );
-		const bool exists_literally = std::filesystem::exists( p, ec );
-
-		if ( exists_literally ) {
+		if ( std::filesystem::exists( p, ec ) ) {
 			if ( recursive && std::filesystem::is_directory( p, ec ) ) {
 				had_directory_or_glob = true;
 				std::vector<std::string> found;
 				walk_directory_tree(
-					p,
-					false,
-					[]( const std::filesystem::path& ep, const std::string& ) {
-						return is_supported_codec_file( ep );
-					},
+					p, true, false,
+					[]( const std::filesystem::path& ep, const std::string& ) { return is_supported_codec_file( ep ); },
 					found );
 				std::sort( found.begin(), found.end() );
 				for ( std::string& f : found ) {
@@ -1030,35 +1005,17 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 			const std::filesystem::path search_dir = parent.empty() ? std::filesystem::path( "." ) : parent;
 			if ( std::filesystem::is_directory( search_dir, ec ) ) {
 				std::vector<std::string> matches;
-				if ( recursive ) {
-					walk_directory_tree(
-						search_dir,
-						!fname.empty() && ( fname.front() == '.' ),
-						[&]( const std::filesystem::path&, const std::string& entry_name ) {
-							return wildcard_match( fname, entry_name, kCaseInsensitiveGlob );
-						},
-						matches );
-				}
-				else {
-					const auto opts = std::filesystem::directory_options::skip_permission_denied;
-					std::filesystem::directory_iterator it( search_dir, opts, ec ), end;
-					if ( !ec ) {
-						while ( it != end ) {
-							std::error_code entry_ec;
-							const std::string entry_name = path_to_utf8( it->path().filename() );
-							if ( it->is_regular_file( entry_ec ) &&
-							     wildcard_match( fname, entry_name, kCaseInsensitiveGlob ) ) {
-								const std::filesystem::path rel = parent.empty()
-									? it->path().filename()
-									: ( parent / it->path().filename() );
-								matches.push_back( path_to_utf8( rel ) );
-							}
-							ec.clear();
-							it.increment( ec );
-							if ( ec ) {
-								break;
-							}
-						}
+				walk_directory_tree(
+					search_dir,
+					recursive,
+					!fname.empty() && ( fname.front() == '.' ),
+					[&]( const std::filesystem::path&, const std::string& entry_name ) {
+						return wildcard_match( fname, entry_name, kCaseInsensitiveGlob );
+					},
+					matches );
+				if ( !recursive && parent.empty() ) {
+					for ( std::string& m : matches ) {
+						m = path_to_utf8( path_from_utf8( m ).filename() );
 					}
 				}
 				if ( !matches.empty() ) {

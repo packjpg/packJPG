@@ -336,24 +336,24 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 				ctx.str_in.reset();
 				return;
 			}
-			const char* out_cstr = static_cast<const char*>( out_dest );
+			const std::string display_out_str( static_cast<const char*>( out_dest ) );
 			std::string target_err;
-			if ( !resolve_overwrite_target_utf8( out_cstr, resolved_out_target, target_err ) ) {
-				ctx.set_errormessage( "error opening output file %s", out_cstr );
+			if ( !resolve_overwrite_target_utf8( display_out_str, resolved_out_target, target_err, &display_out_str ) ) {
+				ctx.set_errormessage( "error opening output file %s", display_out_str.c_str() );
 				ctx.errorlevel = 2;
 				ctx.str_in.reset();
 				return;
 			}
 			if ( ( in_type == 0 ) &&
-			     ( paths_refer_to_same_existing_file( static_cast<const char*>( in_src ), out_cstr ) ||
+			     ( paths_refer_to_same_existing_file( static_cast<const char*>( in_src ), display_out_str ) ||
 			       paths_refer_to_same_existing_file( static_cast<const char*>( in_src ), resolved_out_target ) ) ) {
 				ctx.errormessage = "input and output refer to the same file";
 				ctx.errorlevel   = 2;
 				ctx.str_in.reset();
 				return;
 			}
-			if ( !can_overwrite_or_create_target( resolved_out_target, target_err ) ) {
-				ctx.set_errormessage( "error opening output file %s", out_cstr );
+			if ( !can_overwrite_or_create_target( resolved_out_target, target_err, &display_out_str ) ) {
+				ctx.set_errormessage( "error opening output file %s", display_out_str.c_str() );
 				ctx.errorlevel = 2;
 				ctx.str_in.reset();
 				return;
@@ -404,40 +404,27 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 		switch ( out_type ) {
 			case 0: {
 				const char* display_out = static_cast<const char*>( out_dest );
-				if ( is_non_regular_stream_target( resolved_out_target ) ) {
-					try {
-						ctx.str_out = std::make_unique<FileWriter>( resolved_out_target );
-						sess.target_filepath = std::move( resolved_out_target );
-						sess.staging_filepath.clear();
-					} catch ( const std::runtime_error& ) {
-						ctx.set_errormessage( "error opening output file %s", display_out );
-						ctx.errorlevel = 2;
-						ctx.str_in.reset();
-						return;
-					}
+				std::string staging_str;
+				FILE* fp = open_target_or_staging_cstream( resolved_out_target, true, "wb", staging_str );
+				if ( fp == nullptr ) {
+					ctx.set_errormessage( "error opening output file %s", display_out );
+					ctx.errorlevel = 2;
+					ctx.str_in.reset();
+					return;
 				}
-				else {
-					unsigned int existing_mode = 0666u;
-					const bool has_mode = query_existing_regular_file_mode( resolved_out_target, existing_mode );
-					std::string staging_str;
-					FILE* fp = open_exclusive_staging_stream( resolved_out_target, has_mode, existing_mode, staging_str );
-					if ( fp == nullptr ) {
-						ctx.set_errormessage( "error opening output file %s", display_out );
-						ctx.errorlevel = 2;
-						ctx.str_in.reset();
-						return;
-					}
-					try {
-						ctx.str_out = std::make_unique<FileWriter>( fp, staging_str );
-						sess.target_filepath  = std::move( resolved_out_target );
-						sess.staging_filepath = std::move( staging_str );
-					} catch ( const std::runtime_error& ) {
+				try {
+					ctx.str_out = std::make_unique<FileWriter>(
+						fp, staging_str.empty() ? resolved_out_target : staging_str );
+					sess.target_filepath  = std::move( resolved_out_target );
+					sess.staging_filepath = std::move( staging_str );
+				} catch ( const std::runtime_error& ) {
+					if ( !staging_str.empty() ) {
 						remove_file_utf8( staging_str );
-						ctx.set_errormessage( "error opening output file %s", display_out );
-						ctx.errorlevel = 2;
-						ctx.str_in.reset();
-						return;
 					}
+					ctx.set_errormessage( "error opening output file %s", display_out );
+					ctx.errorlevel = 2;
+					ctx.str_in.reset();
+					return;
 				}
 				break;
 			}

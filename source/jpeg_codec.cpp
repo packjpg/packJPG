@@ -1480,15 +1480,39 @@ bool recode_jpeg( CodecContext& ctx )
 	----------------------------------------------- */
 bool jpg_setup_imginfo( CodecContext& ctx )
 {
-	unsigned char type = 0x00;
-	unsigned int  len  = 0;
-	unsigned int  hpos = 0;
+	unsigned char type        = 0x00;
+	unsigned int  len         = 0;
+	unsigned int  hpos        = 0;
+	unsigned int  sos_dc_jids = 0;
+	unsigned char sos_dc_list[ 32 ]{};
+	unsigned int  sos_dc_cnt  = 0;
 
 	while ( hpos < ctx.hdrdata.size() ) {
 		if ( !ctx.read_header_segment( hpos, type, len ) ) return false;
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
 			if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ] ) )
 				return false;
+		}
+		else if ( ( type == 0xDA ) && ( len >= 8u ) ) {
+			const unsigned int ns = ctx.hdrdata[ hpos + 4 ];
+			if ( ( ns >= 1u ) && ( ns <= 4u ) && ( len >= 8u + 2u * ( ns - 1u ) ) ) {
+				const unsigned char ss = ctx.hdrdata[ hpos + 5u + 2u * ns ];
+				const unsigned char ah = static_cast<unsigned char>(
+					( ctx.hdrdata[ hpos + 7u + 2u * ns ] >> 4 ) & 0x0Fu );
+				if ( ( ss == 0u ) && ( ah == 0u ) ) {
+					for ( unsigned int k = 0; k < ns; ++k ) {
+						const unsigned char jid = ctx.hdrdata[ hpos + 5u + 2u * k ];
+						if ( sos_dc_cnt < sizeof( sos_dc_list ) ) {
+							sos_dc_list[ sos_dc_cnt++ ] = jid;
+						}
+						for ( int cmp = 0; cmp < ctx.cmpc; ++cmp ) {
+							if ( ctx.cmpnfo[ cmp ].jid == jid ) {
+								sos_dc_jids |= ( 1u << cmp );
+							}
+						}
+					}
+				}
+			}
 		}
 		hpos += len;
 	}
@@ -1542,37 +1566,15 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 			max_blocks = std::min<std::uint64_t>( 16777216ULL, std::max<std::uint64_t>( 4096ULL, huff_scaled ) );
 		}
 		else if ( ctx.jpegtype == 2 ) {
-			unsigned int dc_seen_mask = 0;
-			unsigned int sos_pos      = 0;
-			unsigned char sos_type    = 0;
-			unsigned int sos_len      = 0;
-			while ( sos_pos < ctx.hdrdata.size() ) {
-				if ( !ctx.read_header_segment( sos_pos, sos_type, sos_len ) ) {
-					break;
-				}
-				if ( ( sos_type == 0xDA ) && ( sos_len >= 8u ) ) {
-					const unsigned int ns = ctx.hdrdata[ sos_pos + 4 ];
-					if ( ( ns >= 1u ) && ( ns <= 4u ) && ( sos_len >= 8u + 2u * ( ns - 1u ) ) ) {
-						const unsigned char ss = ctx.hdrdata[ sos_pos + 5u + 2u * ns ];
-						const unsigned char ah = static_cast<unsigned char>(
-							( ctx.hdrdata[ sos_pos + 7u + 2u * ns ] >> 4 ) & 0x0Fu );
-						if ( ( ss == 0u ) && ( ah == 0u ) ) {
-							for ( unsigned int k = 0; k < ns; ++k ) {
-								const unsigned char jid = ctx.hdrdata[ sos_pos + 5u + 2u * k ];
-								for ( int cmp = 0; cmp < ctx.cmpc; ++cmp ) {
-									if ( ctx.cmpnfo[ cmp ].jid == jid ) {
-										dc_seen_mask |= ( 1u << cmp );
-									}
-								}
-							}
-						}
+			for ( unsigned int i = 0; i < sos_dc_cnt; ++i ) {
+				for ( int cmp = 0; cmp < ctx.cmpc; ++cmp ) {
+					if ( ctx.cmpnfo[ cmp ].jid == sos_dc_list[ i ] ) {
+						sos_dc_jids |= ( 1u << cmp );
 					}
 				}
-				sos_pos += sos_len;
 			}
-
 			const unsigned int full_dc_mask = ( 1u << ctx.cmpc ) - 1u;
-			if ( ( dc_seen_mask & full_dc_mask ) == full_dc_mask ) {
+			if ( ( sos_dc_jids & full_dc_mask ) == full_dc_mask ) {
 				// Every block in an initial progressive DC scan (Ss=0, Ah=0) consumes >= 1 Huffman bit.
 				max_blocks = std::min<std::uint64_t>( 16777216ULL, std::max<std::uint64_t>( 4096ULL, huff_scaled ) );
 			}

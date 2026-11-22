@@ -706,6 +706,29 @@ void verify_plugin_module( const wchar_t* dll_path )
 			DeleteFileW( ( ext_long_dir + L"\\a.pjg" ).c_str() );
 		}
 
+		// Dangling symlink write-through + symlink loop rejection (when symlink privilege/Developer Mode is enabled)
+		const std::filesystem::path dangle_target = tmp_dir / L"dangling_real_out.pjg";
+		const std::filesystem::path dangle_link   = tmp_dir / L"dangling_link_out.pjg";
+		std::error_code sym_ec;
+		std::filesystem::create_symlink( dangle_target, dangle_link, sym_ec );
+		if ( !sym_ec ) {
+			CHECK_COND( fn_save_w( dangle_link.c_str(), h_red, 90, werr ) == 0 );
+			CHECK_COND( std::filesystem::is_symlink( dangle_link ) );
+			CHECK_COND( std::filesystem::is_regular_file( dangle_target ) );
+
+			const std::filesystem::path loop_a = tmp_dir / L"loop_a.pjg";
+			const std::filesystem::path loop_b = tmp_dir / L"loop_b.pjg";
+			std::filesystem::create_symlink( loop_b, loop_a, sym_ec );
+			if ( !sym_ec ) {
+				std::filesystem::create_symlink( loop_a, loop_b, sym_ec );
+				if ( !sym_ec ) {
+					werr[ 0 ] = L'\0';
+					CHECK_COND( fn_save_w( loop_a.c_str(), h_red, 90, werr ) != 0 );
+					CHECK_COND( werr[ 0 ] != L'\0' );
+				}
+			}
+		}
+
 		GlobalFree( h_red );
 	}
 

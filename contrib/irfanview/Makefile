@@ -5,19 +5,9 @@ CXXSTD   ?= -std=c++17
 CXXFLAGS ?= -O2 -Wall -Wextra -Werror -pedantic
 
 ifeq ($(origin STRIP),command line)
-ifeq ($(STRIP),)
-STRIP_FLAGS ?=
-else ifneq (,$(filter -%,$(STRIP)))
-STRIP_FLAGS ?= $(STRIP)
-else
-STRIP_FLAGS ?= -s
-endif
-else ifneq ($(findstring -g,$(CXXFLAGS)),)
-STRIP_FLAGS ?=
-else ifneq (,$(filter -%,$(STRIP)))
-STRIP_FLAGS ?= $(STRIP)
-else
-STRIP_FLAGS ?= -s
+STRIP_FLAGS ?= $(if $(STRIP),$(if $(filter -%,$(STRIP)),$(STRIP),-s),)
+else ifeq ($(findstring -g,$(CXXFLAGS)),)
+STRIP_FLAGS ?= $(if $(filter -%,$(STRIP)),$(STRIP),-s)
 endif
 
 TOOLCHAIN_PREFIX := $(patsubst %g++,%,$(patsubst %clang++,%,$(CXX)))

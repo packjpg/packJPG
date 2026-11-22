@@ -3,6 +3,7 @@
 // Bug #13 regression: including BOTH packjpglib.h and packjpgdll.h in the same translation unit must compile cleanly!
 #include "packjpglib.h"
 #include "packjpgdll.h"
+#include "dev_tools.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -423,6 +424,81 @@ TEST_CASE("library: file2file supports special targets (/dev/null, FIFO), writes
 		std::ifstream ifs(rt_jpg, std::ios::binary);
 		const std::vector<unsigned char> got((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(got == jpg);
+	}
+
+	// 4. Dangling symlink write-through creates the linked target while keeping the symlink intact
+	const auto dangling_target = (real_dir / "created_through_dangling.pjg").string();
+	const auto dangling_link = (tmp_dir.path() / "dangling_out.pjg").string();
+	std::filesystem::create_symlink(dangling_target, dangling_link, sym_ec);
+	REQUIRE(!sym_ec);
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), dangling_link.c_str(), msg));
+	REQUIRE(std::filesystem::is_symlink(dangling_link));
+	REQUIRE(std::filesystem::is_regular_file(dangling_target));
+#endif
+}
+
+TEST_CASE("dev_tools: dump_errfile preserves pipeline error on failure and run_dev_action respects overwrite symlink rules") {
+	pjg_test::TempTestDir tmp_dir("pjg_ut_devtools");
+	const auto jpg = make_minimal_jpeg();
+	const auto in_jpg = (tmp_dir.path() / "sample.jpg").string();
+	{
+		std::ofstream ofs(in_jpg, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
+	}
+
+	// 1. If opening the .err.nfo sidecar fails (target is an existing directory), dump_errfile must NOT clobber ctx.errormessage!
+	const auto occupied_err_dir = tmp_dir.path() / "sample.err.nfo";
+	std::filesystem::create_directories(occupied_err_dir);
+	{
+		CodecContext err_ctx;
+		err_ctx.errorlevel = 2;
+		err_ctx.error_stage = StageId::ReadJpeg;
+		err_ctx.errormessage = "original codec failure reason";
+		REQUIRE(!dump_errfile(err_ctx, in_jpg, /*overwrite=*/true));
+		REQUIRE_EQ(err_ctx.errorlevel, 2);
+		REQUIRE_EQ(err_ctx.errormessage, std::string("original codec failure reason"));
+	}
+
+#if !defined(_WIN32) && !defined(WIN32)
+	// 2. run_dev_action (A_TXT_INFO): overwrite=false preserves symlink at sample.nfo and writes sample_.nfo;
+	//    overwrite=true writes through symlink at sample.nfo into linked_target.nfo!
+	const auto linked_nfo = (tmp_dir.path() / "linked_target.nfo").string();
+	{
+		std::ofstream ofs(linked_nfo);
+		ofs << "OLD_NFO";
+	}
+	const auto sym_nfo = (tmp_dir.path() / "sample.nfo").string();
+	std::error_code sym_ec;
+	std::filesystem::create_symlink(linked_nfo, sym_nfo, sym_ec);
+	REQUIRE(!sym_ec);
+
+	auto run_txt_info = [&](bool ovw) {
+		CodecContext ctx;
+		ctx.action = A_TXT_INFO;
+		ctx.filetype = F_JPG;
+		ctx.jpgfilename = in_jpg;
+		ctx.str_in = std::make_unique<FileReader>(in_jpg);
+		unsigned char magic[2]{};
+		REQUIRE_EQ(ctx.str_in->read(magic, 2), std::size_t(2));
+		run_dev_action(ctx, in_jpg, 0, ovw, nullptr);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+	};
+
+	run_txt_info(/*ovw=*/false);
+	REQUIRE(std::filesystem::is_symlink(sym_nfo));
+	REQUIRE(std::filesystem::is_regular_file(tmp_dir.path() / "sample_.nfo"));
+	{
+		std::ifstream ifs(linked_nfo);
+		std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE_EQ(s, std::string("OLD_NFO"));
+	}
+
+	run_txt_info(/*ovw=*/true);
+	REQUIRE(std::filesystem::is_symlink(sym_nfo));
+	{
+		std::ifstream ifs(linked_nfo);
+		std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE(s.find("Infofile for JPEG image") != std::string::npos);
 	}
 #endif
 }

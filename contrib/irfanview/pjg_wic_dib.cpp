@@ -17,6 +17,8 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 
 namespace pjg_iv {
 namespace {
@@ -511,29 +513,43 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 
 	DWORD existing_attrs = GetFileAttributesW( dst_open.c_str() );
 	if ( ( existing_attrs != INVALID_FILE_ATTRIBUTES ) &&
-	     ( ( existing_attrs & FILE_ATTRIBUTE_REPARSE_POINT ) != 0 ) &&
-	     ( ( existing_attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 ) ) {
-		HANDLE h_link = CreateFileW(
-			dst_open.c_str(),
-			0,
-			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-			nullptr,
-			OPEN_EXISTING,
-			FILE_FLAG_BACKUP_SEMANTICS,
-			nullptr );
-		if ( h_link != INVALID_HANDLE_VALUE ) {
-			const DWORD need = GetFinalPathNameByHandleW( h_link, nullptr, 0, FILE_NAME_NORMALIZED );
-			if ( need > 1 ) {
-				std::wstring resolved( static_cast<std::size_t>( need ), L'\0' );
-				const DWORD got = GetFinalPathNameByHandleW( h_link, resolved.data(), need, FILE_NAME_NORMALIZED );
-				if ( ( got > 0 ) && ( got < need ) ) {
-					resolved.resize( static_cast<std::size_t>( got ) );
-					dst_full = std::move( resolved );
-					dst_open = add_extended_length_prefix_if_needed( dst_full );
-					existing_attrs = GetFileAttributesW( dst_open.c_str() );
+	     ( ( existing_attrs & FILE_ATTRIBUTE_REPARSE_POINT ) != 0 ) ) {
+		try {
+			std::filesystem::path cur( dst_open );
+			std::error_code ec;
+			if ( std::filesystem::is_symlink( std::filesystem::symlink_status( cur, ec ) ) && !ec ) {
+				bool loop_detected = false;
+				for ( int depth = 0; depth < 32; ++depth ) {
+					const auto st = std::filesystem::symlink_status( cur, ec );
+					if ( ec || !std::filesystem::is_symlink( st ) ) {
+						break;
+					}
+					const std::filesystem::path target = std::filesystem::read_symlink( cur, ec );
+					if ( ec || target.empty() ) {
+						break;
+					}
+					cur = target.is_absolute() ? target : ( cur.parent_path() / target );
+					if ( depth == 31 ) {
+						const auto last_st = std::filesystem::symlink_status( cur, ec );
+						loop_detected = !ec && std::filesystem::is_symlink( last_st );
+					}
 				}
+				if ( loop_detected ) {
+					err = "symbolic link loop in output filename";
+					return false;
+				}
+				std::wstring raw_resolved = cur.wstring();
+				if ( raw_resolved.rfind( L"\\\\?\\UNC\\", 0 ) == 0 ) {
+					raw_resolved = L"\\\\" + raw_resolved.substr( 8 );
+				}
+				else if ( raw_resolved.rfind( L"\\\\?\\", 0 ) == 0 ) {
+					raw_resolved.erase( 0, 4 );
+				}
+				dst_full = normalize_win32_file_path_w( raw_resolved.c_str() );
+				dst_open = add_extended_length_prefix_if_needed( dst_full );
+				existing_attrs = GetFileAttributesW( dst_open.c_str() );
 			}
-			CloseHandle( h_link );
+		} catch ( ... ) {
 		}
 	}
 
