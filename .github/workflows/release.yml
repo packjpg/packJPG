@@ -10,23 +10,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FIXTURE_JPG_B64: >-
-    /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEP
-    ERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4e
-    Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAYACADASIA
-    AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA
-    AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3
-    ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm
-    p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA
-    AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx
-    BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK
-    U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3
-    uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5n03Q
-    unyfpXTaboXT5P0rrNN0Lp8n6V02m6F0+T9K0w9Y48l4i21OT03QunyfpXTaboXT5P0rrNN0Lp8n
-    6V02m6F0+T9K97D1j9cyXiHbUwNN0Lp8n6V02m6F0+T9KKK+Pw8mfyBkuNraanTaboXT5P0robbS
-    I7eLzZVwB7ck+goorpzTH1cDl1bE0rc0Itq+10j9fyDF1ZTimz//2Q==
-
 jobs:
   build-windows:
     name: Build Windows (${{ matrix.asset }})
@@ -63,15 +46,13 @@ jobs:
             ${{ matrix.pkg_prefix }}-gcc
             ${{ matrix.pkg_prefix }}-binutils
 
-      - name: Compile and smoke-test ${{ matrix.asset }} and ${{ matrix.plugin_zip }}
+      - name: Compile and verify ${{ matrix.asset }} and ${{ matrix.plugin_zip }}
         run: |
           make -C source clean
           make -C source all lib -j2
           mkdir -p dist
           cp source/packJPG.exe "dist/${{ matrix.asset }}"
-          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > smoke.jpg
-          "./dist/${{ matrix.asset }}" -np -ver -o smoke.jpg
-          rm -f smoke.jpg smoke.pjg
+          python tests/run_tests.py "./dist/${{ matrix.asset }}"
 
           make -C contrib/irfanview clean
           make -C contrib/irfanview all test -j2
@@ -79,7 +60,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.msystem }}
+          name: dist-windows-${{ matrix.msystem }}
           path: |
             dist/${{ matrix.asset }}
             dist/${{ matrix.plugin_zip }}
@@ -90,19 +71,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile and smoke-test packJPG-linux-x86_64
+      - name: Compile and verify packJPG-linux-x86_64
         run: |
           make -C source clean
           make -C source all STATIC=1 -j2
           mkdir -p dist
           cp source/packJPG dist/packJPG-linux-x86_64
           chmod 755 dist/packJPG-linux-x86_64
-          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > /tmp/smoke.jpg
-          ./dist/packJPG-linux-x86_64 -np -ver -o /tmp/smoke.jpg
+          python3 tests/run_tests.py ./dist/packJPG-linux-x86_64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: packJPG-linux-x86_64
+          name: dist-packJPG-linux-x86_64
           path: dist/packJPG-linux-x86_64
 
   build-macos:
@@ -111,23 +91,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile and smoke-test packJPG-macos-universal
+      - name: Compile and verify packJPG-macos-universal
         run: |
           make -C source clean
           make -C source all \
-            CXXFLAGS="-O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer -arch x86_64 -arch arm64" \
+            CXXFLAGS="-O3 -Wall -pedantic -funroll-loops -fomit-frame-pointer -arch x86_64 -arch arm64" \
             LDFLAGS="-arch x86_64 -arch arm64" -j2
           strip -x source/packJPG
           lipo -info source/packJPG
           mkdir -p dist
           cp source/packJPG dist/packJPG-macos-universal
           chmod 755 dist/packJPG-macos-universal
-          printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > /tmp/smoke.jpg
-          ./dist/packJPG-macos-universal -np -ver -o /tmp/smoke.jpg
+          python3 tests/run_tests.py ./dist/packJPG-macos-universal
 
       - uses: actions/upload-artifact@v4
         with:
-          name: packJPG-macos-universal
+          name: dist-packJPG-macos-universal
           path: dist/packJPG-macos-universal
 
   package:
@@ -139,6 +118,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: 'dist-*'
           path: release-assets
           merge-multiple: true
 
@@ -172,4 +152,3 @@ jobs:
             release-assets/packJPG-linux-x86_64
             release-assets/packJPG-macos-universal
             release-assets/SHA256SUMS.txt
-

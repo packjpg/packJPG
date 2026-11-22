@@ -351,6 +351,13 @@ public:
 	}
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override {
+		if (n == 0) {
+			return 0;
+		}
+		if (from == nullptr) {
+			err_ = true;
+			return 0;
+		}
 		data_.insert(std::end(data_), from, from + n);
 		return n;
 	}
@@ -367,6 +374,7 @@ public:
 		return true;
 	}
 
+	const std::vector<std::uint8_t>& data() const noexcept { return data_; }
 	std::vector<std::uint8_t> get_data() override;
 	std::vector<std::uint8_t> take_data();
 
@@ -376,6 +384,7 @@ public:
 
 private:
 	std::vector<std::uint8_t> data_;
+	bool err_ = false;
 };
 
 class FileWriter : public Writer {
@@ -426,7 +435,7 @@ private:
 	FILE* stream_ = stdout;
 	std::unique_ptr<MemoryWriter> writer_;
 	std::size_t flushed_offset_ = 0;
-	bool flushed_ = false;
+	bool flushed_ = true;
 	bool error_ = false;
 };
 

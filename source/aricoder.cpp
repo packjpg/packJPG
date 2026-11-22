@@ -81,15 +81,15 @@ bool ArithmeticDecoder::refill_buffer() {
 }
 
 void ArithmeticDecoder::fill_bit_reservoir() {
-	// Allow up to 64 KiB (524,288 bits) of synthesized zero bytes past EOF to satisfy
-	// arbitrarily long E3 underflow runs omitted by PJG v2.5 finalize() when clow >= 0.25,
-	// while still terminating truncated/corrupt streams in microseconds.
+	// Allow up to 512 bytes (4,096 bits) of synthesized zero bytes past EOF to satisfy
+	// trailing E3 underflow runs omitted by PJG v2.5 finalize() when clow >= 0.25,
+	// while bounding post-EOF E3 fixed-point synthesis on truncated streams.
 	while ( bits_left_ <= 56 ) {
 		std::uint8_t next_b = 0;
 		if ( ( buf_pos_ < buf_len_ ) || refill_buffer() ) {
 			next_b = in_buf_[ buf_pos_++ ];
 		}
-		else if ( ++eof_zero_bytes_ > 65536u ) {
+		else if ( ++eof_zero_bytes_ > 512u ) {
 			throw std::runtime_error( "unexpected end of arithmetic stream" );
 		}
 		bit_buf_ = ( bit_buf_ << 8 ) | next_b;

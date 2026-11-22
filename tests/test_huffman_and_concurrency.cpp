@@ -365,5 +365,103 @@ TEST_CASE("core codec regressions: high-ratio solid image, 320KB generic trailer
 		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err, false, 1));
 		REQUIRE(rt == quirky_jpg);
 	}
+
+	// 7. Finding #16 regression: duplicate DHT filler symbol at length 16 must NOT overwrite primary shorter codeword under -p (err_tol=2)
+	{
+		std::vector<std::uint8_t> dup_dht_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		dup_dht_jpg.insert(dup_dht_jpg.end(), 64, 16);
+		const std::uint8_t sof_and_tables[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			// DC table 0: symbol 0 -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// AC table 0: clen[0]=1 ('0' -> 0x00) AND clen[15]=2 (two 16-bit filler leaves: 0x01 and duplicate 0x00!)
+			0xFF, 0xC4, 0x00, 0x16, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+			0x00, 0x01, 0x00,
+			// SOS: DC='0', AC EOB='0' (primary 1-bit code!), padded '111111' -> 0x3F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			0x3F,
+			0xFF, 0xD9,
+		};
+		dup_dht_jpg.insert(dup_dht_jpg.end(), std::begin(sof_and_tables), std::end(sof_and_tables));
+
+		std::vector<std::uint8_t> pjg;
+		std::vector<std::uint8_t> rt;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(dup_dht_jpg.data(), dup_dht_jpg.size(), pjg, &err, false, 1));
+		REQUIRE(packjpg::convert_memory(dup_dht_jpg.data(), dup_dht_jpg.size(), pjg, &err, false, 2));
+		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err, false, 1));
+		REQUIRE(rt == dup_dht_jpg);
+	}
+
+	// 8. Finding #17 regression: dct_rescale handles saturated INT_MAX / INT_MIN IDCT outputs without signed 32-bit overflow UB
+	{
+		REQUIRE_EQ(dct_rescale(0), 0);
+		REQUIRE_EQ(dct_rescale(4096), 1);
+		REQUIRE_EQ(dct_rescale(-4096), -1);
+		REQUIRE_EQ(dct_rescale(2147483647), 262144);
+		REQUIRE_EQ(dct_rescale(-2147483647 - 1), -262144);
+	}
+
+	// 9. Finding #18 & #14c regressions: FF FF fill byte rejection, err_tol=2 truncated huge-SOF bound, and auto_set segm_cnt/nois_trs reset
+	{
+		auto fill_jpg = make_td0_ta1_jpeg(4);
+		// Inject extra 0xFF fill byte before first marker (0xFF 0xFF 0xDB)
+		fill_jpg.insert(fill_jpg.begin() + 2, 0xFF);
+		std::vector<std::uint8_t> out;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(fill_jpg.data(), fill_jpg.size(), out, &err, false, 2));
+
+		// Truncated sequential JPEG declaring 16384x16384 (4,194,304 blocks) with only 2 scan bytes under err_tol=2
+		std::vector<std::uint8_t> trunc_huge = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		trunc_huge.insert(trunc_huge.end(), 64, 16);
+		const std::uint8_t huge_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x40, 0x00, 0x40, 0x00, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			0x00, 0x00,
+			0xFF, 0xD9,
+		};
+		trunc_huge.insert(trunc_huge.end(), std::begin(huge_tail), std::end(huge_tail));
+		REQUIRE(!packjpg::convert_memory(trunc_huge.data(), trunc_huge.size(), out, &err, false, 2));
+
+		// Verify jpg_setup_imginfo resets unused component slots [1..3] when auto_set == true
+		const auto gray_jpg = make_td0_ta1_jpeg(1);
+		CodecContext dirty_ctx;
+		dirty_ctx.filetype = F_JPG;
+		dirty_ctx.auto_set = true;
+		dirty_ctx.segm_cnt = {49, 49, 49, 49};
+		dirty_ctx.nois_trs = {9, 9, 9, 9};
+		dirty_ctx.str_in   = std::make_unique<MemoryReader>(gray_jpg.data(), gray_jpg.size());
+		std::uint8_t m[2];
+		dirty_ctx.str_in->read(m, 2);
+		dirty_ctx.reset_buffers();
+		REQUIRE(read_jpeg(dirty_ctx));
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[1]), 10);
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[2]), 10);
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[3]), 10);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[1]), 6);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[2]), 6);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[3]), 6);
+
+		// 18-byte E3 0x40000000 fixed-point PJG unit discovered by libFuzzer must reject in milliseconds!
+		const std::uint8_t slow18_pjg[] = {
+			0x4A, 0x53, 0x19, 0xFA, 0xFF, 0x00, 0x1B, 0x01, 0x07,
+			0xFF, 0xFF, 0xFF, 0x1B, 0x01, 0x00, 0x7F, 0x77, 0xFF,
+		};
+		REQUIRE(!packjpg::convert_memory(slow18_pjg, sizeof(slow18_pjg), out, &err, false, 1));
+	}
 }
+
 

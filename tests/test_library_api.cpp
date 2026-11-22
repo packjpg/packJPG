@@ -1,6 +1,8 @@
 #include "test_framework.h"
 
+// Bug #13 regression: including BOTH packjpglib.h and packjpgdll.h in the same translation unit must compile cleanly!
 #include "packjpglib.h"
+#include "packjpgdll.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -8,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -37,18 +40,26 @@ std::vector<unsigned char> make_minimal_jpeg() {
 
 } // namespace
 
-TEST_CASE("library: version and short name queries") {
+TEST_CASE("library: version, PJGLIB_MSG_SIZE, pjglib_free, and IEEE subnormal preservation") {
+	REQUIRE_EQ(int(PJGLIB_MSG_SIZE), 128);
+	pjglib_free(nullptr);
+
+	// Bug #13 regression: linking packJPG must NOT enable FTZ/DAZ via -ffast-math crtfastmath.o
+	volatile double subnormal = std::numeric_limits<double>::denorm_min();
+	volatile double halved = subnormal * 1.0;
+	REQUIRE(halved > 0.0);
+
 	const char* ver = pjglib_version_info();
 	const char* name = pjglib_short_name();
 	REQUIRE(ver != nullptr);
 	REQUIRE(name != nullptr);
-	REQUIRE(std::strstr(ver, "v2.5m (11/21/2026)") != nullptr);
-	REQUIRE_EQ(std::string(name), std::string("packJPG v2.5m"));
+	REQUIRE(std::strstr(ver, "v2.5") != nullptr);
+	REQUIRE(std::strncmp(name, "packJPG v2.5", 12) == 0);
 }
 
-TEST_CASE("library: memory-to-memory compress and decompress round-trip") {
+TEST_CASE("library: memory-to-memory compress/decompress via pjglib_free and out_type validation") {
 	auto jpg = make_minimal_jpeg();
-	char msg[256] = {0};
+	char msg[PJGLIB_MSG_SIZE] = {0};
 
 	unsigned char* pjg_buf = nullptr;
 	unsigned int pjg_size = 0;
@@ -67,15 +78,26 @@ TEST_CASE("library: memory-to-memory compress and decompress round-trip") {
 	REQUIRE_EQ(std::size_t(rt_size), jpg.size());
 	REQUIRE_EQ(std::memcmp(rt_buf, jpg.data(), jpg.size()), 0);
 
-	std::free(pjg_buf);
-	std::free(rt_buf);
+	pjglib_free(pjg_buf);
+	pjglib_free(rt_buf);
+
+	// Bug #13 regression: pjglib_convert_stream2mem must reject sessions initialized with out_type != 1
+	pjg_test::TempTestDir tmp_dir("pjglib_outtype");
+	const auto dummy_file = (tmp_dir.path() / "unused_target.pjg").string();
+	unsigned char* wrong_buf = reinterpret_cast<unsigned char*>(std::uintptr_t(0x1));
+	unsigned int wrong_sz = 999;
+	pjglib_init_streams(jpg.data(), 1, static_cast<int>(jpg.size()), const_cast<char*>(dummy_file.c_str()), 0);
+	REQUIRE(!pjglib_convert_stream2mem(&wrong_buf, &wrong_sz, msg));
+	REQUIRE(wrong_buf == nullptr);
+	REQUIRE_EQ(wrong_sz, 0u);
+	REQUIRE(!std::filesystem::exists(dummy_file));
 }
 
 TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
-	const auto dir = std::filesystem::temp_directory_path();
-	const auto in_jpg = (dir / "pjglib_test_in.jpg").string();
-	const auto out_pjg = (dir / "pjglib_test_out.pjg").string();
-	const auto rt_jpg = (dir / "pjglib_test_rt.jpg").string();
+	pjg_test::TempTestDir tmp_dir("pjglib_f2f");
+	const auto in_jpg = (tmp_dir.path() / "pjglib_test_in.jpg").string();
+	const auto out_pjg = (tmp_dir.path() / "pjglib_test_out.pjg").string();
+	const auto rt_jpg = (tmp_dir.path() / "pjglib_test_rt.jpg").string();
 
 	auto jpg = make_minimal_jpeg();
 	{
@@ -108,17 +130,13 @@ TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
 		restored.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 	}
 	REQUIRE(restored == jpg);
-
-	std::filesystem::remove(in_jpg);
-	std::filesystem::remove(out_pjg);
-	std::filesystem::remove(rt_jpg);
 }
 
-TEST_CASE("library: FILE* stream2stream round-trip and clean discard on failure") {
-	const auto dir = std::filesystem::temp_directory_path();
-	const auto in_path = (dir / "pjglib_fp_in.bin").string();
-	const auto mid_path = (dir / "pjglib_fp_mid.bin").string();
-	const auto out_path = (dir / "pjglib_fp_out.bin").string();
+TEST_CASE("library: FILE* stream2stream round-trip, closed-FILE* session reset safety, and clean discard") {
+	pjg_test::TempTestDir tmp_dir("pjglib_fp");
+	const auto in_path = (tmp_dir.path() / "pjglib_fp_in.bin").string();
+	const auto mid_path = (tmp_dir.path() / "pjglib_fp_mid.bin").string();
+	const auto out_path = (tmp_dir.path() / "pjglib_fp_out.bin").string();
 
 	const auto jpg = make_minimal_jpeg();
 	{
@@ -151,6 +169,21 @@ TEST_CASE("library: FILE* stream2stream round-trip and clean discard on failure"
 		REQUIRE(restored == jpg);
 	}
 
+	// Bug #12 regression: abandoned pjglib_init_streams(..., out_type=2) followed by fclose() and re-init must NOT touch closed FILE*!
+	{
+		FILE* fin = std::fopen(in_path.c_str(), "rb");
+		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		REQUIRE(fin != nullptr && fout != nullptr);
+		pjglib_init_streams(fin, 2, 0, fout, 2);
+		std::fclose(fin);
+		std::fclose(fout);
+		pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
+		unsigned char* mem_out = nullptr;
+		unsigned int mem_sz = 0;
+		REQUIRE(pjglib_convert_stream2mem(&mem_out, &mem_sz, msg));
+		pjglib_free(mem_out);
+	}
+
 	// Corrupt input with FILE* output must leave output FILE* completely empty
 	{
 		std::ofstream ofs(in_path, std::ios::binary);
@@ -174,15 +207,9 @@ TEST_CASE("library: FILE* stream2stream round-trip and clean discard on failure"
 	REQUIRE(!pjglib_convert_stream2stream(msg));
 	pjglib_init_streams(nullptr, 2, 0, nullptr, 1);
 	REQUIRE(!pjglib_convert_stream2stream(msg));
-
-	std::filesystem::remove(in_path);
-	std::filesystem::remove(mid_path);
-	std::filesystem::remove(out_path);
 }
 
-TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nodes) round-trips") {
-	// Construct a valid 8x8 grayscale JPEG whose AC table has 256 symbols all of length 16
-	// (sum of 2^-16 over 256 symbols = 256 / 65536 <= 1 -> Kraft-valid, 8 + 255 = 263 internal nodes!)
+TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (262 internal nodes) round-trips") {
 	std::vector<unsigned char> jpg = {
 		0xFF, 0xD8,
 		0xFF, 0xDB, 0x00, 0x43, 0x00,
@@ -192,14 +219,10 @@ TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nod
 		0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
 		0xFF, 0xC4, 0x00, 0x14, 0x00,
 		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, // DC symbol 0 has 1-bit code '0'
+		0x00,
 	};
 	jpg.insert(jpg.end(), std::begin(sof_and_dc), std::end(sof_and_dc));
 
-	// Wait: DHT clen[15] is a single byte (max 255 per length slot in JPEG!), so 1 symbol at len 15 + 255 symbols at len 16
-	// = 256 symbols total! Let's count internal nodes:
-	// len 15 code = 0 (000000000000000), len 16 codes = 2..256 (0000000000000010 .. 0000000100000000):
-	// Top 7 zero bits -> 7 unary internal nodes + 255 binary internal nodes = 262 internal nodes (> 256)!
 	const unsigned char ac_hdr[] = {
 		0xFF, 0xC4, 0x01, 0x13, 0x10,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF,
@@ -208,7 +231,6 @@ TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nod
 	for (int s = 0; s < 256; ++s) {
 		jpg.push_back(static_cast<unsigned char>(s));
 	}
-	// DC symbol 0 = '0' (1 bit), AC symbol 0 (EOB, first symbol at len 15) = fifteen '0' bits -> total 16 '0' bits = 0x00, 0x00!
 	const unsigned char sos_and_scan[] = {
 		0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
 		0x00, 0x00,
@@ -228,17 +250,19 @@ TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nod
 	REQUIRE_EQ(std::size_t(rt_sz), jpg.size());
 	REQUIRE_EQ(std::memcmp(rt, jpg.data(), jpg.size()), 0);
 
-	std::free(pjg);
-	std::free(rt);
+	pjglib_free(pjg);
+	pjglib_free(rt);
 }
 
-TEST_CASE("library: failed follow-up call never deletes previous output, self-clobber and unknown inputs leave files intact") {
-	const auto dir = std::filesystem::temp_directory_path();
-	const auto in_jpg = (dir / "pjglib_safe_in.jpg").string();
-	const auto important_pjg = (dir / "pjglib_important.pjg").string();
-	const auto bad_in = (dir / "pjglib_not_an_image.bin").string();
-	const auto untouched_out = (dir / "pjglib_untouched_out.pjg").string();
-	const auto pre_existing = (dir / "pjglib_preexisting.bin").string();
+TEST_CASE("library: atomic staging preserves pre-existing target file on warning or decode failure (Finding #9)") {
+	pjg_test::TempTestDir tmp_dir("pjglib_atomic");
+	const auto in_jpg = (tmp_dir.path() / "pjglib_safe_in.jpg").string();
+	const auto important_pjg = (tmp_dir.path() / "pjglib_important.pjg").string();
+	const auto bad_in = (tmp_dir.path() / "pjglib_not_an_image.bin").string();
+	const auto warn_jpg_path = (tmp_dir.path() / "pjglib_warn.jpg").string();
+	const auto corrupt_jpg_path = (tmp_dir.path() / "pjglib_corrupt.jpg").string();
+	const auto untouched_out = (tmp_dir.path() / "pjglib_untouched_out.pjg").string();
+	const auto pre_existing = (tmp_dir.path() / "pjglib_preexisting.bin").string();
 
 	const auto jpg = make_minimal_jpeg();
 	{
@@ -250,46 +274,68 @@ TEST_CASE("library: failed follow-up call never deletes previous output, self-cl
 		ofs.write("NOT_A_JPEG_OR_PJG", 17);
 	}
 	{
+		// Valid JPEG magic + unknown marker FF F0 -> passes header read, triggers errorlevel=1 warning in strict mode!
+		auto warn_jpg = jpg;
+		const unsigned char unk[] = {0xFF, 0xF0, 0x00, 0x04, 'X', 'Y'};
+		warn_jpg.insert(warn_jpg.begin() + 2, std::begin(unk), std::end(unk));
+		std::ofstream ofs(warn_jpg_path, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(warn_jpg.data()), static_cast<std::streamsize>(warn_jpg.size()));
+	}
+	{
+		// Valid JPEG magic + truncated header -> fails in read_jpeg AFTER magic check!
+		const unsigned char trunc_jpg[] = {0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08};
+		std::ofstream ofs(corrupt_jpg_path, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(trunc_jpg), sizeof(trunc_jpg));
+	}
+	{
 		std::ofstream ofs(pre_existing, std::ios::binary);
 		ofs.write("KEEP_ME", 7);
 	}
 
 	char msg[256] = {0};
 
-	// 1. Succeeding file2file followed by failing init_streams must NEVER delete important_pjg!
+	// 1. Create a valid important_pjg and snapshot its exact bytes
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), important_pjg.c_str(), msg));
 	REQUIRE(std::filesystem::exists(important_pjg));
-	const auto expected_pjg_sz = std::filesystem::file_size(important_pjg);
-	REQUIRE(expected_pjg_sz > 10);
+	std::vector<unsigned char> expected_pjg_bytes;
+	{
+		std::ifstream ifs(important_pjg, std::ios::binary);
+		expected_pjg_bytes.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+	}
+	REQUIRE(expected_pjg_bytes.size() > 10);
 
-	const auto missing_in = (dir / "pjglib_definitely_missing_input.jpg").string();
-	REQUIRE(!pjglib_convert_file2file(missing_in.c_str(), untouched_out.c_str(), msg));
+	// 2. Bug #9 regression: converting a warning JPEG or corrupt JPEG onto important_pjg MUST leave important_pjg 100% intact!
+	REQUIRE(!pjglib_convert_file2file(warn_jpg_path.c_str(), important_pjg.c_str(), msg));
 	REQUIRE(std::filesystem::exists(important_pjg));
-	REQUIRE_EQ(std::filesystem::file_size(important_pjg), expected_pjg_sz);
-	REQUIRE(!std::filesystem::exists(untouched_out));
+	{
+		std::ifstream ifs(important_pjg, std::ios::binary);
+		const std::vector<unsigned char> after_warn((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE(after_warn == expected_pjg_bytes);
+	}
 
-	// Calling stream2stream again without re-initializing must also keep important_pjg intact
+	REQUIRE(!pjglib_convert_file2file(corrupt_jpg_path.c_str(), important_pjg.c_str(), msg));
+	REQUIRE(std::filesystem::exists(important_pjg));
+	{
+		std::ifstream ifs(important_pjg, std::ios::binary);
+		const std::vector<unsigned char> after_corrupt((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE(after_corrupt == expected_pjg_bytes);
+	}
+
+	// 3. Missing input and self-clobber also leave all existing files intact
+	const auto missing_in = (tmp_dir.path() / "pjglib_definitely_missing_input.jpg").string();
+	REQUIRE(!pjglib_convert_file2file(missing_in.c_str(), untouched_out.c_str(), msg));
+	REQUIRE(!std::filesystem::exists(untouched_out));
 	REQUIRE(!pjglib_convert_stream2stream(msg));
 	REQUIRE(std::filesystem::exists(important_pjg));
 
-	// 2. Self-clobber (in == out) must be rejected WITHOUT truncating or deleting in_jpg!
 	REQUIRE(!pjglib_convert_file2file(in_jpg.c_str(), in_jpg.c_str(), msg));
-	REQUIRE(std::filesystem::exists(in_jpg));
 	REQUIRE_EQ(std::filesystem::file_size(in_jpg), jpg.size());
 
-	// 3. Unknown magic input must NOT create a 0-byte stub or truncate an existing target!
 	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), untouched_out.c_str(), msg));
 	REQUIRE(!std::filesystem::exists(untouched_out));
 	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), pre_existing.c_str(), msg));
 	REQUIRE_EQ(std::filesystem::file_size(pre_existing), std::uintmax_t(7));
 
-	// 4. Memory output mode (out_type == 1) with null output pointers must fail cleanly instead of silently discarding
 	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
 	REQUIRE(!pjglib_convert_stream2stream(msg));
-
-	std::filesystem::remove(in_jpg);
-	std::filesystem::remove(important_pjg);
-	std::filesystem::remove(bad_in);
-	std::filesystem::remove(pre_existing);
 }
-

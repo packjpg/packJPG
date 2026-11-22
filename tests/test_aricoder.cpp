@@ -234,3 +234,25 @@ TEST_CASE("aricoder: >1200 pending E3 underflow bits finalized with clow >= 0.25
 	dec.decode(&q_end);
 }
 
+TEST_CASE("aricoder: truncated stream post-EOF E1/E2 renormalization spin terminates rapidly (Finding #15)") {
+	// Skewed symbol [0, 254)/255 (~0.00567 bits/symbol) previously spun ~92M iterations (~16s) on 4 zero bytes!
+	const std::vector<std::uint8_t> truncated = {0x00, 0x00, 0x00, 0x00};
+	MemoryReader mr(truncated);
+	ArithmeticDecoder dec(mr);
+
+	bool threw_eof = false;
+	int iterations = 0;
+	try {
+		for (; iterations < 200000; ++iterations) {
+			symbol q{0, 254, 255};
+			(void) dec.decode_count(&q);
+			dec.decode(&q);
+		}
+	} catch (const std::runtime_error&) {
+		threw_eof = true;
+	}
+	REQUIRE(threw_eof);
+	REQUIRE(iterations < 50000);
+}
+
+

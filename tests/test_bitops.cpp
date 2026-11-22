@@ -1,6 +1,7 @@
 #include "test_framework.h"
 
 #include "bitops.h"
+#include "path_utils.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -93,14 +94,18 @@ TEST_CASE("bitops: BitWriter get_c_bytes matches std::free contract") {
 	std::free(raw);
 }
 
-TEST_CASE("bitops: MemoryReader and MemoryWriter operations") {
+TEST_CASE("bitops: MemoryReader and MemoryWriter operations and null-pointer guard") {
 	MemoryWriter mw;
+	mw.write(static_cast<const std::uint8_t*>(nullptr), 0);
+	REQUIRE(!mw.error());
+
 	const std::vector<std::uint8_t> chunk = {10, 20, 30, 40, 50};
 	mw.write(chunk);
 	mw.write_byte(60);
 	mw.write(std::array<std::uint8_t, 2>{70, 80});
 	REQUIRE_EQ(mw.num_bytes_written(), std::size_t(8));
 	REQUIRE(!mw.error());
+	REQUIRE_EQ(int(mw.data()[0]), 10);
 
 	MemoryReader mr(mw.get_data());
 	REQUIRE_EQ(mr.get_size(), std::size_t(8));
@@ -120,10 +125,17 @@ TEST_CASE("bitops: MemoryReader and MemoryWriter operations") {
 	REQUIRE_EQ(int(out[9]), 80);
 	REQUIRE(mr.end_of_reader());
 	REQUIRE_THROWS(mr.read_byte());
+
+	// Bug #18 regression: non-zero write from nullptr sets error flag instead of UB memcpy(dst, nullptr, n)
+	MemoryWriter mw_null;
+	mw_null.write(static_cast<const std::uint8_t*>(nullptr), 5);
+	REQUIRE(mw_null.error());
+	REQUIRE_EQ(mw_null.num_bytes_written(), std::size_t(0));
 }
 
-TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and truncating reset") {
-	const auto tmp_path = (std::filesystem::temp_directory_path() / "packjpg_unit_fileio.bin").string();
+TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip, truncating reset, and UTF-8 paths") {
+	pjg_test::TempTestDir tmp_dir("pjg_fileio");
+	const auto tmp_path = path_to_utf8(tmp_dir.path() / "packjpg_unit_fileio.bin");
 	std::vector<std::uint8_t> payload(40000);
 	for (std::size_t i = 0; i < payload.size(); ++i) {
 		payload[i] = static_cast<std::uint8_t>((i * 37 + 13) & 0xFF);
@@ -148,12 +160,27 @@ TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and truncating res
 		REQUIRE(fr.get_data() == (std::vector<std::uint8_t>{0xAA, 0xBB}));
 	}
 
-	std::filesystem::remove(tmp_path);
+	// Bug #10 regression: multi-script UTF-8 filename round-trips cleanly via path_from_utf8 / fopen_utf8
+	const std::string utf8_name = path_to_utf8(tmp_dir.path()) + "/unicode_\xCE\xB1\xCE\xB2_\xE7\x8C\xAB.bin";
+	{
+		FileWriter fw_u8(utf8_name);
+		fw_u8.write(std::vector<std::uint8_t>{0x42, 0x99, 0xFE});
+		REQUIRE(fw_u8.flush());
+		REQUIRE(!fw_u8.error());
+	}
+	REQUIRE(file_exists(utf8_name));
+	{
+		FileReader fr_u8(utf8_name);
+		REQUIRE(fr_u8.get_data() == (std::vector<std::uint8_t>{0x42, 0x99, 0xFE}));
+	}
+	REQUIRE(remove_file_utf8(utf8_name));
+	REQUIRE(!file_exists(utf8_name));
+
 	REQUIRE_THROWS(FileReader(tmp_path + ".nonexistent"));
-	REQUIRE_THROWS(FileReader(std::filesystem::temp_directory_path().string()));
+	REQUIRE_THROWS(FileReader(path_to_utf8(tmp_dir.path())));
 }
 
-TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* StreamReader/Writer") {
+TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and StreamWriter closed-FILE* safety") {
 	BitWriter bw(0);
 	bw.write_u16(0xFFFF, 0);
 	REQUIRE_EQ(bw.num_bytes_written(), std::size_t(0));
@@ -167,9 +194,10 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 	REQUIRE_THROWS(StreamReader(nullptr));
 	REQUIRE_THROWS(StreamWriter(nullptr));
 
-	const auto stream_path = (std::filesystem::temp_directory_path() / "packjpg_stream_io.bin").string();
+	pjg_test::TempTestDir tmp_dir("pjg_streamio");
+	const auto stream_path = path_to_utf8(tmp_dir.path() / "packjpg_stream_io.bin");
 	{
-		FILE* out = std::fopen(stream_path.c_str(), "wb");
+		FILE* out = fopen_utf8(stream_path, "wb");
 		REQUIRE(out != nullptr);
 		{
 			StreamWriter sw(out);
@@ -183,7 +211,7 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 		std::fclose(out);
 	}
 	{
-		FILE* in = std::fopen(stream_path.c_str(), "rb");
+		FILE* in = fopen_utf8(stream_path, "rb");
 		REQUIRE(in != nullptr);
 		StreamReader sr(in);
 		std::fclose(in);
@@ -191,7 +219,7 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 	}
 	// Verify StreamWriter::reset() discards buffered data so destructor writes nothing
 	{
-		FILE* out = std::fopen(stream_path.c_str(), "wb");
+		FILE* out = fopen_utf8(stream_path, "wb");
 		REQUIRE(out != nullptr);
 		{
 			StreamWriter sw(out);
@@ -202,6 +230,12 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 		FileReader fr(stream_path);
 		REQUIRE_EQ(fr.get_size(), std::size_t(0));
 	}
-	std::filesystem::remove(stream_path);
+	// Bug #12 regression: unused StreamWriter destroyed AFTER caller closes FILE* must NOT touch closed FILE*!
+	{
+		FILE* out = fopen_utf8(stream_path, "wb");
+		REQUIRE(out != nullptr);
+		auto abandoned_sw = std::make_unique<StreamWriter>(out);
+		std::fclose(out);
+		abandoned_sw.reset();
+	}
 }
-

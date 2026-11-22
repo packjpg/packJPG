@@ -1420,7 +1420,7 @@ bool unpack_pjg( CodecContext& ctx )
 		: std::min<std::size_t>(
 			kMaxGenericStreamBytes,
 			std::max<std::size_t>(
-				524288u,
+				4096u,
 				( in_bytes <= ( kMaxGenericStreamBytes / kMaxGenericExpansionPerByte ) )
 					? ( in_bytes * kMaxGenericExpansionPerByte )
 					: kMaxGenericStreamBytes ) );

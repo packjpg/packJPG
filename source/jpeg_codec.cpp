@@ -1,6 +1,5 @@
 #include "jpeg_codec.h"
 
-#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -552,6 +551,11 @@ bool read_jpeg( CodecContext& ctx )
 						crst = 0;
 						huffw.write( span, run );
 						ctx.str_in->skip( run );
+						if ( huffw.num_bytes_written() > ( 512u << 20 ) ) {
+							ctx.errormessage = "coded image data exceeds maximum supported size";
+							ctx.errorlevel = 2;
+							return false;
+						}
 					}
 					if ( ff_pos == nullptr ) {
 						break;
@@ -565,6 +569,11 @@ bool read_jpeg( CodecContext& ctx )
 					crst = 0;
 					while ( tmp != 0xFF ) {
 						huffw.write_byte( tmp );
+						if ( huffw.num_bytes_written() > ( 512u << 20 ) ) {
+							ctx.errormessage = "coded image data exceeds maximum supported size";
+							ctx.errorlevel = 2;
+							return false;
+						}
 						if ( !ctx.str_in->read_byte( &tmp ) )
 							break;
 					}
@@ -576,6 +585,11 @@ bool read_jpeg( CodecContext& ctx )
 					if ( tmp == 0x00 ) {
 						crst = 0;
 						huffw.write_byte( 0xFF );
+						if ( huffw.num_bytes_written() > ( 512u << 20 ) ) {
+							ctx.errormessage = "coded image data exceeds maximum supported size";
+							ctx.errorlevel = 2;
+							return false;
+						}
 					}
 					else if ( tmp == 0xD0 + ( cpos % 8 ) ) {
 						const std::size_t cur_written = huffw.num_bytes_written();
@@ -649,6 +663,11 @@ bool read_jpeg( CodecContext& ctx )
 			ctx.huffdata = huffw.take_data();
 			break;
 		}
+		if ( ( type == 0xFF ) || ( type == 0x00 ) || ( type == 0x01 ) ) {
+			ctx.errormessage = "unsupported fill byte or standalone marker in header";
+			ctx.errorlevel = 2;
+			return false;
+		}
 
 		if ( ctx.str_in->read( segment.data() + 2, 2 ) != 2 ) break;
 		len = static_cast<unsigned int>( 2 + b_short( segment[ 2 ], segment[ 3 ] ) );
@@ -659,7 +678,7 @@ bool read_jpeg( CodecContext& ctx )
 			ssize = len;
 		}
 
-		if ( ctx.str_in->read( segment.data() + 4, len - 4 ) != static_cast<unsigned short>( len - 4 ) ) break;
+		if ( ctx.str_in->read( segment.data() + 4, len - 4 ) != static_cast<std::size_t>( len - 4 ) ) break;
 		hdrw.write( segment.data(), len );
 	}
 
@@ -905,7 +924,7 @@ bool decode_jpeg( CodecContext& ctx )
 							ctx.colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 							ctx.errormessage = "coded image data truncated / too short";
 							ctx.errorlevel = 1;
 							return true;
@@ -928,7 +947,7 @@ bool decode_jpeg( CodecContext& ctx )
 						lastdc[ cmp ] = dc_unscaled;
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 							ctx.errormessage = "coded image data truncated / too short";
 							ctx.errorlevel = 1;
 							return true;
@@ -947,7 +966,7 @@ bool decode_jpeg( CodecContext& ctx )
 						}
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 							ctx.errormessage = "coded image data truncated / too short";
 							ctx.errorlevel = 1;
 							return true;
@@ -983,7 +1002,7 @@ bool decode_jpeg( CodecContext& ctx )
 							ctx.colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 
 						sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 							ctx.errormessage = "coded image data truncated / too short";
 							ctx.errorlevel = 1;
 							return true;
@@ -1007,7 +1026,7 @@ bool decode_jpeg( CodecContext& ctx )
 							lastdc[ cmp ] = dc_unscaled;
 
 							sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 								ctx.errormessage = "coded image data truncated / too short";
 								ctx.errorlevel = 1;
 								return true;
@@ -1026,7 +1045,7 @@ bool decode_jpeg( CodecContext& ctx )
 							}
 
 							sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 								ctx.errormessage = "coded image data truncated / too short";
 								ctx.errorlevel = 1;
 								return true;
@@ -1075,7 +1094,7 @@ bool decode_jpeg( CodecContext& ctx )
 
 							if ( sta == 0 )
 								sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 								ctx.errormessage = "coded image data truncated / too short";
 								ctx.errorlevel = 1;
 								return true;
@@ -1133,7 +1152,7 @@ bool decode_jpeg( CodecContext& ctx )
 								sta = -1;
 								break;
 							}
-							if ( ( sta == 0 ) && ( ctx.err_tol <= 1 ) && ( huffr->peof() > 0 ) ) {
+							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
 								ctx.errormessage = "coded image data truncated / too short";
 								ctx.errorlevel = 1;
 								return true;
@@ -1488,8 +1507,10 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 		if ( ctx.cmpnfo[ cmp ].sfh > ctx.sfhm ) ctx.sfhm = ctx.cmpnfo[ cmp ].sfh;
 		if ( ctx.cmpnfo[ cmp ].sfv > ctx.sfvm ) ctx.sfvm = ctx.cmpnfo[ cmp ].sfv;
 	}
-	ctx.mcuv = static_cast<int>( std::ceil( static_cast<float>( ctx.imgheight ) / static_cast<float>( 8 * ctx.sfhm ) ) );
-	ctx.mcuh = static_cast<int>( std::ceil( static_cast<float>( ctx.imgwidth )  / static_cast<float>( 8 * ctx.sfvm ) ) );
+	const int mcu_px_v = 8 * ctx.sfhm;
+	const int mcu_px_h = 8 * ctx.sfvm;
+	ctx.mcuv = ( ctx.imgheight + mcu_px_v - 1 ) / mcu_px_v;
+	ctx.mcuh = ( ctx.imgwidth  + mcu_px_h - 1 ) / mcu_px_h;
 	if ( ( std::uint64_t( ctx.mcuv ) * std::uint64_t( ctx.mcuh ) ) > 16777216ULL ) {
 		ctx.errormessage = "image dimensions exceed maximum supported size";
 		ctx.errorlevel = 2;
@@ -1503,9 +1524,9 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 		: std::min<std::uint64_t>(
 			16777216ULL,
 			std::max<std::uint64_t>(
-				262144ULL,
+				4096ULL,
 				( stream_bytes <= ( 16777216ULL / 4096ULL ) ) ? ( stream_bytes * 4096ULL ) : 16777216ULL ) );
-	if ( ( ctx.filetype == F_JPG ) && ( ctx.err_tol <= 1 ) && ( ctx.jpegtype == 1 ) ) {
+	if ( ( ctx.filetype == F_JPG ) && ( ctx.jpegtype == 1 ) ) {
 		const auto huff_bytes = static_cast<std::uint64_t>( ctx.huffdata.size() );
 		max_blocks = std::min<std::uint64_t>(
 			16777216ULL,
@@ -1525,10 +1546,12 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 			return false;
 		}
 		ctx.cmpnfo[ cmp ].bc  = static_cast<int>( cmp_bc );
-		ctx.cmpnfo[ cmp ].ncv = static_cast<int>( std::ceil( static_cast<float>( ctx.imgheight ) *
-								( static_cast<float>( ctx.cmpnfo[ cmp ].sfh ) / ( 8.0 * ctx.sfhm ) ) ) );
-		ctx.cmpnfo[ cmp ].nch = static_cast<int>( std::ceil( static_cast<float>( ctx.imgwidth ) *
-								( static_cast<float>( ctx.cmpnfo[ cmp ].sfv ) / ( 8.0 * ctx.sfvm ) ) ) );
+		ctx.cmpnfo[ cmp ].ncv = static_cast<int>(
+			( std::uint64_t( ctx.imgheight ) * std::uint64_t( ctx.cmpnfo[ cmp ].sfh ) + std::uint64_t( mcu_px_v - 1 ) ) /
+			std::uint64_t( mcu_px_v ) );
+		ctx.cmpnfo[ cmp ].nch = static_cast<int>(
+			( std::uint64_t( ctx.imgwidth ) * std::uint64_t( ctx.cmpnfo[ cmp ].sfv ) + std::uint64_t( mcu_px_h - 1 ) ) /
+			std::uint64_t( mcu_px_h ) );
 		ctx.cmpnfo[ cmp ].nc  = ctx.cmpnfo[ cmp ].ncv * ctx.cmpnfo[ cmp ].nch;
 	}
 
@@ -1552,6 +1575,8 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 	}
 
 	if ( ctx.auto_set ) {
+		ctx.segm_cnt = { 10, 10, 10, 10 };
+		ctx.nois_trs = { 6, 6, 6, 6 };
 		for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 			int i = 0;
 			for ( ; conf_sets[ i ][ ctx.cmpnfo[ cmp ].sid ] > static_cast<unsigned int>( ctx.cmpnfo[ cmp ].bc ); i++ );
@@ -1945,8 +1970,10 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 		const int len = 1 + i;
 		for ( int j = 0; j < static_cast<int>( clen[ i ] ); j++ ) {
 			const int sym = static_cast<int>( cval[ k ] );
-			hc->clen[ sym ] = static_cast<unsigned short>( len );
-			hc->cval[ sym ] = static_cast<unsigned short>( code );
+			if ( hc->clen[ sym ] == 0 ) {
+				hc->clen[ sym ] = static_cast<unsigned short>( len );
+				hc->cval[ sym ] = static_cast<unsigned short>( code );
+			}
 
 			if ( len <= 9 ) {
 				const int shift = 9 - len;

@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <limits>
 #include <memory>
@@ -12,15 +13,42 @@
 #include <stdexcept>
 #include <string>
 
+static_assert( kMsgSize == PJGLIB_MSG_SIZE, "PJGLIB_MSG_SIZE must match kMsgSize" );
+
 namespace {
 
 struct LibrarySession {
 	CodecContext ctx;
-	int         lib_in_type         = -1;
-	int         lib_out_type        = -1;
-	bool        has_init_attempt    = false;
-	bool        created_output_file = false;
-	std::string out_filepath;
+	int         lib_in_type      = -1;
+	int         lib_out_type     = -1;
+	bool        has_init_attempt = false;
+	std::string target_filepath;
+	std::string staging_filepath;
+
+	void discard_streams_and_staging() noexcept
+	{
+		if ( ctx.str_out != nullptr ) {
+			try {
+				ctx.str_out->reset();
+			} catch ( ... ) {
+			}
+		}
+		ctx.str_in.reset();
+		ctx.str_out.reset();
+		if ( !staging_filepath.empty() ) {
+			remove_file_utf8( staging_filepath );
+			staging_filepath.clear();
+		}
+		target_filepath.clear();
+		lib_in_type      = -1;
+		lib_out_type     = -1;
+		has_init_attempt = false;
+	}
+
+	~LibrarySession()
+	{
+		discard_streams_and_staging();
+	}
 };
 
 LibrarySession& current_session()
@@ -29,46 +57,42 @@ LibrarySession& current_session()
 	return session;
 }
 
-} // namespace
-
-
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-PJGLIB_API bool pjglib_convert_stream2stream( char* msg )
+bool convert_session_impl(
+	unsigned char** out_file,
+	unsigned int* out_size,
+	char* msg,
+	bool require_mem_out )
 {
-	return pjglib_convert_stream2mem( nullptr, nullptr, msg );
-}
+	if ( out_file != nullptr ) {
+		*out_file = nullptr;
+	}
+	if ( out_size != nullptr ) {
+		*out_size = 0;
+	}
 
+	auto& sess = current_session();
+	auto& ctx  = sess.ctx;
 
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-PJGLIB_API bool pjglib_convert_file2file( const char* in, const char* out, char* msg )
-{
-	pjglib_init_streams(
-		const_cast<void*>( static_cast<const void*>( in ) ), 0, 0,
-		const_cast<void*>( static_cast<const void*>( out ) ), 0 );
-	return pjglib_convert_stream2mem( nullptr, nullptr, msg );
-}
+	struct SessionCleanupGuard {
+		LibrarySession& s;
+		bool committed = false;
+		~SessionCleanupGuard()
+		{
+			if ( !committed ) {
+				s.discard_streams_and_staging();
+			} else {
+				s.ctx.str_in.reset();
+				s.ctx.str_out.reset();
+				s.staging_filepath.clear();
+				s.target_filepath.clear();
+				s.lib_in_type      = -1;
+				s.lib_out_type     = -1;
+				s.has_init_attempt = false;
+			}
+		}
+	} guard{ sess };
 
-
-/* -----------------------------------------------
-	DLL export converter function
-	----------------------------------------------- */
-PJGLIB_API bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
-{
 	try {
-		if ( out_file != nullptr ) {
-			*out_file = nullptr;
-		}
-		if ( out_size != nullptr ) {
-			*out_size = 0;
-		}
-
-		auto& sess = current_session();
-		auto& ctx  = sess.ctx;
-
 		ctx.auto_set = true;
 		ctx.reset_buffers();
 		ctx.action = A_COMPRESS;
@@ -83,7 +107,11 @@ PJGLIB_API bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned in
 			ctx.errormessage = "streams not initialized";
 			ctx.errorlevel   = 2;
 		}
-		else if ( ctx.errorlevel < ctx.err_tol && sess.lib_out_type == 1 &&
+		else if ( ctx.errorlevel < ctx.err_tol && require_mem_out && ( sess.lib_out_type != 1 ) ) {
+			ctx.errormessage = "output stream is not initialized as memory";
+			ctx.errorlevel   = 2;
+		}
+		else if ( ctx.errorlevel < ctx.err_tol && ( sess.lib_out_type == 1 ) &&
 		          ( out_file == nullptr || out_size == nullptr ) ) {
 			ctx.errormessage = "output memory pointers must not be null";
 			ctx.errorlevel   = 2;
@@ -100,42 +128,49 @@ PJGLIB_API bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned in
 				}
 				else {
 					unsigned char* buf = ctx.str_out->get_c_data();
-					if ( ( written > 0 ) && ( buf == nullptr ) ) {
+					if ( buf == nullptr ) {
 						ctx.errormessage = kMemErrMsg;
 						ctx.errorlevel   = 2;
 					}
 					else {
 						*out_size = static_cast<unsigned int>( written );
 						*out_file = buf;
+						guard.committed = true;
 					}
 				}
 			}
-			else if ( ( ctx.str_out != nullptr ) && !ctx.str_out->flush() ) {
-				ctx.errormessage = "write error, possibly drive is full";
-				ctx.errorlevel   = 2;
+			else if ( sess.lib_out_type == 0 ) {
+				if ( ( ctx.str_out == nullptr ) || !ctx.str_out->flush() || ctx.str_out->error() ) {
+					ctx.errormessage = "write error, possibly drive is full";
+					ctx.errorlevel   = 2;
+				}
+				else {
+					ctx.str_out.reset();
+					std::string commit_err;
+					if ( !commit_staging_file( sess.staging_filepath, sess.target_filepath, commit_err ) ) {
+						ctx.errormessage = commit_err;
+						ctx.errorlevel   = 2;
+					}
+					else {
+						sess.staging_filepath.clear();
+						guard.committed = true;
+					}
+				}
+			}
+			else {
+				if ( ( ctx.str_out == nullptr ) || !ctx.str_out->flush() || ctx.str_out->error() ) {
+					ctx.errormessage = "write error, possibly drive is full";
+					ctx.errorlevel   = 2;
+				}
+				else {
+					guard.committed = true;
+				}
 			}
 		}
-		else if ( ctx.str_out != nullptr ) {
-			ctx.str_out->reset();
-		}
-
-		ctx.str_in.reset();
-		ctx.str_out.reset();
-
-		const bool should_remove_file    = sess.created_output_file;
-		const std::string out_filepath   = std::move( sess.out_filepath );
-		sess.has_init_attempt            = false;
-		sess.created_output_file         = false;
-		sess.lib_in_type                 = -1;
-		sess.lib_out_type                = -1;
-		sess.out_filepath.clear();
 
 		const auto end = std::chrono::steady_clock::now();
 
 		if ( ctx.errorlevel >= ctx.err_tol ) {
-			if ( should_remove_file && !out_filepath.empty() && file_exists( out_filepath ) ) {
-				std::remove( out_filepath.c_str() );
-			}
 			if ( msg != nullptr ) {
 				std::snprintf( msg, kMsgSize, "%s", ctx.errormessage.c_str() );
 			}
@@ -182,6 +217,47 @@ PJGLIB_API bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned in
 	}
 }
 
+} // namespace
+
+
+/* -----------------------------------------------
+	DLL export converter function
+	----------------------------------------------- */
+PJGLIB_API bool pjglib_convert_stream2stream( char* msg )
+{
+	return convert_session_impl( nullptr, nullptr, msg, false );
+}
+
+
+/* -----------------------------------------------
+	DLL export converter function
+	----------------------------------------------- */
+PJGLIB_API bool pjglib_convert_file2file( const char* in, const char* out, char* msg )
+{
+	pjglib_init_streams(
+		const_cast<void*>( static_cast<const void*>( in ) ), 0, 0,
+		const_cast<void*>( static_cast<const void*>( out ) ), 0 );
+	return convert_session_impl( nullptr, nullptr, msg, false );
+}
+
+
+/* -----------------------------------------------
+	DLL export converter function
+	----------------------------------------------- */
+PJGLIB_API bool pjglib_convert_stream2mem( unsigned char** out_file, unsigned int* out_size, char* msg )
+{
+	return convert_session_impl( out_file, out_size, msg, true );
+}
+
+
+/* -----------------------------------------------
+	DLL export deallocator for stream2mem buffers
+	----------------------------------------------- */
+PJGLIB_API void pjglib_free( void* ptr )
+{
+	std::free( ptr );
+}
+
 
 /* -----------------------------------------------
 	DLL export init input (file/mem/FILE*)
@@ -194,11 +270,8 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 
 		unsigned char buffer[ 2 ] = { 0, 0 };
 
-		sess.lib_in_type         = -1;
-		sess.lib_out_type        = -1;
-		sess.has_init_attempt    = true;
-		sess.created_output_file = false;
-		sess.out_filepath.clear();
+		sess.discard_streams_and_staging();
+		sess.has_init_attempt = true;
 
 		ctx.error_stage = StageId::None;
 		ctx.errorlevel  = 0;
@@ -208,8 +281,6 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 		ctx.pjgfilename.clear();
 		ctx.jpgfilesize = 0;
 		ctx.pjgfilesize = 0;
-		ctx.str_in.reset();
-		ctx.str_out.reset();
 
 		switch ( in_type ) {
 			case 0:
@@ -251,20 +322,28 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 				return;
 		}
 
-		// Validate output parameters and self-clobber BEFORE opening/truncating any output file.
+		// Validate output parameters and self-clobber BEFORE opening any output file.
 		if ( out_type == 0 ) {
-			if ( out_dest == nullptr ) {
-				ctx.errormessage = "null output filename";
+			if ( out_dest == nullptr || static_cast<const char*>( out_dest )[ 0 ] == '\0' ) {
+				ctx.errormessage = "null or empty output filename";
 				ctx.errorlevel   = 2;
 				ctx.str_in.reset();
 				return;
 			}
+			const char* out_cstr = static_cast<const char*>( out_dest );
 			if ( ( in_type == 0 ) &&
 			     paths_refer_to_same_existing_file(
 			         static_cast<const char*>( in_src ),
-			         static_cast<const char*>( out_dest ) ) ) {
+			         out_cstr ) ) {
 				ctx.errormessage = "input and output refer to the same file";
 				ctx.errorlevel   = 2;
+				ctx.str_in.reset();
+				return;
+			}
+			std::string target_err;
+			if ( !can_overwrite_or_create_target( out_cstr, target_err ) ) {
+				ctx.set_errormessage( "error opening output file %s", out_cstr );
+				ctx.errorlevel = 2;
 				ctx.str_in.reset();
 				return;
 			}
@@ -284,7 +363,7 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 			return;
 		}
 
-		// Verify magic header BEFORE opening FileWriter so unknown/empty inputs never truncate or leave 0-byte stubs.
+		// Verify magic header BEFORE opening FileWriter so unknown/empty inputs never touch disk.
 		if ( ctx.str_in->read( buffer, 2 ) != 2 ) {
 			ctx.filetype     = F_UNK;
 			ctx.errormessage = "filetype of input stream is unknown";
@@ -313,13 +392,15 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 
 		switch ( out_type ) {
 			case 0: {
-				const char* out_cstr = static_cast<const char*>( out_dest );
+				const std::string target_str = static_cast<const char*>( out_dest );
+				std::string staging_str = make_staging_temp_path( target_str );
 				try {
-					ctx.str_out = std::make_unique<FileWriter>( out_cstr );
-					sess.created_output_file = true;
-					sess.out_filepath        = out_cstr;
+					ctx.str_out = std::make_unique<FileWriter>( staging_str );
+					sess.target_filepath  = target_str;
+					sess.staging_filepath = std::move( staging_str );
 				} catch ( const std::runtime_error& ) {
-					ctx.set_errormessage( "error opening output file %s", out_cstr );
+					remove_file_utf8( staging_str );
+					ctx.set_errormessage( "error opening output file %s", target_str.c_str() );
 					ctx.errorlevel = 2;
 					ctx.str_in.reset();
 					return;
@@ -345,23 +426,20 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 		sess.lib_out_type = out_type;
 	} catch ( const std::bad_alloc& ) {
 		auto& sess = current_session();
+		sess.discard_streams_and_staging();
 		sess.has_init_attempt = true;
-		sess.ctx.str_in.reset();
-		sess.ctx.str_out.reset();
 		sess.ctx.errormessage = kMemErrMsg;
 		sess.ctx.errorlevel   = 2;
 	} catch ( const std::exception& e ) {
 		auto& sess = current_session();
+		sess.discard_streams_and_staging();
 		sess.has_init_attempt = true;
-		sess.ctx.str_in.reset();
-		sess.ctx.str_out.reset();
 		sess.ctx.errormessage = e.what();
 		sess.ctx.errorlevel   = 2;
 	} catch ( ... ) {
 		auto& sess = current_session();
+		sess.discard_streams_and_staging();
 		sess.has_init_attempt = true;
-		sess.ctx.str_in.reset();
-		sess.ctx.str_out.reset();
 		sess.ctx.errormessage = "unexpected internal exception";
 		sess.ctx.errorlevel   = 2;
 	}
@@ -396,4 +474,3 @@ PJGLIB_API const char* pjglib_short_name( void )
 	}();
 	return name.c_str();
 }
-

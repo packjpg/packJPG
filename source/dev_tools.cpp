@@ -15,19 +15,54 @@ std::string resolve_dump_filename( const std::string& base, const char* ext, boo
 	return overwrite ? make_filename( base, ext ) : make_unique_filename( base, ext );
 }
 
-FILE* open_dump_file( const std::string& fn, const char* mode )
+const std::string& active_input_path( const CodecContext& ctx ) noexcept
 {
-	if ( !ensure_parent_directory( fn ) ) {
-		return nullptr;
-	}
-	return std::fopen( fn.c_str(), mode );
+	return ( ctx.filetype == F_PJG ) ? ctx.pjgfilename : ctx.jpgfilename;
 }
 
-bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& fn )
+FILE* open_dump_file( CodecContext& ctx, const std::string& fn, std::string& staging_fn, const char* mode )
+{
+	staging_fn.clear();
+	const std::string& src = active_input_path( ctx );
+	if ( !src.empty() && paths_refer_to_same_existing_file( src, fn ) ) {
+		ctx.errormessage = "refusing to overwrite input file: " + fn;
+		ctx.errorlevel   = 2;
+		return nullptr;
+	}
+	if ( !ensure_parent_directory( fn ) ) {
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return nullptr;
+	}
+	std::string target_err;
+	if ( !can_overwrite_or_create_target( fn, target_err ) ) {
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return nullptr;
+	}
+	staging_fn = make_staging_temp_path( fn );
+	FILE* fp = fopen_utf8( staging_fn, mode );
+	if ( fp == nullptr ) {
+		staging_fn.clear();
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+	}
+	return fp;
+}
+
+bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& staging_fn, const std::string& fn )
 {
 	const bool had_err = ( std::ferror( fp ) != 0 );
 	const int rc = std::fclose( fp );
 	if ( had_err || ( rc != 0 ) ) {
+		remove_file_utf8( staging_fn );
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return false;
+	}
+	std::string commit_err;
+	if ( !commit_staging_file( staging_fn, fn, commit_err ) ) {
+		remove_file_utf8( staging_fn );
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return false;
@@ -38,19 +73,19 @@ bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& fn )
 bool dump_file( CodecContext& ctx, const std::string& base, const char* ext, const void* data, std::size_t bpv, std::size_t size, bool overwrite )
 {
 	const std::string fn = resolve_dump_filename( base, ext, overwrite );
-	FILE* fp = open_dump_file( fn, "wb" );
+	std::string staging_fn;
+	FILE* fp = open_dump_file( ctx, fn, staging_fn, "wb" );
 	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
 		return false;
 	}
 	if ( ( size > 0 ) && ( std::fwrite( data, bpv, size, fp ) != size ) ) {
 		std::fclose( fp );
+		remove_file_utf8( staging_fn );
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return false;
 	}
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, fp, staging_fn, fn );
 }
 
 bool dump_hdr( CodecContext& ctx, const std::string& base, bool overwrite )
@@ -69,10 +104,9 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
-		FILE* fp = open_dump_file( fn, "wb" );
+		std::string staging_fn;
+		FILE* fp = open_dump_file( ctx, fn, staging_fn, "wb" );
 		if ( fp == nullptr ) {
-			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-			ctx.errorlevel = 2;
 			return false;
 		}
 
@@ -138,7 +172,7 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 				break;
 		}
 
-		if ( !close_dump_file( ctx, fp, fn ) ) {
+		if ( !close_dump_file( ctx, fp, staging_fn, fn ) ) {
 			return false;
 		}
 	}
@@ -160,10 +194,9 @@ bool dump_zdst( CodecContext& ctx, const std::string& base, bool overwrite )
 bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 {
 	const std::string fn = resolve_dump_filename( base, "nfo", overwrite );
-	FILE* fp = open_dump_file( fn, "w" );
+	std::string staging_fn;
+	FILE* fp = open_dump_file( ctx, fn, staging_fn, "w" );
 	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
 		return false;
 	}
 
@@ -213,16 +246,15 @@ bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 		std::fprintf( fp, "\n\n" );
 	}
 
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, fp, staging_fn, fn );
 }
 
 bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 {
 	const std::string fn = resolve_dump_filename( base, "dist", overwrite );
-	FILE* fp = open_dump_file( fn, "wb" );
+	std::string staging_fn;
+	FILE* fp = open_dump_file( ctx, fn, staging_fn, "wb" );
 	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
 		return false;
 	}
 
@@ -236,6 +268,7 @@ bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 			}
 			if ( std::fwrite( dist.data(), sizeof( unsigned int ), dist.size(), fp ) != dist.size() ) {
 				std::fclose( fp );
+				remove_file_utf8( staging_fn );
 				ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 				ctx.errorlevel = 2;
 				return false;
@@ -243,7 +276,7 @@ bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 		}
 	}
 
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, fp, staging_fn, fn );
 }
 
 bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
@@ -252,10 +285,9 @@ bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
-		FILE* fp = open_dump_file( fn, "wb" );
+		std::string staging_fn;
+		FILE* fp = open_dump_file( ctx, fn, staging_fn, "wb" );
 		if ( fp == nullptr ) {
-			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-			ctx.errorlevel = 2;
 			return false;
 		}
 
@@ -283,11 +315,12 @@ bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
 		if ( !imgdata.empty() &&
 		     ( std::fwrite( imgdata.data(), sizeof( unsigned char ), imgdata.size(), fp ) != imgdata.size() ) ) {
 			std::fclose( fp );
+			remove_file_utf8( staging_fn );
 			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 			ctx.errorlevel = 2;
 			return false;
 		}
-		if ( !close_dump_file( ctx, fp, fn ) ) {
+		if ( !close_dump_file( ctx, fp, staging_fn, fn ) ) {
 			return false;
 		}
 	}
@@ -303,18 +336,19 @@ bool dump_errfile( CodecContext& ctx, const std::string& input_name, bool overwr
 	if ( ctx.errorlevel == 0 ) return true;
 
 	const std::string fn = resolve_dump_filename( input_name, ( ctx.errorlevel == 1 ) ? "wrn.nfo" : "err.nfo", overwrite );
-	FILE* fp = open_dump_file( fn, "w" );
+	std::string staging_fn;
+	const std::string saved_msg = ctx.errormessage;
+	const int saved_lvl = ctx.errorlevel;
+	FILE* fp = open_dump_file( ctx, fn, staging_fn, "w" );
 	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
 		return false;
 	}
 
-	std::fprintf( fp, "--> error (level %i) in file \"%s\" <--\n\n", ctx.errorlevel, input_name.c_str() );
+	std::fprintf( fp, "--> error (level %i) in file \"%s\" <--\n\n", saved_lvl, input_name.c_str() );
 	std::fprintf( fp, " %s -> %s:\n", stage_status_text( ctx.error_stage ),
-		( ctx.errorlevel == 1 ) ? "warning" : "error" );
-	std::fprintf( fp, " %s\n", ctx.errormessage.c_str() );
-	return close_dump_file( ctx, fp, fn );
+		( saved_lvl == 1 ) ? "warning" : "error" );
+	std::fprintf( fp, " %s\n", saved_msg.c_str() );
+	return close_dump_file( ctx, fp, staging_fn, fn );
 }
 
 void run_dev_action( CodecContext& ctx, const std::string& input_name, int collmode, bool overwrite, const StageReporter* reporter )

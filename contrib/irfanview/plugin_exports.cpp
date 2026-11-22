@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,7 @@
 
 namespace {
 
-constexpr std::size_t kErrBufMax = 256;
+constexpr std::size_t kErrBufMax = PJGLIB_MSG_SIZE; // 128 chars / wchar_ts
 
 const char* short_version_number() noexcept
 {
@@ -78,37 +79,63 @@ int write_susie_info_w( int infono, LPWSTR buf, int buflen ) noexcept
 	return static_cast<int>( std::wcslen( buf ) );
 }
 
-int probe_susie_supported( DWORD_PTR dw ) noexcept
+int probe_susie_handle( HANDLE hf ) noexcept
 {
-	if ( dw == 0 ) {
+	if ( ( hf == nullptr ) || ( hf == INVALID_HANDLE_VALUE ) ) {
 		return 0;
 	}
-	// Susie 00IN convention: low 64 KB values represent a Win32 file HANDLE; higher values are a >=2 KB memory pointer.
+	if ( GetFileType( hf ) != FILE_TYPE_DISK ) {
+		return 0;
+	}
+	LARGE_INTEGER zero{};
+	LARGE_INTEGER orig_pos{};
+	if ( !SetFilePointerEx( hf, zero, &orig_pos, FILE_CURRENT ) ) {
+		return 0;
+	}
+	if ( !SetFilePointerEx( hf, zero, nullptr, FILE_BEGIN ) ) {
+		return 0;
+	}
+	std::uint8_t header[ 64 ]{};
+	DWORD got = 0;
+	const BOOL ok = ReadFile( hf, header, sizeof( header ), &got, nullptr );
+	SetFilePointerEx( hf, orig_pos, nullptr, FILE_BEGIN );
+	if ( !ok || ( got < 3 ) ) {
+		return 0;
+	}
+	return pjg_iv::has_pjg_signature( header, got ) ? 1 : 0;
+}
+
+int probe_susie_supported( DWORD_PTR dw ) noexcept
+{
+	if ( ( dw == 0 ) || ( dw == static_cast<DWORD_PTR>( -1 ) ) ) {
+		return 0;
+	}
+	// Susie 00IN convention: low 64 KB values represent a Win32 file HANDLE; higher values are typically a memory pointer.
 	if ( ( dw & ~DWORD_PTR( 0xFFFFu ) ) == 0 ) {
-		HANDLE hf = reinterpret_cast<HANDLE>( dw );
-		LARGE_INTEGER zero{};
-		LARGE_INTEGER orig_pos{};
-		const BOOL has_orig = SetFilePointerEx( hf, zero, &orig_pos, FILE_CURRENT );
-		SetFilePointerEx( hf, zero, nullptr, FILE_BEGIN );
-		std::uint8_t header[ 64 ]{};
-		DWORD got = 0;
-		const BOOL ok = ReadFile( hf, header, sizeof( header ), &got, nullptr );
-		if ( has_orig ) {
-			SetFilePointerEx( hf, orig_pos, nullptr, FILE_BEGIN );
-		}
-		if ( !ok ) {
-			return 0;
-		}
-		return pjg_iv::has_pjg_signature( header, got ) ? 1 : 0;
+		return probe_susie_handle( reinterpret_cast<HANDLE>( dw ) );
 	}
 
 	const auto* mem = reinterpret_cast<const std::uint8_t*>( dw );
-	return pjg_iv::has_pjg_signature( mem, 64 ) ? 1 : 0;
+	MEMORY_BASIC_INFORMATION mbi{};
+	if ( ( VirtualQuery( mem, &mbi, sizeof( mbi ) ) == sizeof( mbi ) ) &&
+		 ( mbi.State == MEM_COMMIT ) &&
+		 ( ( mbi.Protect & ( PAGE_NOACCESS | PAGE_GUARD ) ) == 0 ) ) {
+		const auto region_end = reinterpret_cast<std::uintptr_t>( mbi.BaseAddress ) + mbi.RegionSize;
+		const auto ptr_addr   = reinterpret_cast<std::uintptr_t>( mem );
+		if ( region_end > ptr_addr ) {
+			const std::size_t avail = static_cast<std::size_t>(
+				std::min<std::uintptr_t>( region_end - ptr_addr, 64u ) );
+			return pjg_iv::has_pjg_signature( mem, avail ) ? 1 : 0;
+		}
+	}
+
+	// Fallback if the host passed an NT kernel file HANDLE whose numeric value exceeds 0xFFFF.
+	return probe_susie_handle( reinterpret_cast<HANDLE>( dw ) );
 }
 
 int load_susie_input_w(
 	LPCWSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	std::vector<std::uint8_t>& storage,
 	const std::uint8_t*& data_ptr,
@@ -116,11 +143,11 @@ int load_susie_input_w(
 {
 	const unsigned int mode = flag & SPI_INPUT_MASK;
 	if ( mode == SPI_INPUT_FILE ) {
-		if ( buf == nullptr ) {
+		if ( ( buf == nullptr ) || ( len < 0 ) ) {
 			return SPI_FILE_READ_ERROR;
 		}
 		std::string err;
-		if ( !pjg_iv::read_file_bytes_w( buf, storage, err ) ) {
+		if ( !pjg_iv::read_file_bytes_w( buf, storage, err, static_cast<std::uint64_t>( len ) ) ) {
 			return SPI_FILE_READ_ERROR;
 		}
 		data_ptr  = storage.data();
@@ -128,11 +155,11 @@ int load_susie_input_w(
 		return SPI_ALL_RIGHT;
 	}
 	if ( mode == SPI_INPUT_MEMORY ) {
-		if ( ( buf == nullptr ) || ( len < 3 ) ) {
+		if ( ( buf == nullptr ) || ( len < 3 ) || ( static_cast<std::uint64_t>( len ) > ( 256ull << 20 ) ) ) {
 			return SPI_MEMORY_ERROR;
 		}
 		data_ptr  = reinterpret_cast<const std::uint8_t*>( buf );
-		data_size = len;
+		data_size = static_cast<std::size_t>( len );
 		return SPI_ALL_RIGHT;
 	}
 	return SPI_NO_FUNCTION;
@@ -203,11 +230,14 @@ PJG_PLUGIN_CDECL HANDLE __cdecl ReadPJG( LPCSTR filename, UINT flags, LPSTR errb
 			return nullptr;
 		}
 		const std::wstring wpath = pjg_iv::widen_acp( filename );
+		if ( wpath.empty() ) {
+			pjg_iv::copy_error_a( errbuf, kErrBufMax, "invalid input filename encoding" );
+			return nullptr;
+		}
 		wchar_t werr[ kErrBufMax ]{};
 		HANDLE h = ReadPJG_W( wpath.c_str(), flags, werr );
 		if ( ( h == nullptr ) && ( errbuf != nullptr ) ) {
-			char narrow[ kErrBufMax ]{};
-			WideCharToMultiByte( CP_ACP, 0, werr, -1, narrow, static_cast<int>( sizeof( narrow ) ), nullptr, nullptr );
+			const std::string narrow = pjg_iv::narrow_acp_from_wide( werr );
 			pjg_iv::copy_error_a( errbuf, kErrBufMax, narrow );
 		}
 		return h;
@@ -259,11 +289,14 @@ PJG_PLUGIN_CDECL int __cdecl SavePJG( LPCSTR filename, HANDLE hDib, int quality,
 			return 1;
 		}
 		const std::wstring wpath = pjg_iv::widen_acp( filename );
+		if ( wpath.empty() ) {
+			pjg_iv::copy_error_a( errbuf, kErrBufMax, "invalid output filename encoding" );
+			return 1;
+		}
 		wchar_t werr[ kErrBufMax ]{};
 		const int rc = SavePJG_W( wpath.c_str(), hDib, quality, werr );
 		if ( ( rc != 0 ) && ( errbuf != nullptr ) ) {
-			char narrow[ kErrBufMax ]{};
-			WideCharToMultiByte( CP_ACP, 0, werr, -1, narrow, static_cast<int>( sizeof( narrow ) ), nullptr, nullptr );
+			const std::string narrow = pjg_iv::narrow_acp_from_wide( werr );
 			pjg_iv::copy_error_a( errbuf, kErrBufMax, narrow );
 		}
 		return rc;
@@ -304,7 +337,7 @@ PJG_PLUGIN_STDCALL(int) IsSupportedW( LPCWSTR filename, DWORD_PTR dw )
 
 PJG_PLUGIN_STDCALL(int) GetPictureInfoW(
 	LPCWSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	SusiePictureInfo* lpInfo )
 {
@@ -348,14 +381,20 @@ PJG_PLUGIN_STDCALL(int) GetPictureInfoW(
 
 PJG_PLUGIN_STDCALL(int) GetPictureInfo(
 	LPCSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	SusiePictureInfo* lpInfo )
 {
+	if ( lpInfo == nullptr ) {
+		return SPI_MEMORY_ERROR;
+	}
+	std::memset( lpInfo, 0, sizeof( SusiePictureInfo ) );
+
 	try {
 		if ( ( flag & SPI_INPUT_MASK ) == SPI_INPUT_FILE ) {
 			if ( buf == nullptr ) return SPI_FILE_READ_ERROR;
 			const std::wstring wpath = pjg_iv::widen_acp( buf );
+			if ( wpath.empty() ) return SPI_FILE_READ_ERROR;
 			return GetPictureInfoW( wpath.c_str(), len, flag, lpInfo );
 		}
 		return GetPictureInfoW( reinterpret_cast<LPCWSTR>( buf ), len, flag, lpInfo );
@@ -368,13 +407,19 @@ PJG_PLUGIN_STDCALL(int) GetPictureInfo(
 
 PJG_PLUGIN_STDCALL(int) GetPictureW(
 	LPCWSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	HANDLE* pHBInfo,
 	HANDLE* pHBm,
 	SpiProgressCallback lpPrgressCallback,
 	LONG_PTR lData )
 {
+	if ( ( pHBInfo == nullptr ) || ( pHBm == nullptr ) ) {
+		return SPI_MEMORY_ERROR;
+	}
+	*pHBInfo = nullptr;
+	*pHBm    = nullptr;
+
 	try {
 		if ( ( lpPrgressCallback != nullptr ) && ( lpPrgressCallback( 0, 100, lData ) != 0 ) ) {
 			return SPI_ABORT;
@@ -410,17 +455,24 @@ PJG_PLUGIN_STDCALL(int) GetPictureW(
 
 PJG_PLUGIN_STDCALL(int) GetPicture(
 	LPCSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	HANDLE* pHBInfo,
 	HANDLE* pHBm,
 	SpiProgressCallback lpPrgressCallback,
 	LONG_PTR lData )
 {
+	if ( ( pHBInfo != nullptr ) ) *pHBInfo = nullptr;
+	if ( ( pHBm != nullptr ) )    *pHBm    = nullptr;
+	if ( ( pHBInfo == nullptr ) || ( pHBm == nullptr ) ) {
+		return SPI_MEMORY_ERROR;
+	}
+
 	try {
 		if ( ( flag & SPI_INPUT_MASK ) == SPI_INPUT_FILE ) {
 			if ( buf == nullptr ) return SPI_FILE_READ_ERROR;
 			const std::wstring wpath = pjg_iv::widen_acp( buf );
+			if ( wpath.empty() ) return SPI_FILE_READ_ERROR;
 			return GetPictureW( wpath.c_str(), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
 		}
 		return GetPictureW( reinterpret_cast<LPCWSTR>( buf ), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
@@ -433,7 +485,7 @@ PJG_PLUGIN_STDCALL(int) GetPicture(
 
 PJG_PLUGIN_STDCALL(int) GetPreviewW(
 	LPCWSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	HANDLE* pHBInfo,
 	HANDLE* pHBm,
@@ -445,7 +497,7 @@ PJG_PLUGIN_STDCALL(int) GetPreviewW(
 
 PJG_PLUGIN_STDCALL(int) GetPreview(
 	LPCSTR buf,
-	std::size_t len,
+	LONG_PTR len,
 	unsigned int flag,
 	HANDLE* pHBInfo,
 	HANDLE* pHBm,
@@ -454,4 +506,3 @@ PJG_PLUGIN_STDCALL(int) GetPreview(
 {
 	return GetPicture( buf, len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
 }
-

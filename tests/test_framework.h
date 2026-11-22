@@ -1,13 +1,28 @@
 #ifndef PACKJPG_TEST_FRAMEWORK_H
 #define PACKJPG_TEST_FRAMEWORK_H
 
+#include <atomic>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#if defined(_WIN32) || defined(WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace pjg_test {
 
@@ -44,6 +59,35 @@ inline void fail(const char* expr, const char* file, int line, const std::string
 	}
 	throw AssertionFailure(oss.str());
 }
+
+class TempTestDir {
+public:
+	explicit TempTestDir(const char* prefix = "pjg_ut") {
+		static std::atomic<unsigned long> counter{0};
+#if defined(_WIN32) || defined(WIN32)
+		const unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+		const unsigned long pid = static_cast<unsigned long>(::getpid());
+#endif
+		const unsigned long id = counter.fetch_add(1, std::memory_order_relaxed) + 1;
+		const std::string leaf = std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(id);
+		path_ = std::filesystem::temp_directory_path() / leaf;
+		std::filesystem::create_directories(path_);
+	}
+
+	~TempTestDir() {
+		std::error_code ec;
+		std::filesystem::remove_all(path_, ec);
+	}
+
+	TempTestDir(const TempTestDir&) = delete;
+	TempTestDir& operator=(const TempTestDir&) = delete;
+
+	const std::filesystem::path& path() const noexcept { return path_; }
+
+private:
+	std::filesystem::path path_;
+};
 
 } // namespace pjg_test
 

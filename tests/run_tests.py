@@ -424,18 +424,123 @@ def main():
         dash_proc = subprocess.run(
             [os.path.abspath(binary), "-np", "-j99999999999", dash_file],
             cwd=dash_dir,
+            env=ENV,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=30,
         )
         assert dash_proc.returncode == 0 and os.path.isfile(os.path.join(dash_dir, "-v1_sample.pjg"))
 
-        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and CLI safety guards")
+        # 8. Second-pass CLI regressions: help flags (#10), UTF-8 filenames (#10), atomic output preservation on warning/error/-ver (#9), hard-link & dangling-symlink guards (#11)
+        help_flags = ["-h", "--help", "-?"] + (["/?"] if os.name == "nt" else [])
+        for hflag in help_flags:
+            rc_h, out_h, _ = run_cli(binary, [hflag])
+            assert rc_h == 0 and b"Usage:" in out_h, f"Expected exit 0 and Usage text for {hflag}, got rc={rc_h}"
+
+        # UTF-8 Unicode path round-trip (direct + -r -out)
+        uni_dir = os.path.join(tmp, "unicode_\u03b1\u03b2\u03b3_\u732b")
+        uni_out = os.path.join(tmp, "unicode_out_\u732b")
+        os.makedirs(uni_dir)
+        uni_jpg = os.path.join(uni_dir, "photo_\u03c0_\u732b.jpg")
+        with open(uni_jpg, "wb") as f:
+            f.write(first_jpg_bytes)
+        rc_u1, _, _ = run_cli(binary, ["-np", "-ver", "-r", "-out", uni_out, uni_dir])
+        assert rc_u1 == 0
+        uni_pjg = os.path.join(uni_out, "photo_\u03c0_\u732b.pjg")
+        assert os.path.isfile(uni_pjg), "Missing UTF-8 output .pjg"
+        uni_rt_dir = os.path.join(tmp, "unicode_rt_\u732b")
+        rc_u2, _, _ = run_cli(binary, ["-np", "-o", "-out", uni_rt_dir, uni_pjg])
+        assert rc_u2 == 0
+        with open(os.path.join(uni_rt_dir, "photo_\u03c0_\u732b.jpg"), "rb") as f:
+            assert f.read() == first_jpg_bytes
+
+        # Finding #9: pre-existing writable output file MUST remain intact when -o conversion skips on warning, fails decode, or fails -ver!
+        atomic_dir = os.path.join(tmp, "atomic_cli")
+        os.makedirs(atomic_dir)
+
+        warn_in = os.path.join(atomic_dir, "keep_on_warn.jpg")
+        warn_target = os.path.join(atomic_dir, "keep_on_warn.pjg")
+        shutil.copy2(mixed_pad_path, warn_in)
+        with open(warn_target, "wb") as f:
+            f.write(b"PRECIOUS_PJG_BEFORE_WARNING")
+        rc_aw, _, _ = run_cli(binary, ["-np", "-o", warn_in])
+        assert rc_aw != 0
+        with open(warn_target, "rb") as f:
+            assert f.read() == b"PRECIOUS_PJG_BEFORE_WARNING", "Pre-existing output destroyed on warning skip!"
+
+        err_in = os.path.join(atomic_dir, "keep_on_err.jpg")
+        err_target = os.path.join(atomic_dir, "keep_on_err.pjg")
+        with open(err_in, "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01")
+        with open(err_target, "wb") as f:
+            f.write(b"PRECIOUS_PJG_BEFORE_ERROR")
+        rc_ae, _, _ = run_cli(binary, ["-np", "-o", err_in])
+        assert rc_ae != 0
+        with open(err_target, "rb") as f:
+            assert f.read() == b"PRECIOUS_PJG_BEFORE_ERROR", "Pre-existing output destroyed on decode error!"
+
+        ver_in = os.path.join(atomic_dir, "keep_on_ver_fail.jpg")
+        ver_target = os.path.join(atomic_dir, "keep_on_ver_fail.pjg")
+        shutil.copy2(mixed_pad_path, ver_in)
+        with open(ver_target, "wb") as f:
+            f.write(b"PRECIOUS_PJG_BEFORE_VER_FAIL")
+        rc_av, _, _ = run_cli(binary, ["-np", "-p", "-ver", "-o", ver_in])
+        assert rc_av != 0
+        with open(ver_target, "rb") as f:
+            assert f.read() == b"PRECIOUS_PJG_BEFORE_VER_FAIL", "Pre-existing output destroyed on -ver mismatch!"
+        assert not [n for n in os.listdir(atomic_dir) if ".packjpg_tmp_" in n], "Leftover staging file found!"
+
+        # Finding #11: hard-linked target -> input refused under -o; dangling symlink preserved without -o
+        hl_dir = os.path.join(tmp, "hardlink_guard")
+        os.makedirs(hl_dir)
+        hl_jpg = os.path.join(hl_dir, "linked.jpg")
+        hl_pjg = os.path.join(hl_dir, "linked.pjg")
+        with open(hl_jpg, "wb") as f:
+            f.write(first_jpg_bytes)
+        try:
+            os.link(hl_jpg, hl_pjg)
+            has_hardlink = True
+        except OSError:
+            has_hardlink = False
+        if has_hardlink:
+            rc_hl, _, _ = run_cli(binary, ["-np", "-o", hl_jpg])
+            assert rc_hl != 0, "Expected -o to refuse overwriting target hard-linked to input"
+            with open(hl_jpg, "rb") as f:
+                assert f.read() == first_jpg_bytes
+
+            # Batch input hard-link check: b_alias.dat is hard-linked to batch_item.pjg
+            b_jpg = os.path.join(hl_dir, "batch_item.jpg")
+            b_pjg = os.path.join(hl_dir, "batch_item.pjg")
+            b_alias = os.path.join(hl_dir, "b_alias.pjg")
+            with open(b_jpg, "wb") as f:
+                f.write(first_jpg_bytes)
+            with open(b_pjg, "wb") as f:
+                f.write(pjg_stdout)
+            os.link(b_pjg, b_alias)
+            rc_bhl, _, _ = run_cli(binary, ["-np", "-o", b_jpg, b_alias])
+            assert rc_bhl != 0, "Expected BatchPathGuard to block overwriting hard-linked batch input"
+            with open(b_alias, "rb") as f:
+                assert f.read() == pjg_stdout
+
+        if os.name != "nt":
+            sym_dir = os.path.join(tmp, "dangling_sym")
+            os.makedirs(sym_dir)
+            sym_jpg = os.path.join(sym_dir, "dangle.jpg")
+            sym_pjg = os.path.join(sym_dir, "dangle.pjg")
+            with open(sym_jpg, "wb") as f:
+                f.write(first_jpg_bytes)
+            os.symlink(os.path.join(sym_dir, "nonexistent_target"), sym_pjg)
+            rc_sym, _, _ = run_cli(binary, ["-np", sym_jpg])
+            assert rc_sym == 0
+            assert os.path.islink(sym_pjg), "Dangling symlink was clobbered without -o!"
+            assert os.path.isfile(os.path.join(sym_dir, "dangle_.pjg")), "Expected dangle_.pjg alongside dangling symlink"
+
+        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and second-pass CLI safety guards")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0
 
 
-
 if __name__ == "__main__":
     sys.exit(main())
+

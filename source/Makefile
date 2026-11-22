@@ -2,11 +2,12 @@
 
 TARGET   ?= packJPG
 CXXSTD   ?= -std=c++17
-CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
+CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -fomit-frame-pointer
 AR       ?= ar
 RANLIB   ?= ranlib
 WINDRES  ?= windres
 PYTHON   ?= python3
+FUZZ_CXX ?= clang++
 UPX      ?= upx
 USE_UPX  ?= 0
 USE_LTO  ?= 1
@@ -32,6 +33,7 @@ OS_CPPFLAGS    =
 PIC_FLAGS      =
 THREAD_FLAGS   =
 OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -lpthread
+BIN_LDFLAGS    = $(OS_LDFLAGS) -lshell32
 SHLIB          = $(TARGET).dll
 SHLIB_FLAGS    = -shared -Wl,--out-implib,lib$(TARGET).a -fvisibility=hidden
 else ifeq ($(TARGET_OS),Darwin)
@@ -44,8 +46,9 @@ OS_CPPFLAGS    = -DUNIX
 PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
 OS_LDFLAGS     =
+BIN_LDFLAGS    =
 SHLIB          = lib$(TARGET).dylib
-SHLIB_FLAGS    = -dynamiclib -fvisibility=hidden
+SHLIB_FLAGS    = -dynamiclib -Wl,-install_name,@rpath/lib$(TARGET).dylib -fvisibility=hidden
 else
 ifeq ($(origin CXX),default)
 CXX            = g++
@@ -55,10 +58,11 @@ RES            =
 OS_CPPFLAGS    = -DUNIX
 PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
-ifeq ($(STATIC),1)
-OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
-else
 OS_LDFLAGS     =
+ifeq ($(STATIC),1)
+BIN_LDFLAGS    = -static -static-libgcc -static-libstdc++ -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
+else
+BIN_LDFLAGS    = $(OS_LDFLAGS)
 endif
 SHLIB          = lib$(TARGET).so
 SHLIB_FLAGS    = -shared -fvisibility=hidden
@@ -100,10 +104,19 @@ CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) l
                test_runner test_runner.exe fuzz_roundtrip fuzz_roundtrip.exe \
                .stamp_std .stamp_dev .stamp_dev_bin
 
-.PHONY: all dev lib dll shared test fuzz install uninstall clean
+.PHONY: all dev lib dll shared test fuzz install uninstall clean .force_dev_bin
 
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
+endif
+ifneq (,$(and $(filter all,$(MAKECMDGOALS)),$(filter dev,$(MAKECMDGOALS))))
+.NOTPARALLEL:
+endif
+
+ifeq (,$(wildcard $(BIN)))
+DEV_BIN_FORCE = .force_dev_bin
+else
+DEV_BIN_FORCE =
 endif
 
 all: $(BIN)
@@ -120,7 +133,7 @@ all: $(BIN)
 %.dll.o: %.cpp $(DEPS)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 
-%.res: %.rc app_icon.ico file_icon.ico
+%.res: %.rc app_icon.ico file_icon.ico packjpg.manifest
 	$(WINDRES) -O coff $< $@
 
 ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
@@ -139,16 +152,18 @@ endif
 	$(RM_STAMPS_STD)
 	@echo dev > $@
 
+.force_dev_bin:
+
 $(BIN): $(OBJ) $(RES) .stamp_std
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
 
 dev: .stamp_dev_bin
 
-.stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+.stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev $(DEV_BIN_FORCE)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif
@@ -175,7 +190,7 @@ test: $(BIN) $(TEST_BIN)
 	$(PYTHON) ../tests/run_tests.py ./$(BIN)
 
 fuzz:
-	clang++ -I. $(CXXSTD) $(OS_CPPFLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \
+	$(FUZZ_CXX) -I. $(CXXSTD) $(OS_CPPFLAGS) $(THREAD_FLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \
 		-fsanitize=fuzzer,address,undefined $(LIB_SRC) ../tests/fuzz_roundtrip.cpp -o $(FUZZ_BIN)
 
 install: $(BIN)
@@ -191,4 +206,3 @@ ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
 else
 	$(RM) $(CLEAN_FILES)
 endif
-

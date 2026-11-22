@@ -10,7 +10,7 @@ Standalone Windows image plug-in (`x64` and `x86`) enabling **IrfanView** (as we
 
 ## Native IrfanView Format Plug-in (`PackJPGx64.dll` / `PackJPGx86.dll`)
 
-`PackJPGx64.dll` and `PackJPGx86.dll` also export native IrfanView format entrypoints (`__cdecl`, ANSI & UTF-16) for full read **and** save integration:
+`PackJPGx64.dll` and `PackJPGx86.dll` also export native IrfanView format entrypoints (`__cdecl`, ANSI & UTF-16) for full read **and** save integration (`1/4/8/16/24/32`-bit `BI_RGB` and `16/32`-bit `BI_BITFIELDS` DIBs; `errbuf` up to `128` characters / `PJGLIB_MSG_SIZE`):
 
 ```c
 int    __cdecl GetPlugInInfo(char* version, char* formats);

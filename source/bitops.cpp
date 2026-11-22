@@ -4,6 +4,7 @@ reading and writing of arrays
 */
 
 #include "bitops.h"
+#include "path_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -309,6 +310,7 @@ std::vector<std::uint8_t> MemoryWriter::take_data() {
 
 void MemoryWriter::reset() {
 	data_.resize(0);
+	err_ = false;
 }
 
 std::size_t MemoryWriter::num_bytes_written() {
@@ -316,11 +318,11 @@ std::size_t MemoryWriter::num_bytes_written() {
 }
 
 bool MemoryWriter::error() {
-	return false;
+	return err_;
 }
 
 FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
-	fptr_ = std::fopen(file_path.c_str(), "wb");
+	fptr_ = fopen_utf8(file_path, "wb");
 	if (fptr_ != nullptr) {
 		file_buffer_.resize(32768);
 		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
@@ -356,17 +358,23 @@ bool FileWriter::write_byte(std::uint8_t byte) {
 }
 
 std::vector<std::uint8_t> FileWriter::get_data() {
-	if (fptr_ != nullptr) {
-		std::fflush(fptr_);
+	if (fptr_ != nullptr && (std::fflush(fptr_) != 0 || std::ferror(fptr_))) {
+		throw std::runtime_error("FileWriter::get_data: flush failed.");
 	}
-	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
+	const std::filesystem::path fs_path = path_from_utf8(file_path_);
+	if (std::ifstream is{ fs_path, std::ios::binary | std::ios::ate }) {
 		const auto size = is.tellg();
 		if (size < 0) {
 			throw std::runtime_error("FileWriter::get_data: invalid file size.");
 		}
-		std::vector<std::uint8_t> data_copy(static_cast<std::size_t>(size));
+		const auto umax = static_cast<std::uintmax_t>(size);
+		if (umax > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()) ||
+		    umax > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+			throw std::runtime_error("FileWriter::get_data: file exceeds addressable memory.");
+		}
+		std::vector<std::uint8_t> data_copy(static_cast<std::size_t>(umax));
 		is.seekg(0);
-		if (size == 0 || is.read(reinterpret_cast<char*>(data_copy.data()), size)) {
+		if (umax == 0 || is.read(reinterpret_cast<char*>(data_copy.data()), static_cast<std::streamsize>(umax))) {
 			return data_copy;
 		} else {
 			throw std::runtime_error("FileWriter::get_data: unable to read bytes from file.");
@@ -380,7 +388,7 @@ void FileWriter::reset() {
 	if (fptr_ != nullptr) {
 		std::fflush(fptr_);
 		std::fclose(fptr_);
-		fptr_ = std::fopen(file_path_.c_str(), "wb");
+		fptr_ = fopen_utf8(file_path_, "wb");
 		if (fptr_ != nullptr && !file_buffer_.empty()) {
 			std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 		}
@@ -395,14 +403,13 @@ bool FileWriter::flush() {
 }
 
 std::size_t FileWriter::num_bytes_written() {
-	if (fptr_ != nullptr) {
-		std::fflush(fptr_);
+	if (fptr_ != nullptr && (std::fflush(fptr_) != 0 || std::ferror(fptr_))) {
+		return 0;
 	}
-	if (std::ifstream is{ file_path_, std::ios::binary | std::ios::ate }) {
-		const auto size = is.tellg();
-		if (size >= 0) {
-			return static_cast<std::size_t>(size);
-		}
+	std::error_code ec;
+	const auto fsz = std::filesystem::file_size(path_from_utf8(file_path_), ec);
+	if (!ec && fsz <= static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())) {
+		return static_cast<std::size_t>(fsz);
 	}
 	const long pos = (fptr_ != nullptr) ? std::ftell(fptr_) : -1L;
 	return (pos >= 0) ? static_cast<std::size_t>(pos) : 0;
@@ -421,16 +428,25 @@ StreamWriter::StreamWriter(FILE* stream) : stream_(stream) {
 
 StreamWriter::~StreamWriter() {
 	if (!flushed_ && std::uncaught_exceptions() == 0) {
-		flush();
+		try {
+			flush();
+		} catch (...) {
+		}
 	}
 }
 
 std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
+	if (n == 0 || from == nullptr) {
+		return 0;
+	}
 	flushed_ = false;
 	return writer_->write(from, n);
 }
 
 std::size_t StreamWriter::write(const std::vector<std::uint8_t>& bytes) {
+	if (bytes.empty()) {
+		return 0;
+	}
 	flushed_ = false;
 	return writer_->write(bytes);
 }
@@ -472,7 +488,7 @@ bool StreamWriter::flush() {
 		}
 	}
 #endif
-	const auto data = writer_->get_data();
+	const auto& data = writer_->data();
 	if (data.size() > flushed_offset_) {
 		const std::size_t to_write = data.size() - flushed_offset_;
 		const std::size_t written = std::fwrite(data.data() + flushed_offset_, sizeof data[0], to_write, stream_);
@@ -498,18 +514,24 @@ bool StreamWriter::error() {
 
 
 FileReader::FileReader(const std::string& file_path) {
+	const std::filesystem::path fs_path = path_from_utf8(file_path);
 	std::error_code ec;
-	if (std::filesystem::is_directory(file_path, ec)) {
+	if (std::filesystem::is_directory(fs_path, ec)) {
 		throw std::runtime_error("FileReader: path is a directory: " + file_path);
 	}
-	if (std::ifstream is{ file_path, std::ios::binary | std::ios::ate }) {
+	if (std::ifstream is{ fs_path, std::ios::binary | std::ios::ate }) {
 		const auto size = is.tellg();
 		if (size < 0) {
 			throw std::runtime_error("FileReader: unable to determine size of " + file_path);
 		}
-		std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
+		const auto umax = static_cast<std::uintmax_t>(size);
+		if (umax > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()) ||
+		    umax > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+			throw std::runtime_error("FileReader: file exceeds addressable memory: " + file_path);
+		}
+		std::vector<std::uint8_t> data(static_cast<std::size_t>(umax));
 		is.seekg(0);
-		if (size == 0 || is.read(reinterpret_cast<char*>(data.data()), size)) {
+		if (umax == 0 || is.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(umax))) {
 			reader_ = std::make_unique<MemoryReader>(std::move(data));
 		} else {
 			throw std::runtime_error("FileReader: unable to read bytes from " + file_path);

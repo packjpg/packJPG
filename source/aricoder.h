@@ -192,6 +192,9 @@ public:
 				++k;
 			}
 #endif
+			if ( ( eof_zero_bytes_ > 8u ) && ( ( eof_e12_bits_ += static_cast<std::uint32_t>( k ) ) > 64u ) ) {
+				throw std::runtime_error( "unexpected end of arithmetic stream" );
+			}
 			clow_local  = ( clow_local << k ) & kMask100;
 			chigh_local = ( ( chigh_local << k ) | ( ( 1u << k ) - 1u ) ) & kMask100;
 			ccode_local = ( ( ccode_local << k ) | read_bits( k ) ) & kMask100;
@@ -231,6 +234,7 @@ private:
 	std::uint64_t bit_buf_ = 0;
 	int bits_left_ = 0;
 	std::size_t eof_zero_bytes_ = 0;
+	std::uint32_t eof_e12_bits_ = 0;
 
 	unsigned int ccode = 0;
 	unsigned int clow = 0;
@@ -423,14 +427,15 @@ private:
 	inline void totalize_table( std::int32_t node_idx )
 	{
 		SNode& context = nodes_[ static_cast<std::size_t>( node_idx ) ];
+		uint32_t* const tot = totals.data();
 
 		if ( context.counts_offset >= 0 ) {
-			const std::uint16_t* counts = counts_pool_.data() + context.counts_offset;
+			const std::uint16_t* const counts = counts_pool_.data() + context.counts_offset;
 			const int local_symb = sb0_count;
 
 			int i = static_cast<int>( context.max_symbol ) - 1;
 			totals_end_ = i + 2;
-			totals[ static_cast<std::size_t>( totals_end_ ) ] = 0;
+			tot[ totals_end_ ] = 0;
 
 			uint32_t curr_total = 0;
 
@@ -442,22 +447,23 @@ private:
 					const std::uint32_t allow = static_cast<std::uint32_t>( ( ~mask >> i ) & 1u );
 					curr_total += c * allow;
 					new_nonzero |= static_cast<std::uint64_t>( c != 0 ) << i;
-					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+					tot[ i + 1 ] = curr_total;
 				}
 				sb_mask_ = mask | new_nonzero;
 				sb0_count = max_symbol - ari_popcount_u64( sb_mask_ );
 			}
 			else {
+				std::uint8_t* const sb = scoreboard_.data();
 				for ( ; i >= 0; i-- ) {
-					if ( !scoreboard_[ static_cast<std::size_t>( i ) ] ) {
+					if ( !sb[ i ] ) {
 						const uint16_t curr_count = counts[ i ];
 						if ( curr_count > 0 ) {
 							curr_total += curr_count;
-							scoreboard_[ static_cast<std::size_t>( i ) ] = 1;
+							sb[ i ] = 1;
 							sb0_count--;
 						}
 					}
-					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+					tot[ i + 1 ] = curr_total;
 				}
 			}
 
@@ -473,12 +479,12 @@ private:
 				esc_prob /= static_cast<uint32_t>( local_symb * context.max_count );
 				esc_prob++;
 			}
-			totals[ 0 ] = totals[ 1 ] + esc_prob;
+			tot[ 0 ] = tot[ 1 ] + esc_prob;
 		}
 		else {
 			alloc_counts( node_idx );
-			totals[ 0 ] = 1;
-			totals[ 1 ] = 0;
+			tot[ 0 ] = 1;
+			tot[ 1 ] = 0;
 			totals_end_ = 1;
 		}
 	}
