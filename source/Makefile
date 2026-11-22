@@ -186,7 +186,7 @@ $(SHLIB): $(DLL_OBJ)
 	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) $(SHLIB_FLAGS) -o $@ $(DLL_OBJ) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 $(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -DBUILD_LIB -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 test: $(BIN) $(TEST_BIN)
 ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
