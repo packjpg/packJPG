@@ -464,4 +464,90 @@ TEST_CASE("core codec regressions: high-ratio solid image, 320KB generic trailer
 	}
 }
 
+TEST_CASE("pass-3 codec regressions: AC-only progressive SOF2 budget and merge_jpeg leading/consecutive RST reconstruction") {
+	// 1. Crafted <200-byte 65535x2048 4-component (4x4) AC-only SOF2 progressive header (>8.3M blocks, missing DC scans)
+	//    must be rejected BEFORE allocating colldata in both strict (err_tol=1) and tolerant (err_tol=2) modes!
+	{
+		std::vector<std::uint8_t> ac_only_sof2 = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		ac_only_sof2.insert(ac_only_sof2.end(), 64, 16);
+		const std::uint8_t sof2_tail[] = {
+			// SOF2: height=2048 (0x0800), width=65535 (0xFFFF), 4 components, 4x4 sampling -> >8.38M blocks (>1 GiB colldata if allocated)
+			0xFF, 0xC2, 0x00, 0x14, 0x08, 0x08, 0x00, 0xFF, 0xFF, 0x04,
+			0x01, 0x44, 0x00,
+			0x02, 0x44, 0x00,
+			0x03, 0x44, 0x00,
+			0x04, 0x44, 0x00,
+			// Minimal AC table 0 with EOB14 (0xE0) -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xE0,
+			// SOS: AC-only scan (Ss=1, Se=63, Ah=0, Al=0) on component 1 — no DC scans present!
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xD9,
+		};
+		ac_only_sof2.insert(ac_only_sof2.end(), std::begin(sof2_tail), std::end(sof2_tail));
+
+		for (int tol : {1, 2}) {
+			CodecContext ctx;
+			ctx.filetype = F_JPG;
+			ctx.err_tol  = tol;
+			ctx.str_in   = std::make_unique<MemoryReader>(ac_only_sof2.data(), ac_only_sof2.size());
+			std::uint8_t m[2];
+			REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+			ctx.reset_buffers();
+			REQUIRE(!read_jpeg(ctx));
+			REQUIRE(ctx.colldata[0][0].empty());
+		}
+	}
+
+	// 2. Leading RST marker (0xFFFFFFFF sentinel at scan byte 0) + consecutive mid-scan RST markers
+	//    must be reconstructed byte-for-byte by merge_jpeg under err_tol = 2!
+	{
+		std::vector<std::uint8_t> rst_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		rst_jpg.insert(rst_jpg.end(), 64, 8);
+		const std::uint8_t rst_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xDD, 0x00, 0x04, 0x00, 0x01, // DRI = 1
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			// Leading FFD0 at scan start (byte 0), entropy byte 0x3F, consecutive FFD1 + FFD2, entropy byte 0x3F, trailing FFD3!
+			0xFF, 0xD0,
+			0x3F,
+			0xFF, 0xD1, 0xFF, 0xD2,
+			0x3F,
+			0xFF, 0xD3,
+			0xFF, 0xD9,
+		};
+		rst_jpg.insert(rst_jpg.end(), std::begin(rst_tail), std::end(rst_tail));
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.err_tol  = 2;
+		ctx.str_in   = std::make_unique<MemoryReader>(rst_jpg.data(), rst_jpg.size());
+		auto merged  = std::make_unique<MemoryWriter>();
+		MemoryWriter* merged_ptr = merged.get();
+		ctx.str_out  = std::move(merged);
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		REQUIRE(read_jpeg(ctx));
+		REQUIRE_EQ(ctx.errorlevel, 1);
+		REQUIRE(!ctx.rstp.empty());
+		REQUIRE_EQ(ctx.rstp[0], 0xFFFFFFFFu);
+		REQUIRE(merge_jpeg(ctx));
+		REQUIRE(merged_ptr->take_data() == rst_jpg);
+	}
+}
+
+
 

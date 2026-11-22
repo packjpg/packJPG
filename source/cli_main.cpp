@@ -432,11 +432,9 @@ struct BatchPathGuard {
 		if ( !out_key.empty() && ( input_keys.count( out_key ) > 0 ) ) {
 			return true;
 		}
-		if ( file_exists( candidate ) ) {
-			for ( const std::string& ip : input_paths ) {
-				if ( paths_refer_to_same_existing_file( ip, candidate ) ) {
-					return true;
-				}
+		for ( const std::string& ip : input_paths ) {
+			if ( paths_refer_to_same_target_location( ip, candidate ) ) {
+				return true;
 			}
 		}
 		return false;
@@ -447,11 +445,9 @@ struct BatchPathGuard {
 		if ( !out_key.empty() && ( claimed_output_keys.count( out_key ) > 0 ) ) {
 			return true;
 		}
-		if ( file_exists( candidate ) ) {
-			for ( const ClaimedOutputEntry& co : claimed_outputs ) {
-				if ( paths_refer_to_same_existing_file( co.path, candidate ) ) {
-					return true;
-				}
+		for ( const ClaimedOutputEntry& co : claimed_outputs ) {
+			if ( paths_refer_to_same_target_location( co.path, candidate ) ) {
+				return true;
 			}
 		}
 		return false;
@@ -716,10 +712,12 @@ bool check_file(
 	const CliInputItem& item,
 	bool pipe_on,
 	std::string& staging_output_path,
+	std::string& commit_target_path,
 	BatchPathGuard& path_guard,
 	bool lock_guard )
 {
 	staging_output_path.clear();
+	commit_target_path.clear();
 	unsigned char fileid[ 2 ] = { 0, 0 };
 
 	try {
@@ -755,25 +753,33 @@ bool check_file(
 		}
 
 		auto reserve_and_open = [&]() {
+			std::string display_candidate;
 			std::string candidate;
 			std::string out_key;
 
 			if ( cli.overwrite ) {
-				candidate = make_filename( out_base, ext );
-				if ( !ensure_parent_directory( candidate ) ) {
-					throw std::runtime_error( "could not create output directory for: " + candidate );
+				display_candidate = make_filename( out_base, ext );
+				if ( !ensure_parent_directory( display_candidate ) ) {
+					throw std::runtime_error( "could not create output directory for: " + display_candidate );
 				}
-				if ( paths_refer_to_same_existing_file( item.path, candidate ) ) {
-					throw std::runtime_error( "refusing to overwrite input file: " + candidate );
+				std::string target_err;
+				if ( !resolve_overwrite_target_utf8( display_candidate, candidate, target_err ) ) {
+					throw std::runtime_error( target_err );
+				}
+				if ( !ensure_parent_directory( candidate ) ) {
+					throw std::runtime_error( "could not create output directory for: " + display_candidate );
+				}
+				if ( paths_refer_to_same_existing_file( item.path, display_candidate ) ||
+				     paths_refer_to_same_existing_file( item.path, candidate ) ) {
+					throw std::runtime_error( "refusing to overwrite input file: " + display_candidate );
 				}
 				out_key = normalize_path_key( candidate );
 				if ( path_guard.matches_any_input( candidate, out_key ) ) {
-					throw std::runtime_error( "refusing to overwrite batch input file: " + candidate );
+					throw std::runtime_error( "refusing to overwrite batch input file: " + display_candidate );
 				}
 				if ( path_guard.matches_claimed_output( candidate, out_key ) ) {
-					throw std::runtime_error( "output path collision in batch: " + candidate );
+					throw std::runtime_error( "output path collision in batch: " + display_candidate );
 				}
-				std::string target_err;
 				if ( !can_overwrite_or_create_target( candidate, target_err ) ) {
 					throw std::runtime_error( target_err );
 				}
@@ -796,7 +802,7 @@ bool check_file(
 				while ( true ) {
 					out_key = normalize_path_key( candidate );
 					const bool clash = file_exists( candidate ) ||
-					                   paths_refer_to_same_existing_file( item.path, candidate ) ||
+					                   paths_refer_to_same_target_location( item.path, candidate ) ||
 					                   path_guard.matches_any_input( candidate, out_key ) ||
 					                   path_guard.matches_claimed_output( candidate, out_key );
 					if ( !clash ) {
@@ -805,14 +811,30 @@ bool check_file(
 					stem.push_back( '_' );
 					candidate = build();
 				}
+				display_candidate = candidate;
 				path_guard.claim_output( candidate, out_key );
 			}
 
 			try {
-				const std::string staging = make_staging_temp_path( candidate );
-				ctx.str_out         = std::make_unique<FileWriter>( staging );
-				out_name            = candidate;
-				staging_output_path = staging;
+				if ( cli.overwrite && is_non_regular_stream_target( candidate ) ) {
+					ctx.str_out         = std::make_unique<FileWriter>( candidate );
+					out_name            = display_candidate;
+					commit_target_path  = candidate;
+					staging_output_path.clear();
+				}
+				else {
+					unsigned int existing_mode = 0666u;
+					const bool has_mode = cli.overwrite && query_existing_regular_file_mode( candidate, existing_mode );
+					std::string staging;
+					FILE* fp = open_exclusive_staging_stream( candidate, has_mode, existing_mode, staging );
+					if ( fp == nullptr ) {
+						throw std::runtime_error( "Unable to open " + display_candidate + " for writing." );
+					}
+					ctx.str_out         = std::make_unique<FileWriter>( fp, staging );
+					out_name            = display_candidate;
+					commit_target_path  = candidate;
+					staging_output_path = std::move( staging );
+				}
 			} catch ( ... ) {
 				path_guard.unclaim_output( candidate, out_key );
 				throw;
@@ -983,8 +1005,12 @@ void process_cli_file(
 }
 
 void finalize_and_cleanup_streams(
+	const CliSettings& cli,
 	bool pipe_on,
 	const std::string& staging_output_path,
+	std::string& commit_target_path,
+	BatchPathGuard& path_guard,
+	bool lock_guard,
 	CodecContext& ctx,
 	std::unique_ptr<Reader>& str_str,
 	std::unique_ptr<Writer>& str_primary_out )
@@ -992,7 +1018,7 @@ void finalize_and_cleanup_streams(
 	Writer* final_out = str_primary_out ? str_primary_out.get() : ctx.str_out.get();
 	if ( final_out != nullptr ) {
 		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) ) {
-			if ( !final_out->flush() ) {
+			if ( !final_out->close() ) {
 				ctx.errormessage = "write error, possibly drive is full";
 				ctx.errorlevel   = 2;
 				if ( ctx.error_stage == StageId::None ) {
@@ -1000,7 +1026,7 @@ void finalize_and_cleanup_streams(
 				}
 			}
 		}
-		else {
+		else if ( pipe_on ) {
 			final_out->reset();
 		}
 	}
@@ -1010,12 +1036,84 @@ void finalize_and_cleanup_streams(
 	str_primary_out.reset();
 	str_str.reset();
 
+	auto unclaim_slot = [&]( const std::string& path ) {
+		if ( path.empty() ) {
+			return;
+		}
+		const std::string key = normalize_path_key( path );
+		if ( lock_guard ) {
+			std::lock_guard<std::mutex> lock( path_guard.mtx );
+			path_guard.unclaim_output( path, key );
+		}
+		else {
+			path_guard.unclaim_output( path, key );
+		}
+	};
+
 	if ( !pipe_on && !staging_output_path.empty() ) {
-		const std::string& target_path = ( ctx.filetype == F_JPG ) ? ctx.pjgfilename : ctx.jpgfilename;
-		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) && !target_path.empty() ) {
+		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) && !commit_target_path.empty() ) {
 			std::string commit_err;
-			if ( !commit_staging_file( staging_output_path, target_path, commit_err ) ) {
+			CommitStatus st = commit_staging_file(
+				staging_output_path,
+				commit_target_path,
+				cli.overwrite,
+				commit_err );
+
+			if ( ( st == CommitStatus::TargetExists ) && !cli.overwrite ) {
+				const std::filesystem::path orig_p = path_from_utf8( commit_target_path );
+				const std::filesystem::path dir    = orig_p.parent_path();
+				std::string stem                   = path_to_utf8( orig_p.stem() );
+				const std::string suffix           = path_to_utf8( orig_p.extension() );
+
+				for ( unsigned int attempt = 0; ( st == CommitStatus::TargetExists ) && ( attempt < 4096 ); ++attempt ) {
+					std::string next_cand;
+					{
+						auto pick_next = [&]() {
+							while ( true ) {
+								stem.push_back( '_' );
+								const std::filesystem::path leaf_p = path_from_utf8( stem + suffix );
+								next_cand = path_to_utf8( dir.empty() ? leaf_p : ( dir / leaf_p ) );
+								const std::string next_key = normalize_path_key( next_cand );
+								if ( !file_exists( next_cand ) &&
+								     !path_guard.matches_any_input( next_cand, next_key ) &&
+								     !path_guard.matches_claimed_output( next_cand, next_key ) ) {
+									path_guard.claim_output( next_cand, next_key );
+									break;
+								}
+							}
+						};
+						if ( lock_guard ) {
+							std::lock_guard<std::mutex> lock( path_guard.mtx );
+							pick_next();
+						}
+						else {
+							pick_next();
+						}
+					}
+
+					commit_err.clear();
+					st = commit_staging_file( staging_output_path, next_cand, false, commit_err );
+					if ( st == CommitStatus::Ok ) {
+						commit_target_path = next_cand;
+						if ( ctx.filetype == F_JPG ) {
+							ctx.pjgfilename = next_cand;
+						}
+						else if ( ctx.filetype == F_PJG ) {
+							ctx.jpgfilename = next_cand;
+						}
+					}
+					else {
+						unclaim_slot( next_cand );
+					}
+				}
+				if ( st == CommitStatus::TargetExists ) {
+					commit_err = "failed to allocate unique output file for " + commit_target_path;
+				}
+			}
+
+			if ( st != CommitStatus::Ok ) {
 				remove_file_utf8( staging_output_path );
+				unclaim_slot( commit_target_path );
 				ctx.errormessage = commit_err;
 				ctx.errorlevel   = 2;
 				if ( ctx.error_stage == StageId::None ) {
@@ -1025,7 +1123,11 @@ void finalize_and_cleanup_streams(
 		}
 		else {
 			remove_file_utf8( staging_output_path );
+			unclaim_slot( commit_target_path );
 		}
+	}
+	else if ( !pipe_on && ( ( ctx.errorlevel >= ctx.err_tol ) || ( ctx.action != A_COMPRESS ) ) ) {
+		unclaim_slot( commit_target_path );
 	}
 }
 
@@ -1052,6 +1154,7 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 	const CliInputItem& item = cli.inputs[ file_no ];
 	const StageReporter reporter{ cli.msgout, cli.verbosity };
 	std::string staging_output_path;
+	std::string commit_target_path;
 
 	if ( cli.verbosity >= 0 ) {
 		std::fprintf( cli.msgout, "\nProcessing file %i of %i \"%s\" -> ",
@@ -1061,7 +1164,7 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 			std::fprintf( cli.msgout, "\n----------------------------------------" );
 
 		execute_stage( ctx, StageId::CheckFile, [&]() {
-			return check_file( cli, ctx, item, pipe_on, staging_output_path, path_guard, false );
+			return check_file( cli, ctx, item, pipe_on, staging_output_path, commit_target_path, path_guard, false );
 		}, &reporter );
 
 		if ( ctx.filetype == F_UNK ) {
@@ -1089,7 +1192,7 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 		progress_bar( cli.msgout, file_no, file_cnt );
 		std::fprintf( cli.msgout, "\r" );
 		execute_stage( ctx, StageId::CheckFile, [&]() {
-			return check_file( cli, ctx, item, pipe_on, staging_output_path, path_guard, false );
+			return check_file( cli, ctx, item, pipe_on, staging_output_path, commit_target_path, path_guard, false );
 		}, &reporter );
 	}
 	std::fflush( cli.msgout );
@@ -1102,7 +1205,8 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 		? item.path
 		: make_output_base( item.path, cli.out_dir, item.rel_root );
 	process_cli_file( cli, ctx, output_base, str_str, str_primary_out, &reporter );
-	finalize_and_cleanup_streams( pipe_on, staging_output_path, ctx, str_str, str_primary_out );
+	finalize_and_cleanup_streams(
+		cli, pipe_on, staging_output_path, commit_target_path, path_guard, false, ctx, str_str, str_primary_out );
 
 	const auto t_end = std::chrono::steady_clock::now();
 	const auto ms    = std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count();
@@ -1219,16 +1323,18 @@ void run_parallel_batch(
 			const CliInputItem& item = cli.inputs[ static_cast<std::size_t>( idx ) ];
 			const auto t_begin = std::chrono::steady_clock::now();
 			std::string staging_output_path;
+			std::string commit_target_path;
 
 			execute_stage( wctx, StageId::CheckFile, [&]() {
-				return check_file( cli, wctx, item, false, staging_output_path, path_guard, true );
+				return check_file( cli, wctx, item, false, staging_output_path, commit_target_path, path_guard, true );
 			} );
 
 			std::unique_ptr<Reader> str_str;
 			std::unique_ptr<Writer> str_primary_out;
 			const std::string output_base = make_output_base( item.path, cli.out_dir, item.rel_root );
 			process_cli_file( cli, wctx, output_base, str_str, str_primary_out, nullptr );
-			finalize_and_cleanup_streams( false, staging_output_path, wctx, str_str, str_primary_out );
+			finalize_and_cleanup_streams(
+				cli, false, staging_output_path, commit_target_path, path_guard, true, wctx, str_str, str_primary_out );
 
 			const auto t_end = std::chrono::steady_clock::now();
 			const auto ms    = std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count();

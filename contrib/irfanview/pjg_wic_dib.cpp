@@ -377,6 +377,48 @@ bool has_pjg_signature( const std::uint8_t* data, std::size_t size ) noexcept
 	return ( pos < size ) && ( data[ pos ] >= 0x14 ) && ( data[ pos ] <= 0x1F );
 }
 
+std::wstring normalize_win32_file_path_w( const wchar_t* raw_path )
+{
+	if ( ( raw_path == nullptr ) || ( raw_path[ 0 ] == L'\0' ) ) {
+		return {};
+	}
+	std::wstring p( raw_path );
+	if ( ( p.rfind( L"\\\\?\\", 0 ) != 0 ) && ( p.rfind( L"\\\\.\\", 0 ) != 0 ) ) {
+		const DWORD need = GetFullPathNameW( raw_path, 0, nullptr, nullptr );
+		if ( need > 1 ) {
+			std::wstring full_buf( static_cast<std::size_t>( need ), L'\0' );
+			const DWORD got = GetFullPathNameW( raw_path, need, full_buf.data(), nullptr );
+			if ( ( got > 0 ) && ( got < need ) ) {
+				full_buf.resize( static_cast<std::size_t>( got ) );
+				p = std::move( full_buf );
+			}
+		}
+	}
+	return p;
+}
+
+std::wstring add_extended_length_prefix_if_needed( const std::wstring& full_path )
+{
+	if ( ( full_path.size() < 240 ) ||
+	     ( full_path.rfind( L"\\\\?\\", 0 ) == 0 ) ||
+	     ( full_path.rfind( L"\\\\.\\", 0 ) == 0 ) ) {
+		return full_path;
+	}
+	std::wstring norm = full_path;
+	for ( wchar_t& wc : norm ) {
+		if ( wc == L'/' ) {
+			wc = L'\\';
+		}
+	}
+	if ( norm.rfind( L"\\\\", 0 ) == 0 ) {
+		return L"\\\\?\\UNC\\" + norm.substr( 2 );
+	}
+	if ( ( norm.size() >= 3 ) && ( norm[ 1 ] == L':' ) && ( norm[ 2 ] == L'\\' ) ) {
+		return L"\\\\?\\" + norm;
+	}
+	return full_path;
+}
+
 bool read_file_bytes_w(
 	const wchar_t* path,
 	std::vector<std::uint8_t>& out_bytes,
@@ -389,8 +431,9 @@ bool read_file_bytes_w(
 		return false;
 	}
 
+	const std::wstring open_path = add_extended_length_prefix_if_needed( normalize_win32_file_path_w( path ) );
 	HANDLE hf = CreateFileW(
-		path,
+		open_path.c_str(),
 		GENERIC_READ,
 		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		nullptr,
@@ -463,7 +506,37 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 		return false;
 	}
 
-	const DWORD existing_attrs = GetFileAttributesW( path );
+	std::wstring dst_full = normalize_win32_file_path_w( path );
+	std::wstring dst_open = add_extended_length_prefix_if_needed( dst_full );
+
+	DWORD existing_attrs = GetFileAttributesW( dst_open.c_str() );
+	if ( ( existing_attrs != INVALID_FILE_ATTRIBUTES ) &&
+	     ( ( existing_attrs & FILE_ATTRIBUTE_REPARSE_POINT ) != 0 ) &&
+	     ( ( existing_attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 ) ) {
+		HANDLE h_link = CreateFileW(
+			dst_open.c_str(),
+			0,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			nullptr,
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS,
+			nullptr );
+		if ( h_link != INVALID_HANDLE_VALUE ) {
+			const DWORD need = GetFinalPathNameByHandleW( h_link, nullptr, 0, FILE_NAME_NORMALIZED );
+			if ( need > 1 ) {
+				std::wstring resolved( static_cast<std::size_t>( need ), L'\0' );
+				const DWORD got = GetFinalPathNameByHandleW( h_link, resolved.data(), need, FILE_NAME_NORMALIZED );
+				if ( ( got > 0 ) && ( got < need ) ) {
+					resolved.resize( static_cast<std::size_t>( got ) );
+					dst_full = std::move( resolved );
+					dst_open = add_extended_length_prefix_if_needed( dst_full );
+					existing_attrs = GetFileAttributesW( dst_open.c_str() );
+				}
+			}
+			CloseHandle( h_link );
+		}
+	}
+
 	if ( existing_attrs != INVALID_FILE_ATTRIBUTES ) {
 		if ( ( existing_attrs & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) {
 			err = "output path is a directory";
@@ -475,22 +548,26 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 		}
 	}
 
-	std::wstring dst_path( path );
 	std::wstring dir_prefix;
-	const std::size_t slash_pos = dst_path.find_last_of( L"\\/" );
+	const std::size_t slash_pos = dst_full.find_last_of( L"\\/" );
 	if ( slash_pos != std::wstring::npos ) {
-		dir_prefix = dst_path.substr( 0, slash_pos + 1 );
+		dir_prefix = dst_full.substr( 0, slash_pos + 1 );
+	}
+	else if ( ( dst_full.size() >= 2 ) && ( dst_full[ 1 ] == L':' ) ) {
+		dir_prefix = dst_full.substr( 0, 2 );
 	}
 
 	static std::atomic<std::uint64_t> temp_seq{ 0 };
 	const DWORD pid = GetCurrentProcessId();
-	std::wstring tmp_path;
+	std::wstring tmp_open;
 	HANDLE hf = INVALID_HANDLE_VALUE;
 	for ( unsigned int attempt = 0; attempt < 4096; ++attempt ) {
 		const std::uint64_t id = temp_seq.fetch_add( 1, std::memory_order_relaxed ) + 1;
-		tmp_path = dir_prefix + L".pjg_tmp_" + std::to_wstring( pid ) + L"_" + std::to_wstring( id ) + L".tmp";
+		const std::wstring tmp_raw =
+			dir_prefix + L".pjg_tmp_" + std::to_wstring( pid ) + L"_" + std::to_wstring( id ) + L".tmp";
+		tmp_open = add_extended_length_prefix_if_needed( tmp_raw );
 		hf = CreateFileW(
-			tmp_path.c_str(),
+			tmp_open.c_str(),
 			GENERIC_WRITE,
 			0,
 			nullptr,
@@ -500,7 +577,8 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 		if ( hf != INVALID_HANDLE_VALUE ) {
 			break;
 		}
-		if ( GetLastError() != ERROR_FILE_EXISTS ) {
+		const DWORD gle = GetLastError();
+		if ( gle != ERROR_FILE_EXISTS && gle != ERROR_ALREADY_EXISTS ) {
 			err = "could not create temporary output file for writing";
 			return false;
 		}
@@ -516,7 +594,7 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 		DWORD written = 0;
 		if ( !WriteFile( hf, data + offset, chunk, &written, nullptr ) || ( written != chunk ) ) {
 			CloseHandle( hf );
-			DeleteFileW( tmp_path.c_str() );
+			DeleteFileW( tmp_open.c_str() );
 			err = "error writing output file";
 			return false;
 		}
@@ -525,14 +603,39 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 
 	if ( !FlushFileBuffers( hf ) ) {
 		CloseHandle( hf );
-		DeleteFileW( tmp_path.c_str() );
+		DeleteFileW( tmp_open.c_str() );
 		err = "error flushing output file";
 		return false;
 	}
 	CloseHandle( hf );
 
-	if ( !MoveFileExW( tmp_path.c_str(), dst_path.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
-		DeleteFileW( tmp_path.c_str() );
+	bool committed = false;
+	if ( existing_attrs != INVALID_FILE_ATTRIBUTES ) {
+		if ( ReplaceFileW(
+		         dst_open.c_str(),
+		         tmp_open.c_str(),
+		         nullptr,
+		         REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
+		         nullptr,
+		         nullptr ) ) {
+			committed = true;
+		}
+		else if ( ( existing_attrs & ( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) ) != 0 ) {
+			SetFileAttributesW(
+				dst_open.c_str(),
+				existing_attrs & ~( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
+			if ( MoveFileExW( tmp_open.c_str(), dst_open.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
+				SetFileAttributesW( dst_open.c_str(), existing_attrs );
+				committed = true;
+			}
+			else {
+				SetFileAttributesW( dst_open.c_str(), existing_attrs );
+			}
+		}
+	}
+
+	if ( !committed && !MoveFileExW( tmp_open.c_str(), dst_open.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
+		DeleteFileW( tmp_open.c_str() );
 		err = "could not atomically commit output file";
 		return false;
 	}

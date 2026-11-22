@@ -255,4 +255,43 @@ TEST_CASE("aricoder: truncated stream post-EOF E1/E2 renormalization spin termin
 	REQUIRE(iterations < 50000);
 }
 
+TEST_CASE("aricoder: >5000 midpoint-straddling E3 underflow bits finalized with clow >= 0.25 round-trip within 512-byte EOF cap") {
+	// Exceeds the 512-byte (4,096-bit) decoder post-EOF synthesis cap when clow >= 0.25 at finalize().
+	constexpr int kUnderflowRuns = 5200;
+	MemoryWriter mw;
+	{
+		ArithmeticEncoder enc(mw);
+		symbol straddle{1, 3, 4}; // [0.25, 0.75) -> increments nrbits by 1 per symbol around 0.5
+		for (int i = 0; i < kUnderflowRuns; ++i) {
+			enc.encode(&straddle);
+		}
+		// Keep clow >= 0.25 and chigh >= 0.5 at finalize(): [0.5, 0.75) maps to [0.5, 1.0) after E3 zoom
+		symbol upper_mid{2, 3, 4};
+		enc.encode(&upper_mid);
+		enc.finalize();
+	}
+
+	const auto bytes = mw.get_data();
+	REQUIRE(!bytes.empty());
+
+	MemoryReader mr(bytes);
+	ArithmeticDecoder dec(mr);
+	for (int i = 0; i < kUnderflowRuns; ++i) {
+		symbol q{0, 0, 4};
+		const unsigned int cnt = dec.decode_count(&q);
+		REQUIRE(cnt >= 1u && cnt < 3u);
+		q.low_count  = 1;
+		q.high_count = 3;
+		dec.decode(&q);
+	}
+
+	symbol q_end{0, 0, 4};
+	const unsigned int end_cnt = dec.decode_count(&q_end);
+	REQUIRE_EQ(end_cnt, 2u);
+	q_end.low_count  = 2;
+	q_end.high_count = 3;
+	dec.decode(&q_end);
+}
+
+
 

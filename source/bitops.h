@@ -337,6 +337,7 @@ public:
 
 	virtual void reset() = 0;
 	virtual bool flush() { return !error(); }
+	virtual bool close() { return flush() && !error(); }
 	virtual std::size_t num_bytes_written() = 0;
 	virtual bool error() = 0;
 };
@@ -389,7 +390,8 @@ private:
 
 class FileWriter : public Writer {
 public:
-	FileWriter(const std::string& file_path);
+	explicit FileWriter(const std::string& file_path, bool exclusive = false);
+	FileWriter(FILE* owned_stream, const std::string& file_path);
 	FileWriter(const FileWriter&) = delete;
 	FileWriter& operator=(const FileWriter&) = delete;
 	~FileWriter();
@@ -403,6 +405,7 @@ public:
 
 	void reset() override;
 	bool flush() override;
+	bool close() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
@@ -410,6 +413,8 @@ private:
 	FILE* fptr_ = nullptr;
 	std::vector<char> file_buffer_;
 	const std::string file_path_;
+	bool err_ = false;
+	bool closed_ = false;
 };
 
 class StreamWriter : public Writer {

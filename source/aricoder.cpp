@@ -121,6 +121,16 @@ void ArithmeticEncoder::finalize() {
 		nrbits = 0;
 	} else {
 		bitwriter_.write_bit<1>();
+		// PJG v2.5 omits trailing zero E3 underflow bits here because the decoder
+		// synthesizes up to 512 zero bytes (4,096 bits) past EOF. Natural streams
+		// never approach 3,072 pending bits (P = 2^-3072), so zero bytes change;
+		// if a crafted stream straddles 0.5 past 3,072 bits, emit the excess zeros
+		// explicitly so both v2.5 and bounded-EOF decoders round-trip losslessly.
+		constexpr std::uint64_t kImplicitEofZeroBits = 3072;
+		if (nrbits > kImplicitEofZeroBits) {
+			bitwriter_.write_n_zero_bits(nrbits - kImplicitEofZeroBits);
+		}
+		nrbits = 0;
 	}
 
 	bitwriter_.pad();

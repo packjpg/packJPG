@@ -321,8 +321,18 @@ bool MemoryWriter::error() {
 	return err_;
 }
 
-FileWriter::FileWriter(const std::string& file_path) : file_path_(file_path) {
-	fptr_ = fopen_utf8(file_path, "wb");
+FileWriter::FileWriter(const std::string& file_path, bool exclusive) : file_path_(file_path) {
+	fptr_ = exclusive ? open_exclusive_file_utf8(file_path) : fopen_utf8(file_path, "wb");
+	if (fptr_ != nullptr) {
+		file_buffer_.resize(32768);
+		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
+	} else {
+		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
+	}
+}
+
+FileWriter::FileWriter(FILE* owned_stream, const std::string& file_path)
+	: fptr_(owned_stream), file_path_(file_path) {
 	if (fptr_ != nullptr) {
 		file_buffer_.resize(32768);
 		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
@@ -335,14 +345,23 @@ FileWriter::~FileWriter() {
 	if (fptr_ != nullptr) {
 		std::fflush(fptr_);
 		std::fclose(fptr_);
+		fptr_ = nullptr;
 	}
 }
 
 std::size_t FileWriter::write(const std::uint8_t* from, std::size_t n) {
-	if (n == 0 || from == nullptr || fptr_ == nullptr) {
+	if (n == 0) {
 		return 0;
 	}
-	return std::fwrite(from, sizeof from[0], n, fptr_);
+	if (from == nullptr || fptr_ == nullptr) {
+		err_ = true;
+		return 0;
+	}
+	const std::size_t written = std::fwrite(from, sizeof from[0], n, fptr_);
+	if (written != n) {
+		err_ = true;
+	}
+	return written;
 }
 
 std::size_t FileWriter::write(const std::vector<std::uint8_t>& bytes) {
@@ -354,11 +373,16 @@ std::size_t FileWriter::write(const std::array<std::uint8_t, 2>& bytes) {
 }
 
 bool FileWriter::write_byte(std::uint8_t byte) {
-	return (fptr_ != nullptr) && (std::fputc(byte, fptr_) == byte);
+	if (fptr_ == nullptr || std::fputc(byte, fptr_) != byte) {
+		err_ = true;
+		return false;
+	}
+	return true;
 }
 
 std::vector<std::uint8_t> FileWriter::get_data() {
 	if (fptr_ != nullptr && (std::fflush(fptr_) != 0 || std::ferror(fptr_))) {
+		err_ = true;
 		throw std::runtime_error("FileWriter::get_data: flush failed.");
 	}
 	const std::filesystem::path fs_path = path_from_utf8(file_path_);
@@ -388,22 +412,45 @@ void FileWriter::reset() {
 	if (fptr_ != nullptr) {
 		std::fflush(fptr_);
 		std::fclose(fptr_);
+		fptr_ = nullptr;
+	}
+	closed_ = false;
+	if (!is_non_regular_stream_target(file_path_)) {
 		fptr_ = fopen_utf8(file_path_, "wb");
 		if (fptr_ != nullptr && !file_buffer_.empty()) {
 			std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 		}
 	}
+	err_ = (fptr_ == nullptr) && !is_non_regular_stream_target(file_path_);
 }
 
 bool FileWriter::flush() {
 	if (fptr_ == nullptr) {
+		return closed_ && !err_;
+	}
+	if (std::fflush(fptr_) != 0 || std::ferror(fptr_)) {
+		err_ = true;
 		return false;
 	}
-	return std::fflush(fptr_) == 0 && !std::ferror(fptr_);
+	return !err_;
+}
+
+bool FileWriter::close() {
+	if (fptr_ != nullptr) {
+		const bool flush_ok = (std::fflush(fptr_) == 0) && !std::ferror(fptr_);
+		const bool close_ok = (std::fclose(fptr_) == 0);
+		fptr_ = nullptr;
+		if (!flush_ok || !close_ok) {
+			err_ = true;
+		}
+		closed_ = true;
+	}
+	return closed_ && !err_;
 }
 
 std::size_t FileWriter::num_bytes_written() {
 	if (fptr_ != nullptr && (std::fflush(fptr_) != 0 || std::ferror(fptr_))) {
+		err_ = true;
 		return 0;
 	}
 	std::error_code ec;
@@ -416,7 +463,10 @@ std::size_t FileWriter::num_bytes_written() {
 }
 
 bool FileWriter::error() {
-	return fptr_ == nullptr || std::ferror(fptr_);
+	if (fptr_ != nullptr && std::ferror(fptr_)) {
+		err_ = true;
+	}
+	return err_ || (fptr_ == nullptr && !closed_);
 }
 
 StreamWriter::StreamWriter(FILE* stream) : stream_(stream) {
@@ -436,7 +486,11 @@ StreamWriter::~StreamWriter() {
 }
 
 std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
-	if (n == 0 || from == nullptr) {
+	if (n == 0) {
+		return 0;
+	}
+	if (from == nullptr) {
+		error_ = true;
 		return 0;
 	}
 	flushed_ = false;

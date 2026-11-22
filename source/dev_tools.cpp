@@ -23,49 +23,82 @@ const std::string& active_input_path( const CodecContext& ctx ) noexcept
 FILE* open_dump_file( CodecContext& ctx, const std::string& fn, std::string& staging_fn, const char* mode )
 {
 	staging_fn.clear();
+	std::string effective_fn;
+	std::string target_err;
+	if ( !resolve_overwrite_target_utf8( fn, effective_fn, target_err ) ) {
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return nullptr;
+	}
 	const std::string& src = active_input_path( ctx );
-	if ( !src.empty() && paths_refer_to_same_existing_file( src, fn ) ) {
+	if ( !src.empty() &&
+	     ( paths_refer_to_same_existing_file( src, fn ) ||
+	       paths_refer_to_same_existing_file( src, effective_fn ) ) ) {
 		ctx.errormessage = "refusing to overwrite input file: " + fn;
 		ctx.errorlevel   = 2;
 		return nullptr;
 	}
-	if ( !ensure_parent_directory( fn ) ) {
+	if ( !ensure_parent_directory( fn ) || !ensure_parent_directory( effective_fn ) ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return nullptr;
 	}
-	std::string target_err;
-	if ( !can_overwrite_or_create_target( fn, target_err ) ) {
+	if ( !can_overwrite_or_create_target( effective_fn, target_err ) ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return nullptr;
 	}
-	staging_fn = make_staging_temp_path( fn );
-	FILE* fp = fopen_utf8( staging_fn, mode );
+	if ( is_non_regular_stream_target( effective_fn ) ) {
+		FILE* fp = fopen_utf8( effective_fn, mode );
+		if ( fp == nullptr ) {
+			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+			ctx.errorlevel = 2;
+		}
+		return fp;
+	}
+	unsigned int existing_mode = 0666u;
+	const bool has_mode = query_existing_regular_file_mode( effective_fn, existing_mode );
+	FILE* fp = open_exclusive_staging_stream( effective_fn, has_mode, existing_mode, staging_fn );
 	if ( fp == nullptr ) {
 		staging_fn.clear();
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
+		return nullptr;
 	}
+#if defined(_WIN32) || defined(WIN32)
+	if ( ( mode != nullptr ) && ( mode[ 0 ] == 'w' ) && ( mode[ 1 ] == '\0' ) ) {
+		(void)_setmode( _fileno( fp ), _O_TEXT );
+	}
+#else
+	(void)mode;
+#endif
 	return fp;
 }
 
 bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& staging_fn, const std::string& fn )
 {
-	const bool had_err = ( std::ferror( fp ) != 0 );
+	const bool flush_ok = ( std::fflush( fp ) == 0 );
+	const bool had_err  = !flush_ok || ( std::ferror( fp ) != 0 );
 	const int rc = std::fclose( fp );
 	if ( had_err || ( rc != 0 ) ) {
-		remove_file_utf8( staging_fn );
+		if ( !staging_fn.empty() ) {
+			remove_file_utf8( staging_fn );
+		}
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return false;
 	}
-	std::string commit_err;
-	if ( !commit_staging_file( staging_fn, fn, commit_err ) ) {
-		remove_file_utf8( staging_fn );
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
-		return false;
+	if ( !staging_fn.empty() ) {
+		std::string effective_fn = fn;
+		std::string commit_err;
+		(void)resolve_overwrite_target_utf8( fn, effective_fn, commit_err );
+		commit_err.clear();
+		if ( !commit_staging_file( staging_fn, effective_fn, commit_err ) ) {
+			remove_file_utf8( staging_fn );
+			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+			ctx.errorlevel = 2;
+			return false;
+		}
 	}
 	return true;
 }

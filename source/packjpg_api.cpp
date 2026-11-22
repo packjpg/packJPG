@@ -27,7 +27,7 @@ struct LibrarySession {
 
 	void discard_streams_and_staging() noexcept
 	{
-		if ( ctx.str_out != nullptr ) {
+		if ( ( ctx.str_out != nullptr ) && ( lib_out_type != 0 ) ) {
 			try {
 				ctx.str_out->reset();
 			} catch ( ... ) {
@@ -140,19 +140,24 @@ bool convert_session_impl(
 				}
 			}
 			else if ( sess.lib_out_type == 0 ) {
-				if ( ( ctx.str_out == nullptr ) || !ctx.str_out->flush() || ctx.str_out->error() ) {
+				if ( ( ctx.str_out == nullptr ) || !ctx.str_out->close() ) {
 					ctx.errormessage = "write error, possibly drive is full";
 					ctx.errorlevel   = 2;
 				}
 				else {
 					ctx.str_out.reset();
-					std::string commit_err;
-					if ( !commit_staging_file( sess.staging_filepath, sess.target_filepath, commit_err ) ) {
-						ctx.errormessage = commit_err;
-						ctx.errorlevel   = 2;
+					if ( !sess.staging_filepath.empty() ) {
+						std::string commit_err;
+						if ( !commit_staging_file( sess.staging_filepath, sess.target_filepath, commit_err ) ) {
+							ctx.errormessage = commit_err;
+							ctx.errorlevel   = 2;
+						}
+						else {
+							sess.staging_filepath.clear();
+							guard.committed = true;
+						}
 					}
 					else {
-						sess.staging_filepath.clear();
 						guard.committed = true;
 					}
 				}
@@ -323,6 +328,7 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 		}
 
 		// Validate output parameters and self-clobber BEFORE opening any output file.
+		std::string resolved_out_target;
 		if ( out_type == 0 ) {
 			if ( out_dest == nullptr || static_cast<const char*>( out_dest )[ 0 ] == '\0' ) {
 				ctx.errormessage = "null or empty output filename";
@@ -331,17 +337,22 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 				return;
 			}
 			const char* out_cstr = static_cast<const char*>( out_dest );
+			std::string target_err;
+			if ( !resolve_overwrite_target_utf8( out_cstr, resolved_out_target, target_err ) ) {
+				ctx.set_errormessage( "error opening output file %s", out_cstr );
+				ctx.errorlevel = 2;
+				ctx.str_in.reset();
+				return;
+			}
 			if ( ( in_type == 0 ) &&
-			     paths_refer_to_same_existing_file(
-			         static_cast<const char*>( in_src ),
-			         out_cstr ) ) {
+			     ( paths_refer_to_same_existing_file( static_cast<const char*>( in_src ), out_cstr ) ||
+			       paths_refer_to_same_existing_file( static_cast<const char*>( in_src ), resolved_out_target ) ) ) {
 				ctx.errormessage = "input and output refer to the same file";
 				ctx.errorlevel   = 2;
 				ctx.str_in.reset();
 				return;
 			}
-			std::string target_err;
-			if ( !can_overwrite_or_create_target( out_cstr, target_err ) ) {
+			if ( !can_overwrite_or_create_target( resolved_out_target, target_err ) ) {
 				ctx.set_errormessage( "error opening output file %s", out_cstr );
 				ctx.errorlevel = 2;
 				ctx.str_in.reset();
@@ -392,18 +403,41 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 
 		switch ( out_type ) {
 			case 0: {
-				const std::string target_str = static_cast<const char*>( out_dest );
-				std::string staging_str = make_staging_temp_path( target_str );
-				try {
-					ctx.str_out = std::make_unique<FileWriter>( staging_str );
-					sess.target_filepath  = target_str;
-					sess.staging_filepath = std::move( staging_str );
-				} catch ( const std::runtime_error& ) {
-					remove_file_utf8( staging_str );
-					ctx.set_errormessage( "error opening output file %s", target_str.c_str() );
-					ctx.errorlevel = 2;
-					ctx.str_in.reset();
-					return;
+				const char* display_out = static_cast<const char*>( out_dest );
+				if ( is_non_regular_stream_target( resolved_out_target ) ) {
+					try {
+						ctx.str_out = std::make_unique<FileWriter>( resolved_out_target );
+						sess.target_filepath = std::move( resolved_out_target );
+						sess.staging_filepath.clear();
+					} catch ( const std::runtime_error& ) {
+						ctx.set_errormessage( "error opening output file %s", display_out );
+						ctx.errorlevel = 2;
+						ctx.str_in.reset();
+						return;
+					}
+				}
+				else {
+					unsigned int existing_mode = 0666u;
+					const bool has_mode = query_existing_regular_file_mode( resolved_out_target, existing_mode );
+					std::string staging_str;
+					FILE* fp = open_exclusive_staging_stream( resolved_out_target, has_mode, existing_mode, staging_str );
+					if ( fp == nullptr ) {
+						ctx.set_errormessage( "error opening output file %s", display_out );
+						ctx.errorlevel = 2;
+						ctx.str_in.reset();
+						return;
+					}
+					try {
+						ctx.str_out = std::make_unique<FileWriter>( fp, staging_str );
+						sess.target_filepath  = std::move( resolved_out_target );
+						sess.staging_filepath = std::move( staging_str );
+					} catch ( const std::runtime_error& ) {
+						remove_file_utf8( staging_str );
+						ctx.set_errormessage( "error opening output file %s", display_out );
+						ctx.errorlevel = 2;
+						ctx.str_in.reset();
+						return;
+					}
 				}
 				break;
 			}

@@ -507,8 +507,23 @@ void verify_plugin_module( const wchar_t* dll_path )
 	// Finding #6: INVALID_HANDLE_VALUE (-1), 0, 3-byte "JS\0", and anonymous pipe handle
 	CHECK_COND( spi_supp_w( L"none.pjg", 0 ) == 0 );
 	CHECK_COND( spi_supp_w( L"inv.pjg", static_cast<DWORD_PTR>( -1 ) ) == 0 );
-	const std::uint8_t short_js0[ 4 ] = { 'J', 'S', 0x00, 0x00 };
-	CHECK_COND( spi_supp_w( L"short.pjg", reinterpret_cast<DWORD_PTR>( short_js0 ) ) == 0 );
+	{
+		// 2 KB Susie memory buffer with "JS\0\0..." (no stack over-read) + 4-byte file handle hitting size < 12 branch
+		std::vector<std::uint8_t> short_js0_mem( 2048, 0 );
+		short_js0_mem[ 0 ] = 'J';
+		short_js0_mem[ 1 ] = 'S';
+		CHECK_COND( spi_supp_w( L"short_mem.pjg", reinterpret_cast<DWORD_PTR>( short_js0_mem.data() ) ) == 0 );
+
+		const std::filesystem::path short_js0_file = tmp_dir / L"short4.pjg";
+		{
+			std::ofstream ofs( short_js0_file, std::ios::binary );
+			ofs.write( "JS\0\0", 4 );
+		}
+		HANDLE h_short = CreateFileW( short_js0_file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr );
+		CHECK_COND( h_short != INVALID_HANDLE_VALUE );
+		CHECK_COND( spi_supp_w( short_js0_file.c_str(), reinterpret_cast<DWORD_PTR>( h_short ) ) == 0 );
+		CloseHandle( h_short );
+	}
 	{
 		HANDLE r_pipe = nullptr;
 		HANDLE w_pipe = nullptr;
@@ -604,8 +619,100 @@ void verify_plugin_module( const wchar_t* dll_path )
 	CHECK_COND( werr[ 0 ] != L'\0' );
 	CHECK_COND( spi_pic_w( bad_pjg.c_str(), 0, SPI_INPUT_FILE, &hbinfo, &hbm, nullptr, 0 ) == SPI_OUT_OF_ORDER );
 
+	// 9. Pass-3 regressions: BGR pixel-color fidelity, FILE_ATTRIBUTE_HIDDEN overwrite preservation,
+	//    drive-relative ("X:rel.pjg") save, and near-MAX_PATH (244-char directory) save/read!
+	{
+		// Solid pure-red 16x16 24bpp DIB (B=20, G=30, R=235) -> verifies no R/B channel swap
+		const std::size_t stride = 16 * 3;
+		HGLOBAL h_red = GlobalAlloc( GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof( BITMAPINFOHEADER ) + stride * 16 );
+		CHECK_COND( h_red != nullptr );
+		{
+			auto* raw = static_cast<std::uint8_t*>( GlobalLock( h_red ) );
+			auto* bih = reinterpret_cast<BITMAPINFOHEADER*>( raw );
+			bih->biSize        = sizeof( BITMAPINFOHEADER );
+			bih->biWidth       = 16;
+			bih->biHeight      = 16;
+			bih->biPlanes      = 1;
+			bih->biBitCount    = 24;
+			bih->biCompression = BI_RGB;
+			std::uint8_t* px = raw + sizeof( BITMAPINFOHEADER );
+			for ( int i = 0; i < 16 * 16; ++i ) {
+				px[ i * 3 + 0 ] = 20;  // B
+				px[ i * 3 + 1 ] = 30;  // G
+				px[ i * 3 + 2 ] = 235; // R
+			}
+			GlobalUnlock( h_red );
+		}
+
+		// Save to a pre-existing FILE_ATTRIBUTE_HIDDEN target and verify attribute + pixel values survive!
+		const std::filesystem::path hidden_pjg = tmp_dir / L"hidden_target.pjg";
+		{
+			std::ofstream ofs( hidden_pjg, std::ios::binary );
+			ofs.write( "OLD_HIDDEN", 10 );
+		}
+		CHECK_COND( SetFileAttributesW( hidden_pjg.c_str(), FILE_ATTRIBUTE_HIDDEN ) != FALSE );
+		CHECK_COND( fn_save_w( hidden_pjg.c_str(), h_red, 98, werr ) == 0 );
+		const DWORD after_hidden_attrs = GetFileAttributesW( hidden_pjg.c_str() );
+		CHECK_COND( after_hidden_attrs != INVALID_FILE_ATTRIBUTES );
+		CHECK_COND( ( after_hidden_attrs & FILE_ATTRIBUTE_HIDDEN ) != 0 );
+		SetFileAttributesW( hidden_pjg.c_str(), FILE_ATTRIBUTE_NORMAL );
+
+		HANDLE h_red_dec = fn_read_w( hidden_pjg.c_str(), 0, werr );
+		CHECK_COND( h_red_dec != nullptr );
+		{
+			const auto* raw = static_cast<const std::uint8_t*>( GlobalLock( h_red_dec ) );
+			const auto* bih = reinterpret_cast<const BITMAPINFOHEADER*>( raw );
+			CHECK_COND( bih != nullptr && bih->biWidth == 16 && bih->biHeight == 16 && bih->biBitCount == 24 );
+			const std::uint8_t* px = raw + bih->biSize;
+			// Center pixel must remain predominantly red (R > 215, G < 50, B < 45) in GDI BGR order!
+			const std::size_t mid = ( 8u * stride ) + 8u * 3u;
+			CHECK_COND( px[ mid + 0 ] < 45 && px[ mid + 1 ] < 50 && px[ mid + 2 ] > 215 );
+			GlobalUnlock( h_red_dec );
+		}
+		GlobalFree( h_red_dec );
+
+		// Drive-relative save ("X:drive_rel.pjg") when CWD is set to tmp_dir
+		wchar_t prev_cwd[ MAX_PATH * 2 ]{};
+		const DWORD cwd_len = GetCurrentDirectoryW( MAX_PATH * 2, prev_cwd );
+		const std::wstring abs_tmp = std::filesystem::absolute( tmp_dir ).wstring();
+		if ( cwd_len > 0 && abs_tmp.size() >= 3 && abs_tmp[ 1 ] == L':' && SetCurrentDirectoryW( abs_tmp.c_str() ) ) {
+			const std::wstring drive_rel = abs_tmp.substr( 0, 2 ) + L"drive_rel_out.pjg";
+			const int drc = fn_save_w( drive_rel.c_str(), h_red, 90, werr );
+			SetCurrentDirectoryW( prev_cwd );
+			CHECK_COND( drc == 0 );
+			const std::filesystem::path expected_drel = std::filesystem::path( abs_tmp ) / L"drive_rel_out.pjg";
+			HANDLE h_drel = fn_read_w( expected_drel.c_str(), 0, werr );
+			CHECK_COND( h_drel != nullptr );
+			GlobalFree( h_drel );
+		}
+
+		// Near-MAX_PATH directory (~244 chars so temporary ".pjg_tmp_..." exceeds 260 chars!)
+		std::wstring long_dir = abs_tmp;
+		while ( long_dir.size() < 238 ) {
+			const std::size_t need = std::min<std::size_t>( 30, 242 - long_dir.size() );
+			long_dir += L"\\" + std::wstring( need, L'd' );
+		}
+		const std::wstring ext_long_dir = ( long_dir.rfind( L"\\\\?\\", 0 ) == 0 )
+			? long_dir
+			: ( L"\\\\?\\" + long_dir );
+		std::error_code lec;
+		std::filesystem::create_directories( std::filesystem::path( ext_long_dir ), lec );
+		if ( !lec ) {
+			const std::wstring near_max_file = long_dir + L"\\a.pjg";
+			CHECK_COND( fn_save_w( near_max_file.c_str(), h_red, 90, werr ) == 0 );
+			HANDLE h_long = fn_read_w( near_max_file.c_str(), 0, werr );
+			CHECK_COND( h_long != nullptr );
+			GlobalFree( h_long );
+			DeleteFileW( ( ext_long_dir + L"\\a.pjg" ).c_str() );
+		}
+
+		GlobalFree( h_red );
+	}
+
 	FreeLibrary( mod );
-	std::filesystem::remove_all( tmp_dir );
+	std::error_code rm_ec;
+	std::filesystem::remove_all( L"\\\\?\\" + std::filesystem::absolute( tmp_dir ).wstring(), rm_ec );
+	std::filesystem::remove_all( tmp_dir, rm_ec );
 }
 
 } // namespace

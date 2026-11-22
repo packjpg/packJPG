@@ -10,9 +10,15 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if !defined(_WIN32) && !defined(WIN32)
+#include <sys/stat.h>
+#endif
 
 namespace {
 
@@ -339,3 +345,85 @@ TEST_CASE("library: atomic staging preserves pre-existing target file on warning
 	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
 	REQUIRE(!pjglib_convert_stream2stream(msg));
 }
+
+TEST_CASE("library: file2file supports special targets (/dev/null, FIFO), writes through symlinks, and preserves file permissions") {
+	pjg_test::TempTestDir tmp_dir("pjg_ut_special");
+	const auto jpg = make_minimal_jpeg();
+	const auto in_jpg = (tmp_dir.path() / "src.jpg").string();
+	{
+		std::ofstream ofs(in_jpg, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
+	}
+
+	char msg[256] = {0};
+
+#if defined(_WIN32) || defined(WIN32)
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), "NUL", msg));
+#else
+	// 1. Direct write to character device /dev/null
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), "/dev/null", msg));
+
+	// 2. Direct write to a POSIX FIFO named pipe without replacing the FIFO inode!
+	const auto fifo_path = (tmp_dir.path() / "out_pipe.pjg").string();
+	if (::mkfifo(fifo_path.c_str(), 0600) == 0) {
+		std::vector<unsigned char> piped_pjg;
+		std::thread reader([&]() {
+			std::ifstream ifs(fifo_path, std::ios::binary);
+			piped_pjg.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		});
+		REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), fifo_path.c_str(), msg));
+		reader.join();
+
+		std::error_code ec;
+		REQUIRE(std::filesystem::is_fifo(fifo_path, ec));
+		REQUIRE(piped_pjg.size() > 10);
+
+		unsigned char* rt_buf = nullptr;
+		unsigned int rt_size = 0;
+		pjglib_init_streams(piped_pjg.data(), 1, static_cast<int>(piped_pjg.size()), nullptr, 1);
+		REQUIRE(pjglib_convert_stream2mem(&rt_buf, &rt_size, msg));
+		REQUIRE_EQ(std::size_t(rt_size), jpg.size());
+		REQUIRE(std::memcmp(rt_buf, jpg.data(), jpg.size()) == 0);
+		pjglib_free(rt_buf);
+	}
+
+	// 3. Symlink write-through + 0600 private file permission preservation on overwrite
+	const auto real_dir = tmp_dir.path() / "real_sub";
+	std::filesystem::create_directories(real_dir);
+	const auto real_pjg = (real_dir / "secret.pjg").string();
+	{
+		std::ofstream ofs(real_pjg, std::ios::binary);
+		ofs.write("OLD", 3);
+	}
+	REQUIRE_EQ(::chmod(real_pjg.c_str(), 0600), 0);
+
+	const auto link_pjg = (tmp_dir.path() / "link_to_secret.pjg").string();
+	std::error_code sym_ec;
+	std::filesystem::create_symlink(real_pjg, link_pjg, sym_ec);
+	REQUIRE(!sym_ec);
+
+	// Self-clobber through a symlink pointing at the input file must still be refused!
+	const auto link_to_in = (tmp_dir.path() / "link_to_src.jpg").string();
+	std::filesystem::create_symlink(in_jpg, link_to_in, sym_ec);
+	REQUIRE(!sym_ec);
+	REQUIRE(!pjglib_convert_file2file(in_jpg.c_str(), link_to_in.c_str(), msg));
+	REQUIRE_EQ(std::filesystem::file_size(in_jpg), jpg.size());
+
+	// Overwriting link_pjg must keep link_pjg as a symlink, update real_pjg, and preserve 0600 mode!
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), link_pjg.c_str(), msg));
+	REQUIRE(std::filesystem::is_symlink(link_pjg));
+
+	struct stat st{};
+	REQUIRE_EQ(::stat(real_pjg.c_str(), &st), 0);
+	REQUIRE_EQ(static_cast<unsigned int>(st.st_mode & 0777u), 0600u);
+
+	const auto rt_jpg = (tmp_dir.path() / "roundtrip.jpg").string();
+	REQUIRE(pjglib_convert_file2file(real_pjg.c_str(), rt_jpg.c_str(), msg));
+	{
+		std::ifstream ifs(rt_jpg, std::ios::binary);
+		const std::vector<unsigned char> got((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		REQUIRE(got == jpg);
+	}
+#endif
+}
+

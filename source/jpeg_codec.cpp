@@ -614,6 +614,7 @@ bool read_jpeg( CodecContext& ctx )
 							}
 						}
 						ctx.rstp.insert( ctx.rstp.end(), scan_rst.begin(), scan_rst.end() );
+						ctx.rstc = static_cast<int>( ctx.rstp.size() );
 						ctx.scnp.push_back( static_cast<unsigned int>( huffw.num_bytes_written() ) );
 
 						if ( crst > 0 ) {
@@ -740,7 +741,7 @@ bool merge_jpeg( CodecContext& ctx )
 		}
 	};
 	auto emit_byte = [&]( std::uint8_t b ) {
-		if ( out_pos == out_buf.size() ) {
+		if ( out_pos >= out_buf.size() ) {
 			flush_out();
 		}
 		out_buf[ out_pos++ ] = b;
@@ -773,19 +774,25 @@ bool merge_jpeg( CodecContext& ctx )
 			return false;
 		}
 
+		while ( ( rpos < ctx.rstp.size() ) && ( static_cast<int>( rpos ) < ctx.rstc ) && ( ctx.rstp[ rpos ] == 0xFFFFFFFFu ) ) {
+			const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
+			emit_byte( mrk );
+			emit_byte( rst );
+			rpos++;
+			cpos++;
+		}
+
 		for ( unsigned int ipos = ctx.scnp[ scan - 1 ]; ipos < ctx.scnp[ scan ]; ipos++ ) {
 			const unsigned char b = ctx.huffdata[ ipos ];
 			emit_byte( b );
 			if ( b == 0xFF )
 				emit_byte( stv );
-			if ( !ctx.rstp.empty() && ( static_cast<int>( rpos ) < ctx.rstc ) ) {
-				if ( ipos == ctx.rstp[ rpos ] ) {
-					const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
-					emit_byte( mrk );
-					emit_byte( rst );
-					rpos++;
-					cpos++;
-				}
+			while ( ( rpos < ctx.rstp.size() ) && ( static_cast<int>( rpos ) < ctx.rstc ) && ( ipos == ctx.rstp[ rpos ] ) ) {
+				const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
+				emit_byte( mrk );
+				emit_byte( rst );
+				rpos++;
+				cpos++;
 			}
 		}
 
@@ -1525,12 +1532,62 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 			16777216ULL,
 			std::max<std::uint64_t>(
 				4096ULL,
-				( stream_bytes <= ( 16777216ULL / 4096ULL ) ) ? ( stream_bytes * 4096ULL ) : 16777216ULL ) );
-	if ( ( ctx.filetype == F_JPG ) && ( ctx.jpegtype == 1 ) ) {
+				( stream_bytes <= ( 16777216ULL / 1536ULL ) ) ? ( stream_bytes * 1536ULL ) : 16777216ULL ) );
+	if ( ctx.filetype == F_JPG ) {
 		const auto huff_bytes = static_cast<std::uint64_t>( ctx.huffdata.size() );
-		max_blocks = std::min<std::uint64_t>(
-			16777216ULL,
-			std::max<std::uint64_t>( 4096ULL, ( huff_bytes <= ( 16777216ULL / 64ULL ) ) ? ( huff_bytes * 64ULL ) : 16777216ULL ) );
+		const std::uint64_t huff_scaled = ( huff_bytes <= ( 16777216ULL / 64ULL ) )
+			? ( huff_bytes * 64ULL )
+			: 16777216ULL;
+		if ( ctx.jpegtype == 1 ) {
+			max_blocks = std::min<std::uint64_t>( 16777216ULL, std::max<std::uint64_t>( 4096ULL, huff_scaled ) );
+		}
+		else if ( ctx.jpegtype == 2 ) {
+			unsigned int dc_seen_mask = 0;
+			unsigned int sos_pos      = 0;
+			unsigned char sos_type    = 0;
+			unsigned int sos_len      = 0;
+			while ( sos_pos < ctx.hdrdata.size() ) {
+				if ( !ctx.read_header_segment( sos_pos, sos_type, sos_len ) ) {
+					break;
+				}
+				if ( ( sos_type == 0xDA ) && ( sos_len >= 8u ) ) {
+					const unsigned int ns = ctx.hdrdata[ sos_pos + 4 ];
+					if ( ( ns >= 1u ) && ( ns <= 4u ) && ( sos_len >= 8u + 2u * ( ns - 1u ) ) ) {
+						const unsigned char ss = ctx.hdrdata[ sos_pos + 5u + 2u * ns ];
+						const unsigned char ah = static_cast<unsigned char>(
+							( ctx.hdrdata[ sos_pos + 7u + 2u * ns ] >> 4 ) & 0x0Fu );
+						if ( ( ss == 0u ) && ( ah == 0u ) ) {
+							for ( unsigned int k = 0; k < ns; ++k ) {
+								const unsigned char jid = ctx.hdrdata[ sos_pos + 5u + 2u * k ];
+								for ( int cmp = 0; cmp < ctx.cmpc; ++cmp ) {
+									if ( ctx.cmpnfo[ cmp ].jid == jid ) {
+										dc_seen_mask |= ( 1u << cmp );
+									}
+								}
+							}
+						}
+					}
+				}
+				sos_pos += sos_len;
+			}
+
+			const unsigned int full_dc_mask = ( 1u << ctx.cmpc ) - 1u;
+			if ( ( dc_seen_mask & full_dc_mask ) == full_dc_mask ) {
+				// Every block in an initial progressive DC scan (Ss=0, Ah=0) consumes >= 1 Huffman bit.
+				max_blocks = std::min<std::uint64_t>( 16777216ULL, std::max<std::uint64_t>( 4096ULL, huff_scaled ) );
+			}
+			else {
+				if ( ctx.errorlevel < 1 ) {
+					ctx.errormessage = "incomplete progressive scan script";
+					ctx.errorlevel   = 1;
+				}
+				if ( ctx.errorlevel >= ctx.err_tol ) {
+					return false;
+				}
+				// Under -p (err_tol == 2), bound unbacked AC-only progressive allocation to 262,144 blocks (32 MiB).
+				max_blocks = std::min<std::uint64_t>( 16777216ULL, std::max<std::uint64_t>( 262144ULL, huff_scaled ) );
+			}
+		}
 	}
 
 	std::uint64_t total_blocks = 0;

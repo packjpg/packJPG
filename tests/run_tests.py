@@ -175,7 +175,12 @@ def main():
             shutil.copy2(alt_pjg, ro_pjg)
             os.chmod(ro_dir, stat.S_IRUSR | stat.S_IXUSR)
             try:
-                run_cli(binary, ["-np", "-v1", ro_pjg])
+                rc_ro, out_ro, err_ro = run_cli(binary, ["-np", "-v1", ro_pjg])
+                ro_msg = (out_ro + err_ro).decode("utf-8", errors="replace")
+                assert rc_ro != 0, "Expected non-zero exit code when output directory is read-only"
+                assert "locked.jpg" in ro_msg, f"Expected target path in error output, got: {ro_msg}"
+                assert ".packjpg_tmp_" not in ro_msg, f"Internal staging temp name leaked in error: {ro_msg}"
+                assert os.listdir(ro_dir) == ["locked.pjg"], f"Unexpected files in read-only dir: {os.listdir(ro_dir)}"
             finally:
                 os.chmod(ro_dir, stat.S_IRWXU)
         print("  [PASS] non-overwrite suffixing, directory path, long paths, and format-string filenames")
@@ -535,7 +540,77 @@ def main():
             assert os.path.islink(sym_pjg), "Dangling symlink was clobbered without -o!"
             assert os.path.isfile(os.path.join(sym_dir, "dangle_.pjg")), "Expected dangle_.pjg alongside dangling symlink"
 
-        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and second-pass CLI safety guards")
+            # Pass-3 Bug #1: -o writes through existing symlink and preserves 0600 permissions on target
+            wt_dir = os.path.join(tmp, "writethrough_sym")
+            wt_real_dir = os.path.join(wt_dir, "real_dest")
+            os.makedirs(wt_real_dir)
+            wt_jpg = os.path.join(wt_dir, "photo.jpg")
+            wt_real_pjg = os.path.join(wt_real_dir, "actual.pjg")
+            wt_link_pjg = os.path.join(wt_dir, "photo.pjg")
+            with open(wt_jpg, "wb") as f:
+                f.write(first_jpg_bytes)
+            with open(wt_real_pjg, "wb") as f:
+                f.write(b"OLD_SECRET")
+            os.chmod(wt_real_pjg, 0o600)
+            os.symlink(wt_real_pjg, wt_link_pjg)
+            rc_wt, _, _ = run_cli(binary, ["-np", "-o", wt_jpg])
+            assert rc_wt == 0, "Expected -o symlink write-through to succeed"
+            assert os.path.islink(wt_link_pjg), "Symlink was replaced by regular file under -o!"
+            assert (os.stat(wt_real_pjg).st_mode & 0o777) == 0o600, "0600 file mode was not preserved under -o!"
+            with open(wt_real_pjg, "rb") as f:
+                assert f.read() == pjg_stdout, "Linked target file did not receive valid .pjg bytes!"
+
+            # Pass-3 Bug #2: directory-symlink -j2 batch & concurrent two-process non-overwrite safety
+            alias_base = os.path.join(tmp, "alias_race")
+            real_sub = os.path.join(alias_base, "real")
+            alias_sub = os.path.join(alias_base, "alias")
+            os.makedirs(real_sub)
+            os.symlink(real_sub, alias_sub)
+            with open(os.path.join(real_sub, "same.jpg"), "wb") as f:
+                f.write(first_jpg_bytes)
+            with open(os.path.join(real_sub, "same.jpeg"), "wb") as f:
+                f.write(first_jpg_bytes)
+            rc_ab, _, _ = run_cli(binary, ["-np", "-j2", os.path.join(real_sub, "same.jpg"), os.path.join(alias_sub, "same.jpeg")])
+            assert rc_ab == 0
+            assert os.path.isfile(os.path.join(real_sub, "same.pjg")) and os.path.isfile(os.path.join(real_sub, "same_.pjg")), (
+                "Directory-aliased -j2 non-overwrite batch lost one of same.pjg / same_.pjg!"
+            )
+
+        # Pass-3 Bug #2 (cross-platform): two concurrent packJPG processes without -o must never clobber each other
+        proc_race_dir = os.path.join(tmp, "proc_race")
+        os.makedirs(proc_race_dir)
+        pr_a = os.path.join(proc_race_dir, "race.jpg")
+        pr_b = os.path.join(proc_race_dir, "race.jpeg")
+        with open(pr_a, "wb") as f:
+            f.write(first_jpg_bytes)
+        with open(pr_b, "wb") as f:
+            f.write(first_jpg_bytes)
+        p1 = subprocess.Popen([binary, "-np", pr_a], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p2 = subprocess.Popen([binary, "-np", pr_b], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _, _ = p1.communicate(timeout=30)
+        _, _ = p2.communicate(timeout=30)
+        assert p1.returncode == 0 and p2.returncode == 0
+        for expected_out in ("race.pjg", "race_.pjg"):
+            ep = os.path.join(proc_race_dir, expected_out)
+            assert os.path.isfile(ep), f"Concurrent non-overwrite processes lost {expected_out}!"
+            with open(ep, "rb") as f:
+                assert f.read() == pjg_stdout
+
+        # Pass-3 Bug #8 (cross-platform): UTF-8 multibyte '?' wildcard matches 1 Unicode code point ('bé.jpg')
+        u8_glob_dir = os.path.join(tmp, "u8_glob")
+        os.makedirs(u8_glob_dir)
+        u8_accent = os.path.join(u8_glob_dir, "b\u00e9.jpg")
+        u8_two = os.path.join(u8_glob_dir, "b\u00e9x.jpg")
+        with open(u8_accent, "wb") as f:
+            f.write(first_jpg_bytes)
+        with open(u8_two, "wb") as f:
+            f.write(first_jpg_bytes)
+        rc_u8g, _, _ = run_cli(binary, ["-np", os.path.join(u8_glob_dir, "b?.jpg")])
+        assert rc_u8g == 0, "UTF-8 '?' wildcard failed to match multibyte 'bé.jpg'"
+        assert os.path.isfile(os.path.join(u8_glob_dir, "b\u00e9.pjg"))
+        assert not os.path.exists(os.path.join(u8_glob_dir, "b\u00e9x.pjg"))
+
+        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and third-pass CLI safety guards")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0

@@ -68,12 +68,24 @@ SHLIB          = lib$(TARGET).so
 SHLIB_FLAGS    = -shared -fvisibility=hidden
 endif
 
-ifeq ($(TARGET_OS),Darwin)
-STRIP ?=
-else ifneq ($(findstring -g,$(CXXFLAGS)),)
-STRIP ?=
+ifeq ($(origin STRIP),command line)
+ifeq ($(STRIP),)
+STRIP_FLAGS ?=
+else ifneq (,$(filter -%,$(STRIP)))
+STRIP_FLAGS ?= $(STRIP)
+else ifeq ($(TARGET_OS),Darwin)
+STRIP_FLAGS ?=
 else
-STRIP ?= -s
+STRIP_FLAGS ?= -s
+endif
+else ifeq ($(TARGET_OS),Darwin)
+STRIP_FLAGS ?=
+else ifneq ($(findstring -g,$(CXXFLAGS)),)
+STRIP_FLAGS ?=
+else ifneq (,$(filter -%,$(STRIP)))
+STRIP_FLAGS ?= $(STRIP)
+else
+STRIP_FLAGS ?= -s
 endif
 
 ifeq ($(USE_LTO),1)
@@ -155,7 +167,7 @@ endif
 .force_dev_bin:
 
 $(BIN): $(OBJ) $(RES) .stamp_std
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP_FLAGS) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
@@ -163,7 +175,7 @@ endif
 dev: .stamp_dev_bin
 
 .stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev $(DEV_BIN_FORCE)
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP_FLAGS) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif
