@@ -575,6 +575,64 @@ TEST_CASE("dev_tools: dump_errfile preserves pipeline error, F_PJG dump_info & c
 		REQUIRE(s.find("Infofile for JPEG image") != std::string::npos);
 	}
 #endif
+
+	// 4. Session precondition guards: uninitialized convert, stream2stream on mem out, and null out_file/out_size pointers
+	char msg[PJGLIB_MSG_SIZE] = {};
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::string(msg).find("streams not initialized") != std::string::npos);
+
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::string(msg).find("null") != std::string::npos);
+
+	unsigned int dummy_sz = 99;
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2mem(nullptr, &dummy_sz, msg));
+	REQUIRE_EQ(dummy_sz, 0u);
+
+	unsigned char* dummy_ptr = reinterpret_cast<unsigned char*>(std::uintptr_t(1));
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2mem(&dummy_ptr, nullptr, msg));
+	REQUIRE(dummy_ptr == nullptr);
+
+	// 5. pjglib_init_streams invalid in_type / out_type / short / unknown-magic branches + convert_memory error_msg + StageReporter(-v2)
+	pjglib_init_streams(nullptr, 99, 0, nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::string(msg).find("Invalid input type") != std::string::npos);
+
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 0);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::string(msg).find("null or empty output filename") != std::string::npos);
+
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 2);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::string(msg).find("null FILE*") != std::string::npos);
+
+	const unsigned char one_byte = 0xFF;
+	pjglib_init_streams(const_cast<unsigned char*>(&one_byte), 1, 1, nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2mem(&dummy_ptr, &dummy_sz, msg));
+
+	std::string cm_err;
+	std::vector<std::uint8_t> cm_out = {1, 2, 3};
+	REQUIRE(!packjpg::convert_memory(nullptr, 0, cm_out, &cm_err));
+	REQUIRE(cm_out.empty() && !cm_err.empty());
+	const std::uint8_t bad_magic[4] = {'P', 'N', 'G', '!'};
+	REQUIRE(!packjpg::convert_memory(bad_magic, 4, cm_out, &cm_err));
+	REQUIRE(cm_err.find("unknown") != std::string::npos);
+
+	FILE* rep_fp = std::tmpfile();
+	if (rep_fp != nullptr) {
+		StageReporter rep{rep_fp, 2};
+		CodecContext v2_ctx;
+		v2_ctx.filetype = F_JPG;
+		v2_ctx.str_in   = std::make_unique<MemoryReader>(jpg.data(), jpg.size());
+		unsigned char m2[2]{};
+		v2_ctx.str_in->read(m2, 2);
+		v2_ctx.str_out  = std::make_unique<MemoryWriter>();
+		v2_ctx.reset_buffers();
+		process_standard_file(v2_ctx, &rep);
+		rep.on_begin(StageId::CompareOutput);
+		rep.on_end(false, 0);
+		std::fclose(rep_fp);
+	}
 }
-
-

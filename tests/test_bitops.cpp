@@ -477,6 +477,49 @@ TEST_CASE("fourth-pass bitops and path_utils: owned StreamWriter, non-regular Fi
 
 	// 6. Bug #9: make_output_base handles trailing slash on explicit input path cleanly
 	REQUIRE_EQ(make_output_base("photos/sample.jpg", "out_dir/", ""), std::string("out_dir/sample.jpg"));
+
+	// 7. BitReader::setpos negative/past-EOF clamps, Reader::get_c_data, StreamWriter ~StreamWriter flush, and FileReader/StreamReader methods
+	{
+		const std::uint8_t raw[2] = {0xA5, 0x5A};
+		BitReader br(raw, 2);
+		br.setpos(-3, 4);
+		REQUIRE_EQ(br.getpos(), 0);
+		REQUIRE_EQ(br.getbitp(), 8);
+		br.setpos(5, 3);
+		REQUIRE(br.eof());
+		REQUIRE_EQ(br.peof(), std::int64_t((5 - 2) * 8 + (8 - 3)));
+
+		const std::string sr_path = path_to_utf8(tmp_dir.path() / "stream_fwd.bin");
+		{
+			FILE* fp = fopen_utf8(sr_path, "wb");
+			REQUIRE(fp != nullptr);
+			{
+				StreamWriter sw_dtor(fp, /*own_stream=*/true);
+				sw_dtor.write(std::vector<std::uint8_t>{0x10, 0x20, 0x30, 0x40});
+			} // ~StreamWriter auto-flushes and closes fp!
+		}
+		FileReader fr(sr_path);
+		unsigned char* c_copy = fr.get_c_data();
+		REQUIRE(c_copy != nullptr);
+		REQUIRE_EQ(c_copy[0], 0x10);
+		REQUIRE_EQ(c_copy[3], 0x40);
+		std::free(c_copy);
+		REQUIRE_EQ(fr.read_byte(), 0x10);
+		std::vector<std::uint8_t> into_vec;
+		REQUIRE_EQ(fr.read(into_vec, 2, 0), std::size_t(2));
+		fr.rewind_bytes(1);
+		REQUIRE_EQ(fr.num_bytes_read(), std::size_t(2));
+		REQUIRE(!fr.end_of_reader());
+
+		FILE* rfp = fopen_utf8(sr_path, "rb");
+		REQUIRE(rfp != nullptr);
+		StreamReader sr(rfp);
+		REQUIRE_EQ(sr.read_byte(), 0x10);
+		std::vector<std::uint8_t> sr_into;
+		REQUIRE_EQ(sr.read(sr_into, 2, 0), std::size_t(2));
+		sr.rewind_bytes(1);
+		REQUIRE_EQ(sr.num_bytes_read(), std::size_t(2));
+		REQUIRE(!sr.end_of_reader());
+		std::fclose(rfp);
+	}
 }
-
-

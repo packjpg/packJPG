@@ -8,6 +8,7 @@
 
 #include "codec_pipeline.h"
 #include "packjpglib.h"
+#include "path_utils.h"
 
 #include <objbase.h>
 #include <oaidl.h>
@@ -379,48 +380,6 @@ bool has_pjg_signature( const std::uint8_t* data, std::size_t size ) noexcept
 	return ( pos < size ) && ( data[ pos ] >= 0x14 ) && ( data[ pos ] <= 0x1F );
 }
 
-std::wstring normalize_win32_file_path_w( const wchar_t* raw_path )
-{
-	if ( ( raw_path == nullptr ) || ( raw_path[ 0 ] == L'\0' ) ) {
-		return {};
-	}
-	std::wstring p( raw_path );
-	if ( ( p.rfind( L"\\\\?\\", 0 ) != 0 ) && ( p.rfind( L"\\\\.\\", 0 ) != 0 ) ) {
-		const DWORD need = GetFullPathNameW( raw_path, 0, nullptr, nullptr );
-		if ( need > 1 ) {
-			std::wstring full_buf( static_cast<std::size_t>( need ), L'\0' );
-			const DWORD got = GetFullPathNameW( raw_path, need, full_buf.data(), nullptr );
-			if ( ( got > 0 ) && ( got < need ) ) {
-				full_buf.resize( static_cast<std::size_t>( got ) );
-				p = std::move( full_buf );
-			}
-		}
-	}
-	return p;
-}
-
-std::wstring add_extended_length_prefix_if_needed( const std::wstring& full_path )
-{
-	if ( ( full_path.size() < 240 ) ||
-	     ( full_path.rfind( L"\\\\?\\", 0 ) == 0 ) ||
-	     ( full_path.rfind( L"\\\\.\\", 0 ) == 0 ) ) {
-		return full_path;
-	}
-	std::wstring norm = full_path;
-	for ( wchar_t& wc : norm ) {
-		if ( wc == L'/' ) {
-			wc = L'\\';
-		}
-	}
-	if ( norm.rfind( L"\\\\", 0 ) == 0 ) {
-		return L"\\\\?\\UNC\\" + norm.substr( 2 );
-	}
-	if ( ( norm.size() >= 3 ) && ( norm[ 1 ] == L':' ) && ( norm[ 2 ] == L'\\' ) ) {
-		return L"\\\\?\\" + norm;
-	}
-	return full_path;
-}
-
 bool read_file_bytes_w(
 	const wchar_t* path,
 	std::vector<std::uint8_t>& out_bytes,
@@ -510,70 +469,12 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 
 	std::wstring dst_full = normalize_win32_file_path_w( path );
 	std::wstring dst_open = add_extended_length_prefix_if_needed( dst_full );
-
-	DWORD existing_attrs = GetFileAttributesW( dst_open.c_str() );
-	if ( ( existing_attrs != INVALID_FILE_ATTRIBUTES ) &&
-	     ( ( existing_attrs & FILE_ATTRIBUTE_REPARSE_POINT ) != 0 ) ) {
-		try {
-			auto strip_extended_prefix = []( std::wstring ws ) -> std::wstring {
-				if ( ws.rfind( L"\\\\?\\UNC\\", 0 ) == 0 ) {
-					return L"\\\\" + ws.substr( 8 );
-				}
-				if ( ws.rfind( L"\\\\?\\", 0 ) == 0 ) {
-					ws.erase( 0, 4 );
-				}
-				return ws;
-			};
-
-			std::wstring cur_full = dst_full;
-			std::wstring cur_open = dst_open;
-			std::error_code ec;
-			if ( std::filesystem::is_symlink( std::filesystem::symlink_status( std::filesystem::path( cur_open ), ec ) ) && !ec ) {
-				bool loop_detected = false;
-				for ( int depth = 0; depth < 32; ++depth ) {
-					const std::filesystem::path probe( cur_open );
-					const auto st = std::filesystem::symlink_status( probe, ec );
-					if ( ec || !std::filesystem::is_symlink( st ) ) {
-						break;
-					}
-					const std::filesystem::path target = std::filesystem::read_symlink( probe, ec );
-					if ( ec || target.empty() ) {
-						break;
-					}
-					std::wstring next_raw;
-					if ( target.is_absolute() ) {
-						next_raw = strip_extended_prefix( target.wstring() );
-					}
-					else {
-						std::filesystem::path base_dir = std::filesystem::path( cur_full ).parent_path();
-						if ( !base_dir.empty() ) {
-							std::error_code canon_ec;
-							const auto canon_dir = std::filesystem::weakly_canonical(
-								std::filesystem::path( add_extended_length_prefix_if_needed( base_dir.wstring() ) ),
-								canon_ec );
-							if ( !canon_ec && !canon_dir.empty() ) {
-								base_dir = std::filesystem::path( strip_extended_prefix( canon_dir.wstring() ) );
-							}
-						}
-						next_raw = ( base_dir.empty() ? target : ( base_dir / target ) ).wstring();
-					}
-					cur_full = normalize_win32_file_path_w( next_raw.c_str() );
-					cur_open = add_extended_length_prefix_if_needed( cur_full );
-					if ( depth == 31 ) {
-						const auto last_st = std::filesystem::symlink_status( std::filesystem::path( cur_open ), ec );
-						loop_detected = !ec && std::filesystem::is_symlink( last_st );
-					}
-				}
-				if ( loop_detected ) {
-					err = "symbolic link loop in output filename";
-					return false;
-				}
-				dst_full = std::move( cur_full );
-				dst_open = std::move( cur_open );
-				existing_attrs = GetFileAttributesW( dst_open.c_str() );
-			}
-		} catch ( ... ) {
-		}
+	DWORD existing_attrs  = GetFileAttributesW( dst_open.c_str() );
+	bool loop_detected    = false;
+	resolve_win32_symlink_target_w( dst_full, dst_open, existing_attrs, loop_detected );
+	if ( loop_detected ) {
+		err = "symbolic link loop in output filename";
+		return false;
 	}
 
 	if ( existing_attrs != INVALID_FILE_ATTRIBUTES ) {
@@ -648,32 +549,7 @@ bool write_file_bytes_w( const wchar_t* path, const std::uint8_t* data, std::siz
 	}
 	CloseHandle( hf );
 
-	bool committed = false;
-	if ( existing_attrs != INVALID_FILE_ATTRIBUTES ) {
-		if ( ReplaceFileW(
-		         dst_open.c_str(),
-		         tmp_open.c_str(),
-		         nullptr,
-		         REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
-		         nullptr,
-		         nullptr ) ) {
-			committed = true;
-		}
-		else if ( ( existing_attrs & ( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) ) != 0 ) {
-			SetFileAttributesW(
-				dst_open.c_str(),
-				existing_attrs & ~( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
-			if ( MoveFileExW( tmp_open.c_str(), dst_open.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
-				SetFileAttributesW( dst_open.c_str(), existing_attrs );
-				committed = true;
-			}
-			else {
-				SetFileAttributesW( dst_open.c_str(), existing_attrs );
-			}
-		}
-	}
-
-	if ( !committed && !MoveFileExW( tmp_open.c_str(), dst_open.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
+	if ( commit_win32_staging_w( tmp_open, dst_open, true ) != CommitStatus::Ok ) {
 		DeleteFileW( tmp_open.c_str() );
 		err = "could not atomically commit output file";
 		return false;

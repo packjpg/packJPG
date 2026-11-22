@@ -933,135 +933,196 @@ bool check_file(
 	return true;
 }
 
-bool swap_streams( CodecContext& ctx, std::unique_ptr<Reader>& str_str, std::unique_ptr<Writer>& str_primary_out )
+bool compare_verified_bytes( CodecContext& ver_ctx, const std::vector<std::uint8_t>& orig_data )
 {
-	unsigned char dmp[ 2 ];
-
-	str_str = std::move( ctx.str_in );
-	str_str->rewind();
-
-	str_primary_out = std::move( ctx.str_out );
-
-	ctx.str_in = std::make_unique<MemoryReader>( str_primary_out->get_data() );
-	ctx.str_in->read( dmp, 2 );
-
-	ctx.str_out = std::make_unique<MemoryWriter>();
-	return true;
-}
-
-bool compare_output( CodecContext& ctx, Reader* str_str )
-{
-	if ( ctx.str_out->error() ) {
-		ctx.errormessage = "error in comparison stream";
-		ctx.errorlevel   = 2;
+	if ( ver_ctx.str_out->error() ) {
+		ver_ctx.errormessage = "error in comparison stream";
+		ver_ctx.errorlevel   = 2;
 		return false;
 	}
-	if ( ctx.str_in->error() ) {
-		ctx.errormessage = "error in output stream";
-		ctx.errorlevel   = 2;
-		return false;
-	}
-	if ( str_str->error() ) {
-		ctx.errormessage = "error in input stream";
-		ctx.errorlevel   = 2;
+	if ( ver_ctx.str_in->error() ) {
+		ver_ctx.errormessage = "error in output stream";
+		ver_ctx.errorlevel   = 2;
 		return false;
 	}
 
-	const auto verif_data = ctx.str_out->get_data();
-	const auto orig_data  = str_str->get_data();
-
+	const auto verif_data = ver_ctx.str_out->get_data();
 	if ( verif_data.size() != orig_data.size() ) {
-		ctx.errormessage = "file sizes do not match";
-		ctx.errorlevel   = 2;
+		ver_ctx.errormessage = "file sizes do not match";
+		ver_ctx.errorlevel   = 2;
 		return false;
 	}
 
 	const auto result = std::mismatch( orig_data.begin(), orig_data.end(), verif_data.begin(), verif_data.end() );
 	if ( ( result.first != orig_data.end() ) || ( result.second != verif_data.end() ) ) {
 		const auto first_diff = std::distance( orig_data.begin(), result.first );
-		ctx.set_errormessage( "difference found at 0x%ld", static_cast<long>( first_diff ) );
-		ctx.errorlevel = 2;
+		ver_ctx.set_errormessage( "difference found at 0x%ld", static_cast<long>( first_diff ) );
+		ver_ctx.errorlevel = 2;
 		return false;
 	}
-
 	return true;
+}
+
+void verify_roundtrip_isolated( CodecContext& ctx, const StageReporter* reporter )
+{
+	if ( ctx.errorlevel >= ctx.err_tol ) {
+		return;
+	}
+
+	auto propagate_if_failed = [&]( const CodecContext& vctx ) {
+		if ( vctx.errorlevel >= vctx.err_tol ) {
+			ctx.errorlevel   = vctx.errorlevel;
+			ctx.error_stage  = vctx.error_stage;
+			ctx.errormessage = vctx.errormessage;
+		}
+	};
+
+	if ( ctx.filetype == F_JPG ) {
+		std::vector<std::uint8_t> expected_jpg;
+		if ( ctx.disc_meta ) {
+			const std::int64_t saved_jpgsize = ctx.jpgfilesize;
+			execute_stage( ctx, StageId::MergeJpeg, [&]() {
+				auto saved_out = std::move( ctx.str_out );
+				auto exp_out   = std::make_unique<MemoryWriter>();
+				auto* exp_ptr  = exp_out.get();
+				ctx.str_out    = std::move( exp_out );
+				const bool ok  = merge_jpeg( ctx );
+				if ( ok ) {
+					expected_jpg = exp_ptr->take_data();
+				}
+				ctx.str_out = std::move( saved_out );
+				return ok;
+			} );
+			ctx.jpgfilesize = saved_jpgsize;
+			if ( ctx.errorlevel >= ctx.err_tol ) {
+				return;
+			}
+		}
+		else {
+			if ( ctx.str_in->error() ) {
+				ctx.errormessage = "error in input stream";
+				ctx.errorlevel   = 2;
+				ctx.error_stage  = StageId::SwapStreams;
+				return;
+			}
+			ctx.str_in->rewind();
+			expected_jpg = ctx.str_in->get_data();
+		}
+
+		std::vector<std::uint8_t> pjg_bytes;
+		execute_stage( ctx, StageId::SwapStreams, [&]() {
+			if ( ctx.str_out->error() ) {
+				ctx.errormessage = "error in output stream";
+				ctx.errorlevel   = 2;
+				return false;
+			}
+			pjg_bytes = ctx.str_out->get_data();
+			return true;
+		}, reporter );
+		if ( ctx.errorlevel >= ctx.err_tol ) {
+			return;
+		}
+
+		CodecContext ver_ctx;
+		ver_ctx.filetype = F_PJG;
+		ver_ctx.err_tol  = ctx.err_tol;
+		ver_ctx.str_in   = std::make_unique<MemoryReader>( std::move( pjg_bytes ) );
+		unsigned char dmp[ 2 ]{};
+		ver_ctx.str_in->read( dmp, 2 );
+		ver_ctx.str_out = std::make_unique<MemoryWriter>();
+		execute_stage( ver_ctx, StageId::ResetBuffers, [&]() { return ver_ctx.reset_buffers(); }, reporter );
+		run_decompress_pipeline( ver_ctx, reporter );
+		execute_stage( ver_ctx, StageId::CompareOutput, [&]() {
+			return compare_verified_bytes( ver_ctx, expected_jpg );
+		}, reporter );
+		propagate_if_failed( ver_ctx );
+	}
+	else if ( ctx.filetype == F_PJG ) {
+		if ( !ctx.disc_meta && ctx.str_in->error() ) {
+			ctx.errormessage = "error in input stream";
+			ctx.errorlevel   = 2;
+			ctx.error_stage  = StageId::SwapStreams;
+			return;
+		}
+
+		std::vector<std::uint8_t> jpg_bytes;
+		execute_stage( ctx, StageId::SwapStreams, [&]() {
+			if ( ctx.str_out->error() ) {
+				ctx.errormessage = "error in output stream";
+				ctx.errorlevel   = 2;
+				return false;
+			}
+			jpg_bytes = ctx.str_out->get_data();
+			return true;
+		}, reporter );
+		if ( ctx.errorlevel >= ctx.err_tol ) {
+			return;
+		}
+
+		CodecContext ver_ctx;
+		ver_ctx.filetype = F_JPG;
+		ver_ctx.err_tol  = ctx.err_tol;
+		ver_ctx.auto_set = ctx.auto_set;
+		ver_ctx.nois_trs = ctx.nois_trs;
+		ver_ctx.segm_cnt = ctx.segm_cnt;
+		unsigned char dmp[ 2 ]{};
+		ver_ctx.str_out = std::make_unique<MemoryWriter>();
+
+		if ( !ctx.disc_meta ) {
+			ver_ctx.str_in = std::make_unique<MemoryReader>( std::move( jpg_bytes ) );
+			ver_ctx.str_in->read( dmp, 2 );
+			execute_stage( ver_ctx, StageId::ResetBuffers, [&]() { return ver_ctx.reset_buffers(); }, reporter );
+			run_compress_pipeline( ver_ctx, reporter );
+			ctx.str_in->rewind();
+			const auto expected_pjg = ctx.str_in->get_data();
+			execute_stage( ver_ctx, StageId::CompareOutput, [&]() {
+				return compare_verified_bytes( ver_ctx, expected_pjg );
+			}, reporter );
+			propagate_if_failed( ver_ctx );
+		}
+		else {
+			ver_ctx.str_in = std::make_unique<MemoryReader>( jpg_bytes );
+			ver_ctx.str_in->read( dmp, 2 );
+			execute_stage( ver_ctx, StageId::ResetBuffers, [&]() { return ver_ctx.reset_buffers(); }, reporter );
+			run_compress_pipeline( ver_ctx, reporter );
+			if ( ver_ctx.errorlevel >= ver_ctx.err_tol ) {
+				propagate_if_failed( ver_ctx );
+			}
+			else {
+				CodecContext ver_dec;
+				ver_dec.filetype = F_PJG;
+				ver_dec.err_tol  = ctx.err_tol;
+				ver_dec.str_in   = std::make_unique<MemoryReader>( ver_ctx.str_out->get_data() );
+				ver_dec.str_in->read( dmp, 2 );
+				ver_dec.str_out = std::make_unique<MemoryWriter>();
+				execute_stage( ver_dec, StageId::ResetBuffers, [&]() { return ver_dec.reset_buffers(); }, reporter );
+				run_decompress_pipeline( ver_dec, reporter );
+				execute_stage( ver_dec, StageId::CompareOutput, [&]() {
+					return compare_verified_bytes( ver_dec, jpg_bytes );
+				}, reporter );
+				propagate_if_failed( ver_dec );
+			}
+		}
+	}
 }
 
 void process_cli_file(
 	const CliSettings& cli,
 	CodecContext& ctx,
 	const std::string& output_base,
-	std::unique_ptr<Reader>& str_str,
-	std::unique_ptr<Writer>& str_primary_out,
 	const StageReporter* reporter )
 {
 	if ( ctx.action == A_COMPRESS ) {
 		if ( ctx.filetype == F_JPG ) {
 			run_compress_pipeline( ctx, reporter );
 			if ( cli.verify_lv > 0 ) {
-				const std::int64_t orig_jpgsize = ctx.jpgfilesize;
-				const std::int64_t orig_pjgsize = ctx.pjgfilesize;
-				std::vector<std::uint8_t> expected_stripped_jpg;
-				if ( ctx.disc_meta && ( ctx.errorlevel < ctx.err_tol ) ) {
-					execute_stage( ctx, StageId::MergeJpeg, [&]() {
-						auto saved_out = std::move( ctx.str_out );
-						auto exp_out   = std::make_unique<MemoryWriter>();
-						auto* exp_ptr  = exp_out.get();
-						ctx.str_out    = std::move( exp_out );
-						const bool ok  = merge_jpeg( ctx );
-						if ( ok ) {
-							expected_stripped_jpg = exp_ptr->take_data();
-						}
-						ctx.str_out = std::move( saved_out );
-						return ok;
-					} );
-				}
-				execute_stage( ctx, StageId::ResetBuffers, [&]() { return ctx.reset_buffers(); }, reporter );
-				execute_stage( ctx, StageId::SwapStreams,  [&]() {
-					if ( !swap_streams( ctx, str_str, str_primary_out ) ) {
-						return false;
-					}
-					if ( ctx.disc_meta ) {
-						str_str = std::make_unique<MemoryReader>( std::move( expected_stripped_jpg ) );
-					}
-					return true;
-				}, reporter );
-				run_decompress_pipeline( ctx, reporter );
-				execute_stage( ctx, StageId::CompareOutput, [&]() { return compare_output( ctx, str_str.get() ); }, reporter );
-				ctx.jpgfilesize = orig_jpgsize;
-				ctx.pjgfilesize = orig_pjgsize;
+				verify_roundtrip_isolated( ctx, reporter );
 			}
 		}
 		else if ( ctx.filetype == F_PJG ) {
 			run_decompress_pipeline( ctx, reporter );
 			if ( cli.verify_lv > 0 ) {
-				const std::int64_t orig_jpgsize = ctx.jpgfilesize;
-				const std::int64_t orig_pjgsize = ctx.pjgfilesize;
-				execute_stage( ctx, StageId::ResetBuffers, [&]() { return ctx.reset_buffers(); }, reporter );
-				execute_stage( ctx, StageId::SwapStreams,  [&]() {
-					if ( !swap_streams( ctx, str_str, str_primary_out ) ) {
-						return false;
-					}
-					if ( ctx.disc_meta ) {
-						str_str = std::make_unique<MemoryReader>( str_primary_out->get_data() );
-					}
-					return true;
-				}, reporter );
-				run_compress_pipeline( ctx, reporter );
-				if ( ctx.disc_meta ) {
-					execute_stage( ctx, StageId::ResetBuffers, [&]() { return ctx.reset_buffers(); }, reporter );
-					execute_stage( ctx, StageId::SwapStreams,  [&]() {
-						unsigned char dmp[ 2 ];
-						ctx.str_in = std::make_unique<MemoryReader>( ctx.str_out->get_data() );
-						ctx.str_in->read( dmp, 2 );
-						ctx.str_out = std::make_unique<MemoryWriter>();
-						return true;
-					} );
-					run_decompress_pipeline( ctx, reporter );
-				}
-				execute_stage( ctx, StageId::CompareOutput, [&]() { return compare_output( ctx, str_str.get() ); }, reporter );
-				ctx.jpgfilesize = orig_jpgsize;
-				ctx.pjgfilesize = orig_pjgsize;
+				verify_roundtrip_isolated( ctx, reporter );
 			}
 		}
 	}
@@ -1085,14 +1146,11 @@ void finalize_and_cleanup_streams(
 	std::string& commit_target_path,
 	BatchPathGuard& path_guard,
 	bool lock_guard,
-	CodecContext& ctx,
-	std::unique_ptr<Reader>& str_str,
-	std::unique_ptr<Writer>& str_primary_out )
+	CodecContext& ctx )
 {
-	Writer* final_out = str_primary_out ? str_primary_out.get() : ctx.str_out.get();
-	if ( final_out != nullptr ) {
+	if ( ctx.str_out != nullptr ) {
 		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) ) {
-			if ( !final_out->close() ) {
+			if ( !ctx.str_out->close() ) {
 				ctx.errormessage = "write error, possibly drive is full";
 				ctx.errorlevel   = 2;
 				if ( ctx.error_stage == StageId::None ) {
@@ -1101,14 +1159,12 @@ void finalize_and_cleanup_streams(
 			}
 		}
 		else if ( stdout_pipe || staging_output_path.empty() ) {
-			final_out->reset();
+			ctx.str_out->reset();
 		}
 	}
 
 	ctx.str_in.reset();
 	ctx.str_out.reset();
-	str_primary_out.reset();
-	str_str.reset();
 
 	auto unclaim_slot = [&]( const std::string& path ) {
 		if ( path.empty() ) {
@@ -1275,13 +1331,11 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 
 	const auto t_begin = std::chrono::steady_clock::now();
 
-	std::unique_ptr<Reader> str_str;
-	std::unique_ptr<Writer> str_primary_out;
 	try {
 		const std::string output_base = stdout_pipe
 			? item.path
 			: make_output_base( item.path, cli.out_dir, item.rel_root );
-		process_cli_file( cli, ctx, output_base, str_str, str_primary_out, &reporter );
+		process_cli_file( cli, ctx, output_base, &reporter );
 	} catch ( const std::bad_alloc& ) {
 		ctx.errormessage = kMemErrMsg;
 		ctx.errorlevel   = 2;
@@ -1293,7 +1347,7 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 		ctx.errorlevel   = 2;
 	}
 	finalize_and_cleanup_streams(
-		cli, stdout_pipe, staging_output_path, commit_target_path, path_guard, false, ctx, str_str, str_primary_out );
+		cli, stdout_pipe, staging_output_path, commit_target_path, path_guard, false, ctx );
 
 	const auto t_end = std::chrono::steady_clock::now();
 	const auto ms    = std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count();
@@ -1323,6 +1377,7 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no, BatchPathGuar
 				break;
 
 			case 2:
+			default:
 				if ( ctx.errorlevel < ctx.err_tol ) std::fprintf( cli.msgout, "\n-> %s OK\n", actionmsg );
 				else std::fprintf( cli.msgout, "\n-> %s ERROR\n", actionmsg );
 				break;
@@ -1396,8 +1451,6 @@ void run_parallel_batch(
 
 			std::string staging_output_path;
 			std::string commit_target_path;
-			std::unique_ptr<Reader> str_str;
-			std::unique_ptr<Writer> str_primary_out;
 
 			try {
 				wctx.reset_buffers();
@@ -1420,10 +1473,10 @@ void run_parallel_batch(
 					return check_file( cli, wctx, item, false, false, staging_output_path, commit_target_path, path_guard, true );
 				} );
 
-				process_cli_file( cli, wctx, std::string(), str_str, str_primary_out, nullptr );
+				process_cli_file( cli, wctx, std::string(), nullptr );
 
 				finalize_and_cleanup_streams(
-					cli, false, staging_output_path, commit_target_path, path_guard, true, wctx, str_str, str_primary_out );
+					cli, false, staging_output_path, commit_target_path, path_guard, true, wctx );
 
 				const auto t_end = std::chrono::steady_clock::now();
 				const auto ms    = std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count();
@@ -1492,14 +1545,11 @@ void run_parallel_batch(
 				}
 			} catch ( ... ) {
 				try {
-					Writer* final_out = str_primary_out ? str_primary_out.get() : wctx.str_out.get();
-					if ( ( final_out != nullptr ) && staging_output_path.empty() ) {
-						final_out->reset();
+					if ( ( wctx.str_out != nullptr ) && staging_output_path.empty() ) {
+						wctx.str_out->reset();
 					}
 					wctx.str_in.reset();
 					wctx.str_out.reset();
-					str_primary_out.reset();
-					str_str.reset();
 					if ( !staging_output_path.empty() ) {
 						remove_file_utf8( staging_output_path );
 					}

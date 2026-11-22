@@ -219,7 +219,7 @@ struct CodecContext {
 	std::array<const unsigned char*, 4> freqscan{ stdscan, stdscan, stdscan, stdscan };
 	unsigned char zsrtscan[ 4 ][ 64 ]{};
 
-	std::unique_ptr<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>> adpt_idct_8x8;
+	std::unique_ptr<std::array<std::array<int, 4096>, 4>> adpt_idct_8x8;
 	int adpt_idct_1x8[ 4 ][ 1 * 1 * 8 * 8 ]{};
 	int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ]{};
 
@@ -380,4 +380,3 @@ struct CodecContext {
 };
 
 #endif
-

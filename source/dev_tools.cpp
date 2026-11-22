@@ -259,6 +259,9 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 					}
 				}
 				break;
+
+			default:
+				return abort_dump_file( ctx, h );
 		}
 
 		if ( !close_dump_file( ctx, h ) ) {
@@ -527,4 +530,3 @@ void run_dev_action( CodecContext& ctx, const std::string& input_name, int collm
 		}
 	}
 }
-

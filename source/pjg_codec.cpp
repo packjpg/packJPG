@@ -197,7 +197,14 @@ bool pjg_optimize_header( CodecContext& ctx )
 					return false;
 				}
 				hpos++;
-				if ( ctx.hdrdata[ hpos ] > 2 ) {
+				int sym_count = 0;
+				if ( !jpg_parse_dht_counts( &ctx.hdrdata[ hpos ], sym_count ) ) {
+					ctx.errormessage = "size mismatch in dht marker";
+					ctx.errorlevel = 2;
+					return false;
+				}
+				const unsigned int skip = 16u + static_cast<unsigned int>( sym_count );
+				if ( hpos + skip > fpos ) {
 					ctx.errormessage = "size mismatch in dht marker";
 					ctx.errorlevel = 2;
 					return false;
@@ -218,15 +225,6 @@ bool pjg_optimize_header( CodecContext& ctx )
 					for ( spos = 2; spos < std_huff_lengths[ i ]; spos++ )
 						ctx.hdrdata[ hpos + spos ] = 0x00;
 					break;
-				}
-
-				unsigned int skip = 16;
-				for ( int i = 0; i < 16; i++ )
-					skip += static_cast<unsigned int>( ctx.hdrdata[ hpos + i ] );
-				if ( hpos + skip > fpos ) {
-					ctx.errormessage = "size mismatch in dht marker";
-					ctx.errorlevel = 2;
-					return false;
 				}
 				hpos += skip;
 			}
@@ -593,20 +591,20 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 		const bool check_x = ( b_x == 0 );
 
 		if ( check_x ) {
-			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ k + ( 8 * b_y ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
 		}
 		else {
-			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_y ]  = icos_base_8x8[ b_y * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ b_x + ( 8 * k ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
 		}
@@ -707,7 +705,9 @@ bool pjg_decode_zstscan( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 
 		if ( cpos == 0 ) {
 			for ( int tpos = 0; i < 64; i++ ) {
-				while ( ( ++tpos < 64 ) && ( freqlist[ tpos ] == 0 ) );
+				do {
+					++tpos;
+				} while ( ( tpos < 64 ) && ( freqlist[ tpos ] == 0 ) );
 				if ( tpos >= 64 ) {
 					throw std::runtime_error( "corrupted arithmetic stream" );
 				}
@@ -941,20 +941,20 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 		const bool check_x = ( b_x == 0 );
 
 		if ( check_x ) {
-			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ k + ( 8 * b_y ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
 		}
 		else {
-			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_y ]  = icos_base_8x8[ b_y * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ b_x + ( 8 * k ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
 		}
@@ -1154,7 +1154,7 @@ bool adapt_icos( CodecContext& ctx )
 {
 	unsigned short quant[ 64 ];
 	if ( ( ctx.action == A_PGM_DUMP ) && !ctx.adpt_idct_8x8 ) {
-		ctx.adpt_idct_8x8 = std::make_unique<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>>();
+		ctx.adpt_idct_8x8 = std::make_unique<std::array<std::array<int, 4096>, 4>>();
 	}
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
@@ -1164,13 +1164,13 @@ bool adapt_icos( CodecContext& ctx )
 				quant[ ipos ] = 0;
 		}
 		if ( ctx.action == A_PGM_DUMP ) {
-			for ( int ipos = 0; ipos < 64 * 64; ipos++ )
-				( *ctx.adpt_idct_8x8 )[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+			for ( std::size_t ipos = 0; ipos < 4096u; ipos++ )
+				( *ctx.adpt_idct_8x8 )[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64u ];
 		}
-		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
-			ctx.adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
-		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
-			ctx.adpt_idct_8x1[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ipos % 8 ];
+		for ( std::size_t ipos = 0; ipos < 64u; ipos++ )
+			ctx.adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8u ) * 8u ];
+		for ( std::size_t ipos = 0; ipos < 64u; ipos++ )
+			ctx.adpt_idct_8x1[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ipos % 8u ];
 	}
 
 	return true;
@@ -1504,4 +1504,3 @@ int idct_2d_fst_8x8( const CodecContext& ctx, int cmp, int dpos, int ix, int iy 
 	if ( idct > std::numeric_limits<int>::max() ) return std::numeric_limits<int>::max();
 	return static_cast<int>( idct );
 }
-

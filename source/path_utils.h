@@ -91,33 +91,63 @@ inline void lowercase_wide_inplace( std::wstring& ws ) noexcept
 	}
 }
 
-inline std::wstring widen_win32_path( const std::string& path_utf8 )
+inline std::wstring strip_win32_extended_prefix_w( std::wstring ws )
 {
-	std::wstring p = widen_utf8_or_acp( path_utf8 );
-	if ( p.empty() || ( p.rfind( L"\\\\?\\", 0 ) == 0 ) || ( p.rfind( L"\\\\.\\", 0 ) == 0 ) ) {
-		return p;
+	if ( ws.rfind( L"\\\\?\\UNC\\", 0 ) == 0 ) {
+		return L"\\\\" + ws.substr( 8 );
 	}
-	const DWORD need = GetFullPathNameW( p.c_str(), 0, nullptr, nullptr );
-	if ( need > 1 ) {
-		std::wstring full_buf( static_cast<std::size_t>( need ), L'\0' );
-		const DWORD got = GetFullPathNameW( p.c_str(), need, full_buf.data(), nullptr );
-		if ( ( got > 0 ) && ( got < need ) ) {
-			full_buf.resize( static_cast<std::size_t>( got ) );
-			p = std::move( full_buf );
-		}
+	if ( ws.rfind( L"\\\\?\\", 0 ) == 0 ) {
+		ws.erase( 0, 4 );
 	}
-	if ( p.size() >= 240 ) {
-		for ( wchar_t& wc : p ) {
-			if ( wc == L'/' ) wc = L'\\';
-		}
-		if ( p.rfind( L"\\\\", 0 ) == 0 ) {
-			return L"\\\\?\\UNC\\" + p.substr( 2 );
-		}
-		if ( ( p.size() >= 3 ) && ( p[ 1 ] == L':' ) && ( p[ 2 ] == L'\\' ) ) {
-			return L"\\\\?\\" + p;
+	return ws;
+}
+
+inline std::wstring normalize_win32_file_path_w( const wchar_t* raw_path )
+{
+	if ( ( raw_path == nullptr ) || ( raw_path[ 0 ] == L'\0' ) ) {
+		return {};
+	}
+	std::wstring p( raw_path );
+	if ( ( p.rfind( L"\\\\?\\", 0 ) != 0 ) && ( p.rfind( L"\\\\.\\", 0 ) != 0 ) ) {
+		const DWORD need = GetFullPathNameW( raw_path, 0, nullptr, nullptr );
+		if ( need > 1 ) {
+			std::wstring full_buf( static_cast<std::size_t>( need ), L'\0' );
+			const DWORD got = GetFullPathNameW( raw_path, need, full_buf.data(), nullptr );
+			if ( ( got > 0 ) && ( got < need ) ) {
+				full_buf.resize( static_cast<std::size_t>( got ) );
+				p = std::move( full_buf );
+			}
 		}
 	}
 	return p;
+}
+
+inline std::wstring add_extended_length_prefix_if_needed( const std::wstring& full_path )
+{
+	if ( ( full_path.size() < 240 ) ||
+	     ( full_path.rfind( L"\\\\?\\", 0 ) == 0 ) ||
+	     ( full_path.rfind( L"\\\\.\\", 0 ) == 0 ) ) {
+		return full_path;
+	}
+	std::wstring norm = full_path;
+	for ( wchar_t& wc : norm ) {
+		if ( wc == L'/' ) {
+			wc = L'\\';
+		}
+	}
+	if ( norm.rfind( L"\\\\", 0 ) == 0 ) {
+		return L"\\\\?\\UNC\\" + norm.substr( 2 );
+	}
+	if ( ( norm.size() >= 3 ) && ( norm[ 1 ] == L':' ) && ( norm[ 2 ] == L'\\' ) ) {
+		return L"\\\\?\\" + norm;
+	}
+	return full_path;
+}
+
+inline std::wstring widen_win32_path( const std::string& path_utf8 )
+{
+	const std::wstring wide = widen_utf8_or_acp( path_utf8 );
+	return wide.empty() ? std::wstring() : add_extended_length_prefix_if_needed( normalize_win32_file_path_w( wide.c_str() ) );
 }
 #endif
 
@@ -142,14 +172,7 @@ inline std::filesystem::path fs_path_for_sys( const std::string& s )
 inline std::string path_to_utf8( const std::filesystem::path& p )
 {
 #if defined(_WIN32) || defined(WIN32)
-	std::wstring ws = p.wstring();
-	if ( ws.rfind( L"\\\\?\\UNC\\", 0 ) == 0 ) {
-		ws = L"\\\\" + ws.substr( 8 );
-	}
-	else if ( ws.rfind( L"\\\\?\\", 0 ) == 0 ) {
-		ws.erase( 0, 4 );
-	}
-	return narrow_utf8_from_wide( ws );
+	return narrow_utf8_from_wide( strip_win32_extended_prefix_w( p.wstring() ) );
 #else
 	return p.string();
 #endif
@@ -281,16 +304,30 @@ inline bool paths_refer_to_same_existing_file( const std::string& a, const std::
 	}
 }
 
+inline std::filesystem::path sys_probe_path( const std::filesystem::path& p )
+{
+#if defined(_WIN32) || defined(WIN32)
+	return std::filesystem::path( add_extended_length_prefix_if_needed( normalize_win32_file_path_w( p.c_str() ) ) );
+#else
+	return p;
+#endif
+}
+
+inline std::filesystem::path strip_sys_prefix_path( const std::filesystem::path& p )
+{
+#if defined(_WIN32) || defined(WIN32)
+	return std::filesystem::path( strip_win32_extended_prefix_w( p.wstring() ) );
+#else
+	return p;
+#endif
+}
+
 inline std::filesystem::path resolve_symlink_chain_checked( std::filesystem::path cur, bool& loop_detected )
 {
 	loop_detected = false;
 	std::error_code ec;
 	for ( int depth = 0; depth < 32; ++depth ) {
-#if defined(_WIN32) || defined(WIN32)
-		const std::filesystem::path probe = fs_path_for_sys( path_to_utf8( cur ) );
-#else
-		const std::filesystem::path& probe = cur;
-#endif
+		const std::filesystem::path probe = sys_probe_path( cur );
 		const auto st = std::filesystem::symlink_status( probe, ec );
 		if ( ec || !std::filesystem::is_symlink( st ) ) {
 			return cur;
@@ -300,27 +337,21 @@ inline std::filesystem::path resolve_symlink_chain_checked( std::filesystem::pat
 			return cur;
 		}
 		if ( target.is_absolute() ) {
-			cur = target;
+			cur = strip_sys_prefix_path( target );
 		}
 		else {
 			std::filesystem::path base_dir = cur.parent_path();
 			if ( !base_dir.empty() ) {
 				std::error_code canon_ec;
-				const auto canon_dir = std::filesystem::weakly_canonical(
-					fs_path_for_sys( path_to_utf8( base_dir ) ), canon_ec );
+				const auto canon_dir = std::filesystem::weakly_canonical( sys_probe_path( base_dir ), canon_ec );
 				if ( !canon_ec && !canon_dir.empty() ) {
-					base_dir = path_from_utf8( path_to_utf8( canon_dir ) );
+					base_dir = strip_sys_prefix_path( canon_dir );
 				}
 			}
 			cur = base_dir.empty() ? target : ( base_dir / target );
 		}
 	}
-#if defined(_WIN32) || defined(WIN32)
-	const std::filesystem::path final_probe = fs_path_for_sys( path_to_utf8( cur ) );
-#else
-	const std::filesystem::path& final_probe = cur;
-#endif
-	const auto final_st = std::filesystem::symlink_status( final_probe, ec );
+	const auto final_st = std::filesystem::symlink_status( sys_probe_path( cur ), ec );
 	loop_detected = !ec && std::filesystem::is_symlink( final_st );
 	return cur;
 }
@@ -330,6 +361,33 @@ inline std::filesystem::path resolve_symlink_chain( std::filesystem::path cur )
 	bool loop_detected = false;
 	return resolve_symlink_chain_checked( std::move( cur ), loop_detected );
 }
+
+#if defined(_WIN32) || defined(WIN32)
+inline void resolve_win32_symlink_target_w(
+	std::wstring& dst_full,
+	std::wstring& dst_open,
+	DWORD& existing_attrs,
+	bool& loop_detected ) noexcept
+{
+	loop_detected = false;
+	if ( ( existing_attrs == INVALID_FILE_ATTRIBUTES ) ||
+	     ( ( existing_attrs & FILE_ATTRIBUTE_REPARSE_POINT ) == 0 ) ) {
+		return;
+	}
+	try {
+		const std::filesystem::path resolved = resolve_symlink_chain_checked( std::filesystem::path( dst_full ), loop_detected );
+		if ( !loop_detected ) {
+			std::wstring next_full = normalize_win32_file_path_w( resolved.c_str() );
+			if ( next_full != dst_full ) {
+				dst_full       = std::move( next_full );
+				dst_open       = add_extended_length_prefix_if_needed( dst_full );
+				existing_attrs = GetFileAttributesW( dst_open.c_str() );
+			}
+		}
+	} catch ( ... ) {
+	}
+}
+#endif
 
 inline bool resolve_overwrite_target_utf8(
 	const std::string& raw_target_utf8,
@@ -803,7 +861,51 @@ enum class CommitStatus {
 	Error
 };
 
-#if !defined(_WIN32) && !defined(WIN32)
+#if defined(_WIN32) || defined(WIN32)
+inline CommitStatus commit_win32_staging_w(
+	const std::wstring& wsrc,
+	const std::wstring& wdst,
+	bool allow_replace ) noexcept
+{
+	if ( wsrc.empty() || wdst.empty() ) {
+		return CommitStatus::Error;
+	}
+	if ( !allow_replace ) {
+		if ( MoveFileExW( wsrc.c_str(), wdst.c_str(), 0 ) ) {
+			return CommitStatus::Ok;
+		}
+		const DWORD gle = GetLastError();
+		return ( gle == ERROR_ALREADY_EXISTS || gle == ERROR_FILE_EXISTS )
+			? CommitStatus::TargetExists
+			: CommitStatus::Error;
+	}
+
+	const DWORD dst_attrs = GetFileAttributesW( wdst.c_str() );
+	if ( ( dst_attrs != INVALID_FILE_ATTRIBUTES ) && ( ( dst_attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 ) ) {
+		if ( ReplaceFileW(
+		         wdst.c_str(),
+		         wsrc.c_str(),
+		         nullptr,
+		         REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
+		         nullptr,
+		         nullptr ) ) {
+			return CommitStatus::Ok;
+		}
+		if ( ( dst_attrs & static_cast<DWORD>( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) ) != 0 ) {
+			SetFileAttributesW( wdst.c_str(), dst_attrs & ~static_cast<DWORD>( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
+			const BOOL moved = MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING );
+			SetFileAttributesW( wdst.c_str(), dst_attrs );
+			if ( moved ) {
+				return CommitStatus::Ok;
+			}
+		}
+	}
+
+	return MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING )
+		? CommitStatus::Ok
+		: CommitStatus::Error;
+}
+#else
 inline bool is_nonfatal_noreplace_errno( int err_no ) noexcept
 {
 	return ( err_no == ENOSYS ) || ( err_no == EINVAL ) || ( err_no == EPERM ) ||
@@ -823,50 +925,14 @@ inline CommitStatus commit_staging_file(
 {
 	try {
 #if defined(_WIN32) || defined(WIN32)
-		const std::wstring wsrc = widen_win32_path( staging_utf8 );
-		const std::wstring wdst = widen_win32_path( target_utf8 );
-		if ( wsrc.empty() || wdst.empty() ) {
+		const CommitStatus st = commit_win32_staging_w(
+			widen_win32_path( staging_utf8 ),
+			widen_win32_path( target_utf8 ),
+			allow_replace );
+		if ( st == CommitStatus::Error ) {
 			err = "failed to commit output file " + target_utf8;
-			return CommitStatus::Error;
 		}
-		if ( !allow_replace ) {
-			if ( MoveFileExW( wsrc.c_str(), wdst.c_str(), 0 ) ) {
-				return CommitStatus::Ok;
-			}
-			const DWORD gle = GetLastError();
-			if ( gle == ERROR_ALREADY_EXISTS || gle == ERROR_FILE_EXISTS ) {
-				return CommitStatus::TargetExists;
-			}
-			err = "failed to commit output file " + target_utf8;
-			return CommitStatus::Error;
-		}
-
-		const DWORD dst_attrs = GetFileAttributesW( wdst.c_str() );
-		if ( ( dst_attrs != INVALID_FILE_ATTRIBUTES ) && ( ( dst_attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 ) ) {
-			if ( ReplaceFileW(
-			         wdst.c_str(),
-			         wsrc.c_str(),
-			         nullptr,
-			         REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
-			         nullptr,
-			         nullptr ) ) {
-				return CommitStatus::Ok;
-			}
-			if ( ( dst_attrs & ( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) ) != 0 ) {
-				SetFileAttributesW( wdst.c_str(), dst_attrs & ~( FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM ) );
-				const BOOL moved = MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING );
-				SetFileAttributesW( wdst.c_str(), dst_attrs );
-				if ( moved ) {
-					return CommitStatus::Ok;
-				}
-			}
-		}
-
-		if ( !MoveFileExW( wsrc.c_str(), wdst.c_str(), MOVEFILE_REPLACE_EXISTING ) ) {
-			err = "failed to commit output file " + target_utf8;
-			return CommitStatus::Error;
-		}
-		return CommitStatus::Ok;
+		return st;
 #else
 		if ( !allow_replace ) {
 #if defined(__linux__) && defined(SYS_renameat2) && defined(AT_FDCWD)

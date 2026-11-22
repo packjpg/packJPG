@@ -99,13 +99,11 @@ bool convert_session_impl(
 
 		const auto begin = std::chrono::steady_clock::now();
 
-		if ( !sess.has_init_attempt ) {
-			ctx.errormessage = "streams not initialized";
-			ctx.errorlevel   = 2;
-		}
-		else if ( ctx.errorlevel < ctx.err_tol && ( ctx.str_in == nullptr || ctx.str_out == nullptr ) ) {
-			ctx.errormessage = "streams not initialized";
-			ctx.errorlevel   = 2;
+		if ( !sess.has_init_attempt || ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.str_in == nullptr || ctx.str_out == nullptr ) ) ) {
+			if ( ctx.errorlevel < ctx.err_tol ) {
+				ctx.errormessage = "streams not initialized";
+				ctx.errorlevel   = 2;
+			}
 		}
 		else if ( ctx.errorlevel < ctx.err_tol && require_mem_out && ( sess.lib_out_type != 1 ) ) {
 			ctx.errormessage = "output stream is not initialized as memory";
@@ -117,25 +115,33 @@ bool convert_session_impl(
 			ctx.errorlevel   = 2;
 		}
 
-		process_standard_file( ctx );
+		if ( ctx.errorlevel < ctx.err_tol ) {
+			process_standard_file( ctx );
+		}
 
 		if ( ctx.errorlevel < ctx.err_tol ) {
 			if ( sess.lib_out_type == 1 ) {
-				const std::size_t written = ctx.str_out->num_bytes_written();
-				if ( written > static_cast<std::size_t>( std::numeric_limits<unsigned int>::max() ) ) {
-					ctx.errormessage = "output exceeds 32-bit buffer size limit";
+				if ( out_file == nullptr || out_size == nullptr || ctx.str_out == nullptr ) {
+					ctx.errormessage = "output memory pointers must not be null";
 					ctx.errorlevel   = 2;
 				}
 				else {
-					unsigned char* buf = ctx.str_out->get_c_data();
-					if ( buf == nullptr ) {
-						ctx.errormessage = kMemErrMsg;
+					const std::size_t written = ctx.str_out->num_bytes_written();
+					if ( written > static_cast<std::size_t>( std::numeric_limits<unsigned int>::max() ) ) {
+						ctx.errormessage = "output exceeds 32-bit buffer size limit";
 						ctx.errorlevel   = 2;
 					}
 					else {
-						*out_size = static_cast<unsigned int>( written );
-						*out_file = buf;
-						guard.committed = true;
+						unsigned char* buf = ctx.str_out->get_c_data();
+						if ( buf == nullptr ) {
+							ctx.errormessage = kMemErrMsg;
+							ctx.errorlevel   = 2;
+						}
+						else {
+							*out_size = static_cast<unsigned int>( written );
+							*out_file = buf;
+							guard.committed = true;
+						}
 					}
 				}
 			}
@@ -184,7 +190,9 @@ bool convert_session_impl(
 
 		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>( end - begin ).count();
 		const int total = ( elapsed_ms > 2147483647LL ) ? 2147483647 : static_cast<int>( elapsed_ms );
-		const float cr  = ( ctx.jpgfilesize > 0 ) ? static_cast<float>( 100.0 * ctx.pjgfilesize / ctx.jpgfilesize ) : 0.0f;
+		const float cr  = ( ctx.jpgfilesize > 0 )
+			? static_cast<float>( 100.0 * static_cast<double>( ctx.pjgfilesize ) / static_cast<double>( ctx.jpgfilesize ) )
+			: 0.0f;
 
 		if ( msg != nullptr ) {
 			switch ( ctx.filetype ) {
@@ -450,6 +458,9 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 					return;
 				}
 				break;
+			default:
+				ctx.str_in.reset();
+				return;
 		}
 
 		sess.lib_in_type  = in_type;

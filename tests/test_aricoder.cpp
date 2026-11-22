@@ -341,8 +341,32 @@ TEST_CASE("aricoder: model_b select_context_3 leaf radix matches shift_context b
 		mod_dec.select_context_3(c1, c2, c3);
 		REQUIRE_EQ(decode_with_model_b(dec, mod_dec), bit);
 	}
+
+	// Same leaf context > 2,048 updates triggers ctx_node.rescale() inside select_context_3; plus abandon() & invalid configs
+	MemoryWriter mw_rescale;
+	{
+		ArithmeticEncoder enc(mw_rescale);
+		model_b mod_r(4, 3, 255, 4);
+		for (int i = 0; i < 2600; ++i) {
+			mod_r.select_context_3(1, 2, 3);
+			encode_with_model_b(enc, mod_r, i & 1);
+		}
+		enc.finalize();
+	}
+	{
+		MemoryReader mr_r(mw_rescale.get_data());
+		ArithmeticDecoder dec_r(mr_r);
+		model_b mod_r(4, 3, 255, 4);
+		for (int i = 0; i < 2600; ++i) {
+			mod_r.select_context_3(1, 2, 3);
+			REQUIRE_EQ(decode_with_model_b(dec_r, mod_r), i & 1);
+		}
+	}
+	{
+		MemoryWriter mw_abandon;
+		ArithmeticEncoder enc_ab(mw_abandon);
+		enc_ab.abandon();
+	}
+	REQUIRE_THROWS(model_s(0, 1, 0, 255));
+	REQUIRE_THROWS(model_b(-1, 0, 255));
 }
-
-
-
-

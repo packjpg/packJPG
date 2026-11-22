@@ -240,7 +240,7 @@ public:
 	virtual bool end_of_reader() = 0;
 };
 
-class MemoryReader : public Reader {
+class MemoryReader final : public Reader {
 public:
 	MemoryReader(const std::vector<std::uint8_t>& bytes);
 	MemoryReader(std::vector<std::uint8_t>&& bytes);
@@ -269,7 +269,7 @@ private:
 	std::vector<std::uint8_t>::const_iterator cbyte_;
 };
 
-class FileReader : public Reader {
+class FileReader final : public Reader {
 public:
 	FileReader(const std::string& file_path);
 	~FileReader();
@@ -294,7 +294,7 @@ private:
 	std::unique_ptr<MemoryReader> reader_;
 };
 
-class StreamReader : public Reader {
+class StreamReader final : public Reader {
 public:
 	explicit StreamReader(FILE* stream = stdin);
 
@@ -342,7 +342,7 @@ public:
 	virtual bool error() = 0;
 };
 
-class MemoryWriter : public Writer {
+class MemoryWriter final : public Writer {
 public:
 	MemoryWriter() = default;
 	~MemoryWriter() override = default;
@@ -388,7 +388,7 @@ private:
 	bool err_ = false;
 };
 
-class FileWriter : public Writer {
+class FileWriter final : public Writer {
 public:
 	explicit FileWriter(const std::string& file_path, bool exclusive = false);
 	FileWriter(FILE* owned_stream, const std::string& file_path);
@@ -418,7 +418,7 @@ private:
 	bool closed_ = false;
 };
 
-class StreamWriter : public Writer {
+class StreamWriter final : public Writer {
 public:
 	explicit StreamWriter(FILE* stream = stdout, bool own_stream = false);
 	StreamWriter(const StreamWriter&) = delete;
@@ -449,4 +449,3 @@ private:
 };
 
 #endif
-

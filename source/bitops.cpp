@@ -402,9 +402,11 @@ std::vector<std::uint8_t> FileWriter::get_data() {
 		if (size < 0) {
 			throw std::runtime_error("FileWriter::get_data: invalid file size.");
 		}
+		constexpr std::uintmax_t kMaxReadableBytes = std::min<std::uintmax_t>(
+			static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()),
+			static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()));
 		const auto umax = static_cast<std::uintmax_t>(size);
-		if (umax > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()) ||
-		    umax > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+		if (umax > kMaxReadableBytes) {
 			throw std::runtime_error("FileWriter::get_data: file exceeds addressable memory.");
 		}
 		std::vector<std::uint8_t> data_copy(static_cast<std::size_t>(umax));
@@ -492,7 +494,7 @@ StreamWriter::StreamWriter(FILE* stream, bool own_stream)
 StreamWriter::~StreamWriter() {
 	if (!flushed_ && std::uncaught_exceptions() == 0) {
 		try {
-			flush();
+			StreamWriter::flush();
 		} catch (...) {
 		}
 	}
@@ -606,9 +608,11 @@ FileReader::FileReader(const std::string& file_path) {
 		if (size < 0) {
 			throw std::runtime_error("FileReader: unable to determine size of " + file_path);
 		}
+		constexpr std::uintmax_t kMaxReadableBytes = std::min<std::uintmax_t>(
+			static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()),
+			static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()));
 		const auto umax = static_cast<std::uintmax_t>(size);
-		if (umax > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()) ||
-		    umax > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+		if (umax > kMaxReadableBytes) {
 			throw std::runtime_error("FileReader: file exceeds addressable memory: " + file_path);
 		}
 		std::vector<std::uint8_t> data(static_cast<std::size_t>(umax));

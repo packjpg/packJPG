@@ -57,7 +57,7 @@ CORE_HDR    = $(CORE_DIR)/aricoder.h $(CORE_DIR)/bitops.h $(CORE_DIR)/codec_cont
               $(CORE_DIR)/pjg_codec.h $(CORE_DIR)/pjpgtbl.h
 
 PLUGIN_SRC  = pjg_wic_dib.cpp plugin_exports.cpp
-PLUGIN_HDR  = pjg_wic_dib.h spi00in.h $(CORE_DIR)/packjpglib.h $(CORE_DIR)/codec_pipeline.h
+PLUGIN_HDR  = pjg_wic_dib.h spi00in.h $(CORE_DIR)/packjpglib.h $(CORE_DIR)/codec_pipeline.h $(CORE_DIR)/path_utils.h
 PLUGIN_OBJ  = $(addprefix $(BUILD_DIR)/,$(PLUGIN_SRC:.cpp=.plugin.o))
 
 ALL_CXXFLAGS   = -I. -I$(CORE_DIR) -DBUILD_LIB $(CXXSTD) $(CXXFLAGS)

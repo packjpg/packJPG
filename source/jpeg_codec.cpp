@@ -73,27 +73,32 @@ bool validate_scan_progression( CodecContext& ctx, std::array<std::array<int, 64
 	return true;
 }
 
-int jpg_encode_eobrun( BitWriter* huffw, const HuffCodes* actbl, int* eobrun )
+int jpg_encode_eobrun( BitWriter* huffw, const HuffCodes* actbl, int* eobrun, bool allow_split = true )
 {
-	if ( ( *eobrun ) > 0 ) {
+	while ( ( *eobrun ) > 0 ) {
 		if ( actbl->max_eobrun == 0 ) {
 			return -1;
 		}
-		while ( ( *eobrun ) > actbl->max_eobrun ) {
-			if ( actbl->clen[ 0xE0 ] == 0 ) return -1;
-			huffw->write_u16( actbl->cval[ 0xE0 ], actbl->clen[ 0xE0 ] );
-			huffw->write_u16( static_cast<std::uint16_t>( e_envli( 14, 32767 ) ), 14 );
-			( *eobrun ) -= actbl->max_eobrun;
+		int best_s = -1;
+		for ( int s = 14; s >= 0; --s ) {
+			if ( ( actbl->clen[ s << 4 ] > 0 ) && ( ( 1 << s ) <= ( *eobrun ) ) ) {
+				best_s = s;
+				break;
+			}
 		}
-		int s = bit_length_u32( static_cast<unsigned int>( *eobrun ) );
-		s--;
-		if ( ( s < 0 ) || ( s > 14 ) ) return -1;
-		const auto n = static_cast<unsigned short>( e_envli( s, *eobrun ) );
-		const int hc = ( s << 4 );
-		if ( actbl->clen[ hc ] == 0 ) return -1;
+		if ( best_s < 0 ) {
+			return -1;
+		}
+		const int max_for_s = ( 2 << best_s ) - 1;
+		const int chunk     = std::min( *eobrun, max_for_s );
+		if ( !allow_split && ( chunk < ( *eobrun ) ) ) {
+			return -1;
+		}
+		const int hc = ( best_s << 4 );
+		const auto n = static_cast<unsigned short>( e_envli( static_cast<unsigned char>( best_s ), chunk ) );
 		huffw->write_u16( actbl->cval[ hc ], actbl->clen[ hc ] );
-		huffw->write_u16( n, static_cast<std::size_t>( s ) );
-		( *eobrun ) = 0;
+		huffw->write_u16( n, static_cast<std::size_t>( best_s ) );
+		( *eobrun ) -= chunk;
 	}
 	return 0;
 }
@@ -303,7 +308,7 @@ int jpg_decode_ac_prg_sa( BitReader* huffr, const HuffTree* actree, short* block
 			if ( ( l == 15 ) || ( r > 0 ) ) {
 				signed char z = static_cast<signed char>( l );
 				const auto s = static_cast<unsigned char>( r );
-				signed char v = 0;
+				short v = 0;
 				if ( s == 0 ) {
 					v = 0;
 					if ( trailing_zrl != nullptr ) *trailing_zrl = true;
@@ -372,7 +377,7 @@ int jpg_encode_ac_prg_sa(
 	}
 
 	if ( ( eob > from ) && ( ( *eobrun ) > 0 ) ) {
-		if ( jpg_encode_eobrun( huffw, actbl, eobrun ) < 0 ) return -1;
+		if ( jpg_encode_eobrun( huffw, actbl, eobrun, storw.empty() ) < 0 ) return -1;
 		jpg_encode_crbits( huffw, storw );
 	}
 
@@ -413,7 +418,7 @@ int jpg_encode_ac_prg_sa(
 		if ( actbl->max_eobrun == 0 ) return -1;
 		( *eobrun )++;
 		if ( ( *eobrun ) == actbl->max_eobrun ) {
-			if ( jpg_encode_eobrun( huffw, actbl, eobrun ) < 0 ) return -1;
+			if ( jpg_encode_eobrun( huffw, actbl, eobrun, storw.empty() ) < 0 ) return -1;
 			jpg_encode_crbits( huffw, storw );
 		}
 	}
@@ -621,8 +626,9 @@ bool read_jpeg( CodecContext& ctx )
 							ctx.has_rst_err = true;
 						}
 						if ( ctx.has_rst_err ) {
-							if ( ctx.rst_err.size() < static_cast<std::size_t>( ctx.scnc + 1 ) ) {
-								ctx.rst_err.resize( static_cast<std::size_t>( ctx.scnc + 1 ), 0 );
+							const std::size_t req_rst_err = static_cast<std::size_t>( ctx.scnc ) + 1u;
+							if ( ctx.rst_err.size() < req_rst_err ) {
+								ctx.rst_err.resize( req_rst_err, 0 );
 							}
 							if ( crst > 255 ) {
 								ctx.set_errormessage( "Severe false use of RST markers (%i)", static_cast<int>( crst ) );
@@ -1210,12 +1216,13 @@ bool decode_jpeg( CodecContext& ctx )
 				}
 			}
 			else if ( sta == 2 ) {
-				if ( ( static_cast<std::size_t>( ctx.scnc + 1 ) >= ctx.scnp.size() ) ||
-					 ( static_cast<unsigned int>( huffr->getpos() ) != ctx.scnp[ ctx.scnc + 1 ] ) ) {
+				const std::size_t next_scn = static_cast<std::size_t>( ctx.scnc ) + 1u;
+				if ( ( next_scn >= ctx.scnp.size() ) ||
+					 ( static_cast<unsigned int>( huffr->getpos() ) != ctx.scnp[ next_scn ] ) ) {
 					ctx.errormessage = "scan data boundary mismatch";
 					ctx.errorlevel = 1;
-					if ( static_cast<std::size_t>( ctx.scnc + 1 ) < ctx.scnp.size() ) {
-						huffr->setpos( static_cast<int>( ctx.scnp[ ctx.scnc + 1 ] ), 8 );
+					if ( next_scn < ctx.scnp.size() ) {
+						huffr->setpos( static_cast<int>( ctx.scnp[ next_scn ] ), 8 );
 					}
 				}
 				ctx.scnc++;
@@ -1293,14 +1300,12 @@ bool recode_jpeg( CodecContext& ctx )
 		if ( !validate_scan_progression( ctx, prog_al ) )
 			return false;
 
-		ctx.scnp.resize( static_cast<std::size_t>( ctx.scnc + 2 ), 0 );
+		ctx.scnp.resize( static_cast<std::size_t>( ctx.scnc ) + 2u, 0 );
 
 		if ( ctx.rsti > 0 ) {
-			const int tmp = ctx.rstc + ( ( ctx.cs_cmpc > 1 )
-				? ( ctx.mcuc / ctx.rsti )
-				: ( ctx.cmpnfo[ ctx.cs_cmp[ 0 ] ].bc / ctx.rsti ) );
-			if ( ctx.rstp.size() < static_cast<std::size_t>( tmp + 1 ) )
-				ctx.rstp.resize( static_cast<std::size_t>( tmp + 1 ), 0 );
+			const std::size_t scan_units = static_cast<std::size_t>(
+				( ctx.cs_cmpc > 1 ) ? ctx.mcuc : ctx.cmpnfo[ ctx.cs_cmp[ 0 ] ].bc );
+			ctx.rstp.reserve( ctx.rstp.size() + ( scan_units / static_cast<std::size_t>( ctx.rsti ) ) + 1u );
 		}
 
 		int cmp  = ctx.cs_cmp[ 0 ];
@@ -1438,7 +1443,7 @@ bool recode_jpeg( CodecContext& ctx )
 						}
 
 						if ( sta != -1 ) {
-							if ( jpg_encode_eobrun( huffw, &ctx.hcodes[ 1 ][ ctx.cmpnfo[ cmp ].huffac ], &eobrun ) < 0 )
+							if ( jpg_encode_eobrun( huffw, &ctx.hcodes[ 1 ][ ctx.cmpnfo[ cmp ].huffac ], &eobrun, storw.empty() ) < 0 )
 								sta = -1;
 							else
 								jpg_encode_crbits( huffw, storw );
@@ -1471,9 +1476,13 @@ bool recode_jpeg( CodecContext& ctx )
 						ctx.errorlevel = 2;
 						return false;
 					}
-					if ( static_cast<std::size_t>( ctx.rstc + 1 ) >= ctx.rstp.size() )
-						ctx.rstp.resize( static_cast<std::size_t>( ctx.rstc + 2 ), 0 );
-					ctx.rstp[ ctx.rstc++ ] = static_cast<unsigned int>( huffw->num_bytes_written() - 1 );
+					if ( ctx.rstc == std::numeric_limits<int>::max() ) {
+						ctx.errormessage = "too many restart markers";
+						ctx.errorlevel = 2;
+						return false;
+					}
+					ctx.rstp.push_back( static_cast<unsigned int>( huffw->num_bytes_written() - 1 ) );
+					ctx.rstc++;
 				}
 			}
 		}
@@ -1510,7 +1519,7 @@ bool jpg_setup_imginfo( CodecContext& ctx, bool from_pjg )
 		}
 		else if ( ( type == 0xDA ) && ( len >= 10u ) ) {
 			const unsigned int ns = ctx.hdrdata[ hpos + 4 ];
-			if ( ( ns >= 1u ) && ( ns <= 4u ) && ( len >= 8u + 2u * ns ) ) {
+			if ( jpg_valid_sos_length( len, ns ) ) {
 				const unsigned char ss = ctx.hdrdata[ hpos + 5u + 2u * ns ];
 				const unsigned char ah = static_cast<unsigned char>(
 					( ctx.hdrdata[ hpos + 7u + 2u * ns ] >> 4 ) & 0x0Fu );
@@ -1675,21 +1684,16 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 					break;
 
 				hpos++;
-				int skip = 16;
-				int kraft = 0;
-				int i = 0;
-				for ( ; i < 16; i++ ) {
-					skip += static_cast<int>( segment[ hpos + i ] );
-					kraft = ( kraft << 1 ) + static_cast<int>( segment[ hpos + i ] );
-					if ( kraft > ( 1 << ( i + 1 ) ) )
-						break;
-				}
-				if ( ( i < 16 ) || ( skip - 16 > 256 ) || ( hpos + static_cast<unsigned int>( skip ) > len ) )
+				int sym_count = 0;
+				if ( !jpg_parse_dht_counts( &segment[ hpos ], sym_count ) )
+					break;
+				const unsigned int skip = 16u + static_cast<unsigned int>( sym_count );
+				if ( hpos + skip > len )
 					break;
 
 				if ( !from_pjg ) {
 					std::array<unsigned char, 256> seen{};
-					for ( int k = 0; k < skip - 16; k++ ) {
+					for ( int k = 0; k < sym_count; k++ ) {
 						const unsigned char sym = segment[ hpos + 16 + k ];
 						if ( seen[ sym ] != 0 ) {
 							ctx.errormessage = "reconstruction of inefficient coding not supported";
@@ -1704,7 +1708,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 				jpg_build_huffcodes( &segment[ hpos + 0 ], &segment[ hpos + 16 ],
 					&ctx.hcodes[ lval ][ rval ], &ctx.htrees[ lval ][ rval ] );
 				ctx.htset[ lval ][ rval ] = 1;
-				hpos += static_cast<unsigned int>( skip );
+				hpos += skip;
 			}
 
 			if ( hpos != len ) {
@@ -1781,7 +1785,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 				return false;
 			}
 			hpos++;
-			if ( hpos + static_cast<unsigned int>( ctx.cs_cmpc ) * 2 + 3 != len ) {
+			if ( !jpg_valid_sos_length( len, static_cast<unsigned int>( ctx.cs_cmpc ) ) ) {
 				ctx.errormessage = "size mismatch in sos marker";
 				ctx.errorlevel = 2;
 				return false;
@@ -2093,4 +2097,3 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 		}
 	}
 }
-

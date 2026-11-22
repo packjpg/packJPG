@@ -66,7 +66,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="packjpg_suite_") as tmp:
         # 1. Golden v2.5k bitstream compatibility & byte-identical round-trip across all 10 JPEG modes
-        print("[1/7] Golden bitstream SHA-256 & round-trip matrix...")
+        print("[1/8] Golden bitstream SHA-256 & round-trip matrix...")
         first_jpg_bytes = None
         for name, entry in sorted(corpus["cases"].items()):
             jpg_bytes = zlib.decompress(base64.b64decode(entry["jpg_zb64"]))
@@ -107,7 +107,7 @@ def main():
             print(f"  [PASS] {name} (jpg={len(jpg_bytes)}B -> pjg={len(pjg_bytes)}B)")
 
         # 2. Metadata stripping (-d) check
-        print("[2/7] Metadata discard (-d) golden check...")
+        print("[2/8] Metadata discard (-d) golden check...")
         meta_jpg = zlib.decompress(base64.b64decode(corpus["cases"]["metadata_and_trailing_garbage"]["jpg_zb64"]))
         d_in = os.path.join(tmp, "discard_meta.jpg")
         d_pjg = os.path.join(tmp, "discard_meta.pjg")
@@ -132,7 +132,7 @@ def main():
         print("  [PASS] -d metadata discard & header rebuild")
 
         # 3. Pipe mode (-p: stdin -> stdout) compress, -ver, decompress, and clean error stdout
-        print("[3/7] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
+        print("[3/8] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
         rc, pjg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=first_jpg_bytes)
         assert rc == 0 and pjg_stdout.startswith(b"JS"), f"Pipe compress failed (rc={rc}, len={len(pjg_stdout)})"
         rc, jpg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=pjg_stdout)
@@ -142,7 +142,7 @@ def main():
         print("  [PASS] -p/-ver binary stdin/stdout round-trip and clean failure stdout")
 
         # 4. Non-overwrite suffixing, directory path, long filenames, and format-string filenames
-        print("[4/7] CLI file naming, directory rejection, long paths, and format-string safety...")
+        print("[4/8] CLI file naming, directory rejection, long paths, and format-string safety...")
         no_ow_dir = os.path.join(tmp, "no_overwrite")
         os.makedirs(no_ow_dir)
         # Passing a directory path must not crash with uncaught std::length_error
@@ -187,7 +187,7 @@ def main():
         print("  [PASS] non-overwrite suffixing, directory path, long paths, and format-string filenames")
 
         # 5. Malformed / truncated JPEG & PJG negative regression suite
-        print("[5/7] Malformed JPEG & PJG negative regressions...")
+        print("[5/8] Malformed JPEG & PJG negative regressions...")
         malformed_inputs = {
             "empty.jpg": b"",
             "soi_only.jpg": b"\xff\xd8",
@@ -274,7 +274,7 @@ def main():
         print(f"  [PASS] {len(malformed_inputs) + 3} malformed, padbit, & fuzz-discovered edge cases handled cleanly")
 
         # 6. Output directory (-out), wildcards (*.jpg / ?), recursive (-r), and parallel batch (-j4)
-        print("[6/7] Output directory (-out), wildcards, recursive (-r), and parallel (-j4) batch...")
+        print("[6/8] Output directory (-out), wildcards, recursive (-r), and parallel (-j4) batch...")
         batch_in = os.path.join(tmp, "batch_in")
         sub_a = os.path.join(batch_in, "album_a")
         sub_b = os.path.join(batch_in, "album_b", "nested")
@@ -617,7 +617,7 @@ def main():
         #    - Bug #2: -ver on >4,096-block (640x480 = 4,800 blocks) JPEG & PJG, plus -d -ver on metadata-bearing JPEG & PJG
         #    - Bug #6 & #7: 300-file -j4 parallel batch with mixed invalid item (O(1) BatchPathGuard, zero leftover .packjpg_tmp_*)
         #    - Bug #8 & #9: -ver -o through /dev/null & POSIX FIFO symlinks, plus symlinked-dir '../' relative symlink
-        print("[7/7] Testing fourth-pass CLI regressions (-ver >4096 blocks, -d -ver, special targets, and 300-file -j4 batch)...")
+        print("[7/8] Testing fourth-pass CLI regressions (-ver >4096 blocks, -d -ver, special targets, and 300-file -j4 batch)...")
         p4_dir = os.path.join(tmp, "fourth_pass")
         os.makedirs(p4_dir)
 
@@ -712,10 +712,265 @@ def main():
         assert not leftovers, f"Found leftover staging files in -j4 batch: {leftovers}"
         print("  [PASS] Fourth-pass CLI regressions (-ver >4096 blocks, -d -ver, special stream targets, and 300-file -j4 batch)")
 
+        # 10. Combinatorial CLI filesystem & concurrency property matrix:
+        #     Verifies all 4 universal postconditions across (input_kind) x (target_state) x (overwrite) x (verify) + (-j2 pairs):
+        #       P1. Input file bytes are never modified or unlinked.
+        #       P2. Zero leftover .packjpg_tmp_* staging files anywhere in the sandbox.
+        #       P3. On rc != 0, pre-existing target file/dir/symlink (and linked target + mode) is 100% untouched.
+        #       P4. Without -o, pre-existing targets/symlinks step aside to stem_.ext; with -o, symlinks write through & preserve mode.
+        print("[8/8] Running combinatorial CLI filesystem & concurrency property matrix...")
+        matrix_root = os.path.join(tmp, "prop_matrix")
+        os.makedirs(matrix_root)
+        can_test_ro = (os.name == "nt") or (hasattr(os, "geteuid") and os.geteuid() != 0)
+
+        target_states = ["absent", "existing_0600", "existing_dir", "hardlink_to_input"]
+        if can_test_ro:
+            target_states.append("readonly_0400")
+        if os.name != "nt":
+            target_states.extend([
+                "symlink_existing_0600",
+                "symlink_dangling",
+                "symlink_rel_parent",
+                "symlink_loop",
+                "dev_null",
+            ])
+
+        core_inputs = [
+            ("valid_jpg", "item.jpg", first_jpg_bytes, "pjg", pjg_stdout, True),
+            ("valid_pjg", "item.pjg", pjg_stdout, "jpg", first_jpg_bytes, True),
+            ("warn_jpg", "warn.jpg", bytes(raw_gray), "pjg", None, False),
+            ("corrupt_jpg", "bad.jpg", b"\xff\xd8\xff\xc0\x00\x0b\x08", "pjg", None, False),
+        ]
+        extra_inputs = [
+            ("unicode_jpg", "\u00fc\u00f1\u00ee\u00e7\u00f8d\u00e9_\u96ea.jpg", first_jpg_bytes, "pjg", pjg_stdout, True),
+            ("long_jpg", os.path.join("L" * 60, "M" * 60, "N" * 60, "deep_item.jpg"), first_jpg_bytes, "pjg", pjg_stdout, True),
+        ]
+
+        def assert_no_staging_files(root_dir: str, ctx_desc: str) -> None:
+            for cur_root, dirs, files in os.walk(root_dir):
+                for name in dirs + files:
+                    if ".packjpg_tmp_" in name:
+                        raise AssertionError(f"Leftover staging entry {name!r} in {ctx_desc}")
+
+        cells_checked = 0
+        cell_seq = 0
+        all_runs = []
+        for spec in core_inputs:
+            for tstate in target_states:
+                for ovw in (False, True):
+                    for ver in (False, True):
+                        all_runs.append((spec, tstate, ovw, ver))
+        extra_tstates = ["absent", "existing_0600", "existing_dir", "hardlink_to_input"]
+        if os.name != "nt":
+            extra_tstates.extend(["symlink_existing_0600", "symlink_dangling"])
+        for spec in extra_inputs:
+            for tstate in extra_tstates:
+                for ovw in (False, True):
+                    all_runs.append((spec, tstate, ovw, True))
+
+        for (ikind, rel_in, in_bytes, out_ext, expected_out_bytes, input_valid), tstate, ovw, ver in all_runs:
+            cell_seq += 1
+            cell_dir = os.path.join(matrix_root, f"c{cell_seq:04d}")
+            os.makedirs(cell_dir)
+            ctx_desc = f"{ikind}/{tstate}/ovw={ovw}/ver={ver}"
+            chmod_cleanup = []
+            try:
+                if tstate == "symlink_rel_parent":
+                    real_parent = os.path.join(cell_dir, "real_p")
+                    sib_dir = os.path.join(cell_dir, "sib_p")
+                    sym_parent = os.path.join(cell_dir, "sym_p")
+                    os.makedirs(real_parent)
+                    os.makedirs(sib_dir)
+                    os.symlink(real_parent, sym_parent)
+                    in_path = os.path.join(sym_parent, rel_in)
+                else:
+                    in_path = os.path.join(cell_dir, rel_in)
+
+                os.makedirs(os.path.dirname(in_path), exist_ok=True)
+                with open(in_path, "wb") as f:
+                    f.write(in_bytes)
+
+                stem_no_ext = os.path.splitext(in_path)[0]
+                target_path = f"{stem_no_ext}.{out_ext}"
+                alt_path = f"{stem_no_ext}_.{out_ext}"
+                linked_real_path = None
+                sentinel_bytes = None
+
+                if tstate == "existing_0600":
+                    sentinel_bytes = b"SENTINEL_0600"
+                    with open(target_path, "wb") as f:
+                        f.write(sentinel_bytes)
+                    if os.name != "nt":
+                        os.chmod(target_path, 0o600)
+                elif tstate == "readonly_0400":
+                    sentinel_bytes = b"SENTINEL_0400"
+                    with open(target_path, "wb") as f:
+                        f.write(sentinel_bytes)
+                    os.chmod(target_path, stat.S_IREAD if os.name == "nt" else 0o400)
+                    chmod_cleanup.append(target_path)
+                elif tstate == "existing_dir":
+                    os.makedirs(target_path)
+                    with open(os.path.join(target_path, "keep.txt"), "wb") as f:
+                        f.write(b"KEEP")
+                elif tstate == "hardlink_to_input":
+                    try:
+                        os.link(in_path, target_path)
+                    except OSError:
+                        continue
+                    sentinel_bytes = in_bytes
+                elif tstate == "symlink_existing_0600":
+                    real_sub = os.path.join(cell_dir, "linked_sub")
+                    os.makedirs(real_sub)
+                    linked_real_path = os.path.join(real_sub, "linked_target.bin")
+                    sentinel_bytes = b"LINKED_0600"
+                    with open(linked_real_path, "wb") as f:
+                        f.write(sentinel_bytes)
+                    os.chmod(linked_real_path, 0o600)
+                    os.symlink(linked_real_path, target_path)
+                elif tstate == "symlink_dangling":
+                    real_sub = os.path.join(cell_dir, "dangling_sub")
+                    os.makedirs(real_sub)
+                    linked_real_path = os.path.join(real_sub, "created_target.bin")
+                    os.symlink(linked_real_path, target_path)
+                elif tstate == "symlink_rel_parent":
+                    linked_real_path = os.path.join(cell_dir, "sib_p", "rel_target.bin")
+                    sentinel_bytes = b"REL_0600"
+                    with open(linked_real_path, "wb") as f:
+                        f.write(sentinel_bytes)
+                    os.chmod(linked_real_path, 0o600)
+                    real_in_dir = os.path.join(cell_dir, "real_p")
+                    real_target_link = os.path.join(real_in_dir, os.path.basename(target_path))
+                    os.symlink(os.path.join("..", "sib_p", "rel_target.bin"), real_target_link)
+                elif tstate == "symlink_loop":
+                    peer_link = f"{stem_no_ext}.loop_peer"
+                    os.symlink(peer_link, target_path)
+                    os.symlink(target_path, peer_link)
+                elif tstate == "dev_null":
+                    os.symlink("/dev/null", target_path)
+
+                flags = ["-np"]
+                if ovw:
+                    flags.append("-o")
+                if ver:
+                    flags.append("-ver")
+                flags.append(in_path)
+
+                target_blocks_ovw = tstate in ("existing_dir", "readonly_0400", "hardlink_to_input", "symlink_loop")
+                expect_ok = input_valid and not (ovw and target_blocks_ovw)
+
+                rc_m, out_m, err_m = run_cli(binary, flags)
+
+                # Postcondition P1: input file bytes are never modified or deleted!
+                assert os.path.isfile(in_path), f"Input unlinked in {ctx_desc}"
+                with open(in_path, "rb") as f:
+                    assert f.read() == in_bytes, f"Input mutated in {ctx_desc}"
+
+                # Postcondition P2: zero leftover .packjpg_tmp_* staging files!
+                assert_no_staging_files(cell_dir, ctx_desc)
+
+                if expect_ok:
+                    assert rc_m == 0, f"Expected rc==0 in {ctx_desc}, got rc={rc_m}: {out_m!r} {err_m!r}"
+                else:
+                    assert rc_m != 0, f"Expected rc!=0 in {ctx_desc}, got rc=0"
+
+                if rc_m != 0:
+                    # Postcondition P3: atomic preservation of pre-existing target state on failure!
+                    assert not os.path.exists(alt_path), f"Unexpected {alt_path} on failure in {ctx_desc}"
+                    if tstate == "absent":
+                        assert not os.path.exists(target_path) and not os.path.islink(target_path), f"Partial target created in {ctx_desc}"
+                    elif tstate in ("existing_0600", "readonly_0400", "hardlink_to_input"):
+                        with open(target_path, "rb") as f:
+                            assert f.read() == sentinel_bytes, f"Pre-existing target clobbered on failure in {ctx_desc}"
+                    elif tstate == "existing_dir":
+                        assert os.path.isdir(target_path) and os.path.isfile(os.path.join(target_path, "keep.txt")), ctx_desc
+                    elif tstate in ("symlink_existing_0600", "symlink_rel_parent"):
+                        assert os.path.islink(target_path), f"Symlink lost on failure in {ctx_desc}"
+                        with open(linked_real_path, "rb") as f:
+                            assert f.read() == sentinel_bytes, f"Linked target clobbered on failure in {ctx_desc}"
+                        assert (os.stat(linked_real_path).st_mode & 0o777) == 0o600, ctx_desc
+                    elif tstate == "symlink_dangling":
+                        assert os.path.islink(target_path) and not os.path.exists(linked_real_path), ctx_desc
+                    elif tstate == "symlink_loop":
+                        assert os.path.islink(target_path), ctx_desc
+                else:
+                    # Postcondition P4: exact output & symlink preservation / write-through contract on success!
+                    if not ovw:
+                        if tstate == "absent":
+                            with open(target_path, "rb") as f:
+                                assert f.read() == expected_out_bytes, ctx_desc
+                        else:
+                            with open(alt_path, "rb") as f:
+                                assert f.read() == expected_out_bytes, f"Expected {alt_path} in {ctx_desc}"
+                            if tstate in ("existing_0600", "readonly_0400", "hardlink_to_input"):
+                                with open(target_path, "rb") as f:
+                                    assert f.read() == sentinel_bytes, ctx_desc
+                            elif tstate == "existing_dir":
+                                assert os.path.isdir(target_path), ctx_desc
+                            elif tstate in ("symlink_existing_0600", "symlink_rel_parent"):
+                                assert os.path.islink(target_path), ctx_desc
+                                with open(linked_real_path, "rb") as f:
+                                    assert f.read() == sentinel_bytes, ctx_desc
+                            elif tstate == "symlink_dangling":
+                                assert os.path.islink(target_path) and not os.path.exists(linked_real_path), ctx_desc
+                            elif tstate == "symlink_loop":
+                                assert os.path.islink(target_path), ctx_desc
+                    else:
+                        if tstate in ("absent", "existing_0600"):
+                            with open(target_path, "rb") as f:
+                                assert f.read() == expected_out_bytes, ctx_desc
+                            if tstate == "existing_0600" and os.name != "nt":
+                                assert (os.stat(target_path).st_mode & 0o777) == 0o600, f"0600 mode lost in {ctx_desc}"
+                        elif tstate in ("symlink_existing_0600", "symlink_rel_parent"):
+                            assert os.path.islink(target_path), f"Symlink replaced under -o in {ctx_desc}"
+                            with open(linked_real_path, "rb") as f:
+                                assert f.read() == expected_out_bytes, ctx_desc
+                            assert (os.stat(linked_real_path).st_mode & 0o777) == 0o600, f"0600 mode lost in {ctx_desc}"
+                        elif tstate == "symlink_dangling":
+                            assert os.path.islink(target_path), f"Dangling symlink replaced under -o in {ctx_desc}"
+                            with open(linked_real_path, "rb") as f:
+                                assert f.read() == expected_out_bytes, ctx_desc
+                        elif tstate == "dev_null":
+                            assert os.path.islink(target_path), ctx_desc
+
+                cells_checked += 1
+            finally:
+                for ro_p in chmod_cleanup:
+                    try:
+                        os.chmod(ro_p, stat.S_IWRITE | stat.S_IREAD if os.name == "nt" else 0o600)
+                    except OSError:
+                        pass
+                shutil.rmtree(cell_dir, ignore_errors=True)
+
+        # Parallel -j2 multi-item property checks (mixed valid + corrupt with -ver, and stem collision without -o)
+        j2_dir = os.path.join(matrix_root, "j2_pairs")
+        os.makedirs(j2_dir)
+        j2_valid = os.path.join(j2_dir, "ok.jpg")
+        j2_bad = os.path.join(j2_dir, "corrupt.jpg")
+        j2_bad_existing = os.path.join(j2_dir, "corrupt.pjg")
+        with open(j2_valid, "wb") as f:
+            f.write(first_jpg_bytes)
+        with open(j2_bad, "wb") as f:
+            f.write(b"\xff\xd8\xff\xc0\x00\x0b\x08")
+        with open(j2_bad_existing, "wb") as f:
+            f.write(b"KEEP_CORRUPT_TARGET")
+        rc_j2m, _, _ = run_cli(binary, ["-np", "-j2", "-o", "-ver", j2_valid, j2_bad])
+        assert rc_j2m != 0
+        with open(os.path.join(j2_dir, "ok.pjg"), "rb") as f:
+            assert f.read() == pjg_stdout
+        with open(j2_bad_existing, "rb") as f:
+            assert f.read() == b"KEEP_CORRUPT_TARGET"
+        assert_no_staging_files(j2_dir, "j2_mixed_pair")
+
+        # Verbosity -v2 stage-by-stage reporting on both valid -ver round-trip and corrupt input
+        rc_v2_ok, out_v2_ok, _ = run_cli(binary, ["-np", "-v2", "-ver", "-o", j2_valid])
+        rc_v2_err, out_v2_err, _ = run_cli(binary, ["-np", "-v2", j2_bad])
+        assert rc_v2_ok == 0 and b"Verifying output stream" in out_v2_ok
+        assert rc_v2_err != 0 and b"ERROR" in out_v2_err
+        print(f"  [PASS] Combinatorial property matrix ({cells_checked} filesystem/flag cells + -j2/-v2 verified)")
+
     print("\nAll CLI & golden bitstream tests passed!")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

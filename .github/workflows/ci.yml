@@ -98,16 +98,26 @@ jobs:
             LDFLAGS="-fsanitize=address,undefined" -j2
           make -C source clean
 
-      - name: Unsigned-char (ARM64 ABI) ASan/UBSan test suite & fuzzer smoke pass (clang++)
+      - name: Unsigned-char (ARM64 ABI) strict warnings, ASan/UBSan test suite & seeded differential fuzzer (clang++)
         if: matrix.cxx == 'clang++'
         run: |
           make -C source clean
           make -C source test CXX=clang++ \
-            CXXFLAGS="-O1 -g -Wall -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            CXXFLAGS="-O1 -g -Wall -Wextra -Wconversion -Wno-sign-conversion -Wshadow -Wformat=2 -Wundef -Werror -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined" -j2
-          make -C source clean
-          make -C source fuzz FUZZ_CXX=clang++
-          ./source/fuzz_roundtrip -runs=64
+          make -C source all fuzz CXX=clang++ FUZZ_CXX=clang++ -j2
+          python3 - <<'PY'
+          import base64, json, pathlib, subprocess, zlib
+          seed_dir = pathlib.Path("/tmp/fuzz_seeds")
+          seed_dir.mkdir(parents=True, exist_ok=True)
+          corpus = json.loads(pathlib.Path("tests/golden_corpus.json").read_text())
+          for name, entry in sorted(corpus["cases"].items()):
+              jpg = seed_dir / f"{name}.jpg"
+              jpg.write_bytes(zlib.decompress(base64.b64decode(entry["jpg_zb64"])))
+              subprocess.run(["./source/packJPG", "-np", "-o", str(jpg)], check=True)
+          PY
+          ./source/fuzz_roundtrip /tmp/fuzz_seeds -runs=512 -rss_limit_mb=512 -timeout=5
+          rm -rf /tmp/fuzz_seeds
           make -C source clean
 
   macos:
@@ -174,13 +184,18 @@ jobs:
               return (name != NULL && PJGLIB_MSG_SIZE == 128 && strncmp(name, "packJPG v", 9) == 0) ? 0 : 1;
           }
           C_EOF
-          gcc -std=c11 -Wall -Wextra -Werror -pedantic -Isource source/test_dll_c_abi.c -Lsource -lpackJPG -o source/test_dll_c_abi.exe
-          ./source/test_dll_c_abi.exe
+          gcc -std=c11 -Wall -Wextra -Werror -pedantic -static-libgcc -Isource source/test_dll_c_abi.c -Lsource -lpackJPG -o source/test_dll_c_abi.exe
+          PATH="/c/Windows/System32:/c/Windows" ./source/test_dll_c_abi.exe
           rm -f source/test_dll_c_abi.c source/test_dll_c_abi.exe
 
-      - name: Build and test IrfanView & Susie .pjg plug-in (contrib/irfanview)
+      - name: Build and test IrfanView & Susie .pjg plug-in under clean Windows PATH (contrib/irfanview)
         run: |
           make -C contrib/irfanview clean all test -j2
+          if [ "${{ matrix.msystem }}" = "MINGW64" ]; then
+            PATH="/c/Windows/System32:/c/Windows" ./contrib/irfanview/build_x64/test_irfanview_plugin.exe ./contrib/irfanview/PackJPGx64.dll ./contrib/irfanview/ifpjg.sph
+          else
+            PATH="/c/Windows/System32:/c/Windows" ./contrib/irfanview/build_x86/test_irfanview_plugin.exe ./contrib/irfanview/PackJPGx86.dll ./contrib/irfanview/ifpjg.spi
+          fi
           make -C contrib/irfanview clean
 
       - name: Verify dev and clean targets
