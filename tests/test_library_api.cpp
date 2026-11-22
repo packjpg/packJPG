@@ -231,3 +231,65 @@ TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (263 internal nod
 	std::free(pjg);
 	std::free(rt);
 }
+
+TEST_CASE("library: failed follow-up call never deletes previous output, self-clobber and unknown inputs leave files intact") {
+	const auto dir = std::filesystem::temp_directory_path();
+	const auto in_jpg = (dir / "pjglib_safe_in.jpg").string();
+	const auto important_pjg = (dir / "pjglib_important.pjg").string();
+	const auto bad_in = (dir / "pjglib_not_an_image.bin").string();
+	const auto untouched_out = (dir / "pjglib_untouched_out.pjg").string();
+	const auto pre_existing = (dir / "pjglib_preexisting.bin").string();
+
+	const auto jpg = make_minimal_jpeg();
+	{
+		std::ofstream ofs(in_jpg, std::ios::binary);
+		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
+	}
+	{
+		std::ofstream ofs(bad_in, std::ios::binary);
+		ofs.write("NOT_A_JPEG_OR_PJG", 17);
+	}
+	{
+		std::ofstream ofs(pre_existing, std::ios::binary);
+		ofs.write("KEEP_ME", 7);
+	}
+
+	char msg[256] = {0};
+
+	// 1. Succeeding file2file followed by failing init_streams must NEVER delete important_pjg!
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), important_pjg.c_str(), msg));
+	REQUIRE(std::filesystem::exists(important_pjg));
+	const auto expected_pjg_sz = std::filesystem::file_size(important_pjg);
+	REQUIRE(expected_pjg_sz > 10);
+
+	const auto missing_in = (dir / "pjglib_definitely_missing_input.jpg").string();
+	REQUIRE(!pjglib_convert_file2file(missing_in.c_str(), untouched_out.c_str(), msg));
+	REQUIRE(std::filesystem::exists(important_pjg));
+	REQUIRE_EQ(std::filesystem::file_size(important_pjg), expected_pjg_sz);
+	REQUIRE(!std::filesystem::exists(untouched_out));
+
+	// Calling stream2stream again without re-initializing must also keep important_pjg intact
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+	REQUIRE(std::filesystem::exists(important_pjg));
+
+	// 2. Self-clobber (in == out) must be rejected WITHOUT truncating or deleting in_jpg!
+	REQUIRE(!pjglib_convert_file2file(in_jpg.c_str(), in_jpg.c_str(), msg));
+	REQUIRE(std::filesystem::exists(in_jpg));
+	REQUIRE_EQ(std::filesystem::file_size(in_jpg), jpg.size());
+
+	// 3. Unknown magic input must NOT create a 0-byte stub or truncate an existing target!
+	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), untouched_out.c_str(), msg));
+	REQUIRE(!std::filesystem::exists(untouched_out));
+	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), pre_existing.c_str(), msg));
+	REQUIRE_EQ(std::filesystem::file_size(pre_existing), std::uintmax_t(7));
+
+	// 4. Memory output mode (out_type == 1) with null output pointers must fail cleanly instead of silently discarding
+	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
+	REQUIRE(!pjglib_convert_stream2stream(msg));
+
+	std::filesystem::remove(in_jpg);
+	std::filesystem::remove(important_pjg);
+	std::filesystem::remove(bad_in);
+	std::filesystem::remove(pre_existing);
+}
+

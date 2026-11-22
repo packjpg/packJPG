@@ -3,6 +3,7 @@
 #include "bitops.h"
 
 #include <algorithm>
+#include <exception>
 #include <limits>
 #include <stdexcept>
 
@@ -18,14 +19,14 @@ void ArithmeticBitWriter::flush_to_sink() {
 	flush_buffer();
 }
 
-void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
+void ArithmeticBitWriter::write_n_zero_bits(std::uint64_t n) {
 	if (n == 0) {
 		return;
 	}
-	if (n + curr_bit_ >= 8) {
-		auto remainingBits = 8 - curr_bit_;
-		n -= remainingBits;
-		curr_byte_ = static_cast<std::uint8_t>(curr_byte_ << remainingBits);
+	const std::uint64_t rem = 8u - curr_bit_;
+	if (n >= rem) {
+		n -= rem;
+		curr_byte_ = static_cast<std::uint8_t>(curr_byte_ << rem);
 		emit_byte(curr_byte_);
 		curr_bit_ = 0;
 	}
@@ -36,18 +37,18 @@ void ArithmeticBitWriter::write_n_zero_bits(std::size_t n) {
 	}
 
 	curr_byte_ = static_cast<std::uint8_t>(curr_byte_ << n);
-	curr_bit_ += n;
+	curr_bit_ += static_cast<std::size_t>(n);
 }
 
-void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
+void ArithmeticBitWriter::write_n_one_bits(std::uint64_t n) {
 	if (n == 0) {
 		return;
 	}
 	constexpr std::uint8_t all_ones = std::numeric_limits<std::uint8_t>::max();
-	if (n + curr_bit_ >= 8) {
-		auto remainingBits = 8 - curr_bit_;
-		n -= remainingBits;
-		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << remainingBits) | (all_ones >> (8 - remainingBits)));
+	const std::uint64_t rem = 8u - curr_bit_;
+	if (n >= rem) {
+		n -= rem;
+		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << rem) | (all_ones >> (8u - rem)));
 		emit_byte(curr_byte_);
 		curr_bit_ = 0;
 	}
@@ -58,8 +59,8 @@ void ArithmeticBitWriter::write_n_one_bits(std::size_t n) {
 	}
 
 	if (n > 0) {
-		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << n) | (all_ones >> (8 - n)));
-		curr_bit_ += n;
+		curr_byte_ = static_cast<std::uint8_t>((curr_byte_ << n) | (all_ones >> (8u - n)));
+		curr_bit_ += static_cast<std::size_t>(n);
 	}
 }
 
@@ -80,12 +81,15 @@ bool ArithmeticDecoder::refill_buffer() {
 }
 
 void ArithmeticDecoder::fill_bit_reservoir() {
+	// Allow up to 64 KiB (524,288 bits) of synthesized zero bytes past EOF to satisfy
+	// arbitrarily long E3 underflow runs omitted by PJG v2.5 finalize() when clow >= 0.25,
+	// while still terminating truncated/corrupt streams in microseconds.
 	while ( bits_left_ <= 56 ) {
 		std::uint8_t next_b = 0;
 		if ( ( buf_pos_ < buf_len_ ) || refill_buffer() ) {
 			next_b = in_buf_[ buf_pos_++ ];
 		}
-		else if ( ++eof_zero_bytes_ > 64 ) {
+		else if ( ++eof_zero_bytes_ > 65536u ) {
 			throw std::runtime_error( "unexpected end of arithmetic stream" );
 		}
 		bit_buf_ = ( bit_buf_ << 8 ) | next_b;
@@ -96,9 +100,12 @@ void ArithmeticDecoder::fill_bit_reservoir() {
 ArithmeticEncoder::ArithmeticEncoder(Writer& writer)
 	: bitwriter_(&writer) {}
 
-ArithmeticEncoder::~ArithmeticEncoder() {
-	if (!finalized) {
-		this->finalize();
+ArithmeticEncoder::~ArithmeticEncoder() noexcept {
+	if (!finalized && std::uncaught_exceptions() == 0) {
+		try {
+			this->finalize();
+		} catch (...) {
+		}
 	}
 }
 
@@ -135,10 +142,12 @@ model_s::model_s( int max_s, int max_c, int max_o, int c_lim ) :
 	use_bitmask_(max_s <= 64),
 	current_order(max_o + 1),
 	sb0_count(max_s),
-	totals(static_cast<std::size_t>(max_s + 2), 0),
-	scoreboard_(use_bitmask_ ? 0 : static_cast<std::size_t>(max_s), std::uint8_t(0))
+	totals(static_cast<std::size_t>(std::max(0, max_s) + 2), 0),
+	scoreboard_(use_bitmask_ ? 0 : static_cast<std::size_t>(std::max(0, max_s)), std::uint8_t(0))
 {
-	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) || max_symbol <= 0 ) {
+	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) ||
+	     max_symbol <= 0 || max_symbol > 65535 ||
+	     max_context < 0 || max_count <= 1 || max_count > 65535 ) {
 		throw std::runtime_error( "invalid model_s configuration" );
 	}
 
@@ -227,9 +236,11 @@ model_b::model_b( int max_c, int max_o, int c_lim ) :
 	max_order(max_o + 1),
 	max_count(c_lim)
 {
-	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) ) {
+	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) ||
+	     max_context < 0 || max_count <= 1 || max_count > 65535 ) {
 		throw std::runtime_error( "invalid model_b configuration" );
 	}
+
 
 	nodes_.reserve( 64 );
 	links_pool_.reserve( static_cast<std::size_t>( std::max( 1, max_context ) ) * 8 );

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace {
 
@@ -11,7 +12,7 @@ bool check_scan_huff_tables( CodecContext& ctx )
 		const int cmp = ctx.cs_cmp[ csc ];
 		if ( ( ( ctx.jpegtype == 1 || ( ( ctx.cs_cmpc > 1 || ctx.cs_to == 0 ) && ctx.cs_sah == 0 ) ) && ctx.htset[ 0 ][ ctx.cmpnfo[ cmp ].huffdc ] == 0 ) ||
 			 ( ctx.jpegtype == 1 && ctx.htset[ 1 ][ ctx.cmpnfo[ cmp ].huffac ] == 0 ) ||
-			 ( ctx.cs_cmpc == 1 && ctx.cs_to > 0 && ctx.cs_sah == 0 && ctx.htset[ 1 ][ ctx.cmpnfo[ cmp ].huffac ] == 0 ) ) {
+			 ( ctx.cs_cmpc == 1 && ctx.cs_to > 0 && ctx.htset[ 1 ][ ctx.cmpnfo[ cmp ].huffac ] == 0 ) ) {
 			ctx.set_errormessage( "huffman table missing in scan%i", ctx.scnc );
 			ctx.errorlevel = 2;
 			return false;
@@ -19,6 +20,7 @@ bool check_scan_huff_tables( CodecContext& ctx )
 	}
 	return true;
 }
+
 
 bool validate_scan_layout( CodecContext& ctx )
 {
@@ -683,7 +685,7 @@ bool read_jpeg( CodecContext& ctx )
 		ctx.grbgdata = grbgw.take_data();
 	}
 
-	ctx.jpgfilesize = static_cast<int>( ctx.str_in->get_size() );
+	ctx.jpgfilesize = static_cast<std::int64_t>( ctx.str_in->get_size() );
 
 	if ( !jpg_setup_imginfo( ctx ) ) {
 		return false;
@@ -769,12 +771,13 @@ bool merge_jpeg( CodecContext& ctx )
 		}
 
 		if ( ctx.has_rst_err && ( ( scan - 1 ) < ctx.rst_err.size() ) ) {
-			while ( ctx.rst_err[ scan - 1 ] > 0 ) {
+			unsigned int rem_rst = ctx.rst_err[ scan - 1 ];
+			while ( rem_rst > 0 ) {
 				const auto rst = static_cast<unsigned char>( 0xD0 + ( cpos & 7u ) );
 				emit_byte( mrk );
 				emit_byte( rst );
 				cpos++;
-				ctx.rst_err[ scan - 1 ]--;
+				rem_rst--;
 			}
 		}
 
@@ -793,7 +796,7 @@ bool merge_jpeg( CodecContext& ctx )
 		return false;
 	}
 
-	ctx.jpgfilesize = static_cast<int>( ctx.str_out->num_bytes_written() );
+	ctx.jpgfilesize = static_cast<std::int64_t>( ctx.str_out->num_bytes_written() );
 	return true;
 }
 
@@ -820,6 +823,9 @@ bool decode_jpeg( CodecContext& ctx )
 	BitReader* huffr = &huffr_obj;
 
 	ctx.scnc = 0;
+	ctx.rsti = 0;
+	std::memset( ctx.htset, 0, sizeof( ctx.htset ) );
+
 
 	auto checked_short = []( int v, short& out ) noexcept -> bool {
 		if ( ( v < -32768 ) || ( v > 32767 ) ) {
@@ -1177,6 +1183,9 @@ bool decode_jpeg( CodecContext& ctx )
 					 ( static_cast<unsigned int>( huffr->getpos() ) != ctx.scnp[ ctx.scnc + 1 ] ) ) {
 					ctx.errormessage = "scan data boundary mismatch";
 					ctx.errorlevel = 1;
+					if ( static_cast<std::size_t>( ctx.scnc + 1 ) < ctx.scnp.size() ) {
+						huffr->setpos( static_cast<int>( ctx.scnp[ ctx.scnc + 1 ] ), 8 );
+					}
 				}
 				ctx.scnc++;
 				break;
@@ -1215,15 +1224,19 @@ bool recode_jpeg( CodecContext& ctx )
 	int   lastdc[ 4 ];
 	short block[ 64 ];
 
-	BitWriter huffw_obj( static_cast<std::uint8_t>( ctx.padbit ) );
+	const std::uint8_t effective_padbit = ( ctx.padbit == 0 ) ? 0u : 1u;
+	BitWriter huffw_obj( effective_padbit );
 	huffw_obj.reserve( static_cast<std::size_t>( std::max( 1, ctx.mcuc ) ) * 32 );
 	BitWriter* huffw = &huffw_obj;
 	std::vector<std::uint8_t> storw;
 
 	ctx.scnc = 0;
 	ctx.rstc = 0;
+	ctx.rsti = 0;
+	std::memset( ctx.htset, 0, sizeof( ctx.htset ) );
 	ctx.scnp.clear();
 	ctx.rstp.clear();
+
 
 	while ( true ) {
 		for ( type = 0x00; type != 0xDA; ) {
@@ -1485,9 +1498,13 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 	ctx.mcuc = ctx.mcuv * ctx.mcuh;
 
 	const std::uint64_t stream_bytes = ( ctx.str_in != nullptr ) ? ctx.str_in->get_size() : 0;
-	std::uint64_t max_blocks = std::min<std::uint64_t>(
-		16777216ULL,
-		std::max<std::uint64_t>( 65536ULL, ( stream_bytes <= ( 16777216ULL / 512ULL ) ) ? ( stream_bytes * 512ULL ) : 16777216ULL ) );
+	std::uint64_t max_blocks = ( ctx.str_in == nullptr )
+		? 16777216ULL
+		: std::min<std::uint64_t>(
+			16777216ULL,
+			std::max<std::uint64_t>(
+				262144ULL,
+				( stream_bytes <= ( 16777216ULL / 4096ULL ) ) ? ( stream_bytes * 4096ULL ) : 16777216ULL ) );
 	if ( ( ctx.filetype == F_JPG ) && ( ctx.err_tol <= 1 ) && ( ctx.jpegtype == 1 ) ) {
 		const auto huff_bytes = static_cast<std::uint64_t>( ctx.huffdata.size() );
 		max_blocks = std::min<std::uint64_t>(
@@ -1577,16 +1594,19 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 				if ( ( i < 16 ) || ( skip - 16 > 256 ) || ( hpos + static_cast<unsigned int>( skip ) > len ) )
 					break;
 
-				std::array<unsigned char, 256> seen{};
-				for ( int k = 0; k < skip - 16; k++ ) {
-					const unsigned char sym = segment[ hpos + 16 + k ];
-					if ( seen[ sym ] != 0 ) {
-						ctx.errormessage = "reconstruction of inefficient coding not supported";
-						ctx.errorlevel = 1;
-						break;
+				if ( ctx.filetype != F_PJG ) {
+					std::array<unsigned char, 256> seen{};
+					for ( int k = 0; k < skip - 16; k++ ) {
+						const unsigned char sym = segment[ hpos + 16 + k ];
+						if ( seen[ sym ] != 0 ) {
+							ctx.errormessage = "reconstruction of inefficient coding not supported";
+							ctx.errorlevel = 1;
+							break;
+						}
+						seen[ sym ] = 1;
 					}
-					seen[ sym ] = 1;
 				}
+
 
 				jpg_build_huffcodes( &segment[ hpos + 0 ], &segment[ hpos + 16 ],
 					&ctx.hcodes[ lval ][ rval ], &ctx.htrees[ lval ][ rval ] );
@@ -1845,8 +1865,10 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 			return false;
 
 		default:
-			ctx.set_errormessage( "unknown marker found: FF %2X", type );
-			ctx.errorlevel = 1;
+			if ( ctx.filetype != F_PJG ) {
+				ctx.set_errormessage( "unknown marker found: FF %2X", type );
+				ctx.errorlevel = 1;
+			}
 			return true;
 	}
 }
@@ -1915,13 +1937,53 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 	std::memset( ht->lut_sym, 0, sizeof( ht->lut_sym ) );
 	std::memset( ht->lut_len, 0, sizeof( ht->lut_len ) );
 
-	int k = 0;
-	int code = 0;
+	int k        = 0;
+	int code     = 0;
+	int nextfree = 1;
 
 	for ( int i = 0; i < 16; i++ ) {
+		const int len = 1 + i;
 		for ( int j = 0; j < static_cast<int>( clen[ i ] ); j++ ) {
-			hc->clen[ static_cast<int>( cval[ k ] ) ] = static_cast<unsigned short>( 1 + i );
-			hc->cval[ static_cast<int>( cval[ k ] ) ] = static_cast<unsigned short>( code );
+			const int sym = static_cast<int>( cval[ k ] );
+			hc->clen[ sym ] = static_cast<unsigned short>( len );
+			hc->cval[ sym ] = static_cast<unsigned short>( code );
+
+			if ( len <= 9 ) {
+				const int shift = 9 - len;
+				const int base  = code << shift;
+				const int count = 1 << shift;
+				if ( ( base >= 0 ) && ( base + count <= 512 ) ) {
+					std::memset( &ht->lut_sym[ base ], sym, static_cast<std::size_t>( count ) );
+					std::memset( &ht->lut_len[ base ], len, static_cast<std::size_t>( count ) );
+				}
+			}
+
+			int node = 0;
+			bool tree_ok = true;
+			for ( int b = len - 1; b > 0; b-- ) {
+				if ( bit_n( code, b ) == 1 ) {
+					if ( ht->r[ node ] == 0 ) {
+						if ( nextfree >= 512 ) { tree_ok = false; break; }
+						ht->r[ node ] = static_cast<unsigned short>( nextfree++ );
+					}
+					node = ht->r[ node ];
+				}
+				else {
+					if ( ht->l[ node ] == 0 ) {
+						if ( nextfree >= 512 ) { tree_ok = false; break; }
+						ht->l[ node ] = static_cast<unsigned short>( nextfree++ );
+					}
+					node = ht->l[ node ];
+				}
+				if ( node >= 512 ) { tree_ok = false; break; }
+			}
+			if ( tree_ok ) {
+				if ( bit_n( code, 0 ) == 1 )
+					ht->r[ node ] = static_cast<unsigned short>( sym + 512 );
+				else
+					ht->l[ node ] = static_cast<unsigned short>( sym + 512 );
+			}
+
 			k++;
 			code++;
 		}
@@ -1935,42 +1997,5 @@ void jpg_build_huffcodes( const unsigned char* clen, const unsigned char* cval, 
 			break;
 		}
 	}
-
-	int nextfree = 1;
-	for ( int i = 0; i < 256; i++ ) {
-		const int len = hc->clen[ i ];
-		if ( ( len > 0 ) && ( len <= 9 ) ) {
-			const int shift = 9 - len;
-			const int base  = static_cast<int>( hc->cval[ i ] ) << shift;
-			const int count = 1 << shift;
-			if ( ( base >= 0 ) && ( base + count <= 512 ) ) {
-				std::memset( &ht->lut_sym[ base ], i, static_cast<std::size_t>( count ) );
-				std::memset( &ht->lut_len[ base ], len, static_cast<std::size_t>( count ) );
-			}
-		}
-
-		int node = 0;
-		for ( int j = len - 1; j > 0; j-- ) {
-			if ( bit_n( hc->cval[ i ], j ) == 1 ) {
-				if ( ht->r[ node ] == 0 ) {
-					if ( nextfree >= 512 ) return;
-					ht->r[ node ] = static_cast<unsigned short>( nextfree++ );
-				}
-				node = ht->r[ node ];
-			}
-			else {
-				if ( ht->l[ node ] == 0 ) {
-					if ( nextfree >= 512 ) return;
-					ht->l[ node ] = static_cast<unsigned short>( nextfree++ );
-				}
-				node = ht->l[ node ];
-			}
-		}
-		if ( len > 0 ) {
-			if ( bit_n( hc->cval[ i ], 0 ) == 1 )
-				ht->r[ node ] = static_cast<unsigned short>( i + 512 );
-			else
-				ht->l[ node ] = static_cast<unsigned short>( i + 512 );
-		}
-	}
 }
+

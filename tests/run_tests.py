@@ -355,10 +355,86 @@ def main():
         assert rc_l1 != 0 and rc_l2 != 0
         assert not os.path.exists(lazy_no_args), "Empty -out directory should not be created when no inputs are given"
         assert not os.path.exists(lazy_bad_in), "Empty -out directory should not be created when all inputs fail check_file"
-        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, and -j4 parallel batch")
+
+        # 7. CLI safety regressions: misnamed .pjg -o self-clobber, read-only target, -j2 -o collision, -r -out nested idempotency, strict flags
+        misnamed_pjg = os.path.join(tmp, "misnamed_jpeg.pjg")
+        with open(misnamed_pjg, "wb") as f:
+            f.write(first_jpg_bytes)
+        rc_self, _, _ = run_cli(binary, ["-np", "-o", misnamed_pjg])
+        assert rc_self != 0, "Expected packJPG -o on JPEG misnamed .pjg to refuse self-clobber"
+        assert os.path.isfile(misnamed_pjg), "Self-clobber check must never delete input file!"
+        with open(misnamed_pjg, "rb") as f:
+            assert f.read() == first_jpg_bytes, "Misnamed input file bytes must remain 100% intact!"
+
+        # Without -o, misnamed_jpeg.pjg safely writes misnamed_jpeg_.pjg
+        rc_self_safe, _, _ = run_cli(binary, ["-np", misnamed_pjg])
+        assert rc_self_safe == 0 and os.path.isfile(os.path.join(tmp, "misnamed_jpeg_.pjg"))
+
+        # Pre-existing read-only target file must NOT be unlinked if fopen("wb") fails with EACCES
+        if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0:
+            ro_dir = os.path.join(tmp, "ro_test")
+            os.makedirs(ro_dir)
+            ro_jpg = os.path.join(ro_dir, "keep.jpg")
+            ro_pjg = os.path.join(ro_dir, "keep.pjg")
+            with open(ro_jpg, "wb") as f:
+                f.write(first_jpg_bytes)
+            with open(ro_pjg, "wb") as f:
+                f.write(b"PRECIOUS_DATA")
+            os.chmod(ro_pjg, 0o444)
+            try:
+                rc_ro, _, _ = run_cli(binary, ["-np", "-o", ro_jpg])
+                assert rc_ro != 0
+                assert os.path.isfile(ro_pjg), "Failed fopen on read-only target must NEVER unlink pre-existing file!"
+                with open(ro_pjg, "rb") as f:
+                    assert f.read() == b"PRECIOUS_DATA"
+            finally:
+                os.chmod(ro_pjg, 0o644)
+
+        # Colliding -o outputs in same batch (same.jpg + same.jpeg -> same.pjg) must keep first output valid & fail second cleanly
+        coll_dir = os.path.join(tmp, "coll_batch")
+        os.makedirs(coll_dir)
+        c_jpg1 = os.path.join(coll_dir, "photo.jpg")
+        c_jpg2 = os.path.join(coll_dir, "photo.jpeg")
+        with open(c_jpg1, "wb") as f:
+            f.write(first_jpg_bytes)
+        with open(c_jpg2, "wb") as f:
+            f.write(first_jpg_bytes)
+        rc_coll, _, _ = run_cli(binary, ["-np", "-j2", "-o", c_jpg1, c_jpg2])
+        assert rc_coll != 0, "Expected batch output path collision under -o to report an error"
+        assert os.path.isfile(os.path.join(coll_dir, "photo.pjg"))
+
+        # Recursive -r with -out nested inside input directory must NOT re-ingest its own -out directory on a second run
+        idem_in = os.path.join(tmp, "idem_tree")
+        idem_out = os.path.join(idem_in, "out_sub")
+        os.makedirs(idem_in)
+        with open(os.path.join(idem_in, "one.jpg"), "wb") as f:
+            f.write(first_jpg_bytes)
+        rc_id1, _, _ = run_cli(binary, ["-np", "-r", "-o", "-out", idem_out, idem_in])
+        rc_id2, _, _ = run_cli(binary, ["-np", "-r", "-o", "-out", idem_out, idem_in])
+        assert rc_id1 == 0 and rc_id2 == 0
+        assert os.path.isfile(os.path.join(idem_out, "one.pjg"))
+        assert not os.path.exists(os.path.join(idem_out, "out_sub")), "-r must skip -out subdirectory"
+
+        # Strict flag parsing: filename starting with -v1_ must be processed as a file, and huge -j99999999999 clamps to 64
+        dash_dir = os.path.join(tmp, "dash_flags")
+        os.makedirs(dash_dir)
+        dash_file = "-v1_sample.jpg"
+        with open(os.path.join(dash_dir, dash_file), "wb") as f:
+            f.write(first_jpg_bytes)
+        dash_proc = subprocess.run(
+            [os.path.abspath(binary), "-np", "-j99999999999", dash_file],
+            cwd=dash_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        assert dash_proc.returncode == 0 and os.path.isfile(os.path.join(dash_dir, "-v1_sample.pjg"))
+
+        print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and CLI safety guards")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0
+
 
 
 if __name__ == "__main__":

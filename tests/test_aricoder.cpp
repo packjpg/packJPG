@@ -198,3 +198,39 @@ TEST_CASE("aricoder: large-alphabet model_s (max_s > 64) and >64KB streaming flu
 		REQUIRE_EQ(decode_with_model_s(dec, mod), data[i]);
 	}
 }
+
+TEST_CASE("aricoder: >1200 pending E3 underflow bits finalized with clow >= 0.25 decode cleanly") {
+	constexpr int kE3Count = 1200;
+	symbol straddle{1, 3, 4};  // [0.25, 0.75) -> increments nrbits without emitting bits
+	symbol stay_high{3, 7, 8}; // [0.375, 0.875) -> stops E3 with clow >= 0.25 and nrbits == 1200
+
+	MemoryWriter mw;
+	{
+		ArithmeticEncoder enc(mw);
+		for (int i = 0; i < kE3Count; ++i) {
+			enc.encode(&straddle);
+		}
+		enc.encode(&stay_high);
+		enc.finalize();
+	}
+	// Entire 1201-symbol stream compresses to a single byte (0x80) relying on synthesized EOF zero bytes!
+	REQUIRE_EQ(mw.num_bytes_written(), std::size_t(1));
+
+	MemoryReader mr(mw.take_data());
+	ArithmeticDecoder dec(mr);
+	for (int i = 0; i < kE3Count; ++i) {
+		symbol q{0, 0, 4};
+		const unsigned int cnt = dec.decode_count(&q);
+		REQUIRE(cnt >= 1u && cnt < 3u);
+		q.low_count  = 1;
+		q.high_count = 3;
+		dec.decode(&q);
+	}
+	symbol q_end{0, 0, 8};
+	const unsigned int end_cnt = dec.decode_count(&q_end);
+	REQUIRE(end_cnt >= 3u && end_cnt < 7u);
+	q_end.low_count  = 3;
+	q_end.high_count = 7;
+	dec.decode(&q_end);
+}
+

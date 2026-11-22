@@ -33,7 +33,7 @@ PIC_FLAGS      =
 THREAD_FLAGS   =
 OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -lpthread
 SHLIB          = $(TARGET).dll
-SHLIB_LDFLAGS  = -shared -Wl,--out-implib,lib$(TARGET).a -fvisibility=hidden $(OS_LDFLAGS)
+SHLIB_FLAGS    = -shared -Wl,--out-implib,lib$(TARGET).a -fvisibility=hidden
 else ifeq ($(TARGET_OS),Darwin)
 ifeq ($(origin CXX),default)
 CXX            = c++
@@ -45,7 +45,7 @@ PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
 OS_LDFLAGS     =
 SHLIB          = lib$(TARGET).dylib
-SHLIB_LDFLAGS  = -dynamiclib -fvisibility=hidden
+SHLIB_FLAGS    = -dynamiclib -fvisibility=hidden
 else
 ifeq ($(origin CXX),default)
 CXX            = g++
@@ -56,12 +56,12 @@ OS_CPPFLAGS    = -DUNIX
 PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
 ifeq ($(STATIC),1)
-OS_LDFLAGS     = -static -static-libgcc -static-libstdc++
+OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
 else
 OS_LDFLAGS     =
 endif
 SHLIB          = lib$(TARGET).so
-SHLIB_LDFLAGS  = -shared -fvisibility=hidden
+SHLIB_FLAGS    = -shared -fvisibility=hidden
 endif
 
 ifeq ($(TARGET_OS),Darwin)
@@ -97,7 +97,8 @@ TEST_SRC     = ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_ari
 ALL_CXXFLAGS = -I. $(CXXSTD) $(OS_CPPFLAGS) $(CPPFLAGS) $(CXXFLAGS)
 CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a \
                $(TARGET) $(TARGET).exe $(TARGET).dll lib$(TARGET).so lib$(TARGET).dylib \
-               test_runner test_runner.exe fuzz_roundtrip fuzz_roundtrip.exe
+               test_runner test_runner.exe fuzz_roundtrip fuzz_roundtrip.exe \
+               .stamp_std .stamp_dev .stamp_dev_bin
 
 .PHONY: all dev lib dll shared test fuzz install uninstall clean
 
@@ -114,25 +115,44 @@ all: $(BIN)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -DDEV_BUILD
 
 %.lib.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) -DBUILD_LIB $(PIC_FLAGS)
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) -DBUILD_LIB $(PIC_FLAGS)
 
 %.dll.o: %.cpp $(DEPS)
-	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(LTO_FLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
+	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 
 %.res: %.rc app_icon.ico file_icon.ico
 	$(WINDRES) -O coff $< $@
 
-$(BIN): $(OBJ) $(RES)
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $^ $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
+RM_STAMPS_DEV = @if exist .stamp_dev del /F /Q .stamp_dev & if exist .stamp_dev_bin del /F /Q .stamp_dev_bin
+RM_STAMPS_STD = @if exist .stamp_std del /F /Q .stamp_std
+else
+RM_STAMPS_DEV = @$(RM) .stamp_dev .stamp_dev_bin
+RM_STAMPS_STD = @$(RM) .stamp_std
+endif
+
+.stamp_std:
+	$(RM_STAMPS_DEV)
+	@echo std > $@
+
+.stamp_dev:
+	$(RM_STAMPS_STD)
+	@echo dev > $@
+
+$(BIN): $(OBJ) $(RES) .stamp_std
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
 
-dev: $(DEV_OBJ) $(RES)
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $^ $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+dev: .stamp_dev_bin
+
+.stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif
+	@echo dev > $@
 
 lib: $(STATIC_LIB)
 
@@ -145,7 +165,7 @@ shared: dll
 dll: $(SHLIB)
 
 $(SHLIB): $(DLL_OBJ)
-	$(CXX) $(ALL_CXXFLAGS) $(LTO_FLAGS) $(SHLIB_LDFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) $(SHLIB_FLAGS) -o $@ $(DLL_OBJ) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 $(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
 	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
@@ -171,3 +191,4 @@ ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
 else
 	$(RM) $(CLEAN_FILES)
 endif
+

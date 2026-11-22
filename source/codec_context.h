@@ -62,7 +62,11 @@ constexpr int e_devli( int s, int n ) noexcept {
 
 template <typename T>
 constexpr int abs_val( T v ) noexcept {
-	return ( v < 0 ) ? -static_cast<int>( v ) : static_cast<int>( v );
+	const std::int64_t wide = static_cast<std::int64_t>( v );
+	const std::int64_t mag  = ( wide < 0 ) ? -wide : wide;
+	return ( mag > std::numeric_limits<int>::max() )
+		? std::numeric_limits<int>::max()
+		: static_cast<int>( mag );
 }
 
 constexpr int b_short( std::uint8_t v1, std::uint8_t v2 ) noexcept {
@@ -78,14 +82,19 @@ constexpr int bitlen_2048n( int v ) noexcept {
 }
 
 constexpr int jpg_vli_bitlen( int v ) noexcept {
-	return ( ( v >= -2048 ) && ( v <= 2047 ) )
-		? pbitlen_n2048_2047[ v + 2048 ]
-		: bit_length_u32( static_cast<unsigned int>( abs_val( v ) ) );
+	if ( ( v >= -2048 ) && ( v <= 2047 ) ) {
+		return pbitlen_n2048_2047[ v + 2048 ];
+	}
+	const unsigned int mag = ( v < 0 )
+		? ( 0u - static_cast<unsigned int>( v ) )
+		: static_cast<unsigned int>( v );
+	return bit_length_u32( mag );
 }
 
 constexpr int clamped( int l, int h, int v ) noexcept {
 	return ( v < l ) ? l : ( ( v > h ) ? h : v );
 }
+
 
 enum class StageId {
 	None,
@@ -234,12 +243,12 @@ struct CodecContext {
 	int cs_sal  = 0;
 
 	// Stream & file info
-	std::string jpgfilename;
-	std::string pjgfilename;
-	int jpgfilesize = 0;
-	int pjgfilesize = 0;
-	int jpegtype    = 0; // 0->unknown, 1->sequential, 2->progressive
-	int filetype    = F_UNK;
+	std::string  jpgfilename;
+	std::string  pjgfilename;
+	std::int64_t jpgfilesize = 0;
+	std::int64_t pjgfilesize = 0;
+	int          jpegtype    = 0; // 0->unknown, 1->sequential, 2->progressive
+	int          filetype    = F_UNK;
 	std::unique_ptr<Reader> str_in;
 	std::unique_ptr<Writer> str_out;
 
@@ -349,8 +358,12 @@ struct CodecContext {
 		scnc = 0;
 
 		for ( int i = 0; i < 4; i++ ) {
-			htset[ 0 ][ i ] = 0;
-			htset[ 1 ][ i ] = 0;
+			htset[ 0 ][ i ]  = 0;
+			htset[ 1 ][ i ]  = 0;
+			hcodes[ 0 ][ i ] = HuffCodes{};
+			hcodes[ 1 ][ i ] = HuffCodes{};
+			htrees[ 0 ][ i ] = HuffTree{};
+			htrees[ 1 ][ i ] = HuffTree{};
 			qtables[ i ].fill( 0 );
 		}
 
@@ -361,3 +374,4 @@ struct CodecContext {
 };
 
 #endif
+
