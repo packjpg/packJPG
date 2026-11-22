@@ -42,8 +42,8 @@ TEST_CASE("library: version and short name queries") {
 	const char* name = pjglib_short_name();
 	REQUIRE(ver != nullptr);
 	REQUIRE(name != nullptr);
-	REQUIRE(std::strstr(ver, "v2.5l (11/21/2026)") != nullptr);
-	REQUIRE_EQ(std::string(name), std::string("packJPG v2.5l"));
+	REQUIRE(std::strstr(ver, "v2.5m (11/21/2026)") != nullptr);
+	REQUIRE_EQ(std::string(name), std::string("packJPG v2.5m"));
 }
 
 TEST_CASE("library: memory-to-memory compress and decompress round-trip") {

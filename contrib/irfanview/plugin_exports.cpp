@@ -23,9 +23,9 @@ constexpr std::size_t kErrBufMax = 256;
 
 const char* short_version_number() noexcept
 {
-	const char* full = pjglib_short_name(); // e.g. "packJPG v2.5l"
+	const char* full = pjglib_short_name(); // e.g. "packJPG v2.5m"
 	if ( full == nullptr ) {
-		return "2.5l";
+		return "2.5m";
 	}
 	const char* v = std::strstr( full, " v" );
 	return ( v != nullptr && v[ 2 ] != '\0' ) ? ( v + 2 ) : full;

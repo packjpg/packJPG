@@ -152,7 +152,7 @@ void verify_plugin_module( const wchar_t* dll_path )
 	char ver[ 16 ]{};
 	char fmts[ 256 ]{};
 	CHECK_COND( fn_info( ver, fmts ) == 0 );
-	CHECK_COND( std::strcmp( ver, "2.5l" ) == 0 );
+	CHECK_COND( std::strcmp( ver, "2.5m" ) == 0 );
 	CHECK_COND( std::strstr( fmts, "PJG" ) != nullptr );
 
 	char spi_ver[ 64 ]{};

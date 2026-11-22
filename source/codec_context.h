@@ -17,7 +17,7 @@
 
 // Program & format metadata
 inline constexpr unsigned char kAppVersion = 25;
-inline constexpr const char* kSubVersion   = "l";
+inline constexpr const char* kSubVersion   = "m";
 inline constexpr const char* kAppTitle     = "packJPG";
 inline constexpr const char* kAppName      = "packjpg";
 inline constexpr const char* kVersionDate  = "11/21/2026";
