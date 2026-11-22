@@ -1,5 +1,5 @@
 /*
-packJPG v2.5k (01/22/2016)
+packJPG v2.5l (11/21/2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 packJPG is a compression program specially designed for further
@@ -239,6 +239,13 @@ v2.5k (01/22/16) (public)
  - Updated contact info
  - fixed a minor bug
 
+v2.5l (11/21/26) (public)
+ - fixed memory safety, Huffman/RST, and malformed-stream bugs
+ - modular C++17 reentrant codec & thread-safe library API
+ - ~1.6x-1.7x codec & streaming I/O speedup
+ - added -out, -r, wildcard, and -j parallel batch CLI options
+ - cross-platform Linux, macOS, and Windows builds & test suite
+
 
 Acknowledgements
 ~~~~~~~~~~~~~~~~
@@ -278,17 +285,29 @@ packJPG by Matthias Stirner, 01/2016
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <ctime>
+#include <filesystem>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 namespace {
+
+int default_worker_count() noexcept
+{
+	const unsigned int hc = std::thread::hardware_concurrency();
+	return ( hc > 0 ) ? clamped( 1, 64, static_cast<int>( hc ) ) : 1;
+}
 
 struct CliSettings {
 	int   verbosity      = -1;
@@ -296,19 +315,34 @@ struct CliSettings {
 	bool  wait_exit      = true;
 	int   verify_lv      = 0;
 	bool  developer      = false;
+	bool  recursive      = false;
+	int   jobs           = 1;
 	bool  orig_auto_set  = true;
 	int   collmode       = 0;
 	FILE* msgout         = stdout;
-	bool  pipe_on        = false;
+	bool  had_expanded   = false;
+	std::string out_dir;
+	std::string arg_error;
 	std::array<unsigned char, 8> orig_set{};
-	std::vector<std::string> filelist;
-	std::vector<std::string> err_list;
-	std::vector<int>         err_tp;
+	std::vector<CliInputItem> inputs;
+	std::vector<std::string>  err_list;
+	std::vector<int>          err_tp;
+};
+
+struct FileOutcome {
+	int         errorlevel  = 0;
+	StageId     error_stage = StageId::None;
+	std::string errormessage;
+	int         filetype    = F_UNK;
+	int         jpgfilesize = 0;
+	int         pjgfilesize = 0;
+	int         elapsed_ms  = 0;
 };
 
 void progress_bar( FILE* msgout, int current, int last )
 {
-	const int barpos = ( ( current * kBarLen ) + ( last / 2 ) ) / last;
+	const int safe_last = ( last > 0 ) ? last : 1;
+	const int barpos = ( ( current * kBarLen ) + ( safe_last / 2 ) ) / safe_last;
 
 	std::fprintf( msgout, "[" );
 #if defined(_WIN32)
@@ -331,13 +365,16 @@ void show_help( const CliSettings& cli )
 	std::fprintf( cli.msgout, "Website: %s\n", kWebsite );
 	std::fprintf( cli.msgout, "Email  : %s\n", kEmail );
 	std::fprintf( cli.msgout, "\n" );
-	std::fprintf( cli.msgout, "Usage: %s [switches] [filename(s)]\n\n", kAppName );
-	std::fprintf( cli.msgout, " [-ver]   verify files after processing\n" );
-	std::fprintf( cli.msgout, " [-v?]    set level of verbosity (max: 2) (def: 0)\n" );
-	std::fprintf( cli.msgout, " [-np]    no pause after processing files\n" );
-	std::fprintf( cli.msgout, " [-o]     overwrite existing files\n" );
-	std::fprintf( cli.msgout, " [-p]     proceed on warnings\n" );
-	std::fprintf( cli.msgout, " [-d]     discard meta-info\n" );
+	std::fprintf( cli.msgout, "Usage: %s [switches] [filename(s) / dir(s)]\n\n", kAppName );
+	std::fprintf( cli.msgout, " [-ver]      verify files after processing\n" );
+	std::fprintf( cli.msgout, " [-v?]       set level of verbosity (max: 2) (def: 0)\n" );
+	std::fprintf( cli.msgout, " [-np]       no pause after processing files\n" );
+	std::fprintf( cli.msgout, " [-o]        overwrite existing files\n" );
+	std::fprintf( cli.msgout, " [-out dir]  write output files to directory\n" );
+	std::fprintf( cli.msgout, " [-r]        recursively process directories / wildcards\n" );
+	std::fprintf( cli.msgout, " [-j?]       parallel worker threads (-j or -j0 = auto)\n" );
+	std::fprintf( cli.msgout, " [-p]        proceed on warnings\n" );
+	std::fprintf( cli.msgout, " [-d]        discard meta-info\n" );
 #if defined(DEV_BUILD)
 	if ( cli.developer ) {
 		std::fprintf( cli.msgout, "\n" );
@@ -357,6 +394,7 @@ void show_help( const CliSettings& cli )
 #endif
 	std::fprintf( cli.msgout, "\n" );
 	std::fprintf( cli.msgout, "Examples: \"%s -v1 -o baboon.%s\"\n", kAppName, kPjgExt );
+	std::fprintf( cli.msgout, "          \"%s -r -j -out archive photos\"\n", kAppName );
 	std::fprintf( cli.msgout, "          \"%s -p *.%s\"\n", kAppName, kJpgExt );
 }
 
@@ -367,8 +405,8 @@ void initialize_options( int argc, char** argv, CliSettings& cli, CodecContext& 
 	int idx     = 0;
 #endif
 
-	cli.filelist.clear();
-	cli.filelist.reserve( static_cast<std::size_t>( argc > 1 ? argc - 1 : 0 ) );
+	std::vector<std::string> raw_files;
+	raw_files.reserve( static_cast<std::size_t>( argc > 1 ? argc - 1 : 0 ) );
 
 	while ( --argc > 0 ) {
 		argv++;
@@ -392,6 +430,42 @@ void initialize_options( int argc, char** argv, CliSettings& cli, CodecContext& 
 		}
 		else if ( std::strcmp( *argv, "-o" ) == 0 ) {
 			cli.overwrite = true;
+		}
+		else if ( std::strcmp( *argv, "-r" ) == 0 ) {
+			cli.recursive = true;
+		}
+		else if ( std::strcmp( *argv, "-out" ) == 0 ) {
+			if ( argc > 1 ) {
+				--argc;
+				++argv;
+				cli.out_dir = *argv;
+				if ( cli.out_dir.empty() ) {
+					cli.arg_error = "output directory path after -out must not be empty";
+				}
+			}
+			else {
+				cli.arg_error = "missing output directory path after -out";
+			}
+		}
+		else if ( std::strncmp( *argv, "-out=", 5 ) == 0 ) {
+			cli.out_dir = *argv + 5;
+			if ( cli.out_dir.empty() ) {
+				cli.arg_error = "output directory path in -out=... must not be empty";
+			}
+		}
+		else if ( std::strcmp( *argv, "-j" ) == 0 ) {
+			cli.jobs = default_worker_count();
+		}
+		else if ( ( ( *argv )[ 0 ] == '-' ) && ( ( *argv )[ 1 ] == 'j' ) &&
+		          std::isdigit( static_cast<unsigned char>( ( *argv )[ 2 ] ) ) ) {
+			char* endp = nullptr;
+			const long parsed = std::strtol( *argv + 2, &endp, 10 );
+			if ( ( endp != nullptr ) && ( *endp == '\0' ) ) {
+				cli.jobs = ( parsed <= 0 ) ? default_worker_count() : clamped( 1, 64, static_cast<int>( parsed ) );
+			}
+			else {
+				raw_files.emplace_back( *argv );
+			}
 		}
 #if defined(DEV_BUILD)
 		else if ( std::strcmp( *argv, "-dev" ) == 0 ) {
@@ -451,15 +525,16 @@ void initialize_options( int argc, char** argv, CliSettings& cli, CodecContext& 
 #endif
 		else if ( std::strcmp( *argv, "-" ) == 0 ) {
 			cli.msgout = stderr;
-			cli.filelist.emplace_back( "-" );
+			raw_files.emplace_back( "-" );
 		}
 		else {
-			cli.filelist.emplace_back( *argv );
+			raw_files.emplace_back( *argv );
 		}
 	}
 
-	cli.err_list.assign( cli.filelist.size(), std::string() );
-	cli.err_tp.assign( cli.filelist.size(), 0 );
+	cli.inputs = expand_cli_inputs( raw_files, cli.recursive, cli.had_expanded );
+	cli.err_list.assign( cli.inputs.size(), std::string() );
+	cli.err_tp.assign( cli.inputs.size(), 0 );
 
 	cli.orig_auto_set = ctx.auto_set;
 	if ( !ctx.auto_set ) {
@@ -473,16 +548,21 @@ void initialize_options( int argc, char** argv, CliSettings& cli, CodecContext& 
 	}
 }
 
-bool check_file( const CliSettings& cli, CodecContext& ctx, const std::string& filename )
+bool check_file(
+	const CliSettings& cli,
+	CodecContext& ctx,
+	const CliInputItem& item,
+	bool pipe_on,
+	std::mutex* out_reservation_mtx )
 {
 	unsigned char fileid[ 2 ] = { 0, 0 };
 
 	try {
-		if ( cli.pipe_on ) {
+		if ( pipe_on ) {
 			ctx.str_in = std::make_unique<StreamReader>();
 		}
 		else {
-			ctx.str_in = std::make_unique<FileReader>( filename );
+			ctx.str_in = std::make_unique<FileReader>( item.path );
 		}
 	} catch ( const std::runtime_error& e ) {
 		ctx.errormessage = e.what();
@@ -500,25 +580,37 @@ bool check_file( const CliSettings& cli, CodecContext& ctx, const std::string& f
 		return false;
 	}
 
-	if ( ( fileid[ 0 ] == 0xFF ) && ( fileid[ 1 ] == 0xD8 ) ) {
-		ctx.filetype = F_JPG;
-		if ( !cli.pipe_on ) {
-			ctx.jpgfilename = filename;
-			ctx.pjgfilename = cli.overwrite
-				? make_filename( filename, kPjgExt )
-				: make_unique_filename( filename, kPjgExt );
+	auto open_file_output = [&]( const char* ext, std::string& out_name ) {
+		const std::string out_base = make_output_base( item.path, cli.out_dir, item.rel_root );
+		auto reserve_and_open = [&]() {
+			out_name = cli.overwrite
+				? make_filename( out_base, ext )
+				: make_unique_filename( out_base, ext );
+			if ( !ensure_parent_directory( out_name ) ) {
+				throw std::runtime_error( "could not create output directory for: " + out_name );
+			}
+			ctx.str_out = std::make_unique<FileWriter>( out_name );
+		};
+		if ( out_reservation_mtx != nullptr ) {
+			std::lock_guard<std::mutex> lock( *out_reservation_mtx );
+			reserve_and_open();
 		}
 		else {
-			ctx.jpgfilename = "STDIN";
-			ctx.pjgfilename = "STDOUT";
+			reserve_and_open();
 		}
+	};
 
+	if ( ( fileid[ 0 ] == 0xFF ) && ( fileid[ 1 ] == 0xD8 ) ) {
+		ctx.filetype = F_JPG;
 		try {
-			if ( cli.pipe_on ) {
-				ctx.str_out = std::make_unique<StreamWriter>();
+			if ( pipe_on ) {
+				ctx.jpgfilename = "STDIN";
+				ctx.pjgfilename = "STDOUT";
+				ctx.str_out     = std::make_unique<StreamWriter>();
 			}
 			else {
-				ctx.str_out = std::make_unique<FileWriter>( ctx.pjgfilename );
+				ctx.jpgfilename = item.path;
+				open_file_output( kPjgExt, ctx.pjgfilename );
 			}
 		} catch ( const std::runtime_error& e ) {
 			ctx.errormessage = e.what();
@@ -539,23 +631,15 @@ bool check_file( const CliSettings& cli, CodecContext& ctx, const std::string& f
 	}
 	else if ( ( fileid[ 0 ] == kPjgMagic[ 0 ] ) && ( fileid[ 1 ] == kPjgMagic[ 1 ] ) ) {
 		ctx.filetype = F_PJG;
-		if ( !cli.pipe_on ) {
-			ctx.pjgfilename = filename;
-			ctx.jpgfilename = cli.overwrite
-				? make_filename( filename, kJpgExt )
-				: make_unique_filename( filename, kJpgExt );
-		}
-		else {
-			ctx.jpgfilename = "STDOUT";
-			ctx.pjgfilename = "STDIN";
-		}
-
 		try {
-			if ( cli.pipe_on ) {
-				ctx.str_out = std::make_unique<StreamWriter>();
+			if ( pipe_on ) {
+				ctx.jpgfilename = "STDOUT";
+				ctx.pjgfilename = "STDIN";
+				ctx.str_out     = std::make_unique<StreamWriter>();
 			}
 			else {
-				ctx.str_out = std::make_unique<FileWriter>( ctx.jpgfilename );
+				ctx.pjgfilename = item.path;
+				open_file_output( kJpgExt, ctx.jpgfilename );
 			}
 		} catch ( const std::runtime_error& e ) {
 			ctx.errormessage = e.what();
@@ -567,7 +651,7 @@ bool check_file( const CliSettings& cli, CodecContext& ctx, const std::string& f
 	}
 	else {
 		ctx.filetype = F_UNK;
-		ctx.set_errormessage( "filetype of file \"%s\" is unknown", filename.c_str() );
+		ctx.set_errormessage( "filetype of file \"%s\" is unknown", item.path.c_str() );
 		ctx.errorlevel = 2;
 		return false;
 	}
@@ -632,7 +716,7 @@ bool compare_output( CodecContext& ctx, Reader* str_str )
 void process_cli_file(
 	const CliSettings& cli,
 	CodecContext& ctx,
-	const std::string& input_name,
+	const std::string& output_base,
 	std::unique_ptr<Reader>& str_str,
 	std::unique_ptr<Writer>& str_primary_out,
 	const StageReporter* reporter )
@@ -659,20 +743,54 @@ void process_cli_file(
 	}
 #if defined(DEV_BUILD)
 	else {
-		run_dev_action( ctx, input_name, cli.collmode, reporter );
+		run_dev_action( ctx, output_base, cli.collmode, reporter );
 	}
 	if ( ( cli.verify_lv > 1 ) && ( ctx.errorlevel >= ctx.err_tol ) ) {
-		dump_errfile( ctx, input_name );
+		dump_errfile( ctx, output_base );
 	}
 #else
-	(void) input_name;
+	(void) output_base;
 #endif
 	ctx.reset_buffers();
 }
 
+void finalize_and_cleanup_streams(
+	bool pipe_on,
+	CodecContext& ctx,
+	std::unique_ptr<Reader>& str_str,
+	std::unique_ptr<Writer>& str_primary_out )
+{
+	Writer* final_out = str_primary_out ? str_primary_out.get() : ctx.str_out.get();
+	if ( final_out != nullptr ) {
+		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) ) {
+			if ( !final_out->flush() ) {
+				ctx.errormessage = "write error, possibly drive is full";
+				ctx.errorlevel   = 2;
+			}
+		}
+		else {
+			final_out->reset();
+		}
+	}
+
+	ctx.str_in.reset();
+	ctx.str_out.reset();
+	str_primary_out.reset();
+	str_str.reset();
+
+	if ( ( !pipe_on ) && ( ( ctx.errorlevel >= ctx.err_tol ) || ( ctx.action != A_COMPRESS ) ) ) {
+		if ( ctx.filetype == F_JPG ) {
+			if ( file_exists( ctx.pjgfilename ) ) std::remove( ctx.pjgfilename.c_str() );
+		}
+		else if ( ctx.filetype == F_PJG ) {
+			if ( file_exists( ctx.jpgfilename ) ) std::remove( ctx.jpgfilename.c_str() );
+		}
+	}
+}
+
 void process_ui( CliSettings& cli, CodecContext& ctx, int file_no )
 {
-	const int file_cnt = static_cast<int>( cli.filelist.size() );
+	const int file_cnt = static_cast<int>( cli.inputs.size() );
 	const char* actionmsg  = nullptr;
 	const char* errtypemsg = nullptr;
 
@@ -684,24 +802,23 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no )
 	ctx.action = A_COMPRESS;
 #endif
 
-	if ( ( cli.filelist[ file_no ] == "-" ) && ( ctx.action == A_COMPRESS ) ) {
-		cli.pipe_on = true;
-		cli.filelist[ file_no ] = "STDIN";
-	}
-	else {
-		cli.pipe_on = false;
+	bool pipe_on = false;
+	if ( ( cli.inputs[ file_no ].path == "-" ) && ( ctx.action == A_COMPRESS ) ) {
+		pipe_on = true;
+		cli.inputs[ file_no ].path = "STDIN";
 	}
 
+	const CliInputItem& item = cli.inputs[ file_no ];
 	const StageReporter reporter{ cli.msgout, cli.verbosity };
 
 	if ( cli.verbosity >= 0 ) {
 		std::fprintf( cli.msgout, "\nProcessing file %i of %i \"%s\" -> ",
-			file_no + 1, file_cnt, cli.filelist[ file_no ].c_str() );
+			file_no + 1, file_cnt, item.path.c_str() );
 
 		if ( cli.verbosity > 1 )
 			std::fprintf( cli.msgout, "\n----------------------------------------" );
 
-		execute_stage( ctx, StageId::CheckFile, [&]() { return check_file( cli, ctx, cli.filelist[ file_no ] ); }, &reporter );
+		execute_stage( ctx, StageId::CheckFile, [&]() { return check_file( cli, ctx, item, pipe_on, nullptr ); }, &reporter );
 
 		if ( ctx.filetype == F_UNK ) {
 			actionmsg = "unknown filetype";
@@ -727,47 +844,24 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no )
 		std::fprintf( cli.msgout, "Processing file %2i of %2i ", file_no + 1, file_cnt );
 		progress_bar( cli.msgout, file_no, file_cnt );
 		std::fprintf( cli.msgout, "\r" );
-		execute_stage( ctx, StageId::CheckFile, [&]() { return check_file( cli, ctx, cli.filelist[ file_no ] ); }, &reporter );
+		execute_stage( ctx, StageId::CheckFile, [&]() { return check_file( cli, ctx, item, pipe_on, nullptr ); }, &reporter );
 	}
 	std::fflush( cli.msgout );
 
-	const std::clock_t begin = std::clock();
+	const auto t_begin = std::chrono::steady_clock::now();
 
 	std::unique_ptr<Reader> str_str;
 	std::unique_ptr<Writer> str_primary_out;
-	process_cli_file( cli, ctx, cli.filelist[ file_no ], str_str, str_primary_out, &reporter );
+	const std::string output_base = pipe_on
+		? item.path
+		: make_output_base( item.path, cli.out_dir, item.rel_root );
+	process_cli_file( cli, ctx, output_base, str_str, str_primary_out, &reporter );
+	finalize_and_cleanup_streams( pipe_on, ctx, str_str, str_primary_out );
 
-	Writer* final_out = str_primary_out ? str_primary_out.get() : ctx.str_out.get();
-	if ( final_out != nullptr ) {
-		if ( ( ctx.errorlevel < ctx.err_tol ) && ( ctx.action == A_COMPRESS ) ) {
-			if ( !final_out->flush() ) {
-				ctx.errormessage = "write error, possibly drive is full";
-				ctx.errorlevel   = 2;
-			}
-		}
-		else {
-			final_out->reset();
-		}
-	}
-
-	ctx.str_in.reset();
-	ctx.str_out.reset();
-	str_primary_out.reset();
-	str_str.reset();
-
-	if ( ( !cli.pipe_on ) && ( ( ctx.errorlevel >= ctx.err_tol ) || ( ctx.action != A_COMPRESS ) ) ) {
-		if ( ctx.filetype == F_JPG ) {
-			if ( file_exists( ctx.pjgfilename ) ) std::remove( ctx.pjgfilename.c_str() );
-		}
-		else if ( ctx.filetype == F_PJG ) {
-			if ( file_exists( ctx.jpgfilename ) ) std::remove( ctx.jpgfilename.c_str() );
-		}
-	}
-
-	const std::clock_t end = std::clock();
-	const int   total = static_cast<int>( ( static_cast<double>( ( end - begin ) * 1000 ) ) / CLOCKS_PER_SEC );
-	const int   bpms  = ( total > 0 ) ? ( ctx.jpgfilesize / total ) : ctx.jpgfilesize;
-	const float cr    = ( ctx.jpgfilesize > 0 ) ? static_cast<float>( 100.0 * ctx.pjgfilesize / ctx.jpgfilesize ) : 0.0f;
+	const auto t_end = std::chrono::steady_clock::now();
+	const int total  = static_cast<int>( std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count() );
+	const int bpms   = ( total > 0 ) ? ( ctx.jpgfilesize / total ) : ctx.jpgfilesize;
+	const float cr   = ( ctx.jpgfilesize > 0 ) ? static_cast<float>( 100.0 * ctx.pjgfilesize / ctx.jpgfilesize ) : 0.0f;
 
 	if ( cli.verbosity >= 0 ) {
 		if ( cli.verbosity > 1 )
@@ -829,6 +923,151 @@ void process_ui( CliSettings& cli, CodecContext& ctx, int file_no )
 	}
 }
 
+void run_parallel_batch(
+	CliSettings& cli,
+	const CodecContext& template_ctx,
+	int& error_cnt,
+	int& warn_cnt,
+	double& acc_jpgsize,
+	double& acc_pjgsize )
+{
+	const int file_cnt   = static_cast<int>( cli.inputs.size() );
+	const int worker_cnt = std::min( cli.jobs, file_cnt );
+
+	std::vector<FileOutcome> outcomes( static_cast<std::size_t>( file_cnt ) );
+	std::atomic<int> next_idx{ 0 };
+	int completed_cnt = 0;
+	std::mutex out_reservation_mtx;
+	std::mutex io_mtx;
+
+	if ( cli.verbosity == -1 ) {
+		std::fprintf( cli.msgout, "Processing file %2i of %2i ", 1, file_cnt );
+		progress_bar( cli.msgout, 0, file_cnt );
+		std::fprintf( cli.msgout, "\r" );
+		std::fflush( cli.msgout );
+	}
+
+	auto worker_fn = [&]() {
+		CodecContext wctx;
+		while ( true ) {
+			const int idx = next_idx.fetch_add( 1, std::memory_order_relaxed );
+			if ( idx >= file_cnt ) {
+				break;
+			}
+
+			wctx.reset_buffers();
+			wctx.err_tol      = template_ctx.err_tol;
+			wctx.disc_meta    = template_ctx.disc_meta;
+			wctx.auto_set     = template_ctx.auto_set;
+			wctx.nois_trs     = template_ctx.nois_trs;
+			wctx.segm_cnt     = template_ctx.segm_cnt;
+			wctx.action       = A_COMPRESS;
+			wctx.error_stage  = StageId::None;
+			wctx.errorlevel   = 0;
+			wctx.jpgfilesize  = 0;
+			wctx.pjgfilesize  = 0;
+			wctx.errormessage = "no errormessage specified";
+
+			const CliInputItem& item = cli.inputs[ static_cast<std::size_t>( idx ) ];
+			const auto t_begin = std::chrono::steady_clock::now();
+
+			execute_stage( wctx, StageId::CheckFile, [&]() {
+				return check_file( cli, wctx, item, false, &out_reservation_mtx );
+			} );
+
+			std::unique_ptr<Reader> str_str;
+			std::unique_ptr<Writer> str_primary_out;
+			const std::string output_base = make_output_base( item.path, cli.out_dir, item.rel_root );
+			process_cli_file( cli, wctx, output_base, str_str, str_primary_out, nullptr );
+			finalize_and_cleanup_streams( false, wctx, str_str, str_primary_out );
+
+			const auto t_end = std::chrono::steady_clock::now();
+			const int elapsed = static_cast<int>( std::chrono::duration_cast<std::chrono::milliseconds>( t_end - t_begin ).count() );
+
+			FileOutcome& out = outcomes[ static_cast<std::size_t>( idx ) ];
+			out.errorlevel   = wctx.errorlevel;
+			out.error_stage  = wctx.error_stage;
+			out.errormessage = wctx.errormessage;
+			out.filetype     = wctx.filetype;
+			out.jpgfilesize  = wctx.jpgfilesize;
+			out.pjgfilesize  = wctx.pjgfilesize;
+			out.elapsed_ms   = elapsed;
+
+			{
+				std::lock_guard<std::mutex> lock( io_mtx );
+				completed_cnt++;
+				if ( cli.verbosity == -1 ) {
+					if ( completed_cnt < file_cnt ) {
+						std::fprintf( cli.msgout, "Processing file %2i of %2i ", completed_cnt + 1, file_cnt );
+						progress_bar( cli.msgout, completed_cnt, file_cnt );
+					}
+					else {
+						std::fprintf( cli.msgout, "Processed %2i of %2i files ", file_cnt, file_cnt );
+						progress_bar( cli.msgout, 1, 1 );
+					}
+					std::fprintf( cli.msgout, "\r" );
+				}
+				else {
+					const char* act = ( out.filetype == F_UNK )
+						? "unknown filetype"
+						: ( ( out.filetype == F_JPG ) ? "Compressing" : "Decompressing" );
+					const float cr = ( out.jpgfilesize > 0 )
+						? static_cast<float>( 100.0 * out.pjgfilesize / out.jpgfilesize )
+						: 0.0f;
+					std::fprintf( cli.msgout, "\nProcessing file %i of %i \"%s\" -> %s -> ",
+						idx + 1, file_cnt, item.path.c_str(), act );
+					if ( out.errorlevel < wctx.err_tol ) {
+						if ( cli.verbosity == 0 ) std::fprintf( cli.msgout, "%.2f%%", cr );
+						else std::fprintf( cli.msgout, "DONE\n" );
+					}
+					else {
+						std::fprintf( cli.msgout, "ERROR\n" );
+					}
+					if ( out.errorlevel > 0 ) {
+						const char* errtypemsg = ( out.errorlevel == 1 )
+							? ( ( wctx.err_tol > 1 ) ? "warning (ignored)" : "warning (skipped file)" )
+							: "fatal error";
+						std::fprintf( cli.msgout, " %s -> %s:\n %s\n",
+							stage_status_text( out.error_stage ), errtypemsg, out.errormessage.c_str() );
+					}
+					if ( ( cli.verbosity > 0 ) && ( out.errorlevel < wctx.err_tol ) ) {
+						const int bpms = ( out.elapsed_ms > 0 ) ? ( out.jpgfilesize / out.elapsed_ms ) : out.jpgfilesize;
+						std::fprintf( cli.msgout, " time taken  : %7i msec\n", out.elapsed_ms );
+						std::fprintf( cli.msgout, " byte per ms : %7i byte\n", bpms );
+						std::fprintf( cli.msgout, " comp. ratio : %7.2f %%\n", cr );
+					}
+				}
+				std::fflush( cli.msgout );
+			}
+		}
+	};
+
+	std::vector<std::thread> workers;
+	workers.reserve( static_cast<std::size_t>( worker_cnt ) );
+	for ( int t = 0; t < worker_cnt; t++ ) {
+		workers.emplace_back( worker_fn );
+	}
+	for ( auto& th : workers ) {
+		th.join();
+	}
+
+	for ( int i = 0; i < file_cnt; i++ ) {
+		const FileOutcome& out = outcomes[ static_cast<std::size_t>( i ) ];
+		if ( out.errorlevel > 0 ) {
+			cli.err_tp[ static_cast<std::size_t>( i ) ]   = out.errorlevel;
+			cli.err_list[ static_cast<std::size_t>( i ) ] = out.errormessage;
+		}
+		if ( out.errorlevel >= template_ctx.err_tol ) {
+			error_cnt++;
+		}
+		else {
+			if ( out.errorlevel == 1 ) warn_cnt++;
+			acc_jpgsize += out.jpgfilesize;
+			acc_pjgsize += out.pjgfilesize;
+		}
+	}
+}
+
 } // namespace
 
 
@@ -844,16 +1083,40 @@ int main( int argc, char** argv )
 	double acc_pjgsize = 0;
 
 	initialize_options( argc, argv, cli, ctx );
-	const int file_cnt = static_cast<int>( cli.filelist.size() );
+	const int file_cnt = static_cast<int>( cli.inputs.size() );
 
 	std::fprintf( cli.msgout, "\n--> %s v%i.%i%s (%s) by %s <--\n",
 		kAppTitle, kAppVersion / 10, kAppVersion % 10, kSubVersion, kVersionDate, kAuthor );
 	std::fprintf( cli.msgout, "Copyright %s\nAll rights reserved\n\n", kCopyright );
 
-	if ( ( file_cnt == 0 ) ||
+	if ( !cli.arg_error.empty() ) {
+		std::fprintf( stderr, "Error: %s\n", cli.arg_error.c_str() );
+		show_help( cli );
+		return 1;
+	}
+
+	if ( !cli.out_dir.empty() ) {
+		std::error_code ec;
+		for ( std::filesystem::path probe( cli.out_dir ); !probe.empty(); ) {
+			if ( std::filesystem::exists( probe, ec ) ) {
+				if ( !std::filesystem::is_directory( probe, ec ) ) {
+					std::fprintf( stderr, "Error: output path \"%s\" exists and is not a directory\n", cli.out_dir.c_str() );
+					return 1;
+				}
+				break;
+			}
+			const std::filesystem::path parent = probe.parent_path();
+			if ( parent == probe ) {
+				break;
+			}
+			probe = parent;
+		}
+	}
+
+	if ( ( ( file_cnt == 0 ) && !cli.had_expanded ) ||
 		 ( ( !cli.developer ) && ( ( ctx.action != A_COMPRESS ) || ( !ctx.auto_set ) || ( cli.verify_lv > 1 ) ) ) ) {
 		show_help( cli );
-		return -1;
+		return 1;
 	}
 
 	if ( !ctx.auto_set ) {
@@ -868,23 +1131,36 @@ int main( int argc, char** argv )
 
 	ctx.reset_buffers();
 
-	const std::clock_t begin = std::clock();
-	for ( int file_no = 0; file_no < file_cnt; file_no++ ) {
-		process_ui( cli, ctx, file_no );
-		if ( ctx.errorlevel > 0 ) {
-			cli.err_tp[ file_no ]   = ctx.errorlevel;
-			cli.err_list[ file_no ] = ctx.errormessage;
-		}
-		if ( ctx.errorlevel >= ctx.err_tol ) {
-			error_cnt++;
-		}
-		else {
-			if ( ctx.errorlevel == 1 ) warn_cnt++;
-			acc_jpgsize += ctx.jpgfilesize;
-			acc_pjgsize += ctx.pjgfilesize;
+	bool has_stdin_pipe = false;
+	for ( const auto& item : cli.inputs ) {
+		if ( item.path == "-" ) {
+			has_stdin_pipe = true;
+			break;
 		}
 	}
-	const std::clock_t end = std::clock();
+
+	const auto batch_begin = std::chrono::steady_clock::now();
+	if ( ( cli.jobs > 1 ) && ( file_cnt > 1 ) && ( ctx.action == A_COMPRESS ) && !has_stdin_pipe && !cli.developer ) {
+		run_parallel_batch( cli, ctx, error_cnt, warn_cnt, acc_jpgsize, acc_pjgsize );
+	}
+	else {
+		for ( int file_no = 0; file_no < file_cnt; file_no++ ) {
+			process_ui( cli, ctx, file_no );
+			if ( ctx.errorlevel > 0 ) {
+				cli.err_tp[ file_no ]   = ctx.errorlevel;
+				cli.err_list[ file_no ] = ctx.errormessage;
+			}
+			if ( ctx.errorlevel >= ctx.err_tol ) {
+				error_cnt++;
+			}
+			else {
+				if ( ctx.errorlevel == 1 ) warn_cnt++;
+				acc_jpgsize += ctx.jpgfilesize;
+				acc_pjgsize += ctx.pjgfilesize;
+			}
+		}
+	}
+	const auto batch_end = std::chrono::steady_clock::now();
 
 	if ( ( cli.verbosity == -1 ) || ( cli.verbosity == 2 ) ) {
 		if ( error_cnt > 0 ) {
@@ -892,7 +1168,7 @@ int main( int argc, char** argv )
 			std::fprintf( stderr, "------------------\n" );
 			for ( int file_no = 0; file_no < file_cnt; file_no++ ) {
 				if ( cli.err_tp[ file_no ] >= ctx.err_tol ) {
-					std::fprintf( stderr, "%s (%s)\n", cli.filelist[ file_no ].c_str(), cli.err_list[ file_no ].c_str() );
+					std::fprintf( stderr, "%s (%s)\n", cli.inputs[ file_no ].path.c_str(), cli.err_list[ file_no ].c_str() );
 				}
 			}
 		}
@@ -901,7 +1177,7 @@ int main( int argc, char** argv )
 			std::fprintf( stderr, "------------------\n" );
 			for ( int file_no = 0; file_no < file_cnt; file_no++ ) {
 				if ( cli.err_tp[ file_no ] == 1 ) {
-					std::fprintf( stderr, "%s (%s)\n", cli.filelist[ file_no ].c_str(), cli.err_list[ file_no ].c_str() );
+					std::fprintf( stderr, "%s (%s)\n", cli.inputs[ file_no ].path.c_str(), cli.err_list[ file_no ].c_str() );
 				}
 			}
 		}
@@ -912,12 +1188,12 @@ int main( int argc, char** argv )
 	if ( ( file_cnt > error_cnt ) && ( cli.verbosity != 0 ) && ( ctx.action == A_COMPRESS ) ) {
 		acc_jpgsize /= 1024.0;
 		acc_pjgsize /= 1024.0;
-		const double total = static_cast<double>( end - begin ) / CLOCKS_PER_SEC;
-		const int    kbps  = static_cast<int>( ( total > 0 ) ? ( acc_jpgsize / total ) : acc_jpgsize );
-		const double cr    = ( acc_jpgsize > 0 ) ? ( 100.0 * acc_pjgsize / acc_jpgsize ) : 0.0;
+		const double total = std::chrono::duration<double>( batch_end - batch_begin ).count();
+		const int    kbps  = static_cast<int>( ( total > 0.0 ) ? ( acc_jpgsize / total ) : acc_jpgsize );
+		const double cr    = ( acc_jpgsize > 0.0 ) ? ( 100.0 * acc_pjgsize / acc_jpgsize ) : 0.0;
 
 		std::fprintf( cli.msgout, " --------------------------------- \n" );
-		if ( total >= 0 ) {
+		if ( total >= 0.0 ) {
 			std::fprintf( cli.msgout, " total time        : %8.2f sec\n", total );
 			std::fprintf( cli.msgout, " avrg. kbyte per s : %8i byte\n", kbps );
 		}

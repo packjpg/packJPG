@@ -17,10 +17,10 @@
 
 // Program & format metadata
 inline constexpr unsigned char kAppVersion = 25;
-inline constexpr const char* kSubVersion   = "k";
+inline constexpr const char* kSubVersion   = "l";
 inline constexpr const char* kAppTitle     = "packJPG";
 inline constexpr const char* kAppName      = "packjpg";
-inline constexpr const char* kVersionDate  = "01/22/2016";
+inline constexpr const char* kVersionDate  = "11/21/2026";
 inline constexpr const char* kAuthor       = "Matthias Stirner / Se";
 inline constexpr const char* kWebsite      = "http://packjpg.encode.ru/";
 inline constexpr const char* kCopyright    = "2006-2016 HTW Aalen University & Matthias Stirner";

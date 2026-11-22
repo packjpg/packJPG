@@ -1,5 +1,5 @@
 Name:		packjpg
-Version:	2.5k
+Version:	2.5l
 Release:	1%{?dist}
 Summary:	Lossless JPEG re-compression
 URL:		https://github.com/packjpg/packJPG

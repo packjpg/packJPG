@@ -1,4 +1,4 @@
-packJPG v2.5k (01/22/2016)
+packJPG v2.5l (11/21/2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 packJPG is a compression program specially designed for further
@@ -63,12 +63,15 @@ Usage examples:
 Command line switches
 ~~~~~~~~~~~~~~~~~~~~~
 
- -ver  verify files after processing
- -v?   level of verbosity; 0,1 or 2 is allowed (default 0)
- -np   no pause after processing files
- -o    overwrite existing files
- -p    proceed on warnings
- -d    discard meta-info
+ -ver      verify files after processing
+ -v?       level of verbosity; 0,1 or 2 is allowed (default 0)
+ -np       no pause after processing files
+ -o        overwrite existing files
+ -out dir  write output files to specified directory
+ -r        recursively process directories and wildcard patterns
+ -j?       parallel worker threads (-j or -j0 uses available CPU cores)
+ -p        proceed on warnings
+ -d        discard meta-info
 
 By default, compression is cancelled on warnings. If warnings are 
 skipped by using "-p", most files with warnings can also be compressed, 
@@ -101,6 +104,7 @@ Usage examples:
  "packJPG -v1 -o baboon.pjg"
  "packJPG -ver lena.jpg"
  "packJPG -d tiffany.jpg"
+ "packJPG -r -j -out archive photos"
  "packJPG -p *.jpg"
 
 
@@ -237,6 +241,13 @@ v2.5j (01/15/14) (public)
 v2.5k (01/22/16) (public)
  - Updated contact info
  - fixed a minor bug
+
+v2.5l (11/21/26) (public)
+ - fixed memory safety, Huffman/RST, and malformed-stream bugs
+ - modular C++17 reentrant codec & thread-safe library API
+ - ~1.6x-1.7x codec & streaming I/O speedup
+ - added -out, -r, wildcard, and -j parallel batch CLI options
+ - cross-platform Linux, macOS, and Windows builds & test suite
 
 
 Acknowledgements
