@@ -13,6 +13,9 @@
 *.so
 *.dylib
 *.dll
+*.spi
+*.sph
+
 
 # Fortran module files
 *.mod

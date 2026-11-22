@@ -41,34 +41,48 @@ jobs:
           - msystem: MINGW64
             pkg_prefix: mingw-w64-x86_64
             asset: packJPGx64.exe
+            iv_dll: PackJPGx64.dll
+            spi_dll: ifpjg.sph
+            plugin_zip: packJPG-irfanview-x64.zip
           - msystem: MINGW32
             pkg_prefix: mingw-w64-i686
             asset: packJPG.exe
+            iv_dll: PackJPGx86.dll
+            spi_dll: ifpjg.spi
+            plugin_zip: packJPG-irfanview-x86.zip
     steps:
       - uses: actions/checkout@v4
 
       - uses: msys2/setup-msys2@v2
         with:
           msystem: ${{ matrix.msystem }}
+          path-type: inherit
           update: true
           install: >-
             make
             ${{ matrix.pkg_prefix }}-gcc
             ${{ matrix.pkg_prefix }}-binutils
 
-      - name: Compile and smoke-test ${{ matrix.asset }}
+      - name: Compile and smoke-test ${{ matrix.asset }} and ${{ matrix.plugin_zip }}
         run: |
-          make -C source clean all -j2
+          make -C source clean
+          make -C source all lib -j2
           mkdir -p dist
           cp source/packJPG.exe "dist/${{ matrix.asset }}"
           printf '%s' "$FIXTURE_JPG_B64" | tr -d ' \n' | base64 --decode > smoke.jpg
           "./dist/${{ matrix.asset }}" -np -ver -o smoke.jpg
           rm -f smoke.jpg smoke.pjg
 
+          make -C contrib/irfanview clean
+          make -C contrib/irfanview all test -j2
+          python -c "import zipfile; z = zipfile.ZipFile('dist/${{ matrix.plugin_zip }}', 'w', zipfile.ZIP_DEFLATED); z.write('contrib/irfanview/${{ matrix.iv_dll }}', '${{ matrix.iv_dll }}'); z.write('contrib/irfanview/${{ matrix.spi_dll }}', '${{ matrix.spi_dll }}'); z.write('contrib/irfanview/README.md', 'README.md'); z.close()"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
+          name: windows-${{ matrix.msystem }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.plugin_zip }}
 
   build-linux:
     name: Build Linux (x86_64 static)
@@ -78,7 +92,8 @@ jobs:
 
       - name: Compile and smoke-test packJPG-linux-x86_64
         run: |
-          make -C source clean all STATIC=1 -j2
+          make -C source clean
+          make -C source all STATIC=1 -j2
           mkdir -p dist
           cp source/packJPG dist/packJPG-linux-x86_64
           chmod 755 dist/packJPG-linux-x86_64
@@ -98,7 +113,8 @@ jobs:
 
       - name: Compile and smoke-test packJPG-macos-universal
         run: |
-          make -C source clean all \
+          make -C source clean
+          make -C source all \
             CXXFLAGS="-O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer -arch x86_64 -arch arm64" \
             LDFLAGS="-arch x86_64 -arch arm64" -j2
           strip -x source/packJPG
@@ -130,7 +146,13 @@ jobs:
         working-directory: release-assets
         run: |
           chmod 755 packJPG-linux-x86_64 packJPG-macos-universal
-          sha256sum packJPGx64.exe packJPG.exe packJPG-linux-x86_64 packJPG-macos-universal | tee SHA256SUMS.txt
+          sha256sum \
+            packJPGx64.exe \
+            packJPG.exe \
+            packJPG-irfanview-x64.zip \
+            packJPG-irfanview-x86.zip \
+            packJPG-linux-x86_64 \
+            packJPG-macos-universal | tee SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -145,6 +167,9 @@ jobs:
           files: |
             release-assets/packJPGx64.exe
             release-assets/packJPG.exe
+            release-assets/packJPG-irfanview-x64.zip
+            release-assets/packJPG-irfanview-x86.zip
             release-assets/packJPG-linux-x86_64
             release-assets/packJPG-macos-universal
             release-assets/SHA256SUMS.txt
+
