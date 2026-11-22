@@ -25,6 +25,11 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	if (filter != nullptr && passed == 0 && failed == 0) {
+		std::fprintf(stderr, "No test cases matched filter: \"%s\"\n", filter);
+		return 1;
+	}
+
 	std::printf("\nTest summary: %d passed, %d failed (%d assertions)\n",
 		passed, failed, pjg_test::check_count());
 	return (failed == 0) ? 0 : 1;

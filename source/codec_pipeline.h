@@ -17,7 +17,7 @@
 	#else
 		#define PJG_PUBLIC_API
 	#endif
-#elif defined(USE_PACKJPG_DLL) && ( defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__) )
+#elif defined(USE_PACKJPG_DLL) && !defined(BUILD_LIB) && ( defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__) )
 	#define PJG_PUBLIC_API __declspec( dllimport )
 #else
 	#define PJG_PUBLIC_API
@@ -63,6 +63,9 @@ void execute_stage( CodecContext& ctx, StageId stage, Fn&& fn, const StageReport
 	}
 	if ( !success ) {
 		ctx.error_stage = stage;
+		if ( ctx.errorlevel < ctx.err_tol ) {
+			ctx.errorlevel = 2;
+		}
 	}
 
 	if ( reporter != nullptr ) {

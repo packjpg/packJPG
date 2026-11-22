@@ -17,10 +17,10 @@
 
 // Program & format metadata
 inline constexpr unsigned char kAppVersion = 25;
-inline constexpr const char* kSubVersion   = "m";
+inline constexpr const char* kSubVersion   = "n";
 inline constexpr const char* kAppTitle     = "packJPG";
 inline constexpr const char* kAppName      = "packjpg";
-inline constexpr const char* kVersionDate  = "11/21/2026";
+inline constexpr const char* kVersionDate  = "11/22/2026";
 inline constexpr const char* kAuthor       = "Matthias Stirner / Se";
 inline constexpr const char* kWebsite      = "http://packjpg.encode.ru/";
 inline constexpr const char* kCopyright    = "2006-2016 HTW Aalen University & Matthias Stirner";
@@ -40,8 +40,8 @@ inline std::unique_ptr<model_s> init_model_s( int max_s, int max_c, int max_o ) 
 	return std::make_unique<model_s>( max_s, max_c, max_o, 255 );
 }
 
-inline std::unique_ptr<model_b> init_model_b( int max_c, int max_o ) {
-	return std::make_unique<model_b>( max_c, max_o, 255 );
+inline std::unique_ptr<model_b> init_model_b( int max_c, int max_o, int max_leaf = -1 ) {
+	return std::make_unique<model_b>( max_c, max_o, 255, max_leaf );
 }
 
 constexpr int envli( int s, int v ) noexcept {
@@ -219,7 +219,7 @@ struct CodecContext {
 	std::array<const unsigned char*, 4> freqscan{ stdscan, stdscan, stdscan, stdscan };
 	unsigned char zsrtscan[ 4 ][ 64 ]{};
 
-	std::unique_ptr<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>> adpt_idct_8x8;
+	std::unique_ptr<std::array<std::array<int, 4096>, 4>> adpt_idct_8x8;
 	int adpt_idct_1x8[ 4 ][ 1 * 1 * 8 * 8 ]{};
 	int adpt_idct_8x1[ 4 ][ 8 * 8 * 1 * 1 ]{};
 
@@ -367,6 +367,12 @@ struct CodecContext {
 			qtables[ i ].fill( 0 );
 		}
 
+		cs_cmpc  = 0;
+		cs_cmp   = {};
+		cs_from  = 0;
+		cs_to    = 0;
+		cs_sah   = 0;
+		cs_sal   = 0;
 		jpegtype = 0;
 		padbit   = -1;
 		return true;
@@ -374,4 +380,3 @@ struct CodecContext {
 };
 
 #endif
-

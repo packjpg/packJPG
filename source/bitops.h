@@ -54,7 +54,7 @@ public:
 	~BitReader() = default;
 
 	inline bool has_fast_16() const noexcept {
-		return cbyte + 2 < lbyte;
+		return cbyte < lbyte - 2;
 	}
 
 	inline unsigned int peek_9_fast() const noexcept {
@@ -73,7 +73,7 @@ public:
 		if ( nbits <= 0 ) {
 			return 0;
 		}
-		if ( ( cbyte + 2 < lbyte ) && ( nbits <= 16 ) ) {
+		if ( ( cbyte < lbyte - 2 ) && ( nbits <= 16 ) ) {
 			const unsigned int three = ( static_cast<unsigned int>( data[ cbyte ] ) << 16 )
 			                         | ( static_cast<unsigned int>( data[ cbyte + 1 ] ) << 8 )
 			                         | static_cast<unsigned int>( data[ cbyte + 2 ] );
@@ -240,7 +240,7 @@ public:
 	virtual bool end_of_reader() = 0;
 };
 
-class MemoryReader : public Reader {
+class MemoryReader final : public Reader {
 public:
 	MemoryReader(const std::vector<std::uint8_t>& bytes);
 	MemoryReader(std::vector<std::uint8_t>&& bytes);
@@ -269,7 +269,7 @@ private:
 	std::vector<std::uint8_t>::const_iterator cbyte_;
 };
 
-class FileReader : public Reader {
+class FileReader final : public Reader {
 public:
 	FileReader(const std::string& file_path);
 	~FileReader();
@@ -294,7 +294,7 @@ private:
 	std::unique_ptr<MemoryReader> reader_;
 };
 
-class StreamReader : public Reader {
+class StreamReader final : public Reader {
 public:
 	explicit StreamReader(FILE* stream = stdin);
 
@@ -337,11 +337,12 @@ public:
 
 	virtual void reset() = 0;
 	virtual bool flush() { return !error(); }
+	virtual bool close() { return flush() && !error(); }
 	virtual std::size_t num_bytes_written() = 0;
 	virtual bool error() = 0;
 };
 
-class MemoryWriter : public Writer {
+class MemoryWriter final : public Writer {
 public:
 	MemoryWriter() = default;
 	~MemoryWriter() override = default;
@@ -351,6 +352,13 @@ public:
 	}
 
 	std::size_t write(const std::uint8_t* from, std::size_t n) override {
+		if (n == 0) {
+			return 0;
+		}
+		if (from == nullptr) {
+			err_ = true;
+			return 0;
+		}
 		data_.insert(std::end(data_), from, from + n);
 		return n;
 	}
@@ -367,6 +375,7 @@ public:
 		return true;
 	}
 
+	const std::vector<std::uint8_t>& data() const noexcept { return data_; }
 	std::vector<std::uint8_t> get_data() override;
 	std::vector<std::uint8_t> take_data();
 
@@ -376,11 +385,13 @@ public:
 
 private:
 	std::vector<std::uint8_t> data_;
+	bool err_ = false;
 };
 
-class FileWriter : public Writer {
+class FileWriter final : public Writer {
 public:
-	FileWriter(const std::string& file_path);
+	explicit FileWriter(const std::string& file_path, bool exclusive = false);
+	FileWriter(FILE* owned_stream, const std::string& file_path);
 	FileWriter(const FileWriter&) = delete;
 	FileWriter& operator=(const FileWriter&) = delete;
 	~FileWriter();
@@ -394,6 +405,7 @@ public:
 
 	void reset() override;
 	bool flush() override;
+	bool close() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
@@ -401,11 +413,14 @@ private:
 	FILE* fptr_ = nullptr;
 	std::vector<char> file_buffer_;
 	const std::string file_path_;
+	std::size_t bytes_written_ = 0;
+	bool err_ = false;
+	bool closed_ = false;
 };
 
-class StreamWriter : public Writer {
+class StreamWriter final : public Writer {
 public:
-	explicit StreamWriter(FILE* stream = stdout);
+	explicit StreamWriter(FILE* stream = stdout, bool own_stream = false);
 	StreamWriter(const StreamWriter&) = delete;
 	StreamWriter& operator=(const StreamWriter&) = delete;
 	~StreamWriter();
@@ -419,6 +434,7 @@ public:
 
 	void reset() override;
 	bool flush() override;
+	bool close() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
@@ -426,9 +442,10 @@ private:
 	FILE* stream_ = stdout;
 	std::unique_ptr<MemoryWriter> writer_;
 	std::size_t flushed_offset_ = 0;
-	bool flushed_ = false;
+	bool own_stream_ = false;
+	bool closed_ = false;
+	bool flushed_ = true;
 	bool error_ = false;
 };
 
 #endif
-

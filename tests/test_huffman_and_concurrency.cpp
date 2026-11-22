@@ -3,6 +3,7 @@
 #include "codec_pipeline.h"
 #include "jpeg_codec.h"
 #include "packjpglib.h"
+#include "pjg_codec.h"
 
 #include <atomic>
 #include <cstdint>
@@ -365,5 +366,540 @@ TEST_CASE("core codec regressions: high-ratio solid image, 320KB generic trailer
 		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err, false, 1));
 		REQUIRE(rt == quirky_jpg);
 	}
+
+	// 7. Finding #16 regression: duplicate DHT filler symbol at length 16 must NOT overwrite primary shorter codeword under -p (err_tol=2)
+	{
+		std::vector<std::uint8_t> dup_dht_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		dup_dht_jpg.insert(dup_dht_jpg.end(), 64, 16);
+		const std::uint8_t sof_and_tables[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			// DC table 0: symbol 0 -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// AC table 0: clen[0]=1 ('0' -> 0x00) AND clen[15]=2 (two 16-bit filler leaves: 0x01 and duplicate 0x00!)
+			0xFF, 0xC4, 0x00, 0x16, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+			0x00, 0x01, 0x00,
+			// SOS: DC='0', AC EOB='0' (primary 1-bit code!), padded '111111' -> 0x3F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			0x3F,
+			0xFF, 0xD9,
+		};
+		dup_dht_jpg.insert(dup_dht_jpg.end(), std::begin(sof_and_tables), std::end(sof_and_tables));
+
+		std::vector<std::uint8_t> pjg;
+		std::vector<std::uint8_t> rt;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(dup_dht_jpg.data(), dup_dht_jpg.size(), pjg, &err, false, 1));
+		REQUIRE(packjpg::convert_memory(dup_dht_jpg.data(), dup_dht_jpg.size(), pjg, &err, false, 2));
+		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err, false, 1));
+		REQUIRE(rt == dup_dht_jpg);
+	}
+
+	// 8. Finding #17 regression: dct_rescale handles saturated INT_MAX / INT_MIN IDCT outputs without signed 32-bit overflow UB
+	{
+		REQUIRE_EQ(dct_rescale(0), 0);
+		REQUIRE_EQ(dct_rescale(4096), 1);
+		REQUIRE_EQ(dct_rescale(-4096), -1);
+		REQUIRE_EQ(dct_rescale(2147483647), 262144);
+		REQUIRE_EQ(dct_rescale(-2147483647 - 1), -262144);
+	}
+
+	// 9. Finding #18 & #14c regressions: FF FF fill byte rejection, err_tol=2 truncated huge-SOF bound, and auto_set segm_cnt/nois_trs reset
+	{
+		auto fill_jpg = make_td0_ta1_jpeg(4);
+		// Inject extra 0xFF fill byte before first marker (0xFF 0xFF 0xDB)
+		fill_jpg.insert(fill_jpg.begin() + 2, 0xFF);
+		std::vector<std::uint8_t> out;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(fill_jpg.data(), fill_jpg.size(), out, &err, false, 2));
+
+		// Truncated sequential JPEG declaring 16384x16384 (4,194,304 blocks) with only 2 scan bytes under err_tol=2
+		std::vector<std::uint8_t> trunc_huge = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		trunc_huge.insert(trunc_huge.end(), 64, 16);
+		const std::uint8_t huge_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x40, 0x00, 0x40, 0x00, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			0x00, 0x00,
+			0xFF, 0xD9,
+		};
+		trunc_huge.insert(trunc_huge.end(), std::begin(huge_tail), std::end(huge_tail));
+		REQUIRE(!packjpg::convert_memory(trunc_huge.data(), trunc_huge.size(), out, &err, false, 2));
+
+		// Verify jpg_setup_imginfo resets unused component slots [1..3] when auto_set == true
+		const auto gray_jpg = make_td0_ta1_jpeg(1);
+		CodecContext dirty_ctx;
+		dirty_ctx.filetype = F_JPG;
+		dirty_ctx.auto_set = true;
+		dirty_ctx.segm_cnt = {49, 49, 49, 49};
+		dirty_ctx.nois_trs = {9, 9, 9, 9};
+		dirty_ctx.str_in   = std::make_unique<MemoryReader>(gray_jpg.data(), gray_jpg.size());
+		std::uint8_t m[2];
+		dirty_ctx.str_in->read(m, 2);
+		dirty_ctx.reset_buffers();
+		REQUIRE(read_jpeg(dirty_ctx));
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[1]), 10);
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[2]), 10);
+		REQUIRE_EQ(int(dirty_ctx.segm_cnt[3]), 10);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[1]), 6);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[2]), 6);
+		REQUIRE_EQ(int(dirty_ctx.nois_trs[3]), 6);
+
+		// 18-byte E3 0x40000000 fixed-point PJG unit discovered by libFuzzer must reject in milliseconds!
+		const std::uint8_t slow18_pjg[] = {
+			0x4A, 0x53, 0x19, 0xFA, 0xFF, 0x00, 0x1B, 0x01, 0x07,
+			0xFF, 0xFF, 0xFF, 0x1B, 0x01, 0x00, 0x7F, 0x77, 0xFF,
+		};
+		REQUIRE(!packjpg::convert_memory(slow18_pjg, sizeof(slow18_pjg), out, &err, false, 1));
+	}
 }
 
+TEST_CASE("pass-3 codec regressions: AC-only progressive SOF2 budget and merge_jpeg leading/consecutive RST reconstruction") {
+	// 1. Crafted <200-byte 65535x2048 4-component (4x4) AC-only SOF2 progressive header (>8.3M blocks, missing DC scans)
+	//    must be rejected BEFORE allocating colldata in both strict (err_tol=1) and tolerant (err_tol=2) modes!
+	{
+		std::vector<std::uint8_t> ac_only_sof2 = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		ac_only_sof2.insert(ac_only_sof2.end(), 64, 16);
+		const std::uint8_t sof2_tail[] = {
+			// SOF2: height=2048 (0x0800), width=65535 (0xFFFF), 4 components, 4x4 sampling -> >8.38M blocks (>1 GiB colldata if allocated)
+			0xFF, 0xC2, 0x00, 0x14, 0x08, 0x08, 0x00, 0xFF, 0xFF, 0x04,
+			0x01, 0x44, 0x00,
+			0x02, 0x44, 0x00,
+			0x03, 0x44, 0x00,
+			0x04, 0x44, 0x00,
+			// Minimal AC table 0 with EOB14 (0xE0) -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xE0,
+			// SOS: AC-only scan (Ss=1, Se=63, Ah=0, Al=0) on component 1 — no DC scans present!
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xD9,
+		};
+		ac_only_sof2.insert(ac_only_sof2.end(), std::begin(sof2_tail), std::end(sof2_tail));
+
+		for (int tol : {1, 2}) {
+			CodecContext ctx;
+			ctx.filetype = F_JPG;
+			ctx.err_tol  = tol;
+			ctx.str_in   = std::make_unique<MemoryReader>(ac_only_sof2.data(), ac_only_sof2.size());
+			std::uint8_t m[2];
+			REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+			ctx.reset_buffers();
+			REQUIRE(!read_jpeg(ctx));
+			REQUIRE(ctx.colldata[0][0].empty());
+		}
+	}
+
+	// 2. Leading RST marker (0xFFFFFFFF sentinel at scan byte 0) + consecutive mid-scan RST markers
+	//    must be reconstructed byte-for-byte by merge_jpeg under err_tol = 2!
+	{
+		std::vector<std::uint8_t> rst_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		rst_jpg.insert(rst_jpg.end(), 64, 8);
+		const std::uint8_t rst_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xDD, 0x00, 0x04, 0x00, 0x01, // DRI = 1
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			// Leading FFD0 at scan start (byte 0), entropy byte 0x3F, consecutive FFD1 + FFD2, entropy byte 0x3F, trailing FFD3!
+			0xFF, 0xD0,
+			0x3F,
+			0xFF, 0xD1, 0xFF, 0xD2,
+			0x3F,
+			0xFF, 0xD3,
+			0xFF, 0xD9,
+		};
+		rst_jpg.insert(rst_jpg.end(), std::begin(rst_tail), std::end(rst_tail));
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.err_tol  = 2;
+		ctx.str_in   = std::make_unique<MemoryReader>(rst_jpg.data(), rst_jpg.size());
+		auto merged  = std::make_unique<MemoryWriter>();
+		MemoryWriter* merged_ptr = merged.get();
+		ctx.str_out  = std::move(merged);
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		REQUIRE(read_jpeg(ctx));
+		REQUIRE_EQ(ctx.errorlevel, 1);
+		REQUIRE(!ctx.rstp.empty());
+		REQUIRE_EQ(ctx.rstp[0], 0xFFFFFFFFu);
+		REQUIRE(merge_jpeg(ctx));
+		REQUIRE(merged_ptr->take_data() == rst_jpg);
+	}
+}
+
+TEST_CASE("fourth-pass codec regressions: truncated SOS OOB, >4096-block verify, recode_jpeg progression, -p trailing header validation, nois_trs=10, in-place convert_memory, and strict DRI/SOS lengths") {
+	// 1. Bug #1: Exact-sized hdrdata ending in 8-byte truncated SOS (FF DA 00 06 01 01 00 00) must NOT read 2 bytes OOB under ASan!
+	{
+		for (std::uint8_t sof_marker : {std::uint8_t(0xC0), std::uint8_t(0xC2)}) {
+			CodecContext ctx;
+			ctx.filetype = F_JPG;
+			ctx.hdrdata = {
+				0xFF, 0xDB, 0x00, 0x43, 0x00,
+			};
+			ctx.hdrdata.insert(ctx.hdrdata.end(), 64, 16);
+			const std::uint8_t tail[] = {
+				0xFF, sof_marker, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+				0xFF, 0xC4, 0x00, 0x14, 0x00,
+				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0xFF, 0xDA, 0x00, 0x06, 0x01, 0x01, 0x00, 0x00,
+			};
+			ctx.hdrdata.insert(ctx.hdrdata.end(), std::begin(tail), std::end(tail));
+			ctx.hdrdata.shrink_to_fit();
+			ctx.huffdata = {0x00};
+			if (sof_marker == 0xC2) {
+				REQUIRE(!jpg_setup_imginfo(ctx));
+			} else {
+				REQUIRE(jpg_setup_imginfo(ctx));
+				REQUIRE(!decode_jpeg(ctx));
+			}
+		}
+	}
+
+	// 2. Bug #2: >4,096-block (576x576 = 5,184 blocks) JPEG round-trips AND passes -ver style verification (ctx.filetype == F_JPG after reset_buffers)!
+	{
+		constexpr int kDim = 576;
+		constexpr int kBlocks = (kDim / 8) * (kDim / 8); // 5,184 > 4,096
+		std::vector<std::uint8_t> big_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		big_jpg.insert(big_jpg.end(), 64, 16);
+		const std::uint8_t sof_dht_sos[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08,
+			static_cast<std::uint8_t>(kDim >> 8), static_cast<std::uint8_t>(kDim & 0xFF),
+			static_cast<std::uint8_t>(kDim >> 8), static_cast<std::uint8_t>(kDim & 0xFF),
+			0x01, 0x01, 0x11, 0x00,
+			// DC0: symbol 0 -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// AC0: symbol 0 (EOB) -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+		};
+		big_jpg.insert(big_jpg.end(), std::begin(sof_dht_sos), std::end(sof_dht_sos));
+		// Each block is 2 zero bits ('0' DC + '0' AC EOB) -> 5,184 * 2 = 10,368 bits = 1,296 zero bytes!
+		big_jpg.insert(big_jpg.end(), (kBlocks * 2) / 8, 0x00);
+		big_jpg.push_back(0xFF);
+		big_jpg.push_back(0xD9);
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.action   = A_COMPRESS;
+		ctx.str_in   = std::make_unique<MemoryReader>(big_jpg.data(), big_jpg.size());
+		auto pjg_out = std::make_unique<MemoryWriter>();
+		auto* pjg_ptr = pjg_out.get();
+		ctx.str_out  = std::move(pjg_out);
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		run_compress_pipeline(ctx);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+
+		// Simulate CLI -ver: keep ctx.filetype == F_JPG, call reset_buffers() (empties huffdata!), swap streams, and run_decompress_pipeline
+		const auto pjg_bytes = pjg_ptr->take_data();
+		REQUIRE(ctx.reset_buffers());
+		REQUIRE(ctx.huffdata.empty());
+		ctx.str_in = std::make_unique<MemoryReader>(pjg_bytes.data(), pjg_bytes.size());
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		auto verif_out = std::make_unique<MemoryWriter>();
+		auto* verif_ptr = verif_out.get();
+		ctx.str_out = std::move(verif_out);
+		run_decompress_pipeline(ctx);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+		REQUIRE(verif_ptr->take_data() == big_jpg);
+	}
+
+	// 3. Bug #4 & Bug #5: recode_jpeg rejects duplicate progressive SOS scans in crafted .pjg, and pjg_optimize_header rejects DHT L_1 > 2!
+	{
+		std::vector<std::uint8_t> prog_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		prog_jpg.insert(prog_jpg.end(), 64, 8);
+		const std::uint8_t prog_tail[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// Scan 1: DC first-scan (Ss=0, Se=0, Ah=0, Al=0) -> 1 zero bit padded with 1s -> 0x7F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+			0x7F,
+			// Scan 2: AC first-scan (Ss=1, Se=63, Ah=0, Al=0) -> EOB 1 zero bit padded with 1s -> 0x7F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x7F,
+			0xFF, 0xD9,
+		};
+		prog_jpg.insert(prog_jpg.end(), std::begin(prog_tail), std::end(prog_tail));
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.str_in   = std::make_unique<MemoryReader>(prog_jpg.data(), prog_jpg.size());
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		REQUIRE(read_jpeg(ctx));
+		REQUIRE(decode_jpeg(ctx));
+		REQUIRE(check_value_range(ctx));
+		REQUIRE(adapt_icos(ctx));
+		REQUIRE(predict_dc(ctx));
+		REQUIRE(calc_zdst_lists(ctx));
+
+		// First verify pack_pjg rejects a corrupted DHT L_1 = 5 sentinel collision in hdrdata
+		const auto clean_hdr = ctx.hdrdata;
+		for (std::size_t i = 0; i + 5 < ctx.hdrdata.size(); ++i) {
+			if (ctx.hdrdata[i] == 0xFF && ctx.hdrdata[i + 1] == 0xC4) {
+				ctx.hdrdata[i + 5] = 5; // L_1 = 5 (> 2)
+				break;
+			}
+		}
+		ctx.str_out = std::make_unique<MemoryWriter>();
+		REQUIRE(!pack_pjg(ctx));
+		ctx.hdrdata    = clean_hdr;
+		ctx.errorlevel = 0;
+
+		// Now append a duplicate DC first-scan SOS segment into hdrdata and pack a crafted .pjg
+		const std::uint8_t dup_dc_sos[] = {0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
+		ctx.hdrdata.insert(ctx.hdrdata.end(), std::begin(dup_dc_sos), std::end(dup_dc_sos));
+		auto crafted_out = std::make_unique<MemoryWriter>();
+		auto* crafted_ptr = crafted_out.get();
+		ctx.str_out = std::move(crafted_out);
+		REQUIRE(pack_pjg(ctx));
+		const auto crafted_pjg = crafted_ptr->take_data();
+
+		std::vector<std::uint8_t> dec_out;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(crafted_pjg.data(), crafted_pjg.size(), dec_out, &err, false, 2));
+	}
+
+	// 4. Bug #5: Truncated Scan 1 (peof > 65536) under err_tol = 2 still validates trailing DHT/SOS segments and counts ctx.scnc!
+	{
+		// 512x528 progressive image = 64x66 = 4,224 blocks; DC symbol 0x00 at length 16 consumes 16 bits/block (67,584 bits total)
+		// with DC diff = 0, so 66 zero bytes (528 bits) hits peof() > 65536 without overflowing lastdc!
+		std::vector<std::uint8_t> trunc_multi = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		trunc_multi.insert(trunc_multi.end(), 64, 8);
+		const std::uint8_t head[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x02, 0x00, 0x02, 0x10, 0x01, 0x01, 0x11, 0x00,
+			// DC0: single symbol 0x00 at length 16 -> consumes 16 bits per block with DC diff = 0!
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+			// AC0: EOB -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// Scan 1 (DC): 66 zero bytes -> hits peof() > 65536 near block 4,130!
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+		};
+		trunc_multi.insert(trunc_multi.end(), std::begin(head), std::end(head));
+		trunc_multi.insert(trunc_multi.end(), 66, 0x00);
+
+		// Variant A: valid Scan 2 -> succeeds under err_tol=2 with ctx.scnc == 2 and round-trips unpack_pjg!
+		auto valid_trunc = trunc_multi;
+		const std::uint8_t valid_scan2[] = {
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		valid_trunc.insert(valid_trunc.end(), std::begin(valid_scan2), std::end(valid_scan2));
+		std::vector<std::uint8_t> pjg_trunc, jpg_trunc_rt;
+		REQUIRE(packjpg::convert_memory(valid_trunc.data(), valid_trunc.size(), pjg_trunc, nullptr, false, 2));
+		REQUIRE(packjpg::convert_memory(pjg_trunc.data(), pjg_trunc.size(), jpg_trunc_rt, nullptr, false, 2));
+
+		// Variant B: invalid trailing DHT (L_1 = 5, 5 symbols of 1-bit code!) before Scan 2 -> MUST fail even under err_tol=2!
+		auto bad_trunc = trunc_multi;
+		const std::uint8_t bad_scan2[] = {
+			0xFF, 0xC4, 0x00, 0x18, 0x10,
+			0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x01, 0x02, 0x03, 0x04,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		bad_trunc.insert(bad_trunc.end(), std::begin(bad_scan2), std::end(bad_scan2));
+		REQUIRE(!packjpg::convert_memory(bad_trunc.data(), bad_trunc.size(), pjg_trunc, nullptr, false, 2));
+	}
+
+	// 5. Bug #13: Custom nois_trs = 10 image round-trips bit-identically with bounded mod_top leaf radix!
+	{
+		const auto src_jpg = make_td0_ta1_jpeg(7);
+		CodecContext enc_ctx;
+		enc_ctx.filetype = F_JPG;
+		enc_ctx.action   = A_COMPRESS;
+		enc_ctx.auto_set = false;
+		enc_ctx.nois_trs = {10, 10, 10, 10};
+		enc_ctx.segm_cnt = {12, 12, 12, 12};
+		enc_ctx.str_in   = std::make_unique<MemoryReader>(src_jpg.data(), src_jpg.size());
+		auto out_mw      = std::make_unique<MemoryWriter>();
+		auto* out_ptr    = out_mw.get();
+		enc_ctx.str_out  = std::move(out_mw);
+		std::uint8_t m[2];
+		REQUIRE_EQ(enc_ctx.str_in->read(m, 2), std::size_t(2));
+		enc_ctx.reset_buffers();
+		run_compress_pipeline(enc_ctx);
+		REQUIRE_EQ(enc_ctx.errorlevel, 0);
+
+		std::vector<std::uint8_t> rt_jpg;
+		const auto custom_pjg = out_ptr->take_data();
+		REQUIRE(packjpg::convert_memory(custom_pjg.data(), custom_pjg.size(), rt_jpg));
+		REQUIRE(rt_jpg == src_jpg);
+	}
+
+	// 6. Bug #14: In-place packjpg::convert_memory(buf.data(), buf.size(), buf) aliasing safety under ASan!
+	{
+		const auto orig_jpg = make_td0_ta1_jpeg(11);
+		std::vector<std::uint8_t> inplace_buf = orig_jpg;
+		REQUIRE(packjpg::convert_memory(inplace_buf.data(), inplace_buf.size(), inplace_buf));
+		REQUIRE(inplace_buf.size() > 2 && inplace_buf[0] == 'J' && inplace_buf[1] == 'S');
+		REQUIRE(packjpg::convert_memory(inplace_buf.data(), inplace_buf.size(), inplace_buf));
+		REQUIRE(inplace_buf == orig_jpg);
+	}
+
+	// 7. Bug #17: Inflated DRI (Lr=6) and inflated SOS (Ls=10 for Ns=1) rejected, and execute_stage enforces errorlevel=2 on false!
+	{
+		auto bad_dri = make_td0_ta1_jpeg(3);
+		const std::uint8_t dri6[] = {0xFF, 0xDD, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00};
+		bad_dri.insert(bad_dri.begin() + 2, std::begin(dri6), std::end(dri6));
+		std::vector<std::uint8_t> out;
+		REQUIRE(!packjpg::convert_memory(bad_dri.data(), bad_dri.size(), out, nullptr, false, 2));
+
+		std::vector<std::uint8_t> bad_sos = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		bad_sos.insert(bad_sos.end(), 64, 16);
+		const std::uint8_t sos10_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// SOS with Ls = 10 (0x000A) instead of 8 for Ns = 1 (2 trailing padding bytes in SOS header)
+			0xFF, 0xDA, 0x00, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x00, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		bad_sos.insert(bad_sos.end(), std::begin(sos10_tail), std::end(sos10_tail));
+		REQUIRE(!packjpg::convert_memory(bad_sos.data(), bad_sos.size(), out, nullptr, false, 2));
+
+		CodecContext st_ctx;
+		execute_stage(st_ctx, StageId::ReadJpeg, []() { return false; });
+		REQUIRE_EQ(st_ctx.errorlevel, 2);
+		REQUIRE(st_ctx.error_stage == StageId::ReadJpeg);
+	}
+}
+
+TEST_CASE("convergence regressions: sparse progressive EOB_s Huffman tables and AC refinement split safety") {
+	// 1. Progressive 16x16 (4 blocks) whose AC DHT defines ONLY 0x00 (EOB0, max_eobrun=1): strict lossless round-trip!
+	const std::vector<std::uint8_t> prog_eob0 = [&]() {
+		std::vector<std::uint8_t> v = {0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x43, 0x00};
+		v.insert(v.end(), 64, 8);
+		const std::uint8_t tail[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+			0x0F,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x0F,
+			0xFF, 0xD9,
+		};
+		v.insert(v.end(), std::begin(tail), std::end(tail));
+		return v;
+	}();
+	std::vector<std::uint8_t> pjg_out, jpg_rt;
+	REQUIRE(packjpg::convert_memory(prog_eob0.data(), prog_eob0.size(), pjg_out, nullptr, false, 1));
+	REQUIRE(packjpg::convert_memory(pjg_out.data(), pjg_out.size(), jpg_rt, nullptr, false, 1));
+	REQUIRE(jpg_rt == prog_eob0);
+
+	// 2. Sparse progressive AC DHT defining {0x00 (len 1 -> '0'), 0x30 (len 2 -> '10')} without 0x10/0x20 across 4 zero blocks:
+	//    Under err_tol=2, *eobrun reaches 4 (< max_eobrun=15) while clen[0x20]==0; greedy EOB0 fallback reconstructs valid JPEG!
+	const std::vector<std::uint8_t> prog_sparse = [&]() {
+		std::vector<std::uint8_t> v = {0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x43, 0x00};
+		v.insert(v.end(), 64, 8);
+		const std::uint8_t tail[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+			0x0F,
+			0xFF, 0xC4, 0x00, 0x15, 0x10,
+			0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x30,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x0F, // four '0' bits (four 0x00 EOB0 symbols) + four '1' padbits
+			0xFF, 0xD9,
+		};
+		v.insert(v.end(), std::begin(tail), std::end(tail));
+		return v;
+	}();
+	REQUIRE(packjpg::convert_memory(prog_sparse.data(), prog_sparse.size(), pjg_out, nullptr, false, 2));
+	REQUIRE(packjpg::convert_memory(pjg_out.data(), pjg_out.size(), jpg_rt, nullptr, false, 2));
+	REQUIRE(jpg_rt == prog_sparse);
+
+	// 3. Trailing surplus RST markers at end of scan (has_rst_err == true):
+	//    a) crst == 2 (<= 255): strict lossless byte-for-byte round-trip through pack_pjg / unpack_pjg / merge_jpeg!
+	const auto make_trailing_rst_jpg = [](int trailing_rst_count) {
+		std::vector<std::uint8_t> v = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		v.insert(v.end(), 64, 16);
+		const std::uint8_t hdr[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00, // 16x8 = 2 blocks
+			0xFF, 0xDD, 0x00, 0x04, 0x00, 0x01, // DRI rsti = 1
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+			0x3F, 0xFF, 0xD0, 0x3F, // block 0 + RST0 + block 1
+		};
+		v.insert(v.end(), std::begin(hdr), std::end(hdr));
+		for (int r = 0; r < trailing_rst_count; ++r) {
+			v.push_back(0xFF);
+			v.push_back(static_cast<std::uint8_t>(0xD0 + ((r + 1) & 7)));
+		}
+		v.push_back(0xFF);
+		v.push_back(0xD9);
+		return v;
+	};
+	const auto tr2_jpg = make_trailing_rst_jpg(2);
+	REQUIRE(packjpg::convert_memory(tr2_jpg.data(), tr2_jpg.size(), pjg_out, nullptr, false, 1));
+	REQUIRE(packjpg::convert_memory(pjg_out.data(), pjg_out.size(), jpg_rt, nullptr, false, 1));
+	REQUIRE(jpg_rt == tr2_jpg);
+
+	//    b) crst == 260 (> 255): rejected in strict mode (errorlevel=1), clamped to 255 and round-tripped cleanly under err_tol=2!
+	const auto tr260_jpg = make_trailing_rst_jpg(260);
+	REQUIRE(!packjpg::convert_memory(tr260_jpg.data(), tr260_jpg.size(), pjg_out, nullptr, false, 1));
+	REQUIRE(packjpg::convert_memory(tr260_jpg.data(), tr260_jpg.size(), pjg_out, nullptr, false, 2));
+	REQUIRE(packjpg::convert_memory(pjg_out.data(), pjg_out.size(), jpg_rt, nullptr, false, 2));
+	REQUIRE_EQ(jpg_rt.size(), make_trailing_rst_jpg(255).size());
+}

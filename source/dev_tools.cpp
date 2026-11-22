@@ -15,42 +15,150 @@ std::string resolve_dump_filename( const std::string& base, const char* ext, boo
 	return overwrite ? make_filename( base, ext ) : make_unique_filename( base, ext );
 }
 
-FILE* open_dump_file( const std::string& fn, const char* mode )
+const std::string& active_input_path( const CodecContext& ctx ) noexcept
 {
-	if ( !ensure_parent_directory( fn ) ) {
-		return nullptr;
-	}
-	return std::fopen( fn.c_str(), mode );
+	return ( ctx.filetype == F_PJG ) ? ctx.pjgfilename : ctx.jpgfilename;
 }
 
-bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& fn )
+struct DumpHandle {
+	FILE* fp = nullptr;
+	std::string base;
+	const char* ext = nullptr;
+	bool overwrite = false;
+	std::string display_fn;
+	std::string commit_target_fn;
+	std::string staging_fn;
+
+	DumpHandle() = default;
+	DumpHandle( const DumpHandle& ) = delete;
+	DumpHandle& operator=( const DumpHandle& ) = delete;
+
+	~DumpHandle()
+	{
+		if ( fp != nullptr ) {
+			std::fclose( fp );
+			fp = nullptr;
+		}
+		if ( !staging_fn.empty() ) {
+			remove_file_utf8( staging_fn );
+			staging_fn.clear();
+		}
+	}
+};
+
+bool open_dump_file(
+	CodecContext& ctx,
+	const std::string& base,
+	const char* ext,
+	bool overwrite,
+	const char* mode,
+	DumpHandle& out )
 {
-	const bool had_err = ( std::ferror( fp ) != 0 );
-	const int rc = std::fclose( fp );
-	if ( had_err || ( rc != 0 ) ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+	if ( out.fp != nullptr ) {
+		std::fclose( out.fp );
+		out.fp = nullptr;
+	}
+	if ( !out.staging_fn.empty() ) {
+		remove_file_utf8( out.staging_fn );
+	}
+	out.base             = base;
+	out.ext              = ext;
+	out.overwrite        = overwrite;
+	out.display_fn       = resolve_dump_filename( base, ext, overwrite );
+	out.commit_target_fn.clear();
+	out.staging_fn.clear();
+	std::string target_err;
+	if ( overwrite ) {
+		if ( !resolve_overwrite_target_utf8( out.display_fn, out.commit_target_fn, target_err, &out.display_fn ) ) {
+			ctx.set_errormessage( kFwrErrMsg, out.display_fn.c_str() );
+			ctx.errorlevel = 2;
+			return false;
+		}
+	}
+	else {
+		out.commit_target_fn = out.display_fn;
+	}
+
+	const std::string& src = active_input_path( ctx );
+	if ( !src.empty() &&
+	     ( paths_refer_to_same_existing_file( src, out.display_fn ) ||
+	       paths_refer_to_same_existing_file( src, out.commit_target_fn ) ||
+	       ( !overwrite && paths_refer_to_same_target_location( src, out.commit_target_fn ) ) ) ) {
+		ctx.errormessage = "refusing to overwrite input file: " + out.display_fn;
+		ctx.errorlevel   = 2;
+		return false;
+	}
+	if ( !ensure_parent_directory( out.display_fn ) || !ensure_parent_directory( out.commit_target_fn ) ) {
+		ctx.set_errormessage( kFwrErrMsg, out.display_fn.c_str() );
+		ctx.errorlevel = 2;
+		return false;
+	}
+	if ( overwrite && !can_overwrite_or_create_target( out.commit_target_fn, target_err, &out.display_fn ) ) {
+		ctx.set_errormessage( kFwrErrMsg, out.display_fn.c_str() );
+		ctx.errorlevel = 2;
+		return false;
+	}
+
+	out.fp = open_target_or_staging_cstream( out.commit_target_fn, overwrite, mode, out.staging_fn );
+	if ( out.fp == nullptr ) {
+		out.staging_fn.clear();
+		ctx.set_errormessage( kFwrErrMsg, out.display_fn.c_str() );
 		ctx.errorlevel = 2;
 		return false;
 	}
 	return true;
 }
 
+bool abort_dump_file( CodecContext& ctx, DumpHandle& h )
+{
+	if ( h.fp != nullptr ) {
+		std::fclose( h.fp );
+		h.fp = nullptr;
+	}
+	if ( !h.staging_fn.empty() ) {
+		remove_file_utf8( h.staging_fn );
+		h.staging_fn.clear();
+	}
+	ctx.set_errormessage( kFwrErrMsg, h.display_fn.c_str() );
+	ctx.errorlevel = 2;
+	return false;
+}
+
+bool close_dump_file( CodecContext& ctx, DumpHandle& h )
+{
+	const bool flush_ok = ( std::fflush( h.fp ) == 0 );
+	const bool had_err  = !flush_ok || ( std::ferror( h.fp ) != 0 );
+	const int rc = std::fclose( h.fp );
+	h.fp = nullptr;
+	if ( had_err || ( rc != 0 ) ) {
+		return abort_dump_file( ctx, h );
+	}
+	if ( !h.staging_fn.empty() ) {
+		std::string commit_err;
+		CommitStatus st = commit_staging_file( h.staging_fn, h.commit_target_fn, h.overwrite, commit_err );
+		for ( unsigned int attempt = 0; ( st == CommitStatus::TargetExists ) && !h.overwrite && ( attempt < 64 ); ++attempt ) {
+			h.commit_target_fn = make_unique_filename( h.base, h.ext );
+			commit_err.clear();
+			st = commit_staging_file( h.staging_fn, h.commit_target_fn, false, commit_err );
+		}
+		if ( st != CommitStatus::Ok ) {
+			return abort_dump_file( ctx, h );
+		}
+		h.staging_fn.clear();
+	}
+	return true;
+}
+
 bool dump_file( CodecContext& ctx, const std::string& base, const char* ext, const void* data, std::size_t bpv, std::size_t size, bool overwrite )
 {
-	const std::string fn = resolve_dump_filename( base, ext, overwrite );
-	FILE* fp = open_dump_file( fn, "wb" );
-	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
+	DumpHandle h;
+	if ( !open_dump_file( ctx, base, ext, overwrite, "wb", h ) ) {
 		return false;
 	}
-	if ( ( size > 0 ) && ( std::fwrite( data, bpv, size, fp ) != size ) ) {
-		std::fclose( fp );
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
-		return false;
+	if ( ( size > 0 ) && ( std::fwrite( data, bpv, size, h.fp ) != size ) ) {
+		return abort_dump_file( ctx, h );
 	}
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, h );
 }
 
 bool dump_hdr( CodecContext& ctx, const std::string& base, bool overwrite )
@@ -65,35 +173,47 @@ bool dump_huf( CodecContext& ctx, const std::string& base, bool overwrite )
 
 bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool overwrite )
 {
+	if ( ( collmode < 0 ) || ( collmode > 5 ) ) {
+		ctx.errormessage = "invalid collection dump mode";
+		ctx.errorlevel   = 2;
+		return false;
+	}
+
 	constexpr std::array<const char*, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
-		FILE* fp = open_dump_file( fn, "wb" );
-		if ( fp == nullptr ) {
-			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-			ctx.errorlevel = 2;
+		DumpHandle h;
+		if ( !open_dump_file( ctx, base, ext[ cmp ], overwrite, "wb", h ) ) {
 			return false;
 		}
 
 		const auto& ci = ctx.cmpnfo[ cmp ];
+		const auto write_shorts = [&]( const short* ptr, std::size_t count ) -> bool {
+			return ( count == 0 ) || ( std::fwrite( ptr, sizeof( short ), count, h.fp ) == count );
+		};
 		switch ( collmode ) {
 			case 0:
-				for ( int bpos = 0; bpos < 64; bpos++ )
-					std::fwrite( ctx.colldata[ cmp ][ bpos ].data(), sizeof( short ), static_cast<std::size_t>( ci.bc ), fp );
+				for ( int bpos = 0; bpos < 64; bpos++ ) {
+					if ( !write_shorts( ctx.colldata[ cmp ][ bpos ].data(), static_cast<std::size_t>( ci.bc ) ) )
+						return abort_dump_file( ctx, h );
+				}
 				break;
 
 			case 1:
-				for ( int dpos = 0; dpos < ci.bc; dpos++ )
-					for ( int bpos = 0; bpos < 64; bpos++ )
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, fp );
+				for ( int dpos = 0; dpos < ci.bc; dpos++ ) {
+					for ( int bpos = 0; bpos < 64; bpos++ ) {
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
+					}
+				}
 				break;
 
 			case 2: {
 				int dpos = 0;
 				for ( int i = 0; i < 64; ) {
 					const int bpos = zigzag[ i++ ];
-					std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), static_cast<std::size_t>( ci.bch ), fp );
+					if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], static_cast<std::size_t>( ci.bch ) ) )
+						return abort_dump_file( ctx, h );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += ci.bch;
 						if ( dpos >= ci.bc ) dpos = 0;
@@ -108,7 +228,8 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 					for ( int j = 0; j < ( ci.bch * 8 ); j++ ) {
 						const int bpos = zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 						const int dpos = ( ( i / 8 ) * ci.bch ) + ( j / 8 );
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, fp );
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
 					}
 				}
 				break;
@@ -117,7 +238,8 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 				int dpos = 0;
 				for ( int i = 0; i < 64; ) {
 					const int bpos = even_zigzag[ i++ ];
-					std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), static_cast<std::size_t>( ci.bch ), fp );
+					if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], static_cast<std::size_t>( ci.bch ) ) )
+						return abort_dump_file( ctx, h );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += ci.bch;
 						if ( dpos >= ci.bc ) dpos = 0;
@@ -132,13 +254,17 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 					for ( int j = 0; j < ( ci.bch * 8 ); j++ ) {
 						const int bpos = even_zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 						const int dpos = ( ( i / 8 ) * ci.bch ) + ( j / 8 );
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, fp );
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
 					}
 				}
 				break;
+
+			default:
+				return abort_dump_file( ctx, h );
 		}
 
-		if ( !close_dump_file( ctx, fp, fn ) ) {
+		if ( !close_dump_file( ctx, h ) ) {
 			return false;
 		}
 	}
@@ -159,70 +285,66 @@ bool dump_zdst( CodecContext& ctx, const std::string& base, bool overwrite )
 
 bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	const std::string fn = resolve_dump_filename( base, "nfo", overwrite );
-	FILE* fp = open_dump_file( fn, "w" );
-	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
+	DumpHandle h;
+	if ( !open_dump_file( ctx, base, "nfo", overwrite, "w", h ) ) {
 		return false;
 	}
 
-	std::fprintf( fp, "<Infofile for JPEG image %s>\n\n\n", ctx.jpgfilename.c_str() );
-	std::fprintf( fp, "coding process: %s\n", ( ctx.jpegtype == 1 ) ? "sequential" : "progressive" );
-	std::fprintf( fp, "imageheight: %i / imagewidth: %i\n", ctx.imgheight, ctx.imgwidth );
-	std::fprintf( fp, "component count: %i\n", ctx.cmpc );
-	std::fprintf( fp, "mcu count: %i/%i/%i (all/v/h)\n\n", ctx.mcuc, ctx.mcuv, ctx.mcuh );
+	const std::string& info_src = active_input_path( ctx );
+	std::fprintf( h.fp, "<Infofile for JPEG image %s>\n\n\n",
+		info_src.empty() ? base.c_str() : info_src.c_str() );
+	std::fprintf( h.fp, "coding process: %s\n", ( ctx.jpegtype == 1 ) ? "sequential" : "progressive" );
+	std::fprintf( h.fp, "imageheight: %i / imagewidth: %i\n", ctx.imgheight, ctx.imgwidth );
+	std::fprintf( h.fp, "component count: %i\n", ctx.cmpc );
+	std::fprintf( h.fp, "mcu count: %i/%i/%i (all/v/h)\n\n", ctx.mcuc, ctx.mcuv, ctx.mcuh );
 
-	std::fprintf( fp, "\nfile header structure:\n" );
-	std::fprintf( fp, " type  length   hpos\n" );
+	std::fprintf( h.fp, "\nfile header structure:\n" );
+	std::fprintf( h.fp, " type  length   hpos\n" );
 	unsigned int hpos = 0;
 	unsigned int len  = 0;
-	for ( hpos = 0; hpos + 4 <= ctx.hdrdata.size(); hpos += len ) {
+	for ( hpos = 0; ( ctx.hdrdata.size() >= 4 ) && ( hpos <= ctx.hdrdata.size() - 4 ); hpos += len ) {
 		const unsigned char type = ctx.hdrdata[ hpos + 1 ];
 		len = static_cast<unsigned int>( 2 + b_short( ctx.hdrdata[ hpos + 2 ], ctx.hdrdata[ hpos + 3 ] ) );
-		if ( ( len < 4 ) || ( hpos + len > ctx.hdrdata.size() ) ) break;
-		std::fprintf( fp, " FF%2X  %6i %6i\n", static_cast<int>( type ), static_cast<int>( len ), static_cast<int>( hpos ) );
+		if ( ( len < 4 ) || ( len > ctx.hdrdata.size() - hpos ) ) break;
+		std::fprintf( h.fp, " FF%02X  %6i %6i\n", static_cast<int>( type ), static_cast<int>( len ), static_cast<int>( hpos ) );
 	}
-	std::fprintf( fp, " _END       0 %6i\n\n", static_cast<int>( hpos ) );
+	std::fprintf( h.fp, " _END       0 %6i\n\n", static_cast<int>( hpos ) );
 
-	std::fprintf( fp, "\ncompression settings:\n" );
-	std::fprintf( fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
+	std::fprintf( h.fp, "\ncompression settings:\n" );
+	std::fprintf( h.fp, " no of segments    ->  %3i[0] %3i[1] %3i[2] %3i[3]\n",
 		ctx.segm_cnt[ 0 ], ctx.segm_cnt[ 1 ], ctx.segm_cnt[ 2 ], ctx.segm_cnt[ 3 ] );
-	std::fprintf( fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n\n",
+	std::fprintf( h.fp, " noise threshold   ->  %3i[0] %3i[1] %3i[2] %3i[3]\n\n",
 		ctx.nois_trs[ 0 ], ctx.nois_trs[ 1 ], ctx.nois_trs[ 2 ], ctx.nois_trs[ 3 ] );
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		const auto& ci = ctx.cmpnfo[ cmp ];
-		std::fprintf( fp, "\ncomponent number %i ->\n", cmp );
-		std::fprintf( fp, "sample factors: %i/%i (v/h)\n", ci.sfv, ci.sfh );
-		std::fprintf( fp, "blocks per mcu: %i\n", ci.mbs );
-		std::fprintf( fp, "block count (mcu): %i/%i/%i (all/v/h)\n", ci.bc, ci.bcv, ci.bch );
-		std::fprintf( fp, "block count (sng): %i/%i/%i (all/v/h)\n", ci.nc, ci.ncv, ci.nch );
-		std::fprintf( fp, "quantiser table ->" );
+		std::fprintf( h.fp, "\ncomponent number %i ->\n", cmp );
+		std::fprintf( h.fp, "sample factors: %i/%i (v/h)\n", ci.sfv, ci.sfh );
+		std::fprintf( h.fp, "blocks per mcu: %i\n", ci.mbs );
+		std::fprintf( h.fp, "block count (mcu): %i/%i/%i (all/v/h)\n", ci.bc, ci.bcv, ci.bch );
+		std::fprintf( h.fp, "block count (sng): %i/%i/%i (all/v/h)\n", ci.nc, ci.ncv, ci.nch );
+		std::fprintf( h.fp, "quantiser table ->" );
 		for ( int i = 0; i < 64; i++ ) {
 			const int bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) std::fprintf( fp, "\n" );
-			std::fprintf( fp, "%4i, ", ctx.quant( cmp, bpos ) );
+			if ( ( i % 8 ) == 0 ) std::fprintf( h.fp, "\n" );
+			std::fprintf( h.fp, "%4i, ", ctx.quant( cmp, bpos ) );
 		}
-		std::fprintf( fp, "\nmaximum values ->" );
+		std::fprintf( h.fp, "\nmaximum values ->" );
 		for ( int i = 0; i < 64; i++ ) {
 			const int bpos = zigzag[ i ];
-			if ( ( i % 8 ) == 0 ) std::fprintf( fp, "\n" );
-			std::fprintf( fp, "%4i, ", ctx.max_v( cmp, bpos ) );
+			if ( ( i % 8 ) == 0 ) std::fprintf( h.fp, "\n" );
+			std::fprintf( h.fp, "%4i, ", ctx.max_v( cmp, bpos ) );
 		}
-		std::fprintf( fp, "\n\n" );
+		std::fprintf( h.fp, "\n\n" );
 	}
 
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, h );
 }
 
 bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	const std::string fn = resolve_dump_filename( base, "dist", overwrite );
-	FILE* fp = open_dump_file( fn, "wb" );
-	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
+	DumpHandle h;
+	if ( !open_dump_file( ctx, base, "dist", overwrite, "wb", h ) ) {
 		return false;
 	}
 
@@ -234,16 +356,13 @@ bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 				const int idx = clamped( 0, 1024, abs_val( ctx.colldata[ cmp ][ bpos ][ dpos ] ) );
 				dist[ static_cast<std::size_t>( idx ) ]++;
 			}
-			if ( std::fwrite( dist.data(), sizeof( unsigned int ), dist.size(), fp ) != dist.size() ) {
-				std::fclose( fp );
-				ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-				ctx.errorlevel = 2;
-				return false;
+			if ( std::fwrite( dist.data(), sizeof( unsigned int ), dist.size(), h.fp ) != dist.size() ) {
+				return abort_dump_file( ctx, h );
 			}
 		}
 	}
 
-	return close_dump_file( ctx, fp, fn );
+	return close_dump_file( ctx, h );
 }
 
 bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
@@ -251,11 +370,8 @@ bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
 	constexpr std::array<const char*, 4> ext{ "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
-		FILE* fp = open_dump_file( fn, "wb" );
-		if ( fp == nullptr ) {
-			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-			ctx.errorlevel = 2;
+		DumpHandle h;
+		if ( !open_dump_file( ctx, base, ext[ cmp ], overwrite, "wb", h ) ) {
 			return false;
 		}
 
@@ -275,19 +391,16 @@ bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
 			}
 		}
 
-		std::fprintf( fp, "P5\n" );
-		std::fprintf( fp, "# created by %s v%i.%i%s (%s) by %s\n",
+		std::fprintf( h.fp, "P5\n" );
+		std::fprintf( h.fp, "# created by %s v%i.%i%s (%s) by %s\n",
 			kAppTitle, kAppVersion / 10, kAppVersion % 10, kSubVersion, kVersionDate, kAuthor );
-		std::fprintf( fp, "%i %i\n", ci.bch * 8, ci.bcv * 8 );
-		std::fprintf( fp, "255\n" );
+		std::fprintf( h.fp, "%i %i\n", ci.bch * 8, ci.bcv * 8 );
+		std::fprintf( h.fp, "255\n" );
 		if ( !imgdata.empty() &&
-		     ( std::fwrite( imgdata.data(), sizeof( unsigned char ), imgdata.size(), fp ) != imgdata.size() ) ) {
-			std::fclose( fp );
-			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-			ctx.errorlevel = 2;
-			return false;
+		     ( std::fwrite( imgdata.data(), sizeof( unsigned char ), imgdata.size(), h.fp ) != imgdata.size() ) ) {
+			return abort_dump_file( ctx, h );
 		}
-		if ( !close_dump_file( ctx, fp, fn ) ) {
+		if ( !close_dump_file( ctx, h ) ) {
 			return false;
 		}
 	}
@@ -302,19 +415,23 @@ bool dump_errfile( CodecContext& ctx, const std::string& input_name, bool overwr
 {
 	if ( ctx.errorlevel == 0 ) return true;
 
-	const std::string fn = resolve_dump_filename( input_name, ( ctx.errorlevel == 1 ) ? "wrn.nfo" : "err.nfo", overwrite );
-	FILE* fp = open_dump_file( fn, "w" );
-	if ( fp == nullptr ) {
-		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
-		ctx.errorlevel = 2;
+	const std::string saved_msg = ctx.errormessage;
+	const int saved_lvl = ctx.errorlevel;
+	DumpHandle h;
+	if ( !open_dump_file( ctx, input_name, ( saved_lvl == 1 ) ? "wrn.nfo" : "err.nfo", overwrite, "w", h ) ) {
+		ctx.errormessage = saved_msg;
+		ctx.errorlevel   = saved_lvl;
 		return false;
 	}
 
-	std::fprintf( fp, "--> error (level %i) in file \"%s\" <--\n\n", ctx.errorlevel, input_name.c_str() );
-	std::fprintf( fp, " %s -> %s:\n", stage_status_text( ctx.error_stage ),
-		( ctx.errorlevel == 1 ) ? "warning" : "error" );
-	std::fprintf( fp, " %s\n", ctx.errormessage.c_str() );
-	return close_dump_file( ctx, fp, fn );
+	std::fprintf( h.fp, "--> error (level %i) in file \"%s\" <--\n\n", saved_lvl, input_name.c_str() );
+	std::fprintf( h.fp, " %s -> %s:\n", stage_status_text( ctx.error_stage ),
+		( saved_lvl == 1 ) ? "warning" : "error" );
+	std::fprintf( h.fp, " %s\n", saved_msg.c_str() );
+	const bool ok = close_dump_file( ctx, h );
+	ctx.errormessage = saved_msg;
+	ctx.errorlevel   = saved_lvl;
+	return ok;
 }
 
 void run_dev_action( CodecContext& ctx, const std::string& input_name, int collmode, bool overwrite, const StageReporter* reporter )
@@ -413,4 +530,3 @@ void run_dev_action( CodecContext& ctx, const std::string& input_name, int collm
 		}
 	}
 }
-

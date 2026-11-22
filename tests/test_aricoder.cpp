@@ -234,3 +234,139 @@ TEST_CASE("aricoder: >1200 pending E3 underflow bits finalized with clow >= 0.25
 	dec.decode(&q_end);
 }
 
+TEST_CASE("aricoder: truncated stream post-EOF E1/E2 renormalization spin terminates rapidly (Finding #15)") {
+	// Skewed symbol [0, 254)/255 (~0.00567 bits/symbol) previously spun ~92M iterations (~16s) on 4 zero bytes!
+	const std::vector<std::uint8_t> truncated = {0x00, 0x00, 0x00, 0x00};
+	MemoryReader mr(truncated);
+	ArithmeticDecoder dec(mr);
+
+	bool threw_eof = false;
+	int iterations = 0;
+	try {
+		for (; iterations < 200000; ++iterations) {
+			symbol q{0, 254, 255};
+			(void) dec.decode_count(&q);
+			dec.decode(&q);
+		}
+	} catch (const std::runtime_error&) {
+		threw_eof = true;
+	}
+	REQUIRE(threw_eof);
+	REQUIRE(iterations < 50000);
+}
+
+TEST_CASE("aricoder: >5000 midpoint-straddling E3 underflow bits finalized with clow >= 0.25 round-trip within 512-byte EOF cap") {
+	// Exceeds the 512-byte (4,096-bit) decoder post-EOF synthesis cap when clow >= 0.25 at finalize().
+	constexpr int kUnderflowRuns = 5200;
+	MemoryWriter mw;
+	{
+		ArithmeticEncoder enc(mw);
+		symbol straddle{1, 3, 4}; // [0.25, 0.75) -> increments nrbits by 1 per symbol around 0.5
+		for (int i = 0; i < kUnderflowRuns; ++i) {
+			enc.encode(&straddle);
+		}
+		// Keep clow >= 0.25 and chigh >= 0.5 at finalize(): [0.5, 0.75) maps to [0.5, 1.0) after E3 zoom
+		symbol upper_mid{2, 3, 4};
+		enc.encode(&upper_mid);
+		enc.finalize();
+	}
+
+	const auto bytes = mw.get_data();
+	REQUIRE(!bytes.empty());
+
+	MemoryReader mr(bytes);
+	ArithmeticDecoder dec(mr);
+	for (int i = 0; i < kUnderflowRuns; ++i) {
+		symbol q{0, 0, 4};
+		const unsigned int cnt = dec.decode_count(&q);
+		REQUIRE(cnt >= 1u && cnt < 3u);
+		q.low_count  = 1;
+		q.high_count = 3;
+		dec.decode(&q);
+	}
+
+	symbol q_end{0, 0, 4};
+	const unsigned int end_cnt = dec.decode_count(&q_end);
+	REQUIRE_EQ(end_cnt, 2u);
+	q_end.low_count  = 2;
+	q_end.high_count = 3;
+	dec.decode(&q_end);
+}
+
+TEST_CASE("aricoder: model_b select_context_3 leaf radix matches shift_context bit-for-bit (Bug #13)") {
+	constexpr int kSteps = 4000;
+	MemoryWriter mw_legacy;
+	{
+		ArithmeticEncoder enc(mw_legacy);
+		model_b mod_old(1024, 3, 255);
+		for (int i = 0; i < kSteps; ++i) {
+			const int c1  = (i * 73) & 1023;
+			const int c2  = (i * 197 + 11) & 1023;
+			const int c3  = 1 + (i % 10);
+			const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+			mod_old.shift_context(c1);
+			mod_old.shift_context(c2);
+			mod_old.shift_context(c3);
+			encode_with_model_b(enc, mod_old, bit);
+		}
+		enc.finalize();
+	}
+
+	MemoryWriter mw_fast;
+	{
+		ArithmeticEncoder enc(mw_fast);
+		model_b mod_new(1024, 3, 255, 16);
+		for (int i = 0; i < kSteps; ++i) {
+			const int c1  = (i * 73) & 1023;
+			const int c2  = (i * 197 + 11) & 1023;
+			const int c3  = 1 + (i % 10);
+			const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+			mod_new.select_context_3(c1, c2, c3);
+			encode_with_model_b(enc, mod_new, bit);
+		}
+		enc.finalize();
+	}
+
+	REQUIRE(mw_fast.get_data() == mw_legacy.get_data());
+	REQUIRE_THROWS(model_b(1024, 3, 255, 16).select_context_3(0, 0, 16));
+
+	MemoryReader mr(mw_fast.get_data());
+	ArithmeticDecoder dec(mr);
+	model_b mod_dec(1024, 3, 255, 16);
+	for (int i = 0; i < kSteps; ++i) {
+		const int c1  = (i * 73) & 1023;
+		const int c2  = (i * 197 + 11) & 1023;
+		const int c3  = 1 + (i % 10);
+		const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+		mod_dec.select_context_3(c1, c2, c3);
+		REQUIRE_EQ(decode_with_model_b(dec, mod_dec), bit);
+	}
+
+	// Same leaf context > 2,048 updates triggers ctx_node.rescale() inside select_context_3; plus abandon() & invalid configs
+	MemoryWriter mw_rescale;
+	{
+		ArithmeticEncoder enc(mw_rescale);
+		model_b mod_r(4, 3, 255, 4);
+		for (int i = 0; i < 2600; ++i) {
+			mod_r.select_context_3(1, 2, 3);
+			encode_with_model_b(enc, mod_r, i & 1);
+		}
+		enc.finalize();
+	}
+	{
+		MemoryReader mr_r(mw_rescale.get_data());
+		ArithmeticDecoder dec_r(mr_r);
+		model_b mod_r(4, 3, 255, 4);
+		for (int i = 0; i < 2600; ++i) {
+			mod_r.select_context_3(1, 2, 3);
+			REQUIRE_EQ(decode_with_model_b(dec_r, mod_r), i & 1);
+		}
+	}
+	{
+		MemoryWriter mw_abandon;
+		ArithmeticEncoder enc_ab(mw_abandon);
+		enc_ab.abandon();
+	}
+	REQUIRE_THROWS(model_s(0, 1, 0, 255));
+	REQUIRE_THROWS(model_b(-1, 0, 255));
+}

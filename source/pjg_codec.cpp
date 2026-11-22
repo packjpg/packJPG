@@ -197,6 +197,18 @@ bool pjg_optimize_header( CodecContext& ctx )
 					return false;
 				}
 				hpos++;
+				int sym_count = 0;
+				if ( !jpg_parse_dht_counts( &ctx.hdrdata[ hpos ], sym_count ) ) {
+					ctx.errormessage = "size mismatch in dht marker";
+					ctx.errorlevel = 2;
+					return false;
+				}
+				const unsigned int skip = 16u + static_cast<unsigned int>( sym_count );
+				if ( hpos + skip > fpos ) {
+					ctx.errormessage = "size mismatch in dht marker";
+					ctx.errorlevel = 2;
+					return false;
+				}
 				for ( int i = 0; i < 4; i++ ) {
 					if ( hpos + std_huff_lengths[ i ] > fpos )
 						continue;
@@ -213,15 +225,6 @@ bool pjg_optimize_header( CodecContext& ctx )
 					for ( spos = 2; spos < std_huff_lengths[ i ]; spos++ )
 						ctx.hdrdata[ hpos + spos ] = 0x00;
 					break;
-				}
-
-				unsigned int skip = 16;
-				for ( int i = 0; i < 16; i++ )
-					skip += static_cast<unsigned int>( ctx.hdrdata[ hpos + i ] );
-				if ( hpos + skip > fpos ) {
-					ctx.errormessage = "size mismatch in dht marker";
-					ctx.errorlevel = 2;
-					return false;
 				}
 				hpos += skip;
 			}
@@ -571,7 +574,7 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 
 	auto mod_len = init_model_s( 11, ( ctx.segm_cnt[ cmp ] > 11 ) ? ctx.segm_cnt[ cmp ] : 11, 2 );
 	auto mod_res = init_model_b( 1 << 4, 2 );
-	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3 );
+	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3, 16 );
 	auto mod_sgn = init_model_b( 11, 1 );
 
 	const int bc = ctx.cmpnfo[ cmp ].bc;
@@ -588,20 +591,20 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 		const bool check_x = ( b_x == 0 );
 
 		if ( check_x ) {
-			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ k + ( 8 * b_y ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
 		}
 		else {
-			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_y ]  = icos_base_8x8[ b_y * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ b_x + ( 8 * k ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
 		}
@@ -639,7 +642,7 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 					const int ctx_abs = abs_val( ctx_lak );
 					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
 					for ( ; bp >= thrs_bp; bp-- ) {
-						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						mod_top->select_context_3( ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
 						const int bt = bit_n( absv, bp );
 						encode_ari( enc, mod_top, bt );
 						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
@@ -702,7 +705,9 @@ bool pjg_decode_zstscan( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 
 		if ( cpos == 0 ) {
 			for ( int tpos = 0; i < 64; i++ ) {
-				while ( ( ++tpos < 64 ) && ( freqlist[ tpos ] == 0 ) );
+				do {
+					++tpos;
+				} while ( ( tpos < 64 ) && ( freqlist[ tpos ] == 0 ) );
 				if ( tpos >= 64 ) {
 					throw std::runtime_error( "corrupted arithmetic stream" );
 				}
@@ -919,7 +924,7 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 
 	auto mod_len = init_model_s( 11, ( ctx.segm_cnt[ cmp ] > 11 ) ? ctx.segm_cnt[ cmp ] : 11, 2 );
 	auto mod_res = init_model_b( 1 << 4, 2 );
-	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3 );
+	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3, 16 );
 	auto mod_sgn = init_model_b( 11, 1 );
 
 	const int bc = ctx.cmpnfo[ cmp ].bc;
@@ -936,20 +941,20 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 		const bool check_x = ( b_x == 0 );
 
 		if ( check_x ) {
-			for ( ; b_x < 8; b_x++ ) {
-				coeffs_x[ b_x ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_x ]  = icos_base_8x8[ b_x * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ k + ( 8 * b_y ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_x = 0;
 			neighbor_off = 1;
 			zdstls = ctx.zdstylow[ cmp ].data();
 		}
 		else {
-			for ( ; b_y < 8; b_y++ ) {
-				coeffs_x[ b_y ] = ctx.colldata[ cmp ][ zigzag[ b_x + ( 8 * b_y ) ] ].data();
-				pred_cf[ b_y ]  = icos_base_8x8[ b_y * 8 ] * ctx.quant( cmp, zigzag[ b_x + ( 8 * b_y ) ] );
+			for ( int k = 0; k < 8; k++ ) {
+				const int zpos = zigzag[ b_x + ( 8 * k ) ];
+				coeffs_x[ k ] = ctx.colldata[ cmp ][ zpos ].data();
+				pred_cf[ k ]  = icos_base_8x8[ static_cast<std::size_t>( k ) * 8u ] * ctx.quant( cmp, zpos );
 			}
-			b_y = 0;
 			neighbor_off = w;
 			zdstls = ctx.zdstxlow[ cmp ].data();
 		}
@@ -981,7 +986,7 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 					const int ctx_abs = abs_val( ctx_lak );
 					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
 					for ( ; bp >= thrs_bp; bp-- ) {
-						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						mod_top->select_context_3( ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
 						const int bt = decode_ari( dec, mod_top );
 						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
 					}
@@ -1149,7 +1154,7 @@ bool adapt_icos( CodecContext& ctx )
 {
 	unsigned short quant[ 64 ];
 	if ( ( ctx.action == A_PGM_DUMP ) && !ctx.adpt_idct_8x8 ) {
-		ctx.adpt_idct_8x8 = std::make_unique<std::array<std::array<int, 8 * 8 * 8 * 8>, 4>>();
+		ctx.adpt_idct_8x8 = std::make_unique<std::array<std::array<int, 4096>, 4>>();
 	}
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
@@ -1159,13 +1164,13 @@ bool adapt_icos( CodecContext& ctx )
 				quant[ ipos ] = 0;
 		}
 		if ( ctx.action == A_PGM_DUMP ) {
-			for ( int ipos = 0; ipos < 64 * 64; ipos++ )
-				( *ctx.adpt_idct_8x8 )[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64 ];
+			for ( std::size_t ipos = 0; ipos < 4096u; ipos++ )
+				( *ctx.adpt_idct_8x8 )[ cmp ][ ipos ] = icos_idct_8x8[ ipos ] * quant[ ipos % 64u ];
 		}
-		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
-			ctx.adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8 ) * 8 ];
-		for ( int ipos = 0; ipos < 8 * 8; ipos++ )
-			ctx.adpt_idct_8x1[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ipos % 8 ];
+		for ( std::size_t ipos = 0; ipos < 64u; ipos++ )
+			ctx.adpt_idct_1x8[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ( ipos % 8u ) * 8u ];
+		for ( std::size_t ipos = 0; ipos < 64u; ipos++ )
+			ctx.adpt_idct_8x1[ cmp ][ ipos ] = icos_idct_1x8[ ipos ] * quant[ ipos % 8u ];
 	}
 
 	return true;
@@ -1289,16 +1294,16 @@ bool calc_zdst_lists( CodecContext& ctx )
 	----------------------------------------------- */
 bool pack_pjg( CodecContext& ctx )
 {
+	if ( ctx.disc_meta ) {
+		if ( !jpg_rebuild_header( ctx ) ) return false;
+	}
+
 	if ( ( ctx.hdrdata.size() > kMaxGenericStreamBytes ) ||
 	     ( ctx.grbgdata.size() > kMaxGenericStreamBytes ) ||
 	     ( static_cast<std::size_t>( std::max( 0, ctx.scnc ) ) > kMaxRstErrBytes ) ) {
 		ctx.errormessage = "header or trailing data exceeds maximum supported size";
 		ctx.errorlevel   = 2;
 		return false;
-	}
-
-	if ( ctx.disc_meta ) {
-		if ( !jpg_rebuild_header( ctx ) ) return false;
 	}
 
 	std::vector<unsigned char> saved_hdr = ctx.hdrdata;
@@ -1420,7 +1425,7 @@ bool unpack_pjg( CodecContext& ctx )
 		: std::min<std::size_t>(
 			kMaxGenericStreamBytes,
 			std::max<std::size_t>(
-				524288u,
+				4096u,
 				( in_bytes <= ( kMaxGenericStreamBytes / kMaxGenericExpansionPerByte ) )
 					? ( in_bytes * kMaxGenericExpansionPerByte )
 					: kMaxGenericStreamBytes ) );
@@ -1453,7 +1458,7 @@ bool unpack_pjg( CodecContext& ctx )
 	if ( ctx.disc_meta ) {
 		if ( !jpg_rebuild_header( ctx ) ) return false;
 	}
-	if ( !jpg_setup_imginfo( ctx ) ) return false;
+	if ( !jpg_setup_imginfo( ctx, true ) ) return false;
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		if ( !pjg_decode_zstscan( ctx, decoder, cmp ) ) return false;
@@ -1499,4 +1504,3 @@ int idct_2d_fst_8x8( const CodecContext& ctx, int cmp, int dpos, int ix, int iy 
 	if ( idct > std::numeric_limits<int>::max() ) return std::numeric_limits<int>::max();
 	return static_cast<int>( idct );
 }
-

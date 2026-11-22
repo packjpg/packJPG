@@ -1,10 +1,13 @@
 #ifndef DCT8X8_H
 #define DCT8X8_H
 
+#include <cstdint>
+
 inline constexpr int DCT_RSC_FACTOR = 8192;
 
 constexpr int dct_rescale( int v ) noexcept {
-	return ( ( v > 0 ) ? ( v + ( DCT_RSC_FACTOR / 2 ) ) : ( v - ( DCT_RSC_FACTOR / 2 ) ) ) / DCT_RSC_FACTOR;
+	const std::int64_t w = v;
+	return static_cast<int>( ( ( w > 0 ) ? ( w + ( DCT_RSC_FACTOR / 2 ) ) : ( w - ( DCT_RSC_FACTOR / 2 ) ) ) / DCT_RSC_FACTOR );
 }
 
 

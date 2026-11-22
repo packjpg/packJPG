@@ -2,11 +2,12 @@
 
 TARGET   ?= packJPG
 CXXSTD   ?= -std=c++17
-CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -ffast-math -fomit-frame-pointer
+CXXFLAGS ?= -O3 -Wall -pedantic -funroll-loops -fomit-frame-pointer
 AR       ?= ar
 RANLIB   ?= ranlib
 WINDRES  ?= windres
 PYTHON   ?= python3
+FUZZ_CXX ?= clang++
 UPX      ?= upx
 USE_UPX  ?= 0
 USE_LTO  ?= 1
@@ -32,6 +33,7 @@ OS_CPPFLAGS    =
 PIC_FLAGS      =
 THREAD_FLAGS   =
 OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -lpthread
+BIN_LDFLAGS    = $(OS_LDFLAGS) -lshell32
 SHLIB          = $(TARGET).dll
 SHLIB_FLAGS    = -shared -Wl,--out-implib,lib$(TARGET).a -fvisibility=hidden
 else ifeq ($(TARGET_OS),Darwin)
@@ -44,8 +46,9 @@ OS_CPPFLAGS    = -DUNIX
 PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
 OS_LDFLAGS     =
+BIN_LDFLAGS    =
 SHLIB          = lib$(TARGET).dylib
-SHLIB_FLAGS    = -dynamiclib -fvisibility=hidden
+SHLIB_FLAGS    = -dynamiclib -Wl,-install_name,@rpath/lib$(TARGET).dylib -fvisibility=hidden
 else
 ifeq ($(origin CXX),default)
 CXX            = g++
@@ -55,21 +58,22 @@ RES            =
 OS_CPPFLAGS    = -DUNIX
 PIC_FLAGS      = -fPIC
 THREAD_FLAGS   = -pthread
-ifeq ($(STATIC),1)
-OS_LDFLAGS     = -static -static-libgcc -static-libstdc++ -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
-else
 OS_LDFLAGS     =
+ifeq ($(STATIC),1)
+BIN_LDFLAGS    = -static -static-libgcc -static-libstdc++ -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
+else
+BIN_LDFLAGS    = $(OS_LDFLAGS)
 endif
 SHLIB          = lib$(TARGET).so
 SHLIB_FLAGS    = -shared -fvisibility=hidden
 endif
 
 ifeq ($(TARGET_OS),Darwin)
-STRIP ?=
-else ifneq ($(findstring -g,$(CXXFLAGS)),)
-STRIP ?=
-else
-STRIP ?= -s
+STRIP_FLAGS ?= $(filter -%,$(STRIP))
+else ifeq ($(origin STRIP),command line)
+STRIP_FLAGS ?= $(if $(STRIP),$(if $(filter -%,$(STRIP)),$(STRIP),-s),)
+else ifeq ($(findstring -g,$(CXXFLAGS)),)
+STRIP_FLAGS ?= $(if $(filter -%,$(STRIP)),$(STRIP),-s)
 endif
 
 ifeq ($(USE_LTO),1)
@@ -92,7 +96,7 @@ OBJ          = $(CLI_SRC:.cpp=.o)
 DEV_OBJ      = $(DEV_SRC:.cpp=.dev.o)
 LIB_OBJ      = $(LIB_SRC:.cpp=.lib.o)
 DLL_OBJ      = $(LIB_SRC:.cpp=.dll.o)
-TEST_SRC     = ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_aricoder.cpp \
+TEST_SRC     = dev_tools.cpp ../tests/test_main.cpp ../tests/test_bitops.cpp ../tests/test_aricoder.cpp \
                ../tests/test_library_api.cpp ../tests/test_huffman_and_concurrency.cpp
 ALL_CXXFLAGS = -I. $(CXXSTD) $(OS_CPPFLAGS) $(CPPFLAGS) $(CXXFLAGS)
 CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) lib$(TARGET).a \
@@ -100,10 +104,19 @@ CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) l
                test_runner test_runner.exe fuzz_roundtrip fuzz_roundtrip.exe \
                .stamp_std .stamp_dev .stamp_dev_bin
 
-.PHONY: all dev lib dll shared test fuzz install uninstall clean
+.PHONY: all dev lib dll shared test fuzz install uninstall clean .force_dev_bin
 
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
+endif
+ifneq (,$(and $(filter all test install $(BIN),$(MAKECMDGOALS)),$(filter dev .stamp_dev_bin,$(MAKECMDGOALS))))
+.NOTPARALLEL:
+endif
+
+ifeq (,$(wildcard $(BIN)))
+DEV_BIN_FORCE = .force_dev_bin
+else
+DEV_BIN_FORCE =
 endif
 
 all: $(BIN)
@@ -120,15 +133,17 @@ all: $(BIN)
 %.dll.o: %.cpp $(DEPS)
 	$(CXX) -c -o $@ $< $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -DBUILD_DLL $(PIC_FLAGS) -fvisibility=hidden
 
-%.res: %.rc app_icon.ico file_icon.ico
+%.res: %.rc app_icon.ico file_icon.ico packjpg.manifest
 	$(WINDRES) -O coff $< $@
 
 ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
 RM_STAMPS_DEV = @if exist .stamp_dev del /F /Q .stamp_dev & if exist .stamp_dev_bin del /F /Q .stamp_dev_bin
 RM_STAMPS_STD = @if exist .stamp_std del /F /Q .stamp_std
+RM_STATIC_LIB = @if exist $(STATIC_LIB) del /F /Q $(STATIC_LIB)
 else
 RM_STAMPS_DEV = @$(RM) .stamp_dev .stamp_dev_bin
 RM_STAMPS_STD = @$(RM) .stamp_std
+RM_STATIC_LIB = @$(RM) $(STATIC_LIB)
 endif
 
 .stamp_std:
@@ -139,16 +154,18 @@ endif
 	$(RM_STAMPS_STD)
 	@echo dev > $@
 
+.force_dev_bin:
+
 $(BIN): $(OBJ) $(RES) .stamp_std
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $@ $(OBJ) $(RES) $(STRIP_FLAGS) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $@
 endif
 
 dev: .stamp_dev_bin
 
-.stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+.stamp_dev_bin: $(DEV_OBJ) $(RES) .stamp_dev $(DEV_BIN_FORCE)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) -o $(BIN) $(DEV_OBJ) $(RES) $(STRIP_FLAGS) $(THREAD_FLAGS) $(BIN_LDFLAGS) $(LDFLAGS)
 ifeq ($(USE_UPX),1)
 	$(UPX) --best --lzma $(BIN)
 endif
@@ -157,6 +174,7 @@ endif
 lib: $(STATIC_LIB)
 
 $(STATIC_LIB): $(LIB_OBJ)
+	$(RM_STATIC_LIB)
 	$(AR) rcs $@ $(LIB_OBJ)
 	$(RANLIB) $@
 
@@ -168,14 +186,19 @@ $(SHLIB): $(DLL_OBJ)
 	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) $(LTO_FLAGS) $(SHLIB_FLAGS) -o $@ $(DLL_OBJ) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 $(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
-	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -DBUILD_LIB -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 test: $(BIN) $(TEST_BIN)
+ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
+	.\$(TEST_BIN)
+	$(PYTHON) ../tests/run_tests.py .\$(BIN)
+else
 	./$(TEST_BIN)
 	$(PYTHON) ../tests/run_tests.py ./$(BIN)
+endif
 
 fuzz:
-	clang++ -I. $(CXXSTD) $(OS_CPPFLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \
+	$(FUZZ_CXX) -I. $(CXXSTD) $(OS_CPPFLAGS) $(THREAD_FLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \
 		-fsanitize=fuzzer,address,undefined $(LIB_SRC) ../tests/fuzz_roundtrip.cpp -o $(FUZZ_BIN)
 
 install: $(BIN)
@@ -191,4 +214,3 @@ ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
 else
 	$(RM) $(CLEAN_FILES)
 endif
-

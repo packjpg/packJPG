@@ -192,6 +192,9 @@ public:
 				++k;
 			}
 #endif
+			if ( ( eof_zero_bytes_ > 8u ) && ( ( eof_e12_bits_ += static_cast<std::uint32_t>( k ) ) > 64u ) ) {
+				throw std::runtime_error( "unexpected end of arithmetic stream" );
+			}
 			clow_local  = ( clow_local << k ) & kMask100;
 			chigh_local = ( ( chigh_local << k ) | ( ( 1u << k ) - 1u ) ) & kMask100;
 			ccode_local = ( ( ccode_local << k ) | read_bits( k ) ) & kMask100;
@@ -231,6 +234,7 @@ private:
 	std::uint64_t bit_buf_ = 0;
 	int bits_left_ = 0;
 	std::size_t eof_zero_bytes_ = 0;
+	std::uint32_t eof_e12_bits_ = 0;
 
 	unsigned int ccode = 0;
 	unsigned int clow = 0;
@@ -423,14 +427,15 @@ private:
 	inline void totalize_table( std::int32_t node_idx )
 	{
 		SNode& context = nodes_[ static_cast<std::size_t>( node_idx ) ];
+		uint32_t* const tot = totals.data();
 
 		if ( context.counts_offset >= 0 ) {
-			const std::uint16_t* counts = counts_pool_.data() + context.counts_offset;
+			const std::uint16_t* const counts = counts_pool_.data() + context.counts_offset;
 			const int local_symb = sb0_count;
 
 			int i = static_cast<int>( context.max_symbol ) - 1;
 			totals_end_ = i + 2;
-			totals[ static_cast<std::size_t>( totals_end_ ) ] = 0;
+			tot[ totals_end_ ] = 0;
 
 			uint32_t curr_total = 0;
 
@@ -442,22 +447,23 @@ private:
 					const std::uint32_t allow = static_cast<std::uint32_t>( ( ~mask >> i ) & 1u );
 					curr_total += c * allow;
 					new_nonzero |= static_cast<std::uint64_t>( c != 0 ) << i;
-					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+					tot[ i + 1 ] = curr_total;
 				}
 				sb_mask_ = mask | new_nonzero;
 				sb0_count = max_symbol - ari_popcount_u64( sb_mask_ );
 			}
 			else {
+				std::uint8_t* const sb = scoreboard_.data();
 				for ( ; i >= 0; i-- ) {
-					if ( !scoreboard_[ static_cast<std::size_t>( i ) ] ) {
+					if ( !sb[ i ] ) {
 						const uint16_t curr_count = counts[ i ];
 						if ( curr_count > 0 ) {
 							curr_total += curr_count;
-							scoreboard_[ static_cast<std::size_t>( i ) ] = 1;
+							sb[ i ] = 1;
 							sb0_count--;
 						}
 					}
-					totals[ static_cast<std::size_t>( i + 1 ) ] = curr_total;
+					tot[ i + 1 ] = curr_total;
 				}
 			}
 
@@ -473,12 +479,12 @@ private:
 				esc_prob /= static_cast<uint32_t>( local_symb * context.max_count );
 				esc_prob++;
 			}
-			totals[ 0 ] = totals[ 1 ] + esc_prob;
+			tot[ 0 ] = tot[ 1 ] + esc_prob;
 		}
 		else {
 			alloc_counts( node_idx );
-			totals[ 0 ] = 1;
-			totals[ 1 ] = 0;
+			tot[ 0 ] = 1;
+			tot[ 1 ] = 0;
 			totals_end_ = 1;
 		}
 	}
@@ -510,7 +516,7 @@ private:
 class model_b
 {
 public:
-	model_b( int max_c, int max_o, int c_lim );
+	model_b( int max_c, int max_o, int c_lim, int max_c_leaf = -1 );
 
 	inline void update_model( int symbol )
 	{
@@ -532,14 +538,43 @@ public:
 		}
 
 		for ( int i = max_order; i > 1; i-- ) {
+			const int req_width = ( i == max_order ) ? leaf_link_width_ : max_context;
+			if ( c >= req_width ) {
+				throw std::runtime_error( "corrupted arithmetic stream" );
+			}
 			const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
 			std::int32_t child = links_pool_[ static_cast<std::size_t>( parent_links + c ) ];
 			if ( child < 0 ) {
-				child = alloc_node( i < max_order );
+				const int child_width = ( i < max_order )
+					? ( ( i + 1 == max_order ) ? leaf_link_width_ : max_context )
+					: 0;
+				child = alloc_node_sized( child_width );
 				links_pool_[ static_cast<std::size_t>( parent_links + c ) ] = child;
 			}
 			contexts_[ static_cast<std::size_t>( i ) ] = child;
 		}
+	}
+
+	inline void select_context_3( int c1, int c2, int c3 )
+	{
+		if ( ( max_order != 4 ) ||
+		     ( c1 < 0 ) || ( c1 >= max_context ) ||
+		     ( c2 < 0 ) || ( c2 >= max_context ) ||
+		     ( c3 < 0 ) || ( c3 >= leaf_link_width_ ) ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+		auto step = [&]( std::int32_t parent_node, int sym, int child_width ) -> std::int32_t {
+			const std::int32_t links = nodes_[ static_cast<std::size_t>( parent_node ) ].links_offset;
+			std::int32_t child = links_pool_[ static_cast<std::size_t>( links + sym ) ];
+			if ( child < 0 ) {
+				child = alloc_node_sized( child_width );
+				links_pool_[ static_cast<std::size_t>( links + sym ) ] = child;
+			}
+			return child;
+		};
+		const std::int32_t n2 = step( contexts_[ 1 ], c1, max_context );
+		const std::int32_t n3 = step( n2, c2, leaf_link_width_ );
+		contexts_[ 4 ] = step( n3, c3, 0 );
 	}
 
 	void flush_model();
@@ -607,11 +642,12 @@ private:
 		}
 	};
 
-	std::int32_t alloc_node( bool with_links );
+	std::int32_t alloc_node_sized( int link_width );
 
 	const int max_context;
 	const int max_order;
 	const int max_count;
+	const int leaf_link_width_;
 
 	std::vector<BNode> nodes_;
 	std::vector<std::int32_t> links_pool_;
