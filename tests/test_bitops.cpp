@@ -62,6 +62,22 @@ TEST_CASE("bitops: BitReader setpos, rewind_bits, and past-EOF accounting") {
 	br.rewind_bits(4);
 	REQUIRE(!br.eof());
 	REQUIRE_EQ(br.read(2), 0x0u);
+	// Exact byte-boundary rewind_bits must keep cbit == 8 and cbyte == 1 (never cbit == 0)
+	std::vector<unsigned char> boundary_buf = {0xAA, 0x55, 0xF0, 0x0F};
+	BitReader br2(boundary_buf.data(), static_cast<int>(boundary_buf.size()));
+	REQUIRE_EQ(br2.read(12), 0xAA5u);
+	br2.rewind_bits(4);
+	REQUIRE_EQ(br2.getpos(), 1);
+	REQUIRE_EQ(br2.getbitp(), 8);
+	REQUIRE_EQ(br2.peek_9_fast(), (0x55u << 1) | 1u);
+	REQUIRE_EQ(int(br2.read_bit()), 0);
+	REQUIRE_EQ(int(br2.read_bit()), 1);
+	REQUIRE_EQ(br2.read(6), 0x15u);
+
+	REQUIRE_EQ(bit_length_u32(0u), 0);
+	REQUIRE_EQ(bit_length_u32(0x80000000u), 32);
+	REQUIRE_EQ(bit_length_u32(0xFFFFFFFFu), 32);
+	REQUIRE_EQ(fdiv2(-2147483647 - 1, 1), -1073741824);
 }
 
 TEST_CASE("bitops: BitWriter get_c_bytes matches std::free contract") {
@@ -106,7 +122,7 @@ TEST_CASE("bitops: MemoryReader and MemoryWriter operations") {
 	REQUIRE_THROWS(mr.read_byte());
 }
 
-TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and reset") {
+TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and truncating reset") {
 	const auto tmp_path = (std::filesystem::temp_directory_path() / "packjpg_unit_fileio.bin").string();
 	std::vector<std::uint8_t> payload(40000);
 	for (std::size_t i = 0; i < payload.size(); ++i) {
@@ -117,20 +133,19 @@ TEST_CASE("bitops: FileWriter and FileReader >32KB round-trip and reset") {
 		FileWriter fw(tmp_path);
 		fw.write(payload);
 		REQUIRE_EQ(fw.num_bytes_written(), payload.size());
+		REQUIRE(fw.get_data() == payload);
 		fw.reset();
+		REQUIRE_EQ(fw.num_bytes_written(), std::size_t(0));
 		fw.write_byte(0xAA);
 		fw.write_byte(0xBB);
-		REQUIRE_EQ(fw.num_bytes_written(), payload.size());
+		REQUIRE_EQ(fw.num_bytes_written(), std::size_t(2));
 		REQUIRE(!fw.error());
 	}
 
-	payload[0] = 0xAA;
-	payload[1] = 0xBB;
-
 	{
 		FileReader fr(tmp_path);
-		REQUIRE_EQ(fr.get_size(), payload.size());
-		REQUIRE(fr.get_data() == payload);
+		REQUIRE_EQ(fr.get_size(), std::size_t(2));
+		REQUIRE(fr.get_data() == (std::vector<std::uint8_t>{0xAA, 0xBB}));
 	}
 
 	std::filesystem::remove(tmp_path);
@@ -158,9 +173,12 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 		REQUIRE(out != nullptr);
 		{
 			StreamWriter sw(out);
-			sw.write(std::vector<std::uint8_t>{1, 2, 3, 4});
+			sw.write(std::vector<std::uint8_t>{1, 2});
+			REQUIRE(sw.flush());
+			sw.write(std::vector<std::uint8_t>{3, 4});
 			REQUIRE(sw.flush());
 			REQUIRE(!sw.error());
+			REQUIRE(sw.get_data() == (std::vector<std::uint8_t>{1, 2, 3, 4}));
 		}
 		std::fclose(out);
 	}
@@ -186,3 +204,4 @@ TEST_CASE("bitops: zero-bit write_u16, MemoryReader null guards, and FILE* Strea
 	}
 	std::filesystem::remove(stream_path);
 }
+

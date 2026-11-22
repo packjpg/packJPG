@@ -3,7 +3,9 @@
 #include "jpeg_codec.h"
 #include "pjg_codec.h"
 
+#include <algorithm>
 #include <cstring>
+
 
 void StageReporter::on_begin( StageId stage ) const
 {
@@ -69,59 +71,81 @@ bool convert_memory(
 	bool discard_meta,
 	int err_tol )
 {
-	out_data.clear();
-	if ( ( in_data == nullptr ) || ( in_size < 2 ) ) {
+	try {
+		out_data.clear();
+		if ( ( in_data == nullptr ) || ( in_size < 2 ) ) {
+			if ( error_msg != nullptr ) {
+				*error_msg = "input buffer too small";
+			}
+			return false;
+		}
+
+		CodecContext ctx;
+		ctx.disc_meta = discard_meta;
+		ctx.err_tol   = std::clamp( err_tol, 1, 2 );
+		ctx.auto_set  = true;
+		ctx.action    = A_COMPRESS;
+
+
+		ctx.str_in = std::make_unique<MemoryReader>( in_data, in_size );
+		auto mem_out = std::make_unique<MemoryWriter>();
+		MemoryWriter* mem_out_ptr = mem_out.get();
+		ctx.str_out = std::move( mem_out );
+
+		unsigned char magic[ 2 ] = { 0, 0 };
+		ctx.str_in->read( magic, 2 );
+		if ( ( magic[ 0 ] == 0xFF ) && ( magic[ 1 ] == 0xD8 ) ) {
+			ctx.filetype    = F_JPG;
+			ctx.jpgfilename = "JPG in memory";
+			ctx.pjgfilename = "PJG in memory";
+		}
+		else if ( ( magic[ 0 ] == kPjgMagic[ 0 ] ) && ( magic[ 1 ] == kPjgMagic[ 1 ] ) ) {
+			ctx.filetype    = F_PJG;
+			ctx.pjgfilename = "PJG in memory";
+			ctx.jpgfilename = "JPG in memory";
+		}
+		else {
+			if ( error_msg != nullptr ) {
+				*error_msg = "filetype of input stream is unknown";
+			}
+			return false;
+		}
+
+		ctx.reset_buffers();
+		process_standard_file( ctx );
+
+		if ( ctx.errorlevel >= ctx.err_tol ) {
+			if ( error_msg != nullptr ) {
+				*error_msg = ctx.errormessage;
+			}
+			return false;
+		}
+
+		out_data = mem_out_ptr->take_data();
 		if ( error_msg != nullptr ) {
-			*error_msg = "input buffer too small";
+			error_msg->clear();
+		}
+		return true;
+	} catch ( const std::bad_alloc& ) {
+		out_data.clear();
+		if ( error_msg != nullptr ) {
+			*error_msg = kMemErrMsg;
+		}
+		return false;
+	} catch ( const std::exception& e ) {
+		out_data.clear();
+		if ( error_msg != nullptr ) {
+			*error_msg = e.what();
+		}
+		return false;
+	} catch ( ... ) {
+		out_data.clear();
+		if ( error_msg != nullptr ) {
+			*error_msg = "unexpected internal exception";
 		}
 		return false;
 	}
-
-	CodecContext ctx;
-	ctx.disc_meta = discard_meta;
-	ctx.err_tol   = err_tol;
-	ctx.auto_set  = true;
-	ctx.action    = A_COMPRESS;
-
-	ctx.str_in = std::make_unique<MemoryReader>( in_data, in_size );
-	auto mem_out = std::make_unique<MemoryWriter>();
-	MemoryWriter* mem_out_ptr = mem_out.get();
-	ctx.str_out = std::move( mem_out );
-
-	unsigned char magic[ 2 ] = { 0, 0 };
-	ctx.str_in->read( magic, 2 );
-	if ( ( magic[ 0 ] == 0xFF ) && ( magic[ 1 ] == 0xD8 ) ) {
-		ctx.filetype    = F_JPG;
-		ctx.jpgfilename = "JPG in memory";
-		ctx.pjgfilename = "PJG in memory";
-	}
-	else if ( ( magic[ 0 ] == kPjgMagic[ 0 ] ) && ( magic[ 1 ] == kPjgMagic[ 1 ] ) ) {
-		ctx.filetype    = F_PJG;
-		ctx.pjgfilename = "PJG in memory";
-		ctx.jpgfilename = "JPG in memory";
-	}
-	else {
-		if ( error_msg != nullptr ) {
-			*error_msg = "filetype of input stream is unknown";
-		}
-		return false;
-	}
-
-	ctx.reset_buffers();
-	process_standard_file( ctx );
-
-	if ( ctx.errorlevel >= ctx.err_tol ) {
-		if ( error_msg != nullptr ) {
-			*error_msg = ctx.errormessage;
-		}
-		return false;
-	}
-
-	out_data = mem_out_ptr->take_data();
-	if ( error_msg != nullptr ) {
-		error_msg->clear();
-	}
-	return true;
 }
 
 } // namespace packjpg
+

@@ -3,10 +3,25 @@
 
 #include "codec_context.h"
 
-#include <ctime>
-#include <stdexcept>
+#include <chrono>
+#include <exception>
+#include <new>
 #include <string>
 #include <vector>
+
+#if defined(BUILD_DLL)
+	#if defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__)
+		#define PJG_PUBLIC_API __declspec( dllexport )
+	#elif defined(__GNUC__) && ( __GNUC__ >= 4 )
+		#define PJG_PUBLIC_API __attribute__( ( visibility( "default" ) ) )
+	#else
+		#define PJG_PUBLIC_API
+	#endif
+#elif defined(USE_PACKJPG_DLL) && ( defined(_WIN32) || defined(WIN32) || defined(__CYGWIN__) )
+	#define PJG_PUBLIC_API __declspec( dllimport )
+#else
+	#define PJG_PUBLIC_API
+#endif
 
 struct StageReporter {
 	FILE* msgout    = nullptr;
@@ -23,10 +38,10 @@ void execute_stage( CodecContext& ctx, StageId stage, Fn&& fn, const StageReport
 		return;
 	}
 
-	std::clock_t begin = 0;
+	std::chrono::steady_clock::time_point begin{};
 	if ( reporter != nullptr ) {
 		reporter->on_begin( stage );
-		begin = std::clock();
+		begin = std::chrono::steady_clock::now();
 	}
 
 	bool success = false;
@@ -35,8 +50,11 @@ void execute_stage( CodecContext& ctx, StageId stage, Fn&& fn, const StageReport
 	} catch ( const std::bad_alloc& ) {
 		ctx.errormessage = kMemErrMsg;
 		ctx.errorlevel = 2;
-	} catch ( const std::runtime_error& e ) {
+	} catch ( const std::exception& e ) {
 		ctx.errormessage = e.what();
+		ctx.errorlevel = 2;
+	} catch ( ... ) {
+		ctx.errormessage = "unexpected internal exception";
 		ctx.errorlevel = 2;
 	}
 
@@ -48,8 +66,9 @@ void execute_stage( CodecContext& ctx, StageId stage, Fn&& fn, const StageReport
 	}
 
 	if ( reporter != nullptr ) {
-		const std::clock_t end = std::clock();
-		const int total = static_cast<int>( ( static_cast<double>( ( end - begin ) * 1000 ) ) / CLOCKS_PER_SEC );
+		const auto end = std::chrono::steady_clock::now();
+		const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>( end - begin ).count();
+		const int total = ( ms > 2147483647LL ) ? 2147483647 : static_cast<int>( ms );
 		reporter->on_end( success, total );
 	}
 }
@@ -61,7 +80,7 @@ void process_standard_file( CodecContext& ctx, const StageReporter* reporter = n
 namespace packjpg {
 
 // Reentrant, thread-safe in-memory conversion (JPG -> PJG or PJG -> JPG).
-bool convert_memory(
+PJG_PUBLIC_API bool convert_memory(
 	const std::uint8_t* in_data,
 	std::size_t in_size,
 	std::vector<std::uint8_t>& out_data,
@@ -72,3 +91,4 @@ bool convert_memory(
 } // namespace packjpg
 
 #endif
+

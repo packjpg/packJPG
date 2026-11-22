@@ -25,21 +25,38 @@ jobs:
 
       - name: Build CLI, libraries, and run full test suite
         run: |
-          make -C source clean all lib shared test CXX=${{ matrix.cxx }} -j2
+          make -C source clean
+          make -C source all lib shared test CXX=${{ matrix.cxx }} -j2
           cat > /tmp/link_dll.cpp <<'CPP'
           #include "packjpgdll.h"
-          #include <cstdio>
+          #include "codec_pipeline.h"
           int main() {
               const char* info = pjglib_version_info();
+              std::vector<std::uint8_t> out;
+              (void) packjpg::convert_memory(nullptr, 0, out);
               return (info != nullptr && info[0] != '\0') ? 0 : 1;
           }
           CPP
           ${{ matrix.cxx }} -std=c++17 -Isource /tmp/link_dll.cpp -Lsource -lpackJPG -Wl,-rpath,"$PWD/source" -o /tmp/link_dll
           /tmp/link_dll
+          cat > /tmp/link_c_abi.c <<'C_EOF'
+          #include "packjpgdll.h"
+          #include "packjpglib.h"
+          #include <string.h>
+          int main(void) {
+              const char* info = pjglib_version_info();
+              const char* name = pjglib_short_name();
+              return (info != NULL && name != NULL && strncmp(name, "packJPG v", 9) == 0) ? 0 : 1;
+          }
+          C_EOF
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -Isource /tmp/link_c_abi.c -Lsource -lpackJPG -Wl,-rpath,"$PWD/source" -o /tmp/link_c_abi
+          /tmp/link_c_abi
 
       - name: Test dev, install, and uninstall targets
         run: |
-          make -C source clean dev CXX=${{ matrix.cxx }} -j2
+          make -C source clean
+          make -C source dev CXX=${{ matrix.cxx }} -j2
+          make -C source all CXX=${{ matrix.cxx }} -j2
           make -C source install CXX=${{ matrix.cxx }} DESTDIR=/tmp/stage PREFIX=/usr
           test -x /tmp/stage/usr/bin/packJPG
           make -C source uninstall DESTDIR=/tmp/stage PREFIX=/usr
@@ -48,8 +65,11 @@ jobs:
       - name: Static build and ASan/UBSan test suite (g++)
         if: matrix.cxx == 'g++'
         run: |
-          make -C source clean all CXX=g++ STATIC=1 -j2
-          make -C source clean test CXX=g++ \
+          make -C source clean
+          make -C source all CXX=g++ STATIC=1 -j2
+          python3 tests/run_tests.py ./source/packJPG
+          make -C source clean
+          make -C source test CXX=g++ \
             CXXFLAGS="-O1 -g -Wall -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined" -j2
           make -C source clean
@@ -57,7 +77,8 @@ jobs:
       - name: Unsigned-char (ARM64 ABI) ASan/UBSan test suite (clang++)
         if: matrix.cxx == 'clang++'
         run: |
-          make -C source clean test CXX=clang++ \
+          make -C source clean
+          make -C source test CXX=clang++ \
             CXXFLAGS="-O1 -g -Wall -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined" -j2
           make -C source clean
@@ -70,11 +91,14 @@ jobs:
 
       - name: Build CLI, Makefile_osx, libraries, and run test suite
         run: |
-          make -C source clean all lib shared test -j2
+          make -C source clean
+          make -C source all lib shared test -j2
           test -f source/packJPGlib.a
           test -f source/libpackJPG.dylib
-          make -C source -f Makefile_osx clean all -j2
-          make -C source clean dev -j2
+          make -C source -f Makefile_osx clean
+          make -C source -f Makefile_osx all -j2
+          make -C source clean
+          make -C source dev -j2
           make -C source clean
 
   windows:
@@ -106,13 +130,26 @@ jobs:
 
       - name: Build CLI (with windres icons.res), libraries, and run test suite
         run: |
-          make -C source clean all lib shared test PYTHON=python -j2
+          make -C source clean
+          make -C source all lib shared test PYTHON=python -j2
           test -f source/icons.res
           test -f source/packJPG.exe
           test -f source/packJPGlib.a
           test -f source/packJPG.dll
           test -f source/libpackJPG.a
-          make -C source clean dev -j2
+
+      - name: Build and test IrfanView & Susie .pjg plug-in (contrib/irfanview)
+        run: |
+          make -C contrib/irfanview clean
+          make -C contrib/irfanview all test -j2
+          make -C contrib/irfanview clean
+
+      - name: Verify dev and clean targets
+        run: |
+          make -C source clean
+          make -C source dev -j2
           make -C source clean
           test ! -e source/icons.res
           test ! -e source/packJPG.exe
+
+

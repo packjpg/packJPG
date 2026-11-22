@@ -13,6 +13,9 @@
 *.so
 *.dylib
 *.dll
+*.spi
+*.sph
+
 
 # Fortran module files
 *.mod
@@ -31,6 +34,8 @@
 /source/packjpg
 /source/test_runner
 /source/fuzz_roundtrip
+/source/.stamp_*
+
 
 # Folders to ignore
 /zzz_backup/

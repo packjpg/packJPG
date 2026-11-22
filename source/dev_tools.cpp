@@ -10,6 +10,11 @@
 
 namespace {
 
+std::string resolve_dump_filename( const std::string& base, const char* ext, bool overwrite )
+{
+	return overwrite ? make_filename( base, ext ) : make_unique_filename( base, ext );
+}
+
 FILE* open_dump_file( const std::string& fn, const char* mode )
 {
 	if ( !ensure_parent_directory( fn ) ) {
@@ -18,36 +23,52 @@ FILE* open_dump_file( const std::string& fn, const char* mode )
 	return std::fopen( fn.c_str(), mode );
 }
 
-bool dump_file( CodecContext& ctx, const std::string& base, const char* ext, const void* data, std::size_t bpv, std::size_t size )
+bool close_dump_file( CodecContext& ctx, FILE* fp, const std::string& fn )
 {
-	const std::string fn = make_filename( base, ext );
+	const bool had_err = ( std::ferror( fp ) != 0 );
+	const int rc = std::fclose( fp );
+	if ( had_err || ( rc != 0 ) ) {
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return false;
+	}
+	return true;
+}
+
+bool dump_file( CodecContext& ctx, const std::string& base, const char* ext, const void* data, std::size_t bpv, std::size_t size, bool overwrite )
+{
+	const std::string fn = resolve_dump_filename( base, ext, overwrite );
 	FILE* fp = open_dump_file( fn, "wb" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
 		ctx.errorlevel = 2;
 		return false;
 	}
-	std::fwrite( data, bpv, size, fp );
-	std::fclose( fp );
-	return true;
+	if ( ( size > 0 ) && ( std::fwrite( data, bpv, size, fp ) != size ) ) {
+		std::fclose( fp );
+		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+		ctx.errorlevel = 2;
+		return false;
+	}
+	return close_dump_file( ctx, fp, fn );
 }
 
-bool dump_hdr( CodecContext& ctx, const std::string& base )
+bool dump_hdr( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	return dump_file( ctx, base, "hdr", ctx.hdrdata.data(), 1, ctx.hdrdata.size() );
+	return dump_file( ctx, base, "hdr", ctx.hdrdata.data(), 1, ctx.hdrdata.size(), overwrite );
 }
 
-bool dump_huf( CodecContext& ctx, const std::string& base )
+bool dump_huf( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	return dump_file( ctx, base, "huf", ctx.huffdata.data(), 1, ctx.huffdata.size() );
+	return dump_file( ctx, base, "huf", ctx.huffdata.data(), 1, ctx.huffdata.size(), overwrite );
 }
 
-bool dump_coll( CodecContext& ctx, const std::string& base, int collmode )
+bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool overwrite )
 {
 	constexpr std::array<const char*, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		const std::string fn = make_filename( base, ext[ cmp ] );
+		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
 		FILE* fp = open_dump_file( fn, "wb" );
 		if ( fp == nullptr ) {
 			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
@@ -117,26 +138,28 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode )
 				break;
 		}
 
-		std::fclose( fp );
+		if ( !close_dump_file( ctx, fp, fn ) ) {
+			return false;
+		}
 	}
 
 	return true;
 }
 
-bool dump_zdst( CodecContext& ctx, const std::string& base )
+bool dump_zdst( CodecContext& ctx, const std::string& base, bool overwrite )
 {
 	constexpr std::array<const char*, 4> ext{ "zdst0", "zdst1", "zdst2", "zdst3" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		if ( !dump_file( ctx, base, ext[ cmp ], ctx.zdstdata[ cmp ].data(), 1, static_cast<std::size_t>( ctx.cmpnfo[ cmp ].bc ) ) )
+		if ( !dump_file( ctx, base, ext[ cmp ], ctx.zdstdata[ cmp ].data(), 1, static_cast<std::size_t>( ctx.cmpnfo[ cmp ].bc ), overwrite ) )
 			return false;
 	}
 	return true;
 }
 
-bool dump_info( CodecContext& ctx, const std::string& base )
+bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	const std::string fn = make_filename( base, "nfo" );
+	const std::string fn = resolve_dump_filename( base, "nfo", overwrite );
 	FILE* fp = open_dump_file( fn, "w" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
@@ -190,13 +213,12 @@ bool dump_info( CodecContext& ctx, const std::string& base )
 		std::fprintf( fp, "\n\n" );
 	}
 
-	std::fclose( fp );
-	return true;
+	return close_dump_file( ctx, fp, fn );
 }
 
-bool dump_dist( CodecContext& ctx, const std::string& base )
+bool dump_dist( CodecContext& ctx, const std::string& base, bool overwrite )
 {
-	const std::string fn = make_filename( base, "dist" );
+	const std::string fn = resolve_dump_filename( base, "dist", overwrite );
 	FILE* fp = open_dump_file( fn, "wb" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
@@ -212,20 +234,24 @@ bool dump_dist( CodecContext& ctx, const std::string& base )
 				const int idx = clamped( 0, 1024, abs_val( ctx.colldata[ cmp ][ bpos ][ dpos ] ) );
 				dist[ static_cast<std::size_t>( idx ) ]++;
 			}
-			std::fwrite( dist.data(), sizeof( unsigned int ), dist.size(), fp );
+			if ( std::fwrite( dist.data(), sizeof( unsigned int ), dist.size(), fp ) != dist.size() ) {
+				std::fclose( fp );
+				ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+				ctx.errorlevel = 2;
+				return false;
+			}
 		}
 	}
 
-	std::fclose( fp );
-	return true;
+	return close_dump_file( ctx, fp, fn );
 }
 
-bool dump_pgm( CodecContext& ctx, const std::string& base )
+bool dump_pgm( CodecContext& ctx, const std::string& base, bool overwrite )
 {
 	constexpr std::array<const char*, 4> ext{ "cmp0.pgm", "cmp1.pgm", "cmp2.pgm", "cmp3.pgm" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		const std::string fn = make_filename( base, ext[ cmp ] );
+		const std::string fn = resolve_dump_filename( base, ext[ cmp ], overwrite );
 		FILE* fp = open_dump_file( fn, "wb" );
 		if ( fp == nullptr ) {
 			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
@@ -254,8 +280,16 @@ bool dump_pgm( CodecContext& ctx, const std::string& base )
 			kAppTitle, kAppVersion / 10, kAppVersion % 10, kSubVersion, kVersionDate, kAuthor );
 		std::fprintf( fp, "%i %i\n", ci.bch * 8, ci.bcv * 8 );
 		std::fprintf( fp, "255\n" );
-		std::fwrite( imgdata.data(), sizeof( unsigned char ), imgdata.size(), fp );
-		std::fclose( fp );
+		if ( !imgdata.empty() &&
+		     ( std::fwrite( imgdata.data(), sizeof( unsigned char ), imgdata.size(), fp ) != imgdata.size() ) ) {
+			std::fclose( fp );
+			ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
+			ctx.errorlevel = 2;
+			return false;
+		}
+		if ( !close_dump_file( ctx, fp, fn ) ) {
+			return false;
+		}
 	}
 
 	return true;
@@ -264,11 +298,11 @@ bool dump_pgm( CodecContext& ctx, const std::string& base )
 } // namespace
 
 
-bool dump_errfile( CodecContext& ctx, const std::string& input_name )
+bool dump_errfile( CodecContext& ctx, const std::string& input_name, bool overwrite )
 {
 	if ( ctx.errorlevel == 0 ) return true;
 
-	const std::string fn = make_filename( input_name, ( ctx.errorlevel == 1 ) ? "wrn.nfo" : "err.nfo" );
+	const std::string fn = resolve_dump_filename( input_name, ( ctx.errorlevel == 1 ) ? "wrn.nfo" : "err.nfo", overwrite );
 	FILE* fp = open_dump_file( fn, "w" );
 	if ( fp == nullptr ) {
 		ctx.set_errormessage( kFwrErrMsg, fn.c_str() );
@@ -280,58 +314,57 @@ bool dump_errfile( CodecContext& ctx, const std::string& input_name )
 	std::fprintf( fp, " %s -> %s:\n", stage_status_text( ctx.error_stage ),
 		( ctx.errorlevel == 1 ) ? "warning" : "error" );
 	std::fprintf( fp, " %s\n", ctx.errormessage.c_str() );
-	std::fclose( fp );
-	return true;
+	return close_dump_file( ctx, fp, fn );
 }
 
-void run_dev_action( CodecContext& ctx, const std::string& input_name, int collmode, const StageReporter* reporter )
+void run_dev_action( CodecContext& ctx, const std::string& input_name, int collmode, bool overwrite, const StageReporter* reporter )
 {
 	if ( ctx.filetype == F_JPG ) {
 		switch ( ctx.action ) {
 			case A_SPLIT_DUMP:
-				execute_stage( ctx, StageId::ReadJpeg, [&]() { return read_jpeg( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DumpHdr,  [&]() { return dump_hdr( ctx, input_name ); }, reporter );
-				execute_stage( ctx, StageId::DumpHuf,  [&]() { return dump_huf( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg, [&]() { return read_jpeg( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DumpHdr,  [&]() { return dump_hdr( ctx, input_name, overwrite ); }, reporter );
+				execute_stage( ctx, StageId::DumpHuf,  [&]() { return dump_huf( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_COLL_DUMP:
-				execute_stage( ctx, StageId::ReadJpeg,   [&]() { return read_jpeg( ctx ); },                       reporter );
-				execute_stage( ctx, StageId::DecodeJpeg, [&]() { return decode_jpeg( ctx ); },                     reporter );
-				execute_stage( ctx, StageId::DumpColl,   [&]() { return dump_coll( ctx, input_name, collmode ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg,   [&]() { return read_jpeg( ctx ); },                                  reporter );
+				execute_stage( ctx, StageId::DecodeJpeg, [&]() { return decode_jpeg( ctx ); },                                reporter );
+				execute_stage( ctx, StageId::DumpColl,   [&]() { return dump_coll( ctx, input_name, collmode, overwrite ); }, reporter );
 				break;
 			case A_FCOLL_DUMP:
-				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },                       reporter );
-				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },                     reporter );
-				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },               reporter );
-				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },                      reporter );
-				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },                      reporter );
-				execute_stage( ctx, StageId::DumpColl,        [&]() { return dump_coll( ctx, input_name, collmode ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },                                  reporter );
+				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },                                reporter );
+				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },                          reporter );
+				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },                                 reporter );
+				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },                                 reporter );
+				execute_stage( ctx, StageId::DumpColl,        [&]() { return dump_coll( ctx, input_name, collmode, overwrite ); }, reporter );
 				break;
 			case A_ZDST_DUMP:
-				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },             reporter );
-				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },           reporter );
-				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },     reporter );
-				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },            reporter );
-				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },            reporter );
-				execute_stage( ctx, StageId::CalcZdstLists,   [&]() { return calc_zdst_lists( ctx ); },       reporter );
-				execute_stage( ctx, StageId::DumpZdst,        [&]() { return dump_zdst( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },                        reporter );
+				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },                reporter );
+				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::CalcZdstLists,   [&]() { return calc_zdst_lists( ctx ); },                  reporter );
+				execute_stage( ctx, StageId::DumpZdst,        [&]() { return dump_zdst( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_TXT_INFO:
-				execute_stage( ctx, StageId::ReadJpeg, [&]() { return read_jpeg( ctx ); },             reporter );
-				execute_stage( ctx, StageId::DumpInfo, [&]() { return dump_info( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg, [&]() { return read_jpeg( ctx ); },                        reporter );
+				execute_stage( ctx, StageId::DumpInfo, [&]() { return dump_info( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_DIST_INFO:
-				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },             reporter );
-				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },           reporter );
-				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },     reporter );
-				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },            reporter );
-				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DumpDist,        [&]() { return dump_dist( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg,        [&]() { return read_jpeg( ctx ); },                        reporter );
+				execute_stage( ctx, StageId::DecodeJpeg,      [&]() { return decode_jpeg( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::CheckValueRange, [&]() { return check_value_range( ctx ); },                reporter );
+				execute_stage( ctx, StageId::AdaptIcos,       [&]() { return adapt_icos( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::PredictDc,       [&]() { return predict_dc( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DumpDist,        [&]() { return dump_dist( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_PGM_DUMP:
-				execute_stage( ctx, StageId::ReadJpeg,   [&]() { return read_jpeg( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DecodeJpeg, [&]() { return decode_jpeg( ctx ); },          reporter );
-				execute_stage( ctx, StageId::AdaptIcos,  [&]() { return adapt_icos( ctx ); },           reporter );
-				execute_stage( ctx, StageId::DumpPgm,    [&]() { return dump_pgm( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::ReadJpeg,   [&]() { return read_jpeg( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DecodeJpeg, [&]() { return decode_jpeg( ctx ); },                     reporter );
+				execute_stage( ctx, StageId::AdaptIcos,  [&]() { return adapt_icos( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::DumpPgm,    [&]() { return dump_pgm( ctx, input_name, overwrite ); }, reporter );
 				break;
 			default:
 				break;
@@ -340,43 +373,44 @@ void run_dev_action( CodecContext& ctx, const std::string& input_name, int collm
 	else if ( ctx.filetype == F_PJG ) {
 		switch ( ctx.action ) {
 			case A_SPLIT_DUMP:
-				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },           reporter );
-				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },           reporter );
-				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },         reporter );
-				execute_stage( ctx, StageId::RecodeJpeg,  [&]() { return recode_jpeg( ctx ); },          reporter );
-				execute_stage( ctx, StageId::DumpHdr,     [&]() { return dump_hdr( ctx, input_name ); }, reporter );
-				execute_stage( ctx, StageId::DumpHuf,     [&]() { return dump_huf( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },                    reporter );
+				execute_stage( ctx, StageId::RecodeJpeg,  [&]() { return recode_jpeg( ctx ); },                     reporter );
+				execute_stage( ctx, StageId::DumpHdr,     [&]() { return dump_hdr( ctx, input_name, overwrite ); }, reporter );
+				execute_stage( ctx, StageId::DumpHuf,     [&]() { return dump_huf( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_COLL_DUMP:
-				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },                     reporter );
-				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },                     reporter );
-				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },                   reporter );
-				execute_stage( ctx, StageId::DumpColl,    [&]() { return dump_coll( ctx, input_name, collmode ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },                                reporter );
+				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },                                reporter );
+				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },                              reporter );
+				execute_stage( ctx, StageId::DumpColl,    [&]() { return dump_coll( ctx, input_name, collmode, overwrite ); }, reporter );
 				break;
 			case A_FCOLL_DUMP:
-				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },                     reporter );
-				execute_stage( ctx, StageId::DumpColl,  [&]() { return dump_coll( ctx, input_name, collmode ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },                                reporter );
+				execute_stage( ctx, StageId::DumpColl,  [&]() { return dump_coll( ctx, input_name, collmode, overwrite ); }, reporter );
 				break;
 			case A_ZDST_DUMP:
-				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DumpZdst,  [&]() { return dump_zdst( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DumpZdst,  [&]() { return dump_zdst( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_TXT_INFO:
-				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DumpInfo,  [&]() { return dump_info( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DumpInfo,  [&]() { return dump_info( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_DIST_INFO:
-				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },            reporter );
-				execute_stage( ctx, StageId::DumpDist,  [&]() { return dump_dist( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg, [&]() { return unpack_pjg( ctx ); },                       reporter );
+				execute_stage( ctx, StageId::DumpDist,  [&]() { return dump_dist( ctx, input_name, overwrite ); }, reporter );
 				break;
 			case A_PGM_DUMP:
-				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },           reporter );
-				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },           reporter );
-				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },         reporter );
-				execute_stage( ctx, StageId::DumpPgm,     [&]() { return dump_pgm( ctx, input_name ); }, reporter );
+				execute_stage( ctx, StageId::UnpackPjg,   [&]() { return unpack_pjg( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::AdaptIcos,   [&]() { return adapt_icos( ctx ); },                      reporter );
+				execute_stage( ctx, StageId::UnpredictDc, [&]() { return unpredict_dc( ctx ); },                    reporter );
+				execute_stage( ctx, StageId::DumpPgm,     [&]() { return dump_pgm( ctx, input_name, overwrite ); }, reporter );
 				break;
 			default:
 				break;
 		}
 	}
 }
+

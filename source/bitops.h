@@ -4,37 +4,41 @@
 #include <array>
 #include <cstdio>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
 constexpr unsigned int rbits_u8( std::uint8_t c, int n ) noexcept {
-	return ( n <= 0 ) ? 0u : ( static_cast<unsigned int>( c ) & ( 0xFFu >> ( 8 - n ) ) );
+	return ( n <= 0 ) ? 0u : ( ( n >= 8 ) ? static_cast<unsigned int>( c ) : ( static_cast<unsigned int>( c ) & ( 0xFFu >> ( 8 - n ) ) ) );
 }
 
 constexpr unsigned int lbits_u8( std::uint8_t c, int n ) noexcept {
-	return ( n <= 0 ) ? 0u : ( static_cast<unsigned int>( c ) >> ( 8 - n ) );
+	return ( n <= 0 ) ? 0u : ( ( n >= 8 ) ? static_cast<unsigned int>( c ) : ( static_cast<unsigned int>( c ) >> ( 8 - n ) ) );
 }
 
 constexpr unsigned int mbits_u8( std::uint8_t c, int l, int r ) noexcept {
-	return rbits_u8( c, l ) >> r;
+	return ( r <= 0 ) ? rbits_u8( c, l ) : ( ( r >= 8 ) ? 0u : ( rbits_u8( c, l ) >> r ) );
 }
 
 template <typename T>
 constexpr int bit_n( T c, int n ) noexcept {
-	return static_cast<int>( ( static_cast<int>( c ) >> n ) & 0x1 );
+	return static_cast<int>( ( static_cast<unsigned int>( c ) >> n ) & 0x1u );
 }
 
 constexpr int bit_length_u32( unsigned int v ) noexcept {
 	int l = 0;
-	while ( ( v >> l ) > 0 ) {
+	while ( v > 0u ) {
+		v >>= 1;
 		++l;
 	}
 	return l;
 }
 
 constexpr int fdiv2( int v, int p ) noexcept {
-	return ( v < 0 ) ? -( ( -v ) >> p ) : ( v >> p );
+	return ( v < 0 )
+		? static_cast<int>( -( ( -static_cast<std::int64_t>( v ) ) >> p ) )
+		: ( v >> p );
 }
 
 
@@ -100,7 +104,11 @@ public:
 	void setpos( int pbyte, int pbit );
 	void rewind_bits( int nbits );
 	bool eof() const noexcept { return eof_; }
-	int peof() const noexcept { return peof_; }
+	int peof() const noexcept {
+		return ( peof_ > std::numeric_limits<int>::max() )
+			? std::numeric_limits<int>::max()
+			: static_cast<int>( peof_ );
+	}
 
 private:
 	unsigned int read_slow( int nbits );
@@ -115,14 +123,14 @@ private:
 	int lbyte = 0;
 	int cbyte = 0;
 	int cbit = 8;
-	int peof_ = 0;
+	std::int64_t peof_ = 0;
 	bool eof_ = false;
 };
 
 
 class BitWriter {
 public:
-	explicit BitWriter(std::uint8_t padbit) : padbit_(padbit) {}
+	explicit BitWriter(std::uint8_t padbit) : padbit_(padbit & 1u) {}
 	~BitWriter() = default;
 
 	void reserve(std::size_t cap) {
@@ -159,7 +167,7 @@ public:
 	*/
 	inline void write_bit(std::uint8_t bit) {
 		curr_bit_--;
-		curr_byte_ |= static_cast<std::uint8_t>(bit << curr_bit_);
+		curr_byte_ |= static_cast<std::uint8_t>((bit & 1u) << curr_bit_);
 		if (curr_bit_ == 0) {
 			write_curr_byte();
 		}
@@ -198,6 +206,7 @@ private:
 	std::vector<std::uint8_t> bytes_;
 	const std::uint8_t padbit_; // A bit, either 0 or 1, to fill the unwritten bits of the current byte with.
 	std::uint8_t curr_byte_ = 0; // The current byte being written.
+
 	std::size_t curr_bit_ = 8; // The position of the next bit in the current byte.
 };
 
@@ -416,8 +425,10 @@ public:
 private:
 	FILE* stream_ = stdout;
 	std::unique_ptr<MemoryWriter> writer_;
+	std::size_t flushed_offset_ = 0;
 	bool flushed_ = false;
 	bool error_ = false;
 };
 
 #endif
+

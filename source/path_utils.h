@@ -23,6 +23,40 @@ inline bool file_exists( const std::string& filename ) noexcept
 	return std::filesystem::exists( std::filesystem::path( filename ), ec );
 }
 
+inline bool paths_refer_to_same_existing_file( const std::string& a, const std::string& b ) noexcept
+{
+	if ( a.empty() || b.empty() ) {
+		return false;
+	}
+	std::error_code ec;
+	const bool same = std::filesystem::equivalent( std::filesystem::path( a ), std::filesystem::path( b ), ec );
+	return !ec && same;
+}
+
+inline std::string normalize_path_key( const std::string& raw )
+{
+	if ( raw.empty() ) {
+		return {};
+	}
+	std::error_code ec;
+	std::filesystem::path norm = std::filesystem::weakly_canonical( std::filesystem::path( raw ), ec );
+	if ( ec ) {
+		ec.clear();
+		norm = std::filesystem::absolute( std::filesystem::path( raw ), ec ).lexically_normal();
+		if ( ec ) {
+			norm = std::filesystem::path( raw ).lexically_normal();
+		}
+	}
+	std::string key = norm.string();
+#if defined(_WIN32) || defined(WIN32)
+	for ( char& c : key ) {
+		if ( c == '/' ) c = '\\';
+		c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
+	}
+#endif
+	return key;
+}
+
 inline std::string make_filename( const std::string& base, const char* extension )
 {
 	const std::filesystem::path p( base );
@@ -112,6 +146,11 @@ inline char ascii_fold( char c, bool case_insensitive ) noexcept
 
 inline bool wildcard_match( std::string_view pattern, std::string_view text, bool case_insensitive ) noexcept
 {
+	// Leading-dot hidden entries (e.g. ".jpg", "._photo.jpg") require an explicit leading '.' in pattern.
+	if ( !text.empty() && ( text.front() == '.' ) && ( pattern.empty() || ( pattern.front() != '.' ) ) ) {
+		return false;
+	}
+
 	std::size_t pi = 0;
 	std::size_t ti = 0;
 	std::size_t star_pi  = std::string_view::npos;
@@ -145,6 +184,10 @@ inline bool wildcard_match( std::string_view pattern, std::string_view text, boo
 
 inline bool is_supported_codec_file( const std::filesystem::path& p )
 {
+	const std::string fname = p.filename().string();
+	if ( fname.empty() || ( fname.front() == '.' ) ) {
+		return false;
+	}
 	std::string ext = p.extension().string();
 	for ( char& c : ext ) {
 		c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
@@ -156,6 +199,7 @@ inline bool is_supported_codec_file( const std::filesystem::path& p )
 inline std::vector<CliInputItem> expand_cli_inputs(
 	const std::vector<std::string>& raw_inputs,
 	bool recursive,
+	const std::string& out_dir,
 	bool& had_directory_or_glob )
 {
 #if defined(_WIN32) || defined(WIN32)
@@ -167,6 +211,18 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 	std::vector<CliInputItem> expanded;
 	expanded.reserve( raw_inputs.size() );
 	had_directory_or_glob = false;
+
+	const std::string norm_out_dir = out_dir.empty() ? std::string() : normalize_path_key( out_dir );
+	auto is_excluded_out_subdir = [&]( const std::filesystem::path& dir_path ) noexcept {
+		if ( out_dir.empty() ) {
+			return false;
+		}
+		const std::string s = dir_path.string();
+		if ( paths_refer_to_same_existing_file( s, out_dir ) ) {
+			return true;
+		}
+		return !norm_out_dir.empty() && ( normalize_path_key( s ) == norm_out_dir );
+	};
 
 	for ( const std::string& raw : raw_inputs ) {
 		if ( raw == "-" ) {
@@ -183,12 +239,26 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 				had_directory_or_glob = true;
 				std::vector<std::string> found;
 				const auto opts = std::filesystem::directory_options::skip_permission_denied;
-				for ( std::filesystem::recursive_directory_iterator it( p, opts, ec ), end;
-				      !ec && ( it != end );
-				      it.increment( ec ) ) {
-					std::error_code entry_ec;
-					if ( it->is_regular_file( entry_ec ) && is_supported_codec_file( it->path() ) ) {
-						found.push_back( it->path().string() );
+				std::filesystem::recursive_directory_iterator it( p, opts, ec ), end;
+				if ( !ec ) {
+					while ( it != end ) {
+						std::error_code entry_ec;
+						const std::filesystem::path entry_path = it->path();
+						const std::string entry_name = entry_path.filename().string();
+						if ( it->is_directory( entry_ec ) ) {
+							if ( ( !entry_name.empty() && entry_name.front() == '.' ) ||
+							     is_excluded_out_subdir( entry_path ) ) {
+								it.disable_recursion_pending();
+							}
+						}
+						else if ( it->is_regular_file( entry_ec ) && is_supported_codec_file( entry_path ) ) {
+							found.push_back( entry_path.string() );
+						}
+						ec.clear();
+						it.increment( ec );
+						if ( ec ) {
+							ec.clear();
+						}
 					}
 				}
 				std::sort( found.begin(), found.end() );
@@ -210,27 +280,48 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 				std::vector<std::string> matches;
 				const auto opts = std::filesystem::directory_options::skip_permission_denied;
 				if ( recursive ) {
-					for ( std::filesystem::recursive_directory_iterator it( search_dir, opts, ec ), end;
-					      !ec && ( it != end );
-					      it.increment( ec ) ) {
-						std::error_code entry_ec;
-						if ( it->is_regular_file( entry_ec ) &&
-						     wildcard_match( fname, it->path().filename().string(), kCaseInsensitiveGlob ) ) {
-							matches.push_back( it->path().string() );
+					std::filesystem::recursive_directory_iterator it( search_dir, opts, ec ), end;
+					if ( !ec ) {
+						while ( it != end ) {
+							std::error_code entry_ec;
+							const std::filesystem::path entry_path = it->path();
+							const std::string entry_name = entry_path.filename().string();
+							if ( it->is_directory( entry_ec ) ) {
+								if ( ( !entry_name.empty() && ( entry_name.front() == '.' ) && ( fname.front() != '.' ) ) ||
+								     is_excluded_out_subdir( entry_path ) ) {
+									it.disable_recursion_pending();
+								}
+							}
+							else if ( it->is_regular_file( entry_ec ) &&
+							          wildcard_match( fname, entry_name, kCaseInsensitiveGlob ) ) {
+								matches.push_back( entry_path.string() );
+							}
+							ec.clear();
+							it.increment( ec );
+							if ( ec ) {
+								ec.clear();
+							}
 						}
 					}
 				}
 				else {
-					for ( std::filesystem::directory_iterator it( search_dir, opts, ec ), end;
-					      !ec && ( it != end );
-					      it.increment( ec ) ) {
-						std::error_code entry_ec;
-						if ( it->is_regular_file( entry_ec ) &&
-						     wildcard_match( fname, it->path().filename().string(), kCaseInsensitiveGlob ) ) {
-							const std::filesystem::path rel = parent.empty()
-								? it->path().filename()
-								: ( parent / it->path().filename() );
-							matches.push_back( rel.string() );
+					std::filesystem::directory_iterator it( search_dir, opts, ec ), end;
+					if ( !ec ) {
+						while ( it != end ) {
+							std::error_code entry_ec;
+							const std::string entry_name = it->path().filename().string();
+							if ( it->is_regular_file( entry_ec ) &&
+							     wildcard_match( fname, entry_name, kCaseInsensitiveGlob ) ) {
+								const std::filesystem::path rel = parent.empty()
+									? it->path().filename()
+									: ( parent / it->path().filename() );
+								matches.push_back( rel.string() );
+							}
+							ec.clear();
+							it.increment( ec );
+							if ( ec ) {
+								ec.clear();
+							}
 						}
 					}
 				}
@@ -253,3 +344,4 @@ inline std::vector<CliInputItem> expand_cli_inputs(
 }
 
 #endif
+

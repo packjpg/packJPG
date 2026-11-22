@@ -1,4 +1,4 @@
-packJPG v2.5l (11/21/2026)
+packJPG v2.5m (11/21/2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 packJPG is a compression program specially designed for further
@@ -248,6 +248,10 @@ v2.5l (11/21/26) (public)
  - ~1.6x-1.7x codec & streaming I/O speedup
  - added -out, -r, wildcard, and -j parallel batch CLI options
  - cross-platform Linux, macOS, and Windows builds & test suite
+
+v2.5m (11/21/26) (public)
+ - fixed CLI file-safety, C/C++ library ABI, and codec round-trip/UB bugs
+ - added Windows IrfanView & Susie .pjg plug-in (contrib/irfanview)
 
 
 Acknowledgements

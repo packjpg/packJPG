@@ -162,3 +162,208 @@ TEST_CASE("concurrency: parallel packjpg::convert_memory and thread_local pjglib
 	}
 	REQUIRE_EQ(failures.load(), 0);
 }
+
+TEST_CASE("core codec regressions: high-ratio solid image, 320KB generic trailer, 16-bit DQT, custom->auto_set reuse, AC refine DHT, and err_tol=2 PJG") {
+	// 1. Solid 3072x3072 RGB 4:4:4 baseline JPEG (442,368 blocks -> >600 blocks/byte, exceeding old 512x cap!)
+	{
+		std::vector<std::uint8_t> solid_rgb = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		solid_rgb.insert(solid_rgb.end(), 64, 16);
+		// SOF0: 3072x3072, 3 components (1x1 each -> 442,368 total 8x8 blocks)
+		const std::uint8_t sof3[] = {
+			0xFF, 0xC0, 0x00, 0x11, 0x08,
+			0x0C, 0x00, 0x0C, 0x00, // 3072 x 3072
+			0x03,
+			0x01, 0x11, 0x00,
+			0x02, 0x11, 0x00,
+			0x03, 0x11, 0x00,
+			// DC table 0: symbol 0 -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// AC table 0: symbol 0 (EOB) -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// SOS: 3 components, all using Td=0/Ta=0; each block is 2 zero bits ('00') -> 442,368 * 2 bits = 110,592 zero bytes!
+			0xFF, 0xDA, 0x00, 0x0C, 0x03, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x3F, 0x00,
+		};
+		solid_rgb.insert(solid_rgb.end(), std::begin(sof3), std::end(sof3));
+		solid_rgb.insert(solid_rgb.end(), 110592, 0x00);
+		solid_rgb.push_back(0xFF);
+		solid_rgb.push_back(0xD9);
+
+		std::vector<std::uint8_t> pjg;
+		std::vector<std::uint8_t> rt;
+		std::string err;
+		REQUIRE(packjpg::convert_memory(solid_rgb.data(), solid_rgb.size(), pjg, &err));
+		REQUIRE(pjg.size() < 4096u); // >27:1 lossless compression over 110 KB JPEG!
+		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err));
+
+		REQUIRE(rt == solid_rgb);
+
+		// Calling jpg_setup_imginfo directly with ctx.str_in == nullptr must also allow >65,536 blocks
+		CodecContext hdr_ctx;
+		hdr_ctx.filetype = F_PJG;
+		hdr_ctx.hdrdata.assign(solid_rgb.begin() + 2, solid_rgb.begin() + 2 + 69 + 19);
+		REQUIRE(jpg_setup_imginfo(hdr_ctx));
+		REQUIRE_EQ(hdr_ctx.cmpnfo[0].bc, 147456);
+	}
+
+
+
+	// 2. Valid 8x8 JPEG with 320 KB of zero-filled trailing data (>1,000:1 generic stream compression ratio)
+	{
+		auto jpg_with_trailer = make_td0_ta1_jpeg(3);
+		jpg_with_trailer.insert(jpg_with_trailer.end(), 320 * 1024, 0x00);
+		std::vector<std::uint8_t> pjg;
+		std::vector<std::uint8_t> rt;
+		std::string err;
+		REQUIRE(packjpg::convert_memory(jpg_with_trailer.data(), jpg_with_trailer.size(), pjg, &err));
+		REQUIRE(pjg.size() < 1024u);
+		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err));
+		REQUIRE(rt == jpg_with_trailer);
+	}
+
+	// 3. 16-bit DQT (Pq=1, quant=50000) SOF1 16x16 JPEG with non-zero low-AC coefficients (exercises 64-bit pjg_lakh_context)
+	{
+		std::vector<std::uint8_t> jpg16 = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x83, 0x10, // Pq=1 (16-bit), Tq=0, length = 2 + 1 + 128 = 131 (0x0083)
+		};
+		for (int i = 0; i < 64; ++i) {
+			const std::uint16_t q = (i == 0) ? 16u : 50000u;
+			jpg16.push_back(static_cast<std::uint8_t>(q >> 8));
+			jpg16.push_back(static_cast<std::uint8_t>(q & 0xFF));
+		}
+		// SOF1 (extended sequential): 16x16 grayscale (4 blocks)
+		const std::uint8_t sof1[] = {
+			0xFF, 0xC1, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00,
+		};
+		jpg16.insert(jpg16.end(), std::begin(sof1), std::end(sof1));
+		jpg16.push_back(0xFF); jpg16.push_back(0xC4); jpg16.push_back(0x00); jpg16.push_back(0x1F); jpg16.push_back(0x00);
+		jpg16.insert(jpg16.end(), std_huff_tables[0], std_huff_tables[0] + std_huff_lengths[0]);
+		jpg16.push_back(0xFF); jpg16.push_back(0xC4); jpg16.push_back(0x00); jpg16.push_back(static_cast<std::uint8_t>(3 + std_huff_lengths[2])); jpg16.push_back(0x10);
+		jpg16.insert(jpg16.end(), std_huff_tables[2], std_huff_tables[2] + std_huff_lengths[2]);
+
+		HuffCodes dc_hc{}, ac_hc{};
+		HuffTree  dc_ht{}, ac_ht{};
+		jpg_build_huffcodes(std_huff_tables[0], std_huff_tables[0] + 16, &dc_hc, &dc_ht);
+		jpg_build_huffcodes(std_huff_tables[2], std_huff_tables[2] + 16, &ac_hc, &ac_ht);
+
+		BitWriter bw(1);
+		for (int blk = 0; blk < 4; ++blk) {
+			bw.write_u16(dc_hc.cval[0], dc_hc.clen[0]); // DC diff = 0
+			// Set first row/col AC coefficients to +1 (z=0, s=1 -> symbol 0x01, bit '1') for several zigzag positions
+			for (int k = 1; k <= 15; ++k) {
+				bw.write_u16(ac_hc.cval[0x01], ac_hc.clen[0x01]);
+				bw.write_bit(1);
+			}
+			bw.write_u16(ac_hc.cval[0x00], ac_hc.clen[0x00]); // EOB
+		}
+		const auto raw_scan = bw.take_bytes();
+		const std::uint8_t sos[] = {0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00};
+		jpg16.insert(jpg16.end(), std::begin(sos), std::end(sos));
+		for (std::uint8_t b : raw_scan) {
+			jpg16.push_back(b);
+			if (b == 0xFF) jpg16.push_back(0x00);
+		}
+		jpg16.push_back(0xFF); jpg16.push_back(0xD9);
+
+		std::vector<std::uint8_t> pjg16;
+		std::vector<std::uint8_t> rt16;
+		std::string err16;
+		REQUIRE(packjpg::convert_memory(jpg16.data(), jpg16.size(), pjg16, &err16));
+		REQUIRE(packjpg::convert_memory(pjg16.data(), pjg16.size(), rt16, &err16));
+		REQUIRE(rt16 == jpg16);
+	}
+
+	// 4. Custom-header PJG (auto_set=false) followed by standard PJG (auto_set=true) on the same CodecContext
+	{
+		const auto base_jpg = make_td0_ta1_jpeg(19);
+		CodecContext ctx;
+		ctx.auto_set  = false;
+		ctx.nois_trs  = {2, 2, 2, 2};
+		ctx.segm_cnt  = {25, 25, 25, 25};
+		ctx.filetype  = F_JPG;
+		ctx.str_in    = std::make_unique<MemoryReader>(base_jpg.data(), base_jpg.size());
+		auto custom_out = std::make_unique<MemoryWriter>();
+		MemoryWriter* custom_ptr = custom_out.get();
+		ctx.str_out   = std::move(custom_out);
+		std::uint8_t m[2];
+		ctx.str_in->read(m, 2);
+		ctx.reset_buffers();
+		process_standard_file(ctx);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+		const auto custom_pjg = custom_ptr->take_data();
+		REQUIRE_EQ(int(custom_pjg[2]), 0x00); // custom settings marker
+
+		std::vector<std::uint8_t> std_pjg;
+		REQUIRE(packjpg::convert_memory(base_jpg.data(), base_jpg.size(), std_pjg));
+		REQUIRE_EQ(int(std_pjg[2]), kAppVersion); // standard auto_set marker
+
+		// Decompress custom_pjg, then immediately decompress std_pjg on the SAME CodecContext!
+		CodecContext dec_ctx;
+		const std::vector<std::uint8_t>* const sources[] = {&custom_pjg, &std_pjg};
+		for (const auto* pjg_src : sources) {
+
+			dec_ctx.errorlevel = 0;
+			dec_ctx.filetype   = F_PJG;
+			dec_ctx.str_in     = std::make_unique<MemoryReader>(pjg_src->data(), pjg_src->size());
+			auto j_out         = std::make_unique<MemoryWriter>();
+			MemoryWriter* j_ptr = j_out.get();
+			dec_ctx.str_out    = std::move(j_out);
+			dec_ctx.str_in->read(m, 2);
+			dec_ctx.reset_buffers();
+			process_standard_file(dec_ctx);
+			REQUIRE_EQ(dec_ctx.errorlevel, 0);
+			REQUIRE(j_ptr->take_data() == base_jpg);
+		}
+	}
+
+	// 5. Progressive AC refinement scan referencing missing AC Huffman table is rejected cleanly
+	{
+		std::vector<std::uint8_t> bad_prog = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		bad_prog.insert(bad_prog.end(), 64, 16);
+		const std::uint8_t tail[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00, // SOF2 progressive
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// Scan 0: DC initial (Ss=0, Se=0, Ah=0, Al=0)
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+			0x00,
+			// Scan 1: AC refinement (Ss=1, Se=63, Ah=1, Al=0 -> 0x10) using undefined AC table 2 (0x02)!
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x02, 0x01, 0x3F, 0x10,
+			0x00,
+			0xFF, 0xD9,
+		};
+		bad_prog.insert(bad_prog.end(), std::begin(tail), std::end(tail));
+		std::vector<std::uint8_t> out;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(bad_prog.data(), bad_prog.size(), out, &err, false, 2));
+	}
+
+	// 6. JPEG with unknown marker (FF F0) compressed with err_tol=2 decompresses cleanly with default err_tol=1
+	{
+		auto quirky_jpg = make_td0_ta1_jpeg(7);
+		// Insert FF F0 (length 4: 0x00, 0x04, 'A', 'B') right after SOI (0xFF, 0xD8)
+		const std::uint8_t unk_seg[] = {0xFF, 0xF0, 0x00, 0x04, 'A', 'B'};
+		quirky_jpg.insert(quirky_jpg.begin() + 2, std::begin(unk_seg), std::end(unk_seg));
+
+		std::vector<std::uint8_t> pjg;
+		std::vector<std::uint8_t> rt;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(quirky_jpg.data(), quirky_jpg.size(), pjg, &err, false, 1));
+		REQUIRE(packjpg::convert_memory(quirky_jpg.data(), quirky_jpg.size(), pjg, &err, false, 2));
+		// Default strict err_tol=1 must decompress that .pjg back to exact quirky_jpg!
+		REQUIRE(packjpg::convert_memory(pjg.data(), pjg.size(), rt, &err, false, 1));
+		REQUIRE(rt == quirky_jpg);
+	}
+}
+

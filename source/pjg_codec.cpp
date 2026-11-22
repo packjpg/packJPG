@@ -3,10 +3,17 @@
 #include "jpeg_codec.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 
 namespace {
+
+constexpr std::size_t kMaxGenericStreamBytes      = 64u << 20; // 64 MiB
+constexpr std::size_t kMaxGenericExpansionPerByte = 2048u;     // > 1411:1 theoretical max of c_lim=255
+constexpr std::size_t kMaxRstErrBytes             = 65536u;
+
 
 void get_context_nnb( int pos, int w, int* a, int* b )
 {
@@ -118,21 +125,30 @@ inline int pjg_aavrg_context( const unsigned short* abs_store, const int* offset
 
 int pjg_lakh_context( const short* const* coeffs_x, int neighbor_off, const int* pred_cf, int pos )
 {
-	int pred = 0;
+	std::int64_t pred = 0;
 	const int npos = pos - neighbor_off;
 
-	pred -= ( coeffs_x[ 1 ][ pos ] + coeffs_x[ 1 ][ npos ] ) * pred_cf[ 1 ];
-	pred -= ( coeffs_x[ 2 ][ pos ] - coeffs_x[ 2 ][ npos ] ) * pred_cf[ 2 ];
-	pred -= ( coeffs_x[ 3 ][ pos ] + coeffs_x[ 3 ][ npos ] ) * pred_cf[ 3 ];
-	pred -= ( coeffs_x[ 4 ][ pos ] - coeffs_x[ 4 ][ npos ] ) * pred_cf[ 4 ];
-	pred -= ( coeffs_x[ 5 ][ pos ] + coeffs_x[ 5 ][ npos ] ) * pred_cf[ 5 ];
-	pred -= ( coeffs_x[ 6 ][ pos ] - coeffs_x[ 6 ][ npos ] ) * pred_cf[ 6 ];
-	pred -= ( coeffs_x[ 7 ][ pos ] + coeffs_x[ 7 ][ npos ] ) * pred_cf[ 7 ];
-	pred = ( ( pred > 0 ) ? ( pred + ( pred_cf[ 0 ] / 2 ) ) : ( pred - ( pred_cf[ 0 ] / 2 ) ) ) / pred_cf[ 0 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 1 ][ pos ] + coeffs_x[ 1 ][ npos ] ) * pred_cf[ 1 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 2 ][ pos ] - coeffs_x[ 2 ][ npos ] ) * pred_cf[ 2 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 3 ][ pos ] + coeffs_x[ 3 ][ npos ] ) * pred_cf[ 3 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 4 ][ pos ] - coeffs_x[ 4 ][ npos ] ) * pred_cf[ 4 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 5 ][ pos ] + coeffs_x[ 5 ][ npos ] ) * pred_cf[ 5 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 6 ][ pos ] - coeffs_x[ 6 ][ npos ] ) * pred_cf[ 6 ];
+	pred -= static_cast<std::int64_t>( coeffs_x[ 7 ][ pos ] + coeffs_x[ 7 ][ npos ] ) * pred_cf[ 7 ];
+	if ( pred_cf[ 0 ] != 0 ) {
+		const std::int64_t half = pred_cf[ 0 ] / 2;
+		pred = ( ( pred > 0 ) ? ( pred + half ) : ( pred - half ) ) / pred_cf[ 0 ];
+	}
+	else {
+		pred = 0;
+	}
 	pred += coeffs_x[ 0 ][ npos ];
 
-	return pred;
+	if ( pred < std::numeric_limits<int>::min() ) return std::numeric_limits<int>::min();
+	if ( pred > std::numeric_limits<int>::max() ) return std::numeric_limits<int>::max();
+	return static_cast<int>( pred );
 }
+
 
 void pjg_get_zerosort_scan( const CodecContext& ctx, unsigned char* sv, int cmp )
 {
@@ -633,9 +649,10 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 						const int bt = bit_n( absv, bp );
 						encode_ari( enc, mod_res, bt );
 					}
-					shift_model( mod_sgn, ctx_len, ctx_sgn );
+					mod_sgn->shift_context( ctx_sgn );
 					encode_ari( enc, mod_sgn, sgn );
 					zdstls[ dpos ]--;
+
 				}
 			}
 		}
@@ -974,10 +991,11 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 						const int bt = decode_ari( dec, mod_res );
 						absv = ( absv << 1 ) | ( bt ? 1 : 0 );
 					}
-					shift_model( mod_sgn, zdstls[ dpos ], ctx_sgn );
+					mod_sgn->shift_context( ctx_sgn );
 					const int sgn = decode_ari( dec, mod_sgn );
 					coeffs[ dpos ] = static_cast<short>( ( sgn == 0 ) ? absv : -absv );
 					zdstls[ dpos ]--;
+
 				}
 			}
 		}
@@ -1271,6 +1289,28 @@ bool calc_zdst_lists( CodecContext& ctx )
 	----------------------------------------------- */
 bool pack_pjg( CodecContext& ctx )
 {
+	if ( ( ctx.hdrdata.size() > kMaxGenericStreamBytes ) ||
+	     ( ctx.grbgdata.size() > kMaxGenericStreamBytes ) ||
+	     ( static_cast<std::size_t>( std::max( 0, ctx.scnc ) ) > kMaxRstErrBytes ) ) {
+		ctx.errormessage = "header or trailing data exceeds maximum supported size";
+		ctx.errorlevel   = 2;
+		return false;
+	}
+
+	if ( ctx.disc_meta ) {
+		if ( !jpg_rebuild_header( ctx ) ) return false;
+	}
+
+	std::vector<unsigned char> saved_hdr = ctx.hdrdata;
+	if ( !pjg_optimize_header( ctx ) ) {
+		ctx.hdrdata = std::move( saved_hdr );
+		return false;
+	}
+	std::vector<unsigned char> opt_hdr = std::move( ctx.hdrdata );
+	ctx.hdrdata = std::move( saved_hdr );
+
+	if ( ctx.padbit == -1 ) ctx.padbit = 1;
+
 	ctx.str_out->write( kPjgMagic, 2 );
 
 	if ( !ctx.auto_set ) {
@@ -1283,36 +1323,34 @@ bool pack_pjg( CodecContext& ctx )
 
 	ArithmeticEncoder encoder_obj( *ctx.str_out );
 	ArithmeticEncoder* encoder = &encoder_obj;
+	auto fail = [&]() {
+		encoder_obj.abandon();
+		return false;
+	};
 
-	if ( ctx.disc_meta ) {
-		if ( !jpg_rebuild_header( ctx ) ) return false;
-	}
-	if ( !pjg_optimize_header( ctx ) ) return false;
-	if ( ctx.padbit == -1 ) ctx.padbit = 1;
-
-	if ( !pjg_encode_generic( encoder, ctx.hdrdata.data(), ctx.hdrdata.size() ) ) return false;
-	if ( !pjg_encode_bit( encoder, static_cast<unsigned char>( ctx.padbit ) ) ) return false;
-	if ( !pjg_encode_bit( encoder, ctx.has_rst_err ? 1 : 0 ) ) return false;
+	if ( !pjg_encode_generic( encoder, opt_hdr.data(), opt_hdr.size() ) ) return fail();
+	if ( !pjg_encode_bit( encoder, static_cast<unsigned char>( ctx.padbit ) ) ) return fail();
+	if ( !pjg_encode_bit( encoder, ctx.has_rst_err ? 1 : 0 ) ) return fail();
 	if ( ctx.has_rst_err ) {
 		if ( ctx.rst_err.size() < static_cast<std::size_t>( ctx.scnc ) )
 			ctx.rst_err.resize( static_cast<std::size_t>( ctx.scnc ), 0 );
 		if ( !pjg_encode_generic( encoder, ctx.rst_err.data(), static_cast<std::size_t>( ctx.scnc ) ) )
-			return false;
+			return fail();
 	}
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
-		if ( !pjg_encode_zstscan( ctx, encoder, cmp ) ) return false;
-		if ( !pjg_encode_zdst_high( ctx, encoder, cmp ) ) return false;
-		if ( !pjg_encode_ac_high( ctx, encoder, cmp ) ) return false;
-		if ( !pjg_encode_zdst_low( ctx, encoder, cmp ) ) return false;
-		if ( !pjg_encode_ac_low( ctx, encoder, cmp ) ) return false;
-		if ( !pjg_encode_dc( ctx, encoder, cmp ) ) return false;
+		if ( !pjg_encode_zstscan( ctx, encoder, cmp ) ) return fail();
+		if ( !pjg_encode_zdst_high( ctx, encoder, cmp ) ) return fail();
+		if ( !pjg_encode_ac_high( ctx, encoder, cmp ) ) return fail();
+		if ( !pjg_encode_zdst_low( ctx, encoder, cmp ) ) return fail();
+		if ( !pjg_encode_ac_low( ctx, encoder, cmp ) ) return fail();
+		if ( !pjg_encode_dc( ctx, encoder, cmp ) ) return fail();
 	}
 
-	if ( !pjg_encode_bit( encoder, ctx.grbgdata.empty() ? 0 : 1 ) ) return false;
+	if ( !pjg_encode_bit( encoder, ctx.grbgdata.empty() ? 0 : 1 ) ) return fail();
 	if ( !ctx.grbgdata.empty() ) {
 		if ( !pjg_encode_generic( encoder, ctx.grbgdata.data(), ctx.grbgdata.size() ) )
-			return false;
+			return fail();
 	}
 
 	encoder_obj.finalize();
@@ -1323,7 +1361,7 @@ bool pack_pjg( CodecContext& ctx )
 		return false;
 	}
 
-	ctx.pjgfilesize = static_cast<int>( ctx.str_out->num_bytes_written() );
+	ctx.pjgfilesize = static_cast<std::int64_t>( ctx.str_out->num_bytes_written() );
 	return true;
 }
 
@@ -1335,6 +1373,8 @@ bool unpack_pjg( CodecContext& ctx )
 {
 	unsigned char hcode = 0;
 	unsigned char cb    = 0;
+
+	ctx.auto_set = true;
 
 	while ( true ) {
 		if ( !ctx.str_in->read_byte( &hcode ) ) {
@@ -1375,9 +1415,15 @@ bool unpack_pjg( CodecContext& ctx )
 	}
 
 	const std::size_t in_bytes = ( ctx.str_in != nullptr ) ? ctx.str_in->get_size() : 0;
-	const std::size_t max_generic = std::min<std::size_t>(
-		32u << 20,
-		std::max<std::size_t>( 262144u, ( in_bytes <= ( ( 32u << 20 ) / 32u ) ) ? ( in_bytes * 32u ) : ( 32u << 20 ) ) );
+	const std::size_t max_generic = ( ctx.str_in == nullptr )
+		? kMaxGenericStreamBytes
+		: std::min<std::size_t>(
+			kMaxGenericStreamBytes,
+			std::max<std::size_t>(
+				524288u,
+				( in_bytes <= ( kMaxGenericStreamBytes / kMaxGenericExpansionPerByte ) )
+					? ( in_bytes * kMaxGenericExpansionPerByte )
+					: kMaxGenericStreamBytes ) );
 
 	ArithmeticDecoder decoder_obj( *ctx.str_in );
 	ArithmeticDecoder* decoder = &decoder_obj;
@@ -1393,7 +1439,7 @@ bool unpack_pjg( CodecContext& ctx )
 	if ( !pjg_decode_bit( decoder, &cb ) ) return false;
 	ctx.has_rst_err = ( cb == 1 );
 	if ( ctx.has_rst_err ) {
-		if ( !pjg_decode_generic( decoder, ctx.rst_err, 65536u ) ) {
+		if ( !pjg_decode_generic( decoder, ctx.rst_err, kMaxRstErrBytes ) ) {
 			ctx.errormessage = "corrupted restart error data";
 			ctx.errorlevel = 2;
 			return false;
@@ -1428,7 +1474,7 @@ bool unpack_pjg( CodecContext& ctx )
 		return false;
 	}
 
-	ctx.pjgfilesize = static_cast<int>( ctx.str_in->get_size() );
+	ctx.pjgfilesize = static_cast<std::int64_t>( ( ctx.str_in != nullptr ) ? ctx.str_in->get_size() : 0 );
 	return true;
 }
 
@@ -1441,13 +1487,16 @@ int idct_2d_fst_8x8( const CodecContext& ctx, int cmp, int dpos, int ix, int iy 
 	if ( !ctx.adpt_idct_8x8 ) {
 		return 0;
 	}
-	int idct = 0;
+	std::int64_t idct = 0;
 	const int ixy = ( ( iy << 3 ) + ix ) << 6;
 	const auto& tbl = ( *ctx.adpt_idct_8x8 )[ cmp ];
 
 	for ( int i = 0; i < 64; i++ ) {
-		idct += ctx.colldata[ cmp ][ zigzag[ i ] ][ dpos ] * tbl[ ixy + i ];
+		idct += static_cast<std::int64_t>( ctx.colldata[ cmp ][ zigzag[ i ] ][ dpos ] ) * tbl[ ixy + i ];
 	}
 
-	return idct;
+	if ( idct < std::numeric_limits<int>::min() ) return std::numeric_limits<int>::min();
+	if ( idct > std::numeric_limits<int>::max() ) return std::numeric_limits<int>::max();
+	return static_cast<int>( idct );
 }
+

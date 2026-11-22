@@ -58,8 +58,8 @@ public:
 		}
 	}
 
-	void write_n_zero_bits(std::size_t n);
-	void write_n_one_bits(std::size_t n);
+	void write_n_zero_bits(std::uint64_t n);
+	void write_n_one_bits(std::uint64_t n);
 	void pad();
 	void flush_to_sink();
 
@@ -94,7 +94,7 @@ public:
 	explicit ArithmeticEncoder(Writer& writer);
 	ArithmeticEncoder(const ArithmeticEncoder&) = delete;
 	ArithmeticEncoder& operator=(const ArithmeticEncoder&) = delete;
-	~ArithmeticEncoder();
+	~ArithmeticEncoder() noexcept;
 
 	inline void encode( symbol* s )
 	{
@@ -138,6 +138,7 @@ public:
 	}
 
 	void finalize();
+	void abandon() noexcept { finalized = true; }
 
 private:
 	bool finalized = false;
@@ -146,8 +147,9 @@ private:
 	unsigned int clow = 0;
 	unsigned int chigh = CODER_LIMIT100 - 1;
 	unsigned int cstep = 0;
-	unsigned int nrbits = 0;
+	std::uint64_t nrbits = 0;
 };
+
 
 class ArithmeticDecoder {
 public:
@@ -323,6 +325,10 @@ public:
 
 	inline int convert_int_to_symbol( int c, symbol* s )
 	{
+		if ( c < 0 || c >= max_symbol || current_order < 0 || current_order > max_order ) {
+			throw std::runtime_error( "symbol out of range in arithmetic encoder" );
+		}
+
 		const std::int32_t node_idx = contexts_[ static_cast<std::size_t>( current_order ) ];
 		totalize_table( node_idx );
 
@@ -332,14 +338,21 @@ public:
 		if ( counts_pool_[ static_cast<std::size_t>( context.counts_offset + c ) ] > 0 ) {
 			s->low_count  = totals[ static_cast<std::size_t>( c + 2 ) ];
 			s->high_count = totals[ static_cast<std::size_t>( c + 1 ) ];
+			if ( s->high_count <= s->low_count ) {
+				throw std::runtime_error( "excluded symbol in arithmetic encoder" );
+			}
 			return 0;
 		}
 
+		if ( current_order <= 0 || totals[ 0 ] <= totals[ 1 ] ) {
+			throw std::runtime_error( "cannot escape null order in arithmetic encoder" );
+		}
 		s->low_count  = totals[ 1 ];
 		s->high_count = totals[ 0 ];
 		current_order--;
 		return 1;
 	}
+
 
 	inline void get_symbol_scale( symbol* s )
 	{
