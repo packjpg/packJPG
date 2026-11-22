@@ -61,8 +61,8 @@ TEST_CASE("library: version, PJGLIB_MSG_SIZE, pjglib_free, and IEEE subnormal pr
 	const char* name = pjglib_short_name();
 	REQUIRE(ver != nullptr);
 	REQUIRE(name != nullptr);
-	REQUIRE(std::strstr(ver, "v2.5") != nullptr);
-	REQUIRE(std::strncmp(name, "packJPG v2.5", 12) == 0);
+	REQUIRE(std::strstr(ver, "v2.5n (11/22/2026)") != nullptr);
+	REQUIRE_EQ(std::string(name), std::string("packJPG v2.5n"));
 }
 
 TEST_CASE("library: memory-to-memory compress/decompress via pjglib_free and out_type validation") {

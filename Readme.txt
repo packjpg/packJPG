@@ -1,4 +1,4 @@
-packJPG v2.5m (11/21/2026)
+packJPG v2.5n (11/22/2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 packJPG is a compression program specially designed for further
@@ -252,6 +252,10 @@ v2.5l (11/21/26) (public)
 v2.5m (11/21/26) (public)
  - fixed CLI file-safety, C/C++ library ABI, and codec round-trip/UB bugs
  - added Windows IrfanView & Susie .pjg plug-in (contrib/irfanview)
+
+v2.5n (11/22/26) (public)
+ - hardened atomic staging, symlink target preservation, and -ver isolation
+ - fixed progressive sparse-EOBRUN, Huffman/RST, and IrfanView/Susie plug-in bugs
 
 
 Acknowledgements

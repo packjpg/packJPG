@@ -24,9 +24,9 @@ constexpr std::size_t kErrBufMax = PJGLIB_MSG_SIZE; // 128 chars / wchar_ts
 
 const char* short_version_number() noexcept
 {
-	const char* full = pjglib_short_name(); // e.g. "packJPG v2.5m"
+	const char* full = pjglib_short_name(); // e.g. "packJPG v2.5n"
 	if ( full == nullptr ) {
-		return "2.5m";
+		return "2.5n";
 	}
 	const char* v = std::strstr( full, " v" );
 	return ( v != nullptr && v[ 2 ] != '\0' ) ? ( v + 2 ) : full;
