@@ -50,9 +50,42 @@ using SavePJGFn       = int ( __cdecl * )( LPCSTR, HANDLE, int, LPSTR );
 
 using SpiGetPluginInfoFn   = int ( __stdcall * )( int, LPSTR, int );
 using SpiGetPluginInfoWFn  = int ( __stdcall * )( int, LPWSTR, int );
+using SpiIsSupportedFn     = int ( __stdcall * )( LPCSTR, DWORD_PTR );
 using SpiIsSupportedWFn    = int ( __stdcall * )( LPCWSTR, DWORD_PTR );
+using SpiGetPictureInfoFn  = int ( __stdcall * )( LPCSTR, LONG_PTR, unsigned int, SusiePictureInfo* );
 using SpiGetPictureInfoWFn = int ( __stdcall * )( LPCWSTR, LONG_PTR, unsigned int, SusiePictureInfo* );
+using SpiGetPictureFn      = int ( __stdcall * )( LPCSTR, LONG_PTR, unsigned int, HANDLE*, HANDLE*, SpiProgressCallback, LONG_PTR );
 using SpiGetPictureWFn     = int ( __stdcall * )( LPCWSTR, LONG_PTR, unsigned int, HANDLE*, HANDLE*, SpiProgressCallback, LONG_PTR );
+
+void verify_no_mingw_runtime_dll_imports( HMODULE mod )
+{
+	const auto* base = reinterpret_cast<const std::uint8_t*>( mod );
+	const auto* dos  = reinterpret_cast<const IMAGE_DOS_HEADER*>( base );
+	CHECK_COND( dos->e_magic == IMAGE_DOS_SIGNATURE );
+	const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>( base + dos->e_lfanew );
+	CHECK_COND( nt->Signature == IMAGE_NT_SIGNATURE );
+
+	const IMAGE_DATA_DIRECTORY& imp_dir =
+		nt->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_IMPORT ];
+	if ( ( imp_dir.VirtualAddress == 0 ) || ( imp_dir.Size == 0 ) ) {
+		return;
+	}
+	const auto* imp = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>( base + imp_dir.VirtualAddress );
+	for ( ; imp->Name != 0; ++imp ) {
+		const char* dll_name = reinterpret_cast<const char*>( base + imp->Name );
+		std::string lower;
+		for ( const char* p = dll_name; *p != '\0'; ++p ) {
+			lower.push_back( static_cast<char>(
+				( *p >= 'A' && *p <= 'Z' ) ? ( *p - 'A' + 'a' ) : *p ) );
+		}
+		if ( ( lower.rfind( "libwinpthread", 0 ) == 0 ) ||
+		     ( lower.rfind( "libstdc++", 0 ) == 0 ) ||
+		     ( lower.rfind( "libgcc", 0 ) == 0 ) ) {
+			std::fprintf( stderr, "Forbidden dynamic MinGW runtime import in plugin DLL: %s\n", dll_name );
+			std::exit( 1 );
+		}
+	}
+}
 
 HGLOBAL make_test_rgb24_dib( int width, int height, bool top_down = false )
 {
@@ -290,6 +323,7 @@ void verify_plugin_module( const wchar_t* dll_path )
 {
 	HMODULE mod = LoadLibraryW( dll_path );
 	CHECK_COND( mod != nullptr );
+	verify_no_mingw_runtime_dll_imports( mod );
 
 	auto fn_info    = load_proc<GetPlugInInfoFn>( mod, "GetPlugInInfo" );
 	auto fn_read_w  = load_proc<ReadPJGWFn>( mod, "ReadPJG_W" );
@@ -299,10 +333,14 @@ void verify_plugin_module( const wchar_t* dll_path )
 
 	auto spi_info_a  = load_proc<SpiGetPluginInfoFn>( mod, "GetPluginInfo" );
 	auto spi_info_w  = load_proc<SpiGetPluginInfoWFn>( mod, "GetPluginInfoW" );
+	auto spi_supp_a  = load_proc<SpiIsSupportedFn>( mod, "IsSupported" );
 	auto spi_supp_w  = load_proc<SpiIsSupportedWFn>( mod, "IsSupportedW" );
+	auto spi_pinfo_a = load_proc<SpiGetPictureInfoFn>( mod, "GetPictureInfo" );
 	auto spi_pinfo_w = load_proc<SpiGetPictureInfoWFn>( mod, "GetPictureInfoW" );
+	auto spi_pic_a   = load_proc<SpiGetPictureFn>( mod, "GetPicture" );
 	auto spi_pic_w   = load_proc<SpiGetPictureWFn>( mod, "GetPictureW" );
-	(void) load_proc<SpiGetPictureWFn>( mod, "GetPreviewW" );
+	auto spi_prev_a  = load_proc<SpiGetPictureFn>( mod, "GetPreview" );
+	auto spi_prev_w  = load_proc<SpiGetPictureWFn>( mod, "GetPreviewW" );
 
 	// 1. Metadata queries
 	char ver[ 16 ]{};
@@ -706,7 +744,7 @@ void verify_plugin_module( const wchar_t* dll_path )
 			DeleteFileW( ( ext_long_dir + L"\\a.pjg" ).c_str() );
 		}
 
-		// Dangling symlink write-through + symlink loop rejection (when symlink privilege/Developer Mode is enabled)
+		// Dangling symlink write-through, symlinked-dir '../' relative symlink, and symlink loop rejection
 		const std::filesystem::path dangle_target = tmp_dir / L"dangling_real_out.pjg";
 		const std::filesystem::path dangle_link   = tmp_dir / L"dangling_link_out.pjg";
 		std::error_code sym_ec;
@@ -715,6 +753,22 @@ void verify_plugin_module( const wchar_t* dll_path )
 			CHECK_COND( fn_save_w( dangle_link.c_str(), h_red, 90, werr ) == 0 );
 			CHECK_COND( std::filesystem::is_symlink( dangle_link ) );
 			CHECK_COND( std::filesystem::is_regular_file( dangle_target ) );
+
+			// Bug #9: symlinked parent directory + '..\rel_target.pjg' resolves relative to canonical parent!
+			const std::filesystem::path real_parent = tmp_dir / L"real_parent_iv";
+			const std::filesystem::path real_sub    = real_parent / L"sub";
+			const std::filesystem::path sym_sub     = tmp_dir / L"sym_sub_iv";
+			std::filesystem::create_directories( real_sub );
+			std::filesystem::create_directory_symlink( real_sub, sym_sub, sym_ec );
+			if ( !sym_ec ) {
+				const std::filesystem::path rel_link = sym_sub / L"via_sym.pjg";
+				std::filesystem::create_symlink( L"..\\rel_target.pjg", rel_link, sym_ec );
+				if ( !sym_ec ) {
+					CHECK_COND( fn_save_w( rel_link.c_str(), h_red, 90, werr ) == 0 );
+					CHECK_COND( std::filesystem::is_regular_file( real_parent / L"rel_target.pjg" ) );
+					CHECK_COND( !std::filesystem::exists( tmp_dir / L"rel_target.pjg" ) );
+				}
+			}
 
 			const std::filesystem::path loop_a = tmp_dir / L"loop_a.pjg";
 			const std::filesystem::path loop_b = tmp_dir / L"loop_b.pjg";
@@ -730,6 +784,69 @@ void verify_plugin_module( const wchar_t* dll_path )
 		}
 
 		GlobalFree( h_red );
+	}
+
+	// 10. Fourth-pass regressions: CMYK flags=0 (24bppBGR), metadata-stripped (-d) PJG decode,
+	//     Susie 0xFFFFFFFFu / odd-aligned SPI_INPUT_MEMORY, ANSI Susie exports, and GetPreview/GetPreviewW!
+	{
+		// CMYK 8x8 decoded with flags = 0 -> 24bpp BGR DIB
+		const std::filesystem::path cmyk_pjg = tmp_dir / L"cmyk_8x8.pjg";
+		HANDLE h_cmyk_bgr = fn_read_w( cmyk_pjg.c_str(), 0u, werr );
+		CHECK_COND( h_cmyk_bgr != nullptr );
+		{
+			const auto* bih = static_cast<const BITMAPINFOHEADER*>( GlobalLock( h_cmyk_bgr ) );
+			CHECK_COND( bih != nullptr && bih->biWidth == 8 && bih->biHeight == 8 && bih->biBitCount == 24 );
+			GlobalUnlock( h_cmyk_bgr );
+		}
+		GlobalFree( h_cmyk_bgr );
+
+		// Metadata-stripped (discard_meta = true -> bare SOF0 without JFIF APP0) PJG decodes cleanly
+		std::vector<std::uint8_t> stripped_pjg_bytes;
+		CHECK_COND( packjpg::convert_memory(
+			decoded_jpg.data(), decoded_jpg.size(), stripped_pjg_bytes, nullptr, /*discard_meta=*/true ) );
+		const std::filesystem::path stripped_pjg = tmp_dir / L"stripped_meta.pjg";
+		{
+			std::ofstream ofs( stripped_pjg, std::ios::binary );
+			ofs.write( reinterpret_cast<const char*>( stripped_pjg_bytes.data() ),
+				static_cast<std::streamsize>( stripped_pjg_bytes.size() ) );
+		}
+		HANDLE h_stripped = fn_read_w( stripped_pjg.c_str(), 0u, werr );
+		CHECK_COND( h_stripped != nullptr );
+		GlobalFree( h_stripped );
+
+		// Bug #12: 32-bit 0xFFFFFFFFu widened to DWORD_PTR & unmapped odd values return 0 without raising invalid-handle exceptions
+		CHECK_COND( spi_supp_a( "inv32.pjg", static_cast<DWORD_PTR>( 0xFFFFFFFFu ) ) == 0 );
+		CHECK_COND( spi_supp_w( L"inv32.pjg", static_cast<DWORD_PTR>( 0xFFFFFFFFu ) ) == 0 );
+		CHECK_COND( spi_supp_a( "odd_bad.pjg", static_cast<DWORD_PTR>( 0xDEADBEEFu ) ) == 0 );
+
+		// Bug #12 & #18: odd-aligned SPI_INPUT_MEMORY buffer (buf + 1) across ANSI & Wide Susie exports + GetPreview/GetPreviewW
+		std::vector<std::uint8_t> odd_storage( pjg_file_bytes.size() + 8, 0 );
+		std::memcpy( odd_storage.data() + 1, pjg_file_bytes.data(), pjg_file_bytes.size() );
+		const char* odd_ptr_a    = reinterpret_cast<const char*>( odd_storage.data() + 1 );
+		const LPCWSTR odd_ptr_w  = reinterpret_cast<LPCWSTR>( odd_storage.data() + 1 );
+		const LONG_PTR odd_len   = static_cast<LONG_PTR>( pjg_file_bytes.size() );
+
+		CHECK_COND( spi_supp_a( "mem.pjg", reinterpret_cast<DWORD_PTR>( odd_ptr_a ) ) == 1 );
+		SusiePictureInfo info_a{};
+		CHECK_COND( spi_pinfo_a( odd_ptr_a, odd_len, SPI_INPUT_MEMORY, &info_a ) == SPI_ALL_RIGHT );
+		CHECK_COND( info_a.width == 24 && info_a.height == 16 && info_a.colorDepth == 24 );
+
+		HANDLE hbi = nullptr;
+		HANDLE hbm2 = nullptr;
+		CHECK_COND( spi_pic_a( odd_ptr_a, odd_len, SPI_INPUT_MEMORY, &hbi, &hbm2, nullptr, 0 ) == SPI_ALL_RIGHT );
+		CHECK_COND( hbi != nullptr && hbm2 != nullptr );
+		LocalFree( hbi );
+		LocalFree( hbm2 );
+
+		CHECK_COND( spi_prev_a( odd_ptr_a, odd_len, SPI_INPUT_MEMORY, &hbi, &hbm2, nullptr, 0 ) == SPI_ALL_RIGHT );
+		CHECK_COND( hbi != nullptr && hbm2 != nullptr );
+		LocalFree( hbi );
+		LocalFree( hbm2 );
+
+		CHECK_COND( spi_prev_w( odd_ptr_w, odd_len, SPI_INPUT_MEMORY, &hbi, &hbm2, nullptr, 0 ) == SPI_ALL_RIGHT );
+		CHECK_COND( hbi != nullptr && hbm2 != nullptr );
+		LocalFree( hbi );
+		LocalFree( hbm2 );
 	}
 
 	FreeLibrary( mod );

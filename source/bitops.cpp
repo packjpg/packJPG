@@ -158,15 +158,19 @@ unsigned char* BitWriter::get_c_bytes() {
 }
 
 unsigned char* Reader::get_c_data() {
-	const auto data = this->get_data();
-	auto c_data_copy = static_cast<unsigned char*>(std::malloc(std::max<std::size_t>(1, data.size()) * sizeof data[0]));
-	if (c_data_copy == nullptr) {
+	try {
+		const auto data = this->get_data();
+		auto c_data_copy = static_cast<unsigned char*>(std::malloc(std::max<std::size_t>(1, data.size()) * sizeof data[0]));
+		if (c_data_copy == nullptr) {
+			return nullptr;
+		}
+		if (!data.empty()) {
+			std::copy(std::begin(data), std::end(data), c_data_copy);
+		}
+		return c_data_copy;
+	} catch (...) {
 		return nullptr;
 	}
-	if (!data.empty()) {
-		std::copy(std::begin(data), std::end(data), c_data_copy);
-	}
-	return c_data_copy;
 }
 
 MemoryReader::MemoryReader(const std::vector<std::uint8_t>& bytes) :
@@ -321,10 +325,10 @@ bool MemoryWriter::error() {
 	return err_;
 }
 
-FileWriter::FileWriter(const std::string& file_path, bool exclusive) : file_path_(file_path) {
+FileWriter::FileWriter(const std::string& file_path, bool exclusive)
+	: file_buffer_(32768), file_path_(file_path) {
 	fptr_ = exclusive ? open_exclusive_file_utf8(file_path) : fopen_utf8(file_path, "wb");
 	if (fptr_ != nullptr) {
-		file_buffer_.resize(32768);
 		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 	} else {
 		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
@@ -333,12 +337,17 @@ FileWriter::FileWriter(const std::string& file_path, bool exclusive) : file_path
 
 FileWriter::FileWriter(FILE* owned_stream, const std::string& file_path)
 	: fptr_(owned_stream), file_path_(file_path) {
-	if (fptr_ != nullptr) {
-		file_buffer_.resize(32768);
-		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
-	} else {
+	if (fptr_ == nullptr) {
 		throw std::runtime_error("Unable to open " + file_path_ + " for writing.");
 	}
+	try {
+		file_buffer_.resize(32768);
+	} catch (...) {
+		std::fclose(fptr_);
+		fptr_ = nullptr;
+		throw;
+	}
+	std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 }
 
 FileWriter::~FileWriter() {
@@ -358,6 +367,7 @@ std::size_t FileWriter::write(const std::uint8_t* from, std::size_t n) {
 		return 0;
 	}
 	const std::size_t written = std::fwrite(from, sizeof from[0], n, fptr_);
+	bytes_written_ += written;
 	if (written != n) {
 		err_ = true;
 	}
@@ -377,6 +387,7 @@ bool FileWriter::write_byte(std::uint8_t byte) {
 		err_ = true;
 		return false;
 	}
+	++bytes_written_;
 	return true;
 }
 
@@ -385,7 +396,7 @@ std::vector<std::uint8_t> FileWriter::get_data() {
 		err_ = true;
 		throw std::runtime_error("FileWriter::get_data: flush failed.");
 	}
-	const std::filesystem::path fs_path = path_from_utf8(file_path_);
+	const std::filesystem::path fs_path = fs_path_for_sys(file_path_);
 	if (std::ifstream is{ fs_path, std::ios::binary | std::ios::ate }) {
 		const auto size = is.tellg();
 		if (size < 0) {
@@ -414,14 +425,13 @@ void FileWriter::reset() {
 		std::fclose(fptr_);
 		fptr_ = nullptr;
 	}
+	bytes_written_ = 0;
 	closed_ = false;
-	if (!is_non_regular_stream_target(file_path_)) {
-		fptr_ = fopen_utf8(file_path_, "wb");
-		if (fptr_ != nullptr && !file_buffer_.empty()) {
-			std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
-		}
+	fptr_ = fopen_utf8(file_path_, "wb");
+	if (fptr_ != nullptr && !file_buffer_.empty()) {
+		std::setvbuf(fptr_, file_buffer_.data(), _IOFBF, file_buffer_.size());
 	}
-	err_ = (fptr_ == nullptr) && !is_non_regular_stream_target(file_path_);
+	err_ = (fptr_ == nullptr);
 }
 
 bool FileWriter::flush() {
@@ -453,13 +463,7 @@ std::size_t FileWriter::num_bytes_written() {
 		err_ = true;
 		return 0;
 	}
-	std::error_code ec;
-	const auto fsz = std::filesystem::file_size(path_from_utf8(file_path_), ec);
-	if (!ec && fsz <= static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())) {
-		return static_cast<std::size_t>(fsz);
-	}
-	const long pos = (fptr_ != nullptr) ? std::ftell(fptr_) : -1L;
-	return (pos >= 0) ? static_cast<std::size_t>(pos) : 0;
+	return err_ ? 0 : bytes_written_;
 }
 
 bool FileWriter::error() {
@@ -469,11 +473,20 @@ bool FileWriter::error() {
 	return err_ || (fptr_ == nullptr && !closed_);
 }
 
-StreamWriter::StreamWriter(FILE* stream) : stream_(stream) {
+StreamWriter::StreamWriter(FILE* stream, bool own_stream)
+	: stream_(stream), own_stream_(own_stream) {
 	if (stream_ == nullptr) {
 		throw std::runtime_error("StreamWriter: null FILE* stream.");
 	}
-	writer_ = std::make_unique<MemoryWriter>();
+	try {
+		writer_ = std::make_unique<MemoryWriter>();
+	} catch (...) {
+		if (own_stream_ && stream_ != nullptr) {
+			std::fclose(stream_);
+			stream_ = nullptr;
+		}
+		throw;
+	}
 }
 
 StreamWriter::~StreamWriter() {
@@ -483,13 +496,17 @@ StreamWriter::~StreamWriter() {
 		} catch (...) {
 		}
 	}
+	if (own_stream_ && stream_ != nullptr) {
+		std::fclose(stream_);
+		stream_ = nullptr;
+	}
 }
 
 std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
 	if (n == 0) {
 		return 0;
 	}
-	if (from == nullptr) {
+	if (from == nullptr || closed_) {
 		error_ = true;
 		return 0;
 	}
@@ -498,19 +515,18 @@ std::size_t StreamWriter::write(const std::uint8_t* from, std::size_t n) {
 }
 
 std::size_t StreamWriter::write(const std::vector<std::uint8_t>& bytes) {
-	if (bytes.empty()) {
-		return 0;
-	}
-	flushed_ = false;
-	return writer_->write(bytes);
+	return write(bytes.data(), bytes.size());
 }
 
 std::size_t StreamWriter::write(const std::array<std::uint8_t, 2>& bytes) {
-	flushed_ = false;
-	return writer_->write(bytes);
+	return write(bytes.data(), 2);
 }
 
 bool StreamWriter::write_byte(std::uint8_t byte) {
+	if (closed_) {
+		error_ = true;
+		return false;
+	}
 	flushed_ = false;
 	return writer_->write_byte(byte);
 }
@@ -535,8 +551,8 @@ bool StreamWriter::flush() {
 	}
 #if defined(_WIN32) || defined(WIN32)
 	if (stream_ == stdout) {
-		const int result = _setmode(_fileno(stdout), _O_BINARY);
-		if (result == -1) {
+		const int fd = _fileno(stdout);
+		if (fd < 0 || _setmode(fd, _O_BINARY) == -1) {
 			error_ = true;
 			return false;
 		}
@@ -558,17 +574,29 @@ bool StreamWriter::flush() {
 	return !error_;
 }
 
+bool StreamWriter::close() {
+	const bool flush_ok = flush();
+	if (own_stream_ && stream_ != nullptr) {
+		if (std::fclose(stream_) != 0) {
+			error_ = true;
+		}
+		stream_ = nullptr;
+		closed_ = true;
+	}
+	return flush_ok && !error_;
+}
+
 std::size_t StreamWriter::num_bytes_written() {
 	return writer_->num_bytes_written();
 }
 
 bool StreamWriter::error() {
-	return error_ || writer_->error() || (stream_ == nullptr) || std::ferror(stream_);
+	return error_ || writer_->error() || (stream_ == nullptr && !closed_) || (stream_ != nullptr && std::ferror(stream_));
 }
 
 
 FileReader::FileReader(const std::string& file_path) {
-	const std::filesystem::path fs_path = path_from_utf8(file_path);
+	const std::filesystem::path fs_path = fs_path_for_sys(file_path);
 	std::error_code ec;
 	if (std::filesystem::is_directory(fs_path, ec)) {
 		throw std::runtime_error("FileReader: path is a directory: " + file_path);
@@ -655,8 +683,8 @@ StreamReader::StreamReader(FILE* stream) {
 	}
 #if defined(_WIN32) || defined(WIN32)
 	if (stream == stdin) {
-		const int result = _setmode(_fileno(stdin), _O_BINARY);
-		if (result == -1) {
+		const int fd = _fileno(stdin);
+		if (fd < 0 || _setmode(fd, _O_BINARY) == -1) {
 			throw std::runtime_error("Unable to set mode for stdin");
 		}
 	}

@@ -8,8 +8,13 @@ bool merge_jpeg( CodecContext& ctx );
 bool decode_jpeg( CodecContext& ctx );
 bool recode_jpeg( CodecContext& ctx );
 
-bool jpg_setup_imginfo( CodecContext& ctx );
-bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, const unsigned char* segment );
+bool jpg_setup_imginfo( CodecContext& ctx, bool from_pjg );
+inline bool jpg_setup_imginfo( CodecContext& ctx ) { return jpg_setup_imginfo( ctx, ctx.filetype == F_PJG ); }
+bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, const unsigned char* segment, bool from_pjg );
+inline bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, const unsigned char* segment )
+{
+	return jpg_parse_jfif( ctx, type, len, segment, ctx.filetype == F_PJG );
+}
 bool jpg_rebuild_header( CodecContext& ctx );
 
 int  jpg_next_huffcode( BitReader* huffr, const HuffTree* ctree );

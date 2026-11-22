@@ -197,6 +197,11 @@ bool pjg_optimize_header( CodecContext& ctx )
 					return false;
 				}
 				hpos++;
+				if ( ctx.hdrdata[ hpos ] > 2 ) {
+					ctx.errormessage = "size mismatch in dht marker";
+					ctx.errorlevel = 2;
+					return false;
+				}
 				for ( int i = 0; i < 4; i++ ) {
 					if ( hpos + std_huff_lengths[ i ] > fpos )
 						continue;
@@ -571,7 +576,7 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 
 	auto mod_len = init_model_s( 11, ( ctx.segm_cnt[ cmp ] > 11 ) ? ctx.segm_cnt[ cmp ] : 11, 2 );
 	auto mod_res = init_model_b( 1 << 4, 2 );
-	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3 );
+	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3, 16 );
 	auto mod_sgn = init_model_b( 11, 1 );
 
 	const int bc = ctx.cmpnfo[ cmp ].bc;
@@ -639,7 +644,7 @@ bool pjg_encode_ac_low( CodecContext& ctx, ArithmeticEncoder* enc, int cmp )
 					const int ctx_abs = abs_val( ctx_lak );
 					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
 					for ( ; bp >= thrs_bp; bp-- ) {
-						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						mod_top->select_context_3( ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
 						const int bt = bit_n( absv, bp );
 						encode_ari( enc, mod_top, bt );
 						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
@@ -919,7 +924,7 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 
 	auto mod_len = init_model_s( 11, ( ctx.segm_cnt[ cmp ] > 11 ) ? ctx.segm_cnt[ cmp ] : 11, 2 );
 	auto mod_res = init_model_b( 1 << 4, 2 );
-	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3 );
+	auto mod_top = init_model_b( ( ctx.nois_trs[ cmp ] > 4 ) ? ( 1 << ctx.nois_trs[ cmp ] ) : ( 1 << 4 ), 3, 16 );
 	auto mod_sgn = init_model_b( 11, 1 );
 
 	const int bc = ctx.cmpnfo[ cmp ].bc;
@@ -981,7 +986,7 @@ bool pjg_decode_ac_low( CodecContext& ctx, ArithmeticDecoder* dec, int cmp )
 					const int ctx_abs = abs_val( ctx_lak );
 					const int ctx_sgn = ( ctx_lak == 0 ) ? 0 : ( ( ctx_lak > 0 ) ? 1 : 2 );
 					for ( ; bp >= thrs_bp; bp-- ) {
-						shift_model( mod_top, ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
+						mod_top->select_context_3( ctx_abs >> thrs_bp, ctx_res, clen - thrs_bp );
 						const int bt = decode_ari( dec, mod_top );
 						ctx_res = ( ctx_res << 1 ) | ( bt ? 1 : 0 );
 					}
@@ -1289,16 +1294,16 @@ bool calc_zdst_lists( CodecContext& ctx )
 	----------------------------------------------- */
 bool pack_pjg( CodecContext& ctx )
 {
+	if ( ctx.disc_meta ) {
+		if ( !jpg_rebuild_header( ctx ) ) return false;
+	}
+
 	if ( ( ctx.hdrdata.size() > kMaxGenericStreamBytes ) ||
 	     ( ctx.grbgdata.size() > kMaxGenericStreamBytes ) ||
 	     ( static_cast<std::size_t>( std::max( 0, ctx.scnc ) ) > kMaxRstErrBytes ) ) {
 		ctx.errormessage = "header or trailing data exceeds maximum supported size";
 		ctx.errorlevel   = 2;
 		return false;
-	}
-
-	if ( ctx.disc_meta ) {
-		if ( !jpg_rebuild_header( ctx ) ) return false;
 	}
 
 	std::vector<unsigned char> saved_hdr = ctx.hdrdata;
@@ -1453,7 +1458,7 @@ bool unpack_pjg( CodecContext& ctx )
 	if ( ctx.disc_meta ) {
 		if ( !jpg_rebuild_header( ctx ) ) return false;
 	}
-	if ( !jpg_setup_imginfo( ctx ) ) return false;
+	if ( !jpg_setup_imginfo( ctx, true ) ) return false;
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
 		if ( !pjg_decode_zstscan( ctx, decoder, cmp ) ) return false;

@@ -40,8 +40,8 @@ inline std::unique_ptr<model_s> init_model_s( int max_s, int max_c, int max_o ) 
 	return std::make_unique<model_s>( max_s, max_c, max_o, 255 );
 }
 
-inline std::unique_ptr<model_b> init_model_b( int max_c, int max_o ) {
-	return std::make_unique<model_b>( max_c, max_o, 255 );
+inline std::unique_ptr<model_b> init_model_b( int max_c, int max_o, int max_leaf = -1 ) {
+	return std::make_unique<model_b>( max_c, max_o, 255, max_leaf );
 }
 
 constexpr int envli( int s, int v ) noexcept {
@@ -367,6 +367,12 @@ struct CodecContext {
 			qtables[ i ].fill( 0 );
 		}
 
+		cs_cmpc  = 0;
+		cs_cmp   = {};
+		cs_from  = 0;
+		cs_to    = 0;
+		cs_sah   = 0;
+		cs_sal   = 0;
 		jpegtype = 0;
 		padbit   = -1;
 		return true;

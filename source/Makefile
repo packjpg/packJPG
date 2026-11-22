@@ -109,7 +109,7 @@ CLEAN_FILES  = $(OBJ) $(DEV_OBJ) $(LIB_OBJ) $(DLL_OBJ) icons.res $(STATIC_LIB) l
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
 endif
-ifneq (,$(and $(filter all,$(MAKECMDGOALS)),$(filter dev,$(MAKECMDGOALS))))
+ifneq (,$(and $(filter all test install $(BIN),$(MAKECMDGOALS)),$(filter dev .stamp_dev_bin,$(MAKECMDGOALS))))
 .NOTPARALLEL:
 endif
 
@@ -139,9 +139,11 @@ all: $(BIN)
 ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
 RM_STAMPS_DEV = @if exist .stamp_dev del /F /Q .stamp_dev & if exist .stamp_dev_bin del /F /Q .stamp_dev_bin
 RM_STAMPS_STD = @if exist .stamp_std del /F /Q .stamp_std
+RM_STATIC_LIB = @if exist $(STATIC_LIB) del /F /Q $(STATIC_LIB)
 else
 RM_STAMPS_DEV = @$(RM) .stamp_dev .stamp_dev_bin
 RM_STAMPS_STD = @$(RM) .stamp_std
+RM_STATIC_LIB = @$(RM) $(STATIC_LIB)
 endif
 
 .stamp_std:
@@ -172,6 +174,7 @@ endif
 lib: $(STATIC_LIB)
 
 $(STATIC_LIB): $(LIB_OBJ)
+	$(RM_STATIC_LIB)
 	$(AR) rcs $@ $(LIB_OBJ)
 	$(RANLIB) $@
 
@@ -186,8 +189,13 @@ $(TEST_BIN): $(TEST_SRC) ../tests/test_framework.h $(STATIC_LIB)
 	$(CXX) $(ALL_CXXFLAGS) $(THREAD_FLAGS) -I../tests -o $@ $(TEST_SRC) $(STATIC_LIB) $(THREAD_FLAGS) $(OS_LDFLAGS) $(LDFLAGS)
 
 test: $(BIN) $(TEST_BIN)
+ifeq ($(OS)_$(findstring sh,$(SHELL)),Windows_NT_)
+	.\$(TEST_BIN)
+	$(PYTHON) ../tests/run_tests.py .\$(BIN)
+else
 	./$(TEST_BIN)
 	$(PYTHON) ../tests/run_tests.py ./$(BIN)
+endif
 
 fuzz:
 	$(FUZZ_CXX) -I. $(CXXSTD) $(OS_CPPFLAGS) $(THREAD_FLAGS) -DBUILD_LIB -O1 -g -fno-omit-frame-pointer \

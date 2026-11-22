@@ -3,6 +3,7 @@
 #include "codec_pipeline.h"
 #include "jpeg_codec.h"
 #include "packjpglib.h"
+#include "pjg_codec.h"
 
 #include <atomic>
 #include <cstdint>
@@ -548,6 +549,271 @@ TEST_CASE("pass-3 codec regressions: AC-only progressive SOF2 budget and merge_j
 		REQUIRE(merged_ptr->take_data() == rst_jpg);
 	}
 }
+
+TEST_CASE("fourth-pass codec regressions: truncated SOS OOB, >4096-block verify, recode_jpeg progression, -p trailing header validation, nois_trs=10, in-place convert_memory, and strict DRI/SOS lengths") {
+	// 1. Bug #1: Exact-sized hdrdata ending in 8-byte truncated SOS (FF DA 00 06 01 01 00 00) must NOT read 2 bytes OOB under ASan!
+	{
+		for (std::uint8_t sof_marker : {std::uint8_t(0xC0), std::uint8_t(0xC2)}) {
+			CodecContext ctx;
+			ctx.filetype = F_JPG;
+			ctx.hdrdata = {
+				0xFF, 0xDB, 0x00, 0x43, 0x00,
+			};
+			ctx.hdrdata.insert(ctx.hdrdata.end(), 64, 16);
+			const std::uint8_t tail[] = {
+				0xFF, sof_marker, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+				0xFF, 0xC4, 0x00, 0x14, 0x00,
+				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0xFF, 0xDA, 0x00, 0x06, 0x01, 0x01, 0x00, 0x00,
+			};
+			ctx.hdrdata.insert(ctx.hdrdata.end(), std::begin(tail), std::end(tail));
+			ctx.hdrdata.shrink_to_fit();
+			ctx.huffdata = {0x00};
+			if (sof_marker == 0xC2) {
+				REQUIRE(!jpg_setup_imginfo(ctx));
+			} else {
+				REQUIRE(jpg_setup_imginfo(ctx));
+				REQUIRE(!decode_jpeg(ctx));
+			}
+		}
+	}
+
+	// 2. Bug #2: >4,096-block (576x576 = 5,184 blocks) JPEG round-trips AND passes -ver style verification (ctx.filetype == F_JPG after reset_buffers)!
+	{
+		constexpr int kDim = 576;
+		constexpr int kBlocks = (kDim / 8) * (kDim / 8); // 5,184 > 4,096
+		std::vector<std::uint8_t> big_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		big_jpg.insert(big_jpg.end(), 64, 16);
+		const std::uint8_t sof_dht_sos[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08,
+			static_cast<std::uint8_t>(kDim >> 8), static_cast<std::uint8_t>(kDim & 0xFF),
+			static_cast<std::uint8_t>(kDim >> 8), static_cast<std::uint8_t>(kDim & 0xFF),
+			0x01, 0x01, 0x11, 0x00,
+			// DC0: symbol 0 -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// AC0: symbol 0 (EOB) -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+		};
+		big_jpg.insert(big_jpg.end(), std::begin(sof_dht_sos), std::end(sof_dht_sos));
+		// Each block is 2 zero bits ('0' DC + '0' AC EOB) -> 5,184 * 2 = 10,368 bits = 1,296 zero bytes!
+		big_jpg.insert(big_jpg.end(), (kBlocks * 2) / 8, 0x00);
+		big_jpg.push_back(0xFF);
+		big_jpg.push_back(0xD9);
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.action   = A_COMPRESS;
+		ctx.str_in   = std::make_unique<MemoryReader>(big_jpg.data(), big_jpg.size());
+		auto pjg_out = std::make_unique<MemoryWriter>();
+		auto* pjg_ptr = pjg_out.get();
+		ctx.str_out  = std::move(pjg_out);
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		run_compress_pipeline(ctx);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+
+		// Simulate CLI -ver: keep ctx.filetype == F_JPG, call reset_buffers() (empties huffdata!), swap streams, and run_decompress_pipeline
+		const auto pjg_bytes = pjg_ptr->take_data();
+		REQUIRE(ctx.reset_buffers());
+		REQUIRE(ctx.huffdata.empty());
+		ctx.str_in = std::make_unique<MemoryReader>(pjg_bytes.data(), pjg_bytes.size());
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		auto verif_out = std::make_unique<MemoryWriter>();
+		auto* verif_ptr = verif_out.get();
+		ctx.str_out = std::move(verif_out);
+		run_decompress_pipeline(ctx);
+		REQUIRE_EQ(ctx.errorlevel, 0);
+		REQUIRE(verif_ptr->take_data() == big_jpg);
+	}
+
+	// 3. Bug #4 & Bug #5: recode_jpeg rejects duplicate progressive SOS scans in crafted .pjg, and pjg_optimize_header rejects DHT L_1 > 2!
+	{
+		std::vector<std::uint8_t> prog_jpg = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		prog_jpg.insert(prog_jpg.end(), 64, 8);
+		const std::uint8_t prog_tail[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// Scan 1: DC first-scan (Ss=0, Se=0, Ah=0, Al=0) -> 1 zero bit padded with 1s -> 0x7F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+			0x7F,
+			// Scan 2: AC first-scan (Ss=1, Se=63, Ah=0, Al=0) -> EOB 1 zero bit padded with 1s -> 0x7F
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x7F,
+			0xFF, 0xD9,
+		};
+		prog_jpg.insert(prog_jpg.end(), std::begin(prog_tail), std::end(prog_tail));
+
+		CodecContext ctx;
+		ctx.filetype = F_JPG;
+		ctx.str_in   = std::make_unique<MemoryReader>(prog_jpg.data(), prog_jpg.size());
+		std::uint8_t m[2];
+		REQUIRE_EQ(ctx.str_in->read(m, 2), std::size_t(2));
+		ctx.reset_buffers();
+		REQUIRE(read_jpeg(ctx));
+		REQUIRE(decode_jpeg(ctx));
+		REQUIRE(check_value_range(ctx));
+		REQUIRE(adapt_icos(ctx));
+		REQUIRE(predict_dc(ctx));
+		REQUIRE(calc_zdst_lists(ctx));
+
+		// First verify pack_pjg rejects a corrupted DHT L_1 = 5 sentinel collision in hdrdata
+		const auto clean_hdr = ctx.hdrdata;
+		for (std::size_t i = 0; i + 5 < ctx.hdrdata.size(); ++i) {
+			if (ctx.hdrdata[i] == 0xFF && ctx.hdrdata[i + 1] == 0xC4) {
+				ctx.hdrdata[i + 5] = 5; // L_1 = 5 (> 2)
+				break;
+			}
+		}
+		ctx.str_out = std::make_unique<MemoryWriter>();
+		REQUIRE(!pack_pjg(ctx));
+		ctx.hdrdata    = clean_hdr;
+		ctx.errorlevel = 0;
+
+		// Now append a duplicate DC first-scan SOS segment into hdrdata and pack a crafted .pjg
+		const std::uint8_t dup_dc_sos[] = {0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
+		ctx.hdrdata.insert(ctx.hdrdata.end(), std::begin(dup_dc_sos), std::end(dup_dc_sos));
+		auto crafted_out = std::make_unique<MemoryWriter>();
+		auto* crafted_ptr = crafted_out.get();
+		ctx.str_out = std::move(crafted_out);
+		REQUIRE(pack_pjg(ctx));
+		const auto crafted_pjg = crafted_ptr->take_data();
+
+		std::vector<std::uint8_t> dec_out;
+		std::string err;
+		REQUIRE(!packjpg::convert_memory(crafted_pjg.data(), crafted_pjg.size(), dec_out, &err, false, 2));
+	}
+
+	// 4. Bug #5: Truncated Scan 1 (peof > 65536) under err_tol = 2 still validates trailing DHT/SOS segments and counts ctx.scnc!
+	{
+		// 512x528 progressive image = 64x66 = 4,224 blocks; DC symbol 0x00 at length 16 consumes 16 bits/block (67,584 bits total)
+		// with DC diff = 0, so 66 zero bytes (528 bits) hits peof() > 65536 without overflowing lastdc!
+		std::vector<std::uint8_t> trunc_multi = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		trunc_multi.insert(trunc_multi.end(), 64, 8);
+		const std::uint8_t head[] = {
+			0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x02, 0x00, 0x02, 0x10, 0x01, 0x01, 0x11, 0x00,
+			// DC0: single symbol 0x00 at length 16 -> consumes 16 bits per block with DC diff = 0!
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+			// AC0: EOB -> 1-bit '0'
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// Scan 1 (DC): 66 zero bytes -> hits peof() > 65536 near block 4,130!
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+		};
+		trunc_multi.insert(trunc_multi.end(), std::begin(head), std::end(head));
+		trunc_multi.insert(trunc_multi.end(), 66, 0x00);
+
+		// Variant A: valid Scan 2 -> succeeds under err_tol=2 with ctx.scnc == 2 and round-trips unpack_pjg!
+		auto valid_trunc = trunc_multi;
+		const std::uint8_t valid_scan2[] = {
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		valid_trunc.insert(valid_trunc.end(), std::begin(valid_scan2), std::end(valid_scan2));
+		std::vector<std::uint8_t> pjg_trunc, jpg_trunc_rt;
+		REQUIRE(packjpg::convert_memory(valid_trunc.data(), valid_trunc.size(), pjg_trunc, nullptr, false, 2));
+		REQUIRE(packjpg::convert_memory(pjg_trunc.data(), pjg_trunc.size(), jpg_trunc_rt, nullptr, false, 2));
+
+		// Variant B: invalid trailing DHT (L_1 = 5, 5 symbols of 1-bit code!) before Scan 2 -> MUST fail even under err_tol=2!
+		auto bad_trunc = trunc_multi;
+		const std::uint8_t bad_scan2[] = {
+			0xFF, 0xC4, 0x00, 0x18, 0x10,
+			0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x01, 0x02, 0x03, 0x04,
+			0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		bad_trunc.insert(bad_trunc.end(), std::begin(bad_scan2), std::end(bad_scan2));
+		REQUIRE(!packjpg::convert_memory(bad_trunc.data(), bad_trunc.size(), pjg_trunc, nullptr, false, 2));
+	}
+
+	// 5. Bug #13: Custom nois_trs = 10 image round-trips bit-identically with bounded mod_top leaf radix!
+	{
+		const auto src_jpg = make_td0_ta1_jpeg(7);
+		CodecContext enc_ctx;
+		enc_ctx.filetype = F_JPG;
+		enc_ctx.action   = A_COMPRESS;
+		enc_ctx.auto_set = false;
+		enc_ctx.nois_trs = {10, 10, 10, 10};
+		enc_ctx.segm_cnt = {12, 12, 12, 12};
+		enc_ctx.str_in   = std::make_unique<MemoryReader>(src_jpg.data(), src_jpg.size());
+		auto out_mw      = std::make_unique<MemoryWriter>();
+		auto* out_ptr    = out_mw.get();
+		enc_ctx.str_out  = std::move(out_mw);
+		std::uint8_t m[2];
+		REQUIRE_EQ(enc_ctx.str_in->read(m, 2), std::size_t(2));
+		enc_ctx.reset_buffers();
+		run_compress_pipeline(enc_ctx);
+		REQUIRE_EQ(enc_ctx.errorlevel, 0);
+
+		std::vector<std::uint8_t> rt_jpg;
+		const auto custom_pjg = out_ptr->take_data();
+		REQUIRE(packjpg::convert_memory(custom_pjg.data(), custom_pjg.size(), rt_jpg));
+		REQUIRE(rt_jpg == src_jpg);
+	}
+
+	// 6. Bug #14: In-place packjpg::convert_memory(buf.data(), buf.size(), buf) aliasing safety under ASan!
+	{
+		const auto orig_jpg = make_td0_ta1_jpeg(11);
+		std::vector<std::uint8_t> inplace_buf = orig_jpg;
+		REQUIRE(packjpg::convert_memory(inplace_buf.data(), inplace_buf.size(), inplace_buf));
+		REQUIRE(inplace_buf.size() > 2 && inplace_buf[0] == 'J' && inplace_buf[1] == 'S');
+		REQUIRE(packjpg::convert_memory(inplace_buf.data(), inplace_buf.size(), inplace_buf));
+		REQUIRE(inplace_buf == orig_jpg);
+	}
+
+	// 7. Bug #17: Inflated DRI (Lr=6) and inflated SOS (Ls=10 for Ns=1) rejected, and execute_stage enforces errorlevel=2 on false!
+	{
+		auto bad_dri = make_td0_ta1_jpeg(3);
+		const std::uint8_t dri6[] = {0xFF, 0xDD, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00};
+		bad_dri.insert(bad_dri.begin() + 2, std::begin(dri6), std::end(dri6));
+		std::vector<std::uint8_t> out;
+		REQUIRE(!packjpg::convert_memory(bad_dri.data(), bad_dri.size(), out, nullptr, false, 2));
+
+		std::vector<std::uint8_t> bad_sos = {
+			0xFF, 0xD8,
+			0xFF, 0xDB, 0x00, 0x43, 0x00,
+		};
+		bad_sos.insert(bad_sos.end(), 64, 16);
+		const std::uint8_t sos10_tail[] = {
+			0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xFF, 0xC4, 0x00, 0x14, 0x10,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// SOS with Ls = 10 (0x000A) instead of 8 for Ns = 1 (2 trailing padding bytes in SOS header)
+			0xFF, 0xDA, 0x00, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x00, 0x00,
+			0x00,
+			0xFF, 0xD9,
+		};
+		bad_sos.insert(bad_sos.end(), std::begin(sos10_tail), std::end(sos10_tail));
+		REQUIRE(!packjpg::convert_memory(bad_sos.data(), bad_sos.size(), out, nullptr, false, 2));
+
+		CodecContext st_ctx;
+		execute_stage(st_ctx, StageId::ReadJpeg, []() { return false; });
+		REQUIRE_EQ(st_ctx.errorlevel, 2);
+		REQUIRE(st_ctx.error_stage == StageId::ReadJpeg);
+	}
+}
+
 
 
 

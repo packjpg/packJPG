@@ -54,9 +54,8 @@ jobs:
           cp source/packJPG.exe "dist/${{ matrix.asset }}"
           python tests/run_tests.py "./dist/${{ matrix.asset }}"
 
-          make -C contrib/irfanview clean
-          make -C contrib/irfanview all test -j2
-          python -c "import zipfile; z = zipfile.ZipFile('dist/${{ matrix.plugin_zip }}', 'w', zipfile.ZIP_DEFLATED); z.write('contrib/irfanview/${{ matrix.iv_dll }}', '${{ matrix.iv_dll }}'); z.write('contrib/irfanview/${{ matrix.spi_dll }}', '${{ matrix.spi_dll }}'); z.write('contrib/irfanview/README.md', 'README.md'); z.close()"
+          make -C contrib/irfanview clean all test -j2
+          python -c "import zipfile; z = zipfile.ZipFile('dist/${{ matrix.plugin_zip }}', 'w', zipfile.ZIP_DEFLATED); z.write('contrib/irfanview/${{ matrix.iv_dll }}', '${{ matrix.iv_dll }}'); z.write('contrib/irfanview/${{ matrix.spi_dll }}', '${{ matrix.spi_dll }}'); z.write('contrib/irfanview/README.md', 'README.md'); z.write('LICENSE', 'LICENSE'); z.close()"
 
       - uses: actions/upload-artifact@v4
         with:

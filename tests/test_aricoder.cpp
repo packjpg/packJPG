@@ -293,5 +293,56 @@ TEST_CASE("aricoder: >5000 midpoint-straddling E3 underflow bits finalized with 
 	dec.decode(&q_end);
 }
 
+TEST_CASE("aricoder: model_b select_context_3 leaf radix matches shift_context bit-for-bit (Bug #13)") {
+	constexpr int kSteps = 4000;
+	MemoryWriter mw_legacy;
+	{
+		ArithmeticEncoder enc(mw_legacy);
+		model_b mod_old(1024, 3, 255);
+		for (int i = 0; i < kSteps; ++i) {
+			const int c1  = (i * 73) & 1023;
+			const int c2  = (i * 197 + 11) & 1023;
+			const int c3  = 1 + (i % 10);
+			const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+			mod_old.shift_context(c1);
+			mod_old.shift_context(c2);
+			mod_old.shift_context(c3);
+			encode_with_model_b(enc, mod_old, bit);
+		}
+		enc.finalize();
+	}
+
+	MemoryWriter mw_fast;
+	{
+		ArithmeticEncoder enc(mw_fast);
+		model_b mod_new(1024, 3, 255, 16);
+		for (int i = 0; i < kSteps; ++i) {
+			const int c1  = (i * 73) & 1023;
+			const int c2  = (i * 197 + 11) & 1023;
+			const int c3  = 1 + (i % 10);
+			const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+			mod_new.select_context_3(c1, c2, c3);
+			encode_with_model_b(enc, mod_new, bit);
+		}
+		enc.finalize();
+	}
+
+	REQUIRE(mw_fast.get_data() == mw_legacy.get_data());
+	REQUIRE_THROWS(model_b(1024, 3, 255, 16).select_context_3(0, 0, 16));
+
+	MemoryReader mr(mw_fast.get_data());
+	ArithmeticDecoder dec(mr);
+	model_b mod_dec(1024, 3, 255, 16);
+	for (int i = 0; i < kSteps; ++i) {
+		const int c1  = (i * 73) & 1023;
+		const int c2  = (i * 197 + 11) & 1023;
+		const int c3  = 1 + (i % 10);
+		const int bit = ((i * 31 + c1 + c3) % 5 == 0) ? 1 : 0;
+		mod_dec.select_context_3(c1, c2, c3);
+		REQUIRE_EQ(decode_with_model_b(dec, mod_dec), bit);
+	}
+}
+
+
 
 

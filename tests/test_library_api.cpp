@@ -4,6 +4,7 @@
 #include "packjpglib.h"
 #include "packjpgdll.h"
 #include "dev_tools.h"
+#include "path_utils.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -90,25 +91,29 @@ TEST_CASE("library: memory-to-memory compress/decompress via pjglib_free and out
 
 	// Bug #13 regression: pjglib_convert_stream2mem must reject sessions initialized with out_type != 1
 	pjg_test::TempTestDir tmp_dir("pjglib_outtype");
-	const auto dummy_file = (tmp_dir.path() / "unused_target.pjg").string();
+	const auto dummy_file_p = tmp_dir.path() / "unused_target.pjg";
+	const auto dummy_file   = path_to_utf8(dummy_file_p);
 	unsigned char* wrong_buf = reinterpret_cast<unsigned char*>(std::uintptr_t(0x1));
 	unsigned int wrong_sz = 999;
 	pjglib_init_streams(jpg.data(), 1, static_cast<int>(jpg.size()), const_cast<char*>(dummy_file.c_str()), 0);
 	REQUIRE(!pjglib_convert_stream2mem(&wrong_buf, &wrong_sz, msg));
 	REQUIRE(wrong_buf == nullptr);
 	REQUIRE_EQ(wrong_sz, 0u);
-	REQUIRE(!std::filesystem::exists(dummy_file));
+	REQUIRE(!std::filesystem::exists(dummy_file_p));
 }
 
 TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
 	pjg_test::TempTestDir tmp_dir("pjglib_f2f");
-	const auto in_jpg = (tmp_dir.path() / "pjglib_test_in.jpg").string();
-	const auto out_pjg = (tmp_dir.path() / "pjglib_test_out.pjg").string();
-	const auto rt_jpg = (tmp_dir.path() / "pjglib_test_rt.jpg").string();
+	const auto in_jpg_p  = tmp_dir.path() / "pjglib_test_in.jpg";
+	const auto out_pjg_p = tmp_dir.path() / "pjglib_test_out.pjg";
+	const auto rt_jpg_p  = tmp_dir.path() / "pjglib_test_rt.jpg";
+	const auto in_jpg    = path_to_utf8(in_jpg_p);
+	const auto out_pjg   = path_to_utf8(out_pjg_p);
+	const auto rt_jpg    = path_to_utf8(rt_jpg_p);
 
 	auto jpg = make_minimal_jpeg();
 	{
-		std::ofstream ofs(in_jpg, std::ios::binary);
+		std::ofstream ofs(in_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
 	}
 
@@ -133,7 +138,7 @@ TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
 
 	std::vector<unsigned char> restored;
 	{
-		std::ifstream ifs(rt_jpg, std::ios::binary);
+		std::ifstream ifs(rt_jpg_p, std::ios::binary);
 		restored.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 	}
 	REQUIRE(restored == jpg);
@@ -141,20 +146,23 @@ TEST_CASE("library: file-to-file round-trip and recovery after invalid input") {
 
 TEST_CASE("library: FILE* stream2stream round-trip, closed-FILE* session reset safety, and clean discard") {
 	pjg_test::TempTestDir tmp_dir("pjglib_fp");
-	const auto in_path = (tmp_dir.path() / "pjglib_fp_in.bin").string();
-	const auto mid_path = (tmp_dir.path() / "pjglib_fp_mid.bin").string();
-	const auto out_path = (tmp_dir.path() / "pjglib_fp_out.bin").string();
+	const auto in_path_p  = tmp_dir.path() / "pjglib_fp_in.bin";
+	const auto mid_path_p = tmp_dir.path() / "pjglib_fp_mid.bin";
+	const auto out_path_p = tmp_dir.path() / "pjglib_fp_out.bin";
+	const auto in_path    = path_to_utf8(in_path_p);
+	const auto mid_path   = path_to_utf8(mid_path_p);
+	const auto out_path   = path_to_utf8(out_path_p);
 
 	const auto jpg = make_minimal_jpeg();
 	{
-		std::ofstream ofs(in_path, std::ios::binary);
+		std::ofstream ofs(in_path_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
 	}
 
 	char msg[256] = {0};
 	{
-		FILE* fin = std::fopen(in_path.c_str(), "rb");
-		FILE* fout = std::fopen(mid_path.c_str(), "wb");
+		FILE* fin = fopen_utf8(in_path, "rb");
+		FILE* fout = fopen_utf8(mid_path, "wb");
 		REQUIRE(fin != nullptr && fout != nullptr);
 		pjglib_init_streams(fin, 2, 0, fout, 2);
 		REQUIRE(pjglib_convert_stream2stream(msg));
@@ -162,8 +170,8 @@ TEST_CASE("library: FILE* stream2stream round-trip, closed-FILE* session reset s
 		std::fclose(fout);
 	}
 	{
-		FILE* fin = std::fopen(mid_path.c_str(), "rb");
-		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		FILE* fin = fopen_utf8(mid_path, "rb");
+		FILE* fout = fopen_utf8(out_path, "wb");
 		REQUIRE(fin != nullptr && fout != nullptr);
 		pjglib_init_streams(fin, 2, 0, fout, 2);
 		REQUIRE(pjglib_convert_stream2stream(msg));
@@ -171,15 +179,15 @@ TEST_CASE("library: FILE* stream2stream round-trip, closed-FILE* session reset s
 		std::fclose(fout);
 	}
 	{
-		std::ifstream ifs(out_path, std::ios::binary);
+		std::ifstream ifs(out_path_p, std::ios::binary);
 		std::vector<unsigned char> restored((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(restored == jpg);
 	}
 
 	// Bug #12 regression: abandoned pjglib_init_streams(..., out_type=2) followed by fclose() and re-init must NOT touch closed FILE*!
 	{
-		FILE* fin = std::fopen(in_path.c_str(), "rb");
-		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		FILE* fin = fopen_utf8(in_path, "rb");
+		FILE* fout = fopen_utf8(out_path, "wb");
 		REQUIRE(fin != nullptr && fout != nullptr);
 		pjglib_init_streams(fin, 2, 0, fout, 2);
 		std::fclose(fin);
@@ -193,18 +201,18 @@ TEST_CASE("library: FILE* stream2stream round-trip, closed-FILE* session reset s
 
 	// Corrupt input with FILE* output must leave output FILE* completely empty
 	{
-		std::ofstream ofs(in_path, std::ios::binary);
+		std::ofstream ofs(in_path_p, std::ios::binary);
 		ofs.write("JS\x19\xff\xff\xff", 6);
 	}
 	{
-		FILE* fin = std::fopen(in_path.c_str(), "rb");
-		FILE* fout = std::fopen(out_path.c_str(), "wb");
+		FILE* fin = fopen_utf8(in_path, "rb");
+		FILE* fout = fopen_utf8(out_path, "wb");
 		REQUIRE(fin != nullptr && fout != nullptr);
 		pjglib_init_streams(fin, 2, 0, fout, 2);
 		REQUIRE(!pjglib_convert_stream2stream(msg));
 		std::fclose(fin);
 		std::fclose(fout);
-		REQUIRE_EQ(std::filesystem::file_size(out_path), std::uintmax_t(0));
+		REQUIRE_EQ(std::filesystem::file_size(out_path_p), std::uintmax_t(0));
 	}
 
 	// Null/invalid pjglib_init_streams arguments fail gracefully
@@ -263,21 +271,29 @@ TEST_CASE("library: valid 256-symbol depth-16 AC Huffman table (262 internal nod
 
 TEST_CASE("library: atomic staging preserves pre-existing target file on warning or decode failure (Finding #9)") {
 	pjg_test::TempTestDir tmp_dir("pjglib_atomic");
-	const auto in_jpg = (tmp_dir.path() / "pjglib_safe_in.jpg").string();
-	const auto important_pjg = (tmp_dir.path() / "pjglib_important.pjg").string();
-	const auto bad_in = (tmp_dir.path() / "pjglib_not_an_image.bin").string();
-	const auto warn_jpg_path = (tmp_dir.path() / "pjglib_warn.jpg").string();
-	const auto corrupt_jpg_path = (tmp_dir.path() / "pjglib_corrupt.jpg").string();
-	const auto untouched_out = (tmp_dir.path() / "pjglib_untouched_out.pjg").string();
-	const auto pre_existing = (tmp_dir.path() / "pjglib_preexisting.bin").string();
+	const auto in_jpg_p       = tmp_dir.path() / "pjglib_safe_in.jpg";
+	const auto important_p    = tmp_dir.path() / "pjglib_important.pjg";
+	const auto bad_in_p       = tmp_dir.path() / "pjglib_not_an_image.bin";
+	const auto warn_jpg_p     = tmp_dir.path() / "pjglib_warn.jpg";
+	const auto corrupt_jpg_p  = tmp_dir.path() / "pjglib_corrupt.jpg";
+	const auto untouched_p    = tmp_dir.path() / "pjglib_untouched_out.pjg";
+	const auto pre_existing_p = tmp_dir.path() / "pjglib_preexisting.bin";
+
+	const auto in_jpg           = path_to_utf8(in_jpg_p);
+	const auto important_pjg    = path_to_utf8(important_p);
+	const auto bad_in           = path_to_utf8(bad_in_p);
+	const auto warn_jpg_path    = path_to_utf8(warn_jpg_p);
+	const auto corrupt_jpg_path = path_to_utf8(corrupt_jpg_p);
+	const auto untouched_out    = path_to_utf8(untouched_p);
+	const auto pre_existing     = path_to_utf8(pre_existing_p);
 
 	const auto jpg = make_minimal_jpeg();
 	{
-		std::ofstream ofs(in_jpg, std::ios::binary);
+		std::ofstream ofs(in_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
 	}
 	{
-		std::ofstream ofs(bad_in, std::ios::binary);
+		std::ofstream ofs(bad_in_p, std::ios::binary);
 		ofs.write("NOT_A_JPEG_OR_PJG", 17);
 	}
 	{
@@ -285,17 +301,17 @@ TEST_CASE("library: atomic staging preserves pre-existing target file on warning
 		auto warn_jpg = jpg;
 		const unsigned char unk[] = {0xFF, 0xF0, 0x00, 0x04, 'X', 'Y'};
 		warn_jpg.insert(warn_jpg.begin() + 2, std::begin(unk), std::end(unk));
-		std::ofstream ofs(warn_jpg_path, std::ios::binary);
+		std::ofstream ofs(warn_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(warn_jpg.data()), static_cast<std::streamsize>(warn_jpg.size()));
 	}
 	{
 		// Valid JPEG magic + truncated header -> fails in read_jpeg AFTER magic check!
 		const unsigned char trunc_jpg[] = {0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08};
-		std::ofstream ofs(corrupt_jpg_path, std::ios::binary);
+		std::ofstream ofs(corrupt_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(trunc_jpg), sizeof(trunc_jpg));
 	}
 	{
-		std::ofstream ofs(pre_existing, std::ios::binary);
+		std::ofstream ofs(pre_existing_p, std::ios::binary);
 		ofs.write("KEEP_ME", 7);
 	}
 
@@ -303,45 +319,45 @@ TEST_CASE("library: atomic staging preserves pre-existing target file on warning
 
 	// 1. Create a valid important_pjg and snapshot its exact bytes
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), important_pjg.c_str(), msg));
-	REQUIRE(std::filesystem::exists(important_pjg));
+	REQUIRE(std::filesystem::exists(important_p));
 	std::vector<unsigned char> expected_pjg_bytes;
 	{
-		std::ifstream ifs(important_pjg, std::ios::binary);
+		std::ifstream ifs(important_p, std::ios::binary);
 		expected_pjg_bytes.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 	}
 	REQUIRE(expected_pjg_bytes.size() > 10);
 
 	// 2. Bug #9 regression: converting a warning JPEG or corrupt JPEG onto important_pjg MUST leave important_pjg 100% intact!
 	REQUIRE(!pjglib_convert_file2file(warn_jpg_path.c_str(), important_pjg.c_str(), msg));
-	REQUIRE(std::filesystem::exists(important_pjg));
+	REQUIRE(std::filesystem::exists(important_p));
 	{
-		std::ifstream ifs(important_pjg, std::ios::binary);
+		std::ifstream ifs(important_p, std::ios::binary);
 		const std::vector<unsigned char> after_warn((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(after_warn == expected_pjg_bytes);
 	}
 
 	REQUIRE(!pjglib_convert_file2file(corrupt_jpg_path.c_str(), important_pjg.c_str(), msg));
-	REQUIRE(std::filesystem::exists(important_pjg));
+	REQUIRE(std::filesystem::exists(important_p));
 	{
-		std::ifstream ifs(important_pjg, std::ios::binary);
+		std::ifstream ifs(important_p, std::ios::binary);
 		const std::vector<unsigned char> after_corrupt((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(after_corrupt == expected_pjg_bytes);
 	}
 
 	// 3. Missing input and self-clobber also leave all existing files intact
-	const auto missing_in = (tmp_dir.path() / "pjglib_definitely_missing_input.jpg").string();
+	const auto missing_in = path_to_utf8(tmp_dir.path() / "pjglib_definitely_missing_input.jpg");
 	REQUIRE(!pjglib_convert_file2file(missing_in.c_str(), untouched_out.c_str(), msg));
-	REQUIRE(!std::filesystem::exists(untouched_out));
+	REQUIRE(!std::filesystem::exists(untouched_p));
 	REQUIRE(!pjglib_convert_stream2stream(msg));
-	REQUIRE(std::filesystem::exists(important_pjg));
+	REQUIRE(std::filesystem::exists(important_p));
 
 	REQUIRE(!pjglib_convert_file2file(in_jpg.c_str(), in_jpg.c_str(), msg));
-	REQUIRE_EQ(std::filesystem::file_size(in_jpg), jpg.size());
+	REQUIRE_EQ(std::filesystem::file_size(in_jpg_p), jpg.size());
 
 	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), untouched_out.c_str(), msg));
-	REQUIRE(!std::filesystem::exists(untouched_out));
+	REQUIRE(!std::filesystem::exists(untouched_p));
 	REQUIRE(!pjglib_convert_file2file(bad_in.c_str(), pre_existing.c_str(), msg));
-	REQUIRE_EQ(std::filesystem::file_size(pre_existing), std::uintmax_t(7));
+	REQUIRE_EQ(std::filesystem::file_size(pre_existing_p), std::uintmax_t(7));
 
 	pjglib_init_streams(const_cast<unsigned char*>(jpg.data()), 1, static_cast<int>(jpg.size()), nullptr, 1);
 	REQUIRE(!pjglib_convert_stream2stream(msg));
@@ -350,9 +366,10 @@ TEST_CASE("library: atomic staging preserves pre-existing target file on warning
 TEST_CASE("library: file2file supports special targets (/dev/null, FIFO), writes through symlinks, and preserves file permissions") {
 	pjg_test::TempTestDir tmp_dir("pjg_ut_special");
 	const auto jpg = make_minimal_jpeg();
-	const auto in_jpg = (tmp_dir.path() / "src.jpg").string();
+	const auto in_jpg_p = tmp_dir.path() / "src.jpg";
+	const auto in_jpg   = path_to_utf8(in_jpg_p);
 	{
-		std::ofstream ofs(in_jpg, std::ios::binary);
+		std::ofstream ofs(in_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
 	}
 
@@ -360,23 +377,45 @@ TEST_CASE("library: file2file supports special targets (/dev/null, FIFO), writes
 
 #if defined(_WIN32) || defined(WIN32)
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), "NUL", msg));
+	REQUIRE(std::strstr(msg, "(0.00%)") == nullptr);
+	const auto dir_nul = path_to_utf8(tmp_dir.path() / "NUL");
+	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), dir_nul.c_str(), msg));
+	REQUIRE(std::strstr(msg, "(0.00%)") == nullptr);
 #else
-	// 1. Direct write to character device /dev/null
+	// 1. Direct write to character device /dev/null reports non-zero compression ratio (Bug #8)
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), "/dev/null", msg));
+	REQUIRE(std::strstr(msg, "(0.00%)") == nullptr);
 
-	// 2. Direct write to a POSIX FIFO named pipe without replacing the FIFO inode!
-	const auto fifo_path = (tmp_dir.path() / "out_pipe.pjg").string();
+	// 2. Direct write to a POSIX FIFO named pipe without replacing the FIFO inode, AND zero bytes flushed on corrupt input (Bug #8)
+	const auto fifo_path_p = tmp_dir.path() / "out_pipe.pjg";
+	const auto fifo_path   = path_to_utf8(fifo_path_p);
 	if (::mkfifo(fifo_path.c_str(), 0600) == 0) {
+		const auto bad_pjg_p = tmp_dir.path() / "bad_fifo_src.pjg";
+		{
+			std::ofstream ofs(bad_pjg_p, std::ios::binary);
+			ofs.write("JS\x19\xFF\xFF\xFF", 6);
+		}
+		std::vector<unsigned char> aborted_fifo_bytes;
+		std::thread abort_reader([&]() {
+			std::ifstream ifs(fifo_path_p, std::ios::binary);
+			aborted_fifo_bytes.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+		});
+		const auto bad_pjg_u8 = path_to_utf8(bad_pjg_p);
+		REQUIRE(!pjglib_convert_file2file(bad_pjg_u8.c_str(), fifo_path.c_str(), msg));
+		abort_reader.join();
+		REQUIRE(aborted_fifo_bytes.empty());
+
 		std::vector<unsigned char> piped_pjg;
 		std::thread reader([&]() {
-			std::ifstream ifs(fifo_path, std::ios::binary);
+			std::ifstream ifs(fifo_path_p, std::ios::binary);
 			piped_pjg.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		});
 		REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), fifo_path.c_str(), msg));
 		reader.join();
+		REQUIRE(std::strstr(msg, "(0.00%)") == nullptr);
 
 		std::error_code ec;
-		REQUIRE(std::filesystem::is_fifo(fifo_path, ec));
+		REQUIRE(std::filesystem::is_fifo(fifo_path_p, ec));
 		REQUIRE(piped_pjg.size() > 10);
 
 		unsigned char* rt_buf = nullptr;
@@ -391,58 +430,61 @@ TEST_CASE("library: file2file supports special targets (/dev/null, FIFO), writes
 	// 3. Symlink write-through + 0600 private file permission preservation on overwrite
 	const auto real_dir = tmp_dir.path() / "real_sub";
 	std::filesystem::create_directories(real_dir);
-	const auto real_pjg = (real_dir / "secret.pjg").string();
+	const auto real_pjg = path_to_utf8(real_dir / "secret.pjg");
 	{
-		std::ofstream ofs(real_pjg, std::ios::binary);
+		std::ofstream ofs(real_dir / "secret.pjg", std::ios::binary);
 		ofs.write("OLD", 3);
 	}
 	REQUIRE_EQ(::chmod(real_pjg.c_str(), 0600), 0);
 
-	const auto link_pjg = (tmp_dir.path() / "link_to_secret.pjg").string();
+	const auto link_pjg = path_to_utf8(tmp_dir.path() / "link_to_secret.pjg");
 	std::error_code sym_ec;
-	std::filesystem::create_symlink(real_pjg, link_pjg, sym_ec);
+	std::filesystem::create_symlink(real_dir / "secret.pjg", tmp_dir.path() / "link_to_secret.pjg", sym_ec);
 	REQUIRE(!sym_ec);
 
 	// Self-clobber through a symlink pointing at the input file must still be refused!
-	const auto link_to_in = (tmp_dir.path() / "link_to_src.jpg").string();
-	std::filesystem::create_symlink(in_jpg, link_to_in, sym_ec);
+	const auto link_to_in = path_to_utf8(tmp_dir.path() / "link_to_src.jpg");
+	std::filesystem::create_symlink(in_jpg_p, tmp_dir.path() / "link_to_src.jpg", sym_ec);
 	REQUIRE(!sym_ec);
 	REQUIRE(!pjglib_convert_file2file(in_jpg.c_str(), link_to_in.c_str(), msg));
-	REQUIRE_EQ(std::filesystem::file_size(in_jpg), jpg.size());
+	REQUIRE_EQ(std::filesystem::file_size(in_jpg_p), jpg.size());
 
 	// Overwriting link_pjg must keep link_pjg as a symlink, update real_pjg, and preserve 0600 mode!
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), link_pjg.c_str(), msg));
-	REQUIRE(std::filesystem::is_symlink(link_pjg));
+	REQUIRE(std::filesystem::is_symlink(tmp_dir.path() / "link_to_secret.pjg"));
 
 	struct stat st{};
 	REQUIRE_EQ(::stat(real_pjg.c_str(), &st), 0);
 	REQUIRE_EQ(static_cast<unsigned int>(st.st_mode & 0777u), 0600u);
 
-	const auto rt_jpg = (tmp_dir.path() / "roundtrip.jpg").string();
+	const auto rt_jpg_p = tmp_dir.path() / "roundtrip.jpg";
+	const auto rt_jpg   = path_to_utf8(rt_jpg_p);
 	REQUIRE(pjglib_convert_file2file(real_pjg.c_str(), rt_jpg.c_str(), msg));
 	{
-		std::ifstream ifs(rt_jpg, std::ios::binary);
+		std::ifstream ifs(rt_jpg_p, std::ios::binary);
 		const std::vector<unsigned char> got((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(got == jpg);
 	}
 
 	// 4. Dangling symlink write-through creates the linked target while keeping the symlink intact
-	const auto dangling_target = (real_dir / "created_through_dangling.pjg").string();
-	const auto dangling_link = (tmp_dir.path() / "dangling_out.pjg").string();
-	std::filesystem::create_symlink(dangling_target, dangling_link, sym_ec);
+	const auto dangling_target_p = real_dir / "created_through_dangling.pjg";
+	const auto dangling_link_p   = tmp_dir.path() / "dangling_out.pjg";
+	std::filesystem::create_symlink(dangling_target_p, dangling_link_p, sym_ec);
 	REQUIRE(!sym_ec);
+	const auto dangling_link = path_to_utf8(dangling_link_p);
 	REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), dangling_link.c_str(), msg));
-	REQUIRE(std::filesystem::is_symlink(dangling_link));
-	REQUIRE(std::filesystem::is_regular_file(dangling_target));
+	REQUIRE(std::filesystem::is_symlink(dangling_link_p));
+	REQUIRE(std::filesystem::is_regular_file(dangling_target_p));
 #endif
 }
 
-TEST_CASE("dev_tools: dump_errfile preserves pipeline error on failure and run_dev_action respects overwrite symlink rules") {
+TEST_CASE("dev_tools: dump_errfile preserves pipeline error, F_PJG dump_info & collmode bounds, and overwrite symlink rules") {
 	pjg_test::TempTestDir tmp_dir("pjg_ut_devtools");
 	const auto jpg = make_minimal_jpeg();
-	const auto in_jpg = (tmp_dir.path() / "sample.jpg").string();
+	const auto in_jpg_p = tmp_dir.path() / "sample.jpg";
+	const auto in_jpg   = path_to_utf8(in_jpg_p);
 	{
-		std::ofstream ofs(in_jpg, std::ios::binary);
+		std::ofstream ofs(in_jpg_p, std::ios::binary);
 		ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
 	}
 
@@ -459,17 +501,49 @@ TEST_CASE("dev_tools: dump_errfile preserves pipeline error on failure and run_d
 		REQUIRE_EQ(err_ctx.errormessage, std::string("original codec failure reason"));
 	}
 
-#if !defined(_WIN32) && !defined(WIN32)
-	// 2. run_dev_action (A_TXT_INFO): overwrite=false preserves symlink at sample.nfo and writes sample_.nfo;
-	//    overwrite=true writes through symlink at sample.nfo into linked_target.nfo!
-	const auto linked_nfo = (tmp_dir.path() / "linked_target.nfo").string();
+	// 2. Bug #16: F_PJG A_TXT_INFO prints pjgfilename & zero-padded FF%02X, and invalid collmode is rejected cleanly!
 	{
-		std::ofstream ofs(linked_nfo);
+		const auto in_pjg_p = tmp_dir.path() / "archive_src.pjg";
+		const auto in_pjg   = path_to_utf8(in_pjg_p);
+		REQUIRE(pjglib_convert_file2file(in_jpg.c_str(), in_pjg.c_str(), nullptr));
+
+		CodecContext pjg_ctx;
+		pjg_ctx.action      = A_TXT_INFO;
+		pjg_ctx.filetype    = F_PJG;
+		pjg_ctx.pjgfilename = in_pjg;
+		pjg_ctx.str_in      = std::make_unique<FileReader>(in_pjg);
+		unsigned char magic[2]{};
+		REQUIRE_EQ(pjg_ctx.str_in->read(magic, 2), std::size_t(2));
+		run_dev_action(pjg_ctx, in_pjg, 0, /*overwrite=*/true, nullptr);
+		REQUIRE_EQ(pjg_ctx.errorlevel, 0);
+		{
+			std::ifstream ifs(tmp_dir.path() / "archive_src.nfo");
+			std::string nfo((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			REQUIRE(nfo.find("archive_src.pjg") != std::string::npos);
+			REQUIRE(nfo.find(" FFDB") != std::string::npos);
+		}
+
+		CodecContext bad_coll;
+		bad_coll.action      = A_COLL_DUMP;
+		bad_coll.filetype    = F_JPG;
+		bad_coll.jpgfilename = in_jpg;
+		bad_coll.str_in      = std::make_unique<FileReader>(in_jpg);
+		REQUIRE_EQ(bad_coll.str_in->read(magic, 2), std::size_t(2));
+		run_dev_action(bad_coll, in_jpg, 99, /*overwrite=*/true, nullptr);
+		REQUIRE_EQ(bad_coll.errorlevel, 2);
+	}
+
+#if !defined(_WIN32) && !defined(WIN32)
+	// 3. run_dev_action (A_TXT_INFO): overwrite=false preserves symlink at sample.nfo and writes sample_.nfo;
+	//    overwrite=true writes through symlink at sample.nfo into linked_target.nfo!
+	const auto linked_nfo_p = tmp_dir.path() / "linked_target.nfo";
+	{
+		std::ofstream ofs(linked_nfo_p);
 		ofs << "OLD_NFO";
 	}
-	const auto sym_nfo = (tmp_dir.path() / "sample.nfo").string();
+	const auto sym_nfo_p = tmp_dir.path() / "sample.nfo";
 	std::error_code sym_ec;
-	std::filesystem::create_symlink(linked_nfo, sym_nfo, sym_ec);
+	std::filesystem::create_symlink(linked_nfo_p, sym_nfo_p, sym_ec);
 	REQUIRE(!sym_ec);
 
 	auto run_txt_info = [&](bool ovw) {
@@ -485,21 +559,22 @@ TEST_CASE("dev_tools: dump_errfile preserves pipeline error on failure and run_d
 	};
 
 	run_txt_info(/*ovw=*/false);
-	REQUIRE(std::filesystem::is_symlink(sym_nfo));
+	REQUIRE(std::filesystem::is_symlink(sym_nfo_p));
 	REQUIRE(std::filesystem::is_regular_file(tmp_dir.path() / "sample_.nfo"));
 	{
-		std::ifstream ifs(linked_nfo);
+		std::ifstream ifs(linked_nfo_p);
 		std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE_EQ(s, std::string("OLD_NFO"));
 	}
 
 	run_txt_info(/*ovw=*/true);
-	REQUIRE(std::filesystem::is_symlink(sym_nfo));
+	REQUIRE(std::filesystem::is_symlink(sym_nfo_p));
 	{
-		std::ifstream ifs(linked_nfo);
+		std::ifstream ifs(linked_nfo_p);
 		std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 		REQUIRE(s.find("Infofile for JPEG image") != std::string::npos);
 	}
 #endif
 }
+
 

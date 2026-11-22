@@ -28,6 +28,22 @@ struct DumpHandle {
 	std::string display_fn;
 	std::string commit_target_fn;
 	std::string staging_fn;
+
+	DumpHandle() = default;
+	DumpHandle( const DumpHandle& ) = delete;
+	DumpHandle& operator=( const DumpHandle& ) = delete;
+
+	~DumpHandle()
+	{
+		if ( fp != nullptr ) {
+			std::fclose( fp );
+			fp = nullptr;
+		}
+		if ( !staging_fn.empty() ) {
+			remove_file_utf8( staging_fn );
+			staging_fn.clear();
+		}
+	}
 };
 
 bool open_dump_file(
@@ -38,7 +54,19 @@ bool open_dump_file(
 	const char* mode,
 	DumpHandle& out )
 {
-	out = { nullptr, base, ext, overwrite, resolve_dump_filename( base, ext, overwrite ), {}, {} };
+	if ( out.fp != nullptr ) {
+		std::fclose( out.fp );
+		out.fp = nullptr;
+	}
+	if ( !out.staging_fn.empty() ) {
+		remove_file_utf8( out.staging_fn );
+	}
+	out.base             = base;
+	out.ext              = ext;
+	out.overwrite        = overwrite;
+	out.display_fn       = resolve_dump_filename( base, ext, overwrite );
+	out.commit_target_fn.clear();
+	out.staging_fn.clear();
 	std::string target_err;
 	if ( overwrite ) {
 		if ( !resolve_overwrite_target_utf8( out.display_fn, out.commit_target_fn, target_err, &out.display_fn ) ) {
@@ -145,6 +173,12 @@ bool dump_huf( CodecContext& ctx, const std::string& base, bool overwrite )
 
 bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool overwrite )
 {
+	if ( ( collmode < 0 ) || ( collmode > 5 ) ) {
+		ctx.errormessage = "invalid collection dump mode";
+		ctx.errorlevel   = 2;
+		return false;
+	}
+
 	constexpr std::array<const char*, 4> ext{ "coll0", "coll1", "coll2", "coll3" };
 
 	for ( int cmp = 0; cmp < ctx.cmpc; cmp++ ) {
@@ -154,23 +188,32 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 		}
 
 		const auto& ci = ctx.cmpnfo[ cmp ];
+		const auto write_shorts = [&]( const short* ptr, std::size_t count ) -> bool {
+			return ( count == 0 ) || ( std::fwrite( ptr, sizeof( short ), count, h.fp ) == count );
+		};
 		switch ( collmode ) {
 			case 0:
-				for ( int bpos = 0; bpos < 64; bpos++ )
-					std::fwrite( ctx.colldata[ cmp ][ bpos ].data(), sizeof( short ), static_cast<std::size_t>( ci.bc ), h.fp );
+				for ( int bpos = 0; bpos < 64; bpos++ ) {
+					if ( !write_shorts( ctx.colldata[ cmp ][ bpos ].data(), static_cast<std::size_t>( ci.bc ) ) )
+						return abort_dump_file( ctx, h );
+				}
 				break;
 
 			case 1:
-				for ( int dpos = 0; dpos < ci.bc; dpos++ )
-					for ( int bpos = 0; bpos < 64; bpos++ )
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, h.fp );
+				for ( int dpos = 0; dpos < ci.bc; dpos++ ) {
+					for ( int bpos = 0; bpos < 64; bpos++ ) {
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
+					}
+				}
 				break;
 
 			case 2: {
 				int dpos = 0;
 				for ( int i = 0; i < 64; ) {
 					const int bpos = zigzag[ i++ ];
-					std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), static_cast<std::size_t>( ci.bch ), h.fp );
+					if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], static_cast<std::size_t>( ci.bch ) ) )
+						return abort_dump_file( ctx, h );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += ci.bch;
 						if ( dpos >= ci.bc ) dpos = 0;
@@ -185,7 +228,8 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 					for ( int j = 0; j < ( ci.bch * 8 ); j++ ) {
 						const int bpos = zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 						const int dpos = ( ( i / 8 ) * ci.bch ) + ( j / 8 );
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, h.fp );
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
 					}
 				}
 				break;
@@ -194,7 +238,8 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 				int dpos = 0;
 				for ( int i = 0; i < 64; ) {
 					const int bpos = even_zigzag[ i++ ];
-					std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), static_cast<std::size_t>( ci.bch ), h.fp );
+					if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], static_cast<std::size_t>( ci.bch ) ) )
+						return abort_dump_file( ctx, h );
 					if ( ( i % 8 ) == 0 ) {
 						dpos += ci.bch;
 						if ( dpos >= ci.bc ) dpos = 0;
@@ -209,7 +254,8 @@ bool dump_coll( CodecContext& ctx, const std::string& base, int collmode, bool o
 					for ( int j = 0; j < ( ci.bch * 8 ); j++ ) {
 						const int bpos = even_zigzag[ ( ( i % 8 ) * 8 ) + ( j % 8 ) ];
 						const int dpos = ( ( i / 8 ) * ci.bch ) + ( j / 8 );
-						std::fwrite( &ctx.colldata[ cmp ][ bpos ][ dpos ], sizeof( short ), 1, h.fp );
+						if ( !write_shorts( &ctx.colldata[ cmp ][ bpos ][ dpos ], 1 ) )
+							return abort_dump_file( ctx, h );
 					}
 				}
 				break;
@@ -241,7 +287,9 @@ bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 		return false;
 	}
 
-	std::fprintf( h.fp, "<Infofile for JPEG image %s>\n\n\n", ctx.jpgfilename.c_str() );
+	const std::string& info_src = active_input_path( ctx );
+	std::fprintf( h.fp, "<Infofile for JPEG image %s>\n\n\n",
+		info_src.empty() ? base.c_str() : info_src.c_str() );
 	std::fprintf( h.fp, "coding process: %s\n", ( ctx.jpegtype == 1 ) ? "sequential" : "progressive" );
 	std::fprintf( h.fp, "imageheight: %i / imagewidth: %i\n", ctx.imgheight, ctx.imgwidth );
 	std::fprintf( h.fp, "component count: %i\n", ctx.cmpc );
@@ -251,11 +299,11 @@ bool dump_info( CodecContext& ctx, const std::string& base, bool overwrite )
 	std::fprintf( h.fp, " type  length   hpos\n" );
 	unsigned int hpos = 0;
 	unsigned int len  = 0;
-	for ( hpos = 0; hpos + 4 <= ctx.hdrdata.size(); hpos += len ) {
+	for ( hpos = 0; ( ctx.hdrdata.size() >= 4 ) && ( hpos <= ctx.hdrdata.size() - 4 ); hpos += len ) {
 		const unsigned char type = ctx.hdrdata[ hpos + 1 ];
 		len = static_cast<unsigned int>( 2 + b_short( ctx.hdrdata[ hpos + 2 ], ctx.hdrdata[ hpos + 3 ] ) );
-		if ( ( len < 4 ) || ( hpos + len > ctx.hdrdata.size() ) ) break;
-		std::fprintf( h.fp, " FF%2X  %6i %6i\n", static_cast<int>( type ), static_cast<int>( len ), static_cast<int>( hpos ) );
+		if ( ( len < 4 ) || ( len > ctx.hdrdata.size() - hpos ) ) break;
+		std::fprintf( h.fp, " FF%02X  %6i %6i\n", static_cast<int>( type ), static_cast<int>( len ), static_cast<int>( hpos ) );
 	}
 	std::fprintf( h.fp, " _END       0 %6i\n\n", static_cast<int>( hpos ) );
 

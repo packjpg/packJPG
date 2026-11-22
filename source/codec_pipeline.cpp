@@ -72,8 +72,8 @@ bool convert_memory(
 	int err_tol )
 {
 	try {
-		out_data.clear();
 		if ( ( in_data == nullptr ) || ( in_size < 2 ) ) {
+			out_data.clear();
 			if ( error_msg != nullptr ) {
 				*error_msg = "input buffer too small";
 			}
@@ -86,8 +86,8 @@ bool convert_memory(
 		ctx.auto_set  = true;
 		ctx.action    = A_COMPRESS;
 
-
 		ctx.str_in = std::make_unique<MemoryReader>( in_data, in_size );
+		out_data.clear();
 		auto mem_out = std::make_unique<MemoryWriter>();
 		MemoryWriter* mem_out_ptr = mem_out.get();
 		ctx.str_out = std::move( mem_out );

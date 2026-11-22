@@ -107,7 +107,9 @@ int probe_susie_handle( HANDLE hf ) noexcept
 
 int probe_susie_supported( DWORD_PTR dw ) noexcept
 {
-	if ( ( dw == 0 ) || ( dw == static_cast<DWORD_PTR>( -1 ) ) ) {
+	if ( ( dw == 0 ) ||
+	     ( dw == static_cast<DWORD_PTR>( -1 ) ) ||
+	     ( dw == static_cast<DWORD_PTR>( 0xFFFFFFFFu ) ) ) {
 		return 0;
 	}
 	// Susie 00IN convention: low 64 KB values represent a Win32 file HANDLE; higher values are typically a memory pointer.
@@ -115,10 +117,14 @@ int probe_susie_supported( DWORD_PTR dw ) noexcept
 		return probe_susie_handle( reinterpret_cast<HANDLE>( dw ) );
 	}
 
+	constexpr DWORD kReadablePageMask =
+		PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
+		PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
 	const auto* mem = reinterpret_cast<const std::uint8_t*>( dw );
 	MEMORY_BASIC_INFORMATION mbi{};
 	if ( ( VirtualQuery( mem, &mbi, sizeof( mbi ) ) == sizeof( mbi ) ) &&
 		 ( mbi.State == MEM_COMMIT ) &&
+		 ( ( mbi.Protect & kReadablePageMask ) != 0 ) &&
 		 ( ( mbi.Protect & ( PAGE_NOACCESS | PAGE_GUARD ) ) == 0 ) ) {
 		const auto region_end = reinterpret_cast<std::uintptr_t>( mbi.BaseAddress ) + mbi.RegionSize;
 		const auto ptr_addr   = reinterpret_cast<std::uintptr_t>( mem );
@@ -130,11 +136,14 @@ int probe_susie_supported( DWORD_PTR dw ) noexcept
 	}
 
 	// Fallback if the host passed an NT kernel file HANDLE whose numeric value exceeds 0xFFFF.
-	return probe_susie_handle( reinterpret_cast<HANDLE>( dw ) );
+	if ( ( ( dw & 3u ) == 0 ) && ( dw <= 0x00FFFFFFu ) ) {
+		return probe_susie_handle( reinterpret_cast<HANDLE>( dw ) );
+	}
+	return 0;
 }
 
-int load_susie_input_w(
-	LPCWSTR buf,
+int load_susie_input(
+	const void* buf,
 	LONG_PTR len,
 	unsigned int flag,
 	std::vector<std::uint8_t>& storage,
@@ -147,7 +156,7 @@ int load_susie_input_w(
 			return SPI_FILE_READ_ERROR;
 		}
 		std::string err;
-		if ( !pjg_iv::read_file_bytes_w( buf, storage, err, static_cast<std::uint64_t>( len ) ) ) {
+		if ( !pjg_iv::read_file_bytes_w( static_cast<LPCWSTR>( buf ), storage, err, static_cast<std::uint64_t>( len ) ) ) {
 			return SPI_FILE_READ_ERROR;
 		}
 		data_ptr  = storage.data();
@@ -158,11 +167,103 @@ int load_susie_input_w(
 		if ( ( buf == nullptr ) || ( len < 3 ) || ( static_cast<std::uint64_t>( len ) > ( 256ull << 20 ) ) ) {
 			return SPI_MEMORY_ERROR;
 		}
-		data_ptr  = reinterpret_cast<const std::uint8_t*>( buf );
+		data_ptr  = static_cast<const std::uint8_t*>( buf );
 		data_size = static_cast<std::size_t>( len );
 		return SPI_ALL_RIGHT;
 	}
 	return SPI_NO_FUNCTION;
+}
+
+int get_picture_info_impl(
+	const void* buf,
+	LONG_PTR len,
+	unsigned int flag,
+	SusiePictureInfo* lpInfo )
+{
+	if ( lpInfo == nullptr ) {
+		return SPI_MEMORY_ERROR;
+	}
+	std::memset( lpInfo, 0, sizeof( SusiePictureInfo ) );
+
+	try {
+		std::vector<std::uint8_t> storage;
+		const std::uint8_t* data_ptr = nullptr;
+		std::size_t data_size = 0;
+		const int load_rc = load_susie_input( buf, len, flag, storage, data_ptr, data_size );
+		if ( load_rc != SPI_ALL_RIGHT ) {
+			return load_rc;
+		}
+
+		if ( !pjg_iv::has_pjg_signature( data_ptr, data_size ) ) {
+			return SPI_NOT_SUPPORT;
+		}
+
+		pjg_iv::ImageHeaderInfo info;
+		std::string err;
+		if ( !pjg_iv::query_pjg_info_from_memory( data_ptr, data_size, info, err ) ) {
+			return SPI_OUT_OF_ORDER;
+		}
+
+		lpInfo->width      = static_cast<LONG>( info.width );
+		lpInfo->height     = static_cast<LONG>( info.height );
+		lpInfo->x_density  = static_cast<WORD>( std::clamp( info.dpi_x, 0, 65535 ) );
+		lpInfo->y_density  = static_cast<WORD>( std::clamp( info.dpi_y, 0, 65535 ) );
+		lpInfo->colorDepth = static_cast<short>( info.bit_depth );
+		lpInfo->hInfo      = nullptr;
+		return SPI_ALL_RIGHT;
+	} catch ( const std::bad_alloc& ) {
+		return SPI_NO_MEMORY;
+	} catch ( ... ) {
+		return SPI_OTHER_ERROR;
+	}
+}
+
+int get_picture_impl(
+	const void* buf,
+	LONG_PTR len,
+	unsigned int flag,
+	HANDLE* pHBInfo,
+	HANDLE* pHBm,
+	SpiProgressCallback lpPrgressCallback,
+	LONG_PTR lData )
+{
+	if ( ( pHBInfo == nullptr ) || ( pHBm == nullptr ) ) {
+		return SPI_MEMORY_ERROR;
+	}
+	*pHBInfo = nullptr;
+	*pHBm    = nullptr;
+
+	try {
+		if ( ( lpPrgressCallback != nullptr ) && ( lpPrgressCallback( 0, 100, lData ) != 0 ) ) {
+			return SPI_ABORT;
+		}
+
+		std::vector<std::uint8_t> storage;
+		const std::uint8_t* data_ptr = nullptr;
+		std::size_t data_size = 0;
+		const int load_rc = load_susie_input( buf, len, flag, storage, data_ptr, data_size );
+		if ( load_rc != SPI_ALL_RIGHT ) {
+			return load_rc;
+		}
+
+		std::string err;
+		const int rc = pjg_iv::decode_pjg_memory_to_susie_dib( data_ptr, data_size, pHBInfo, pHBm, err );
+		if ( rc != SPI_ALL_RIGHT ) {
+			return rc;
+		}
+
+		if ( ( lpPrgressCallback != nullptr ) && ( lpPrgressCallback( 100, 100, lData ) != 0 ) ) {
+			if ( *pHBInfo != nullptr ) { LocalFree( *pHBInfo ); *pHBInfo = nullptr; }
+			if ( *pHBm != nullptr )    { LocalFree( *pHBm );    *pHBm    = nullptr; }
+			return SPI_ABORT;
+		}
+
+		return SPI_ALL_RIGHT;
+	} catch ( const std::bad_alloc& ) {
+		return SPI_NO_MEMORY;
+	} catch ( ... ) {
+		return SPI_OTHER_ERROR;
+	}
 }
 
 } // namespace
@@ -341,42 +442,7 @@ PJG_PLUGIN_STDCALL(int) GetPictureInfoW(
 	unsigned int flag,
 	SusiePictureInfo* lpInfo )
 {
-	if ( lpInfo == nullptr ) {
-		return SPI_MEMORY_ERROR;
-	}
-	std::memset( lpInfo, 0, sizeof( SusiePictureInfo ) );
-
-	try {
-		std::vector<std::uint8_t> storage;
-		const std::uint8_t* data_ptr = nullptr;
-		std::size_t data_size = 0;
-		const int load_rc = load_susie_input_w( buf, len, flag, storage, data_ptr, data_size );
-		if ( load_rc != SPI_ALL_RIGHT ) {
-			return load_rc;
-		}
-
-		if ( !pjg_iv::has_pjg_signature( data_ptr, data_size ) ) {
-			return SPI_NOT_SUPPORT;
-		}
-
-		pjg_iv::ImageHeaderInfo info;
-		std::string err;
-		if ( !pjg_iv::query_pjg_info_from_memory( data_ptr, data_size, info, err ) ) {
-			return SPI_OUT_OF_ORDER;
-		}
-
-		lpInfo->width      = static_cast<LONG>( info.width );
-		lpInfo->height     = static_cast<LONG>( info.height );
-		lpInfo->x_density  = static_cast<WORD>( std::clamp( info.dpi_x, 0, 65535 ) );
-		lpInfo->y_density  = static_cast<WORD>( std::clamp( info.dpi_y, 0, 65535 ) );
-		lpInfo->colorDepth = static_cast<short>( info.bit_depth );
-		lpInfo->hInfo      = nullptr;
-		return SPI_ALL_RIGHT;
-	} catch ( const std::bad_alloc& ) {
-		return SPI_NO_MEMORY;
-	} catch ( ... ) {
-		return SPI_OTHER_ERROR;
-	}
+	return get_picture_info_impl( buf, len, flag, lpInfo );
 }
 
 PJG_PLUGIN_STDCALL(int) GetPictureInfo(
@@ -395,9 +461,9 @@ PJG_PLUGIN_STDCALL(int) GetPictureInfo(
 			if ( buf == nullptr ) return SPI_FILE_READ_ERROR;
 			const std::wstring wpath = pjg_iv::widen_acp( buf );
 			if ( wpath.empty() ) return SPI_FILE_READ_ERROR;
-			return GetPictureInfoW( wpath.c_str(), len, flag, lpInfo );
+			return get_picture_info_impl( wpath.c_str(), len, flag, lpInfo );
 		}
-		return GetPictureInfoW( reinterpret_cast<LPCWSTR>( buf ), len, flag, lpInfo );
+		return get_picture_info_impl( static_cast<const void*>( buf ), len, flag, lpInfo );
 	} catch ( const std::bad_alloc& ) {
 		return SPI_NO_MEMORY;
 	} catch ( ... ) {
@@ -414,43 +480,7 @@ PJG_PLUGIN_STDCALL(int) GetPictureW(
 	SpiProgressCallback lpPrgressCallback,
 	LONG_PTR lData )
 {
-	if ( ( pHBInfo == nullptr ) || ( pHBm == nullptr ) ) {
-		return SPI_MEMORY_ERROR;
-	}
-	*pHBInfo = nullptr;
-	*pHBm    = nullptr;
-
-	try {
-		if ( ( lpPrgressCallback != nullptr ) && ( lpPrgressCallback( 0, 100, lData ) != 0 ) ) {
-			return SPI_ABORT;
-		}
-
-		std::vector<std::uint8_t> storage;
-		const std::uint8_t* data_ptr = nullptr;
-		std::size_t data_size = 0;
-		const int load_rc = load_susie_input_w( buf, len, flag, storage, data_ptr, data_size );
-		if ( load_rc != SPI_ALL_RIGHT ) {
-			return load_rc;
-		}
-
-		std::string err;
-		const int rc = pjg_iv::decode_pjg_memory_to_susie_dib( data_ptr, data_size, pHBInfo, pHBm, err );
-		if ( rc != SPI_ALL_RIGHT ) {
-			return rc;
-		}
-
-		if ( ( lpPrgressCallback != nullptr ) && ( lpPrgressCallback( 100, 100, lData ) != 0 ) ) {
-			if ( *pHBInfo != nullptr ) { LocalFree( *pHBInfo ); *pHBInfo = nullptr; }
-			if ( *pHBm != nullptr )    { LocalFree( *pHBm );    *pHBm    = nullptr; }
-			return SPI_ABORT;
-		}
-
-		return SPI_ALL_RIGHT;
-	} catch ( const std::bad_alloc& ) {
-		return SPI_NO_MEMORY;
-	} catch ( ... ) {
-		return SPI_OTHER_ERROR;
-	}
+	return get_picture_impl( buf, len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
 }
 
 PJG_PLUGIN_STDCALL(int) GetPicture(
@@ -473,9 +503,9 @@ PJG_PLUGIN_STDCALL(int) GetPicture(
 			if ( buf == nullptr ) return SPI_FILE_READ_ERROR;
 			const std::wstring wpath = pjg_iv::widen_acp( buf );
 			if ( wpath.empty() ) return SPI_FILE_READ_ERROR;
-			return GetPictureW( wpath.c_str(), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
+			return get_picture_impl( wpath.c_str(), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
 		}
-		return GetPictureW( reinterpret_cast<LPCWSTR>( buf ), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
+		return get_picture_impl( static_cast<const void*>( buf ), len, flag, pHBInfo, pHBm, lpPrgressCallback, lData );
 	} catch ( const std::bad_alloc& ) {
 		return SPI_NO_MEMORY;
 	} catch ( ... ) {

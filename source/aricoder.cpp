@@ -241,47 +241,53 @@ void model_s::flush_model()
 	special version of model_s for binary coding
 	----------------------------------------------- */
 
-model_b::model_b( int max_c, int max_o, int c_lim ) :
-	max_context(max_c),
-	max_order(max_o + 1),
-	max_count(c_lim)
+model_b::model_b( int max_c, int max_o, int c_lim, int max_c_leaf ) :
+	max_context( max_c ),
+	max_order( max_o + 1 ),
+	max_count( c_lim ),
+	leaf_link_width_( ( max_c_leaf > 0 && max_c_leaf < max_c ) ? max_c_leaf : max_c )
 {
 	if ( max_order < 0 || max_order >= static_cast<int>( contexts_.size() ) ||
 	     max_context < 0 || max_count <= 1 || max_count > 65535 ) {
 		throw std::runtime_error( "invalid model_b configuration" );
 	}
 
-
 	nodes_.reserve( 64 );
 	links_pool_.reserve( static_cast<std::size_t>( std::max( 1, max_context ) ) * 8 );
 
 	// Node 0: null table
-	const std::int32_t null_idx = alloc_node( false );
+	const std::int32_t null_idx = alloc_node_sized( 0 );
 	nodes_[ static_cast<std::size_t>( null_idx ) ].counts0 = 1;
 	nodes_[ static_cast<std::size_t>( null_idx ) ].counts1 = 1;
 	nodes_[ static_cast<std::size_t>( null_idx ) ].scale   = 2;
 
 	// Node 1: start table
-	const std::int32_t start_idx = alloc_node( max_context > 0 );
+	const int root_width = ( max_order == 2 ) ? leaf_link_width_ : ( ( max_order > 1 ) ? max_context : 0 );
+	const std::int32_t start_idx = alloc_node_sized( root_width );
 
 	contexts_[ 0 ] = null_idx;
 	contexts_[ 1 ] = start_idx;
 
 	for ( int i = 2; i <= max_order; i++ ) {
-		const std::int32_t created = alloc_node( i < max_order );
+		const int child_width = ( i < max_order )
+			? ( ( i + 1 == max_order ) ? leaf_link_width_ : max_context )
+			: 0;
+		const std::int32_t created = alloc_node_sized( child_width );
 		contexts_[ static_cast<std::size_t>( i ) ] = created;
 		const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
-		links_pool_[ static_cast<std::size_t>( parent_links ) ] = created;
+		if ( parent_links >= 0 ) {
+			links_pool_[ static_cast<std::size_t>( parent_links ) ] = created;
+		}
 	}
 }
 
-std::int32_t model_b::alloc_node( bool with_links )
+std::int32_t model_b::alloc_node_sized( int link_width )
 {
 	const auto idx = static_cast<std::int32_t>( nodes_.size() );
 	BNode node{};
-	if ( with_links && ( max_context > 0 ) ) {
+	if ( link_width > 0 ) {
 		node.links_offset = static_cast<std::int32_t>( links_pool_.size() );
-		links_pool_.resize( links_pool_.size() + static_cast<std::size_t>( max_context ), -1 );
+		links_pool_.resize( links_pool_.size() + static_cast<std::size_t>( link_width ), -1 );
 	}
 	nodes_.push_back( node );
 	return idx;

@@ -10,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import zlib
 
 
@@ -65,7 +66,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="packjpg_suite_") as tmp:
         # 1. Golden v2.5k bitstream compatibility & byte-identical round-trip across all 10 JPEG modes
-        print("[1/6] Golden bitstream SHA-256 & round-trip matrix...")
+        print("[1/7] Golden bitstream SHA-256 & round-trip matrix...")
         first_jpg_bytes = None
         for name, entry in sorted(corpus["cases"].items()):
             jpg_bytes = zlib.decompress(base64.b64decode(entry["jpg_zb64"]))
@@ -106,7 +107,7 @@ def main():
             print(f"  [PASS] {name} (jpg={len(jpg_bytes)}B -> pjg={len(pjg_bytes)}B)")
 
         # 2. Metadata stripping (-d) check
-        print("[2/6] Metadata discard (-d) golden check...")
+        print("[2/7] Metadata discard (-d) golden check...")
         meta_jpg = zlib.decompress(base64.b64decode(corpus["cases"]["metadata_and_trailing_garbage"]["jpg_zb64"]))
         d_in = os.path.join(tmp, "discard_meta.jpg")
         d_pjg = os.path.join(tmp, "discard_meta.pjg")
@@ -131,7 +132,7 @@ def main():
         print("  [PASS] -d metadata discard & header rebuild")
 
         # 3. Pipe mode (-p: stdin -> stdout) compress, -ver, decompress, and clean error stdout
-        print("[3/6] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
+        print("[3/7] Pipe mode (-p stdin/stdout) round-trip & error cleanliness...")
         rc, pjg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=first_jpg_bytes)
         assert rc == 0 and pjg_stdout.startswith(b"JS"), f"Pipe compress failed (rc={rc}, len={len(pjg_stdout)})"
         rc, jpg_stdout, _ = run_cli(binary, ["-np", "-p", "-ver", "-"], stdin_bytes=pjg_stdout)
@@ -141,7 +142,7 @@ def main():
         print("  [PASS] -p/-ver binary stdin/stdout round-trip and clean failure stdout")
 
         # 4. Non-overwrite suffixing, directory path, long filenames, and format-string filenames
-        print("[4/6] CLI file naming, directory rejection, long paths, and format-string safety...")
+        print("[4/7] CLI file naming, directory rejection, long paths, and format-string safety...")
         no_ow_dir = os.path.join(tmp, "no_overwrite")
         os.makedirs(no_ow_dir)
         # Passing a directory path must not crash with uncaught std::length_error
@@ -186,7 +187,7 @@ def main():
         print("  [PASS] non-overwrite suffixing, directory path, long paths, and format-string filenames")
 
         # 5. Malformed / truncated JPEG & PJG negative regression suite
-        print("[5/6] Malformed JPEG & PJG negative regressions...")
+        print("[5/7] Malformed JPEG & PJG negative regressions...")
         malformed_inputs = {
             "empty.jpg": b"",
             "soi_only.jpg": b"\xff\xd8",
@@ -273,7 +274,7 @@ def main():
         print(f"  [PASS] {len(malformed_inputs) + 3} malformed, padbit, & fuzz-discovered edge cases handled cleanly")
 
         # 6. Output directory (-out), wildcards (*.jpg / ?), recursive (-r), and parallel batch (-j4)
-        print("[6/6] Output directory (-out), wildcards, recursive (-r), and parallel (-j4) batch...")
+        print("[6/7] Output directory (-out), wildcards, recursive (-r), and parallel (-j4) batch...")
         batch_in = os.path.join(tmp, "batch_in")
         sub_a = os.path.join(batch_in, "album_a")
         sub_b = os.path.join(batch_in, "album_b", "nested")
@@ -611,6 +612,105 @@ def main():
         assert not os.path.exists(os.path.join(u8_glob_dir, "b\u00e9x.pjg"))
 
         print("  [PASS] -out lazy directory creation, */? wildcards, -r hierarchy, -j4 parallel batch, and third-pass CLI safety guards")
+
+        # 9. Fourth-pass CLI regressions:
+        #    - Bug #2: -ver on >4,096-block (640x480 = 4,800 blocks) JPEG & PJG, plus -d -ver on metadata-bearing JPEG & PJG
+        #    - Bug #6 & #7: 300-file -j4 parallel batch with mixed invalid item (O(1) BatchPathGuard, zero leftover .packjpg_tmp_*)
+        #    - Bug #8 & #9: -ver -o through /dev/null & POSIX FIFO symlinks, plus symlinked-dir '../' relative symlink
+        print("[7/7] Testing fourth-pass CLI regressions (-ver >4096 blocks, -d -ver, special targets, and 300-file -j4 batch)...")
+        p4_dir = os.path.join(tmp, "fourth_pass")
+        os.makedirs(p4_dir)
+
+        # Build a valid 640x480 (80x60 = 4,800 blocks > 4,096) grayscale baseline JPEG with APP0 + COM metadata
+        vga_w, vga_h = 640, 480
+        vga_blocks = (vga_w // 8) * (vga_h // 8)
+        vga_jpg_bytes = (
+            b"\xff\xd8"
+            + b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00\x48\x00\x48\x00\x00"
+            + b"\xff\xfe\x00\x0cpackJPG-p4"
+            + b"\xff\xdb\x00\x43\x00" + (b"\x10" * 64)
+            + bytes([0xFF, 0xC0, 0x00, 0x0B, 0x08, (vga_h >> 8) & 0xFF, vga_h & 0xFF, (vga_w >> 8) & 0xFF, vga_w & 0xFF, 0x01, 0x01, 0x11, 0x00])
+            + b"\xff\xc4\x00\x14\x00\x01" + (b"\x00" * 16)
+            + b"\xff\xc4\x00\x14\x10\x01" + (b"\x00" * 16)
+            + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+            + (b"\x00" * ((vga_blocks * 2) // 8))
+            + b"\xff\xd9"
+        )
+        vga_jpg = os.path.join(p4_dir, "vga_640x480.jpg")
+        vga_pjg = os.path.join(p4_dir, "vga_640x480.pjg")
+        with open(vga_jpg, "wb") as f:
+            f.write(vga_jpg_bytes)
+
+        rc_vga_c, _, _ = run_cli(binary, ["-np", "-ver", "-o", vga_jpg])
+        assert rc_vga_c == 0 and os.path.isfile(vga_pjg), "Failed -ver compression on 640x480 (>4,096 blocks) JPEG!"
+        vga_rt_dir = os.path.join(p4_dir, "vga_rt")
+        rc_vga_d, _, _ = run_cli(binary, ["-np", "-ver", "-o", "-out", vga_rt_dir, vga_pjg])
+        assert rc_vga_d == 0, "Failed -ver decompression on 640x480 (>4,096 blocks) PJG!"
+        with open(os.path.join(vga_rt_dir, "vga_640x480.jpg"), "rb") as f:
+            assert f.read() == vga_jpg_bytes
+
+        # -d -ver on metadata-bearing JPEG and metadata-bearing PJG
+        dver_dir = os.path.join(p4_dir, "dver")
+        rc_dv_c, _, _ = run_cli(binary, ["-np", "-d", "-ver", "-o", "-out", dver_dir, vga_jpg])
+        assert rc_dv_c == 0 and os.path.isfile(os.path.join(dver_dir, "vga_640x480.pjg")), "Failed -d -ver on metadata JPEG!"
+        dver_jpg_dir = os.path.join(p4_dir, "dver_from_pjg")
+        rc_dv_d, _, _ = run_cli(binary, ["-np", "-d", "-ver", "-o", "-out", dver_jpg_dir, vga_pjg])
+        assert rc_dv_d == 0, "Failed -d -ver on metadata PJG!"
+        with open(os.path.join(dver_jpg_dir, "vga_640x480.jpg"), "rb") as f:
+            stripped_bytes = f.read()
+        assert b"JFIF" not in stripped_bytes and b"packJPG-p4" not in stripped_bytes
+
+        if os.name != "nt":
+            # Bug #8: -ver -o through /dev/null symlink reports non-zero compression ratio and succeeds!
+            devnull_dir = os.path.join(p4_dir, "devnull_ver")
+            os.makedirs(devnull_dir)
+            dn_jpg = os.path.join(devnull_dir, "null_ver.jpg")
+            dn_pjg = os.path.join(devnull_dir, "null_ver.pjg")
+            with open(dn_jpg, "wb") as f:
+                f.write(vga_jpg_bytes)
+            os.symlink("/dev/null", dn_pjg)
+            rc_dn, dn_out, _ = run_cli(binary, ["-np", "-v0", "-ver", "-o", dn_jpg])
+            assert rc_dn == 0, "Failed -ver -o through /dev/null symlink!"
+            assert b"0.00%" not in dn_out, f"Expected non-zero compression ratio on /dev/null, got {dn_out!r}"
+
+            # Bug #8: -ver -o through POSIX FIFO symlink succeeds without deadlocking open(O_RDONLY)!
+            fifo_dir = os.path.join(p4_dir, "fifo_ver")
+            os.makedirs(fifo_dir)
+            real_fifo = os.path.join(fifo_dir, "sink.fifo")
+            os.mkfifo(real_fifo, 0o600)
+            fifo_jpg = os.path.join(fifo_dir, "streamed.jpg")
+            fifo_pjg = os.path.join(fifo_dir, "streamed.pjg")
+            with open(fifo_jpg, "wb") as f:
+                f.write(first_jpg_bytes)
+            os.symlink(real_fifo, fifo_pjg)
+            fifo_received = bytearray()
+
+            def _drain_fifo():
+                with open(real_fifo, "rb") as rf:
+                    fifo_received.extend(rf.read())
+
+            t_fifo = threading.Thread(target=_drain_fifo)
+            t_fifo.start()
+            rc_ff, _, _ = run_cli(binary, ["-np", "-ver", "-o", fifo_jpg])
+            t_fifo.join(timeout=10)
+            assert rc_ff == 0 and bytes(fifo_received) == pjg_stdout, "Failed -ver -o through FIFO symlink!"
+
+        # Bugs #6 & #7: 300-file -j4 batch with 1 corrupt input mixed in (O(1) BatchPathGuard + clean staging cleanup)
+        scale_in = os.path.join(p4_dir, "scale_in")
+        scale_out = os.path.join(p4_dir, "scale_out")
+        os.makedirs(scale_in)
+        for idx in range(300):
+            with open(os.path.join(scale_in, f"img_{idx:04d}.jpg"), "wb") as f:
+                f.write(first_jpg_bytes)
+        with open(os.path.join(scale_in, "corrupt_mid.jpg"), "wb") as f:
+            f.write(b"\xff\xd8\xff\xc0\x00\x0b\x08")
+        rc_sc, _, _ = run_cli(binary, ["-np", "-j4", "-r", "-out", scale_out, scale_in])
+        assert rc_sc != 0, "Expected non-zero exit when batch includes 1 corrupt file"
+        produced = [n for n in os.listdir(scale_out) if n.endswith(".pjg")]
+        leftovers = [n for n in os.listdir(scale_out) if ".packjpg_tmp_" in n]
+        assert len(produced) == 300, f"Expected 300 valid outputs in -j4 batch, got {len(produced)}"
+        assert not leftovers, f"Found leftover staging files in -j4 batch: {leftovers}"
+        print("  [PASS] Fourth-pass CLI regressions (-ver >4096 blocks, -d -ver, special stream targets, and 300-file -j4 batch)")
 
     print("\nAll CLI & golden bitstream tests passed!")
     return 0

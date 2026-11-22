@@ -130,10 +130,26 @@ inline std::filesystem::path path_from_utf8( const std::string& s )
 #endif
 }
 
+inline std::filesystem::path fs_path_for_sys( const std::string& s )
+{
+#if defined(_WIN32) || defined(WIN32)
+	return std::filesystem::path( widen_win32_path( s ) );
+#else
+	return std::filesystem::path( s );
+#endif
+}
+
 inline std::string path_to_utf8( const std::filesystem::path& p )
 {
 #if defined(_WIN32) || defined(WIN32)
-	return narrow_utf8_from_wide( p.wstring() );
+	std::wstring ws = p.wstring();
+	if ( ws.rfind( L"\\\\?\\UNC\\", 0 ) == 0 ) {
+		ws = L"\\\\" + ws.substr( 8 );
+	}
+	else if ( ws.rfind( L"\\\\?\\", 0 ) == 0 ) {
+		ws.erase( 0, 4 );
+	}
+	return narrow_utf8_from_wide( ws );
 #else
 	return p.string();
 #endif
@@ -174,14 +190,7 @@ inline bool path_or_symlink_exists( const std::filesystem::path& p ) noexcept
 
 inline bool file_exists( const std::string& filename ) noexcept
 {
-	if ( filename.empty() ) {
-		return false;
-	}
-	try {
-		return path_or_symlink_exists( path_from_utf8( filename ) );
-	} catch ( ... ) {
-		return false;
-	}
+	return !filename.empty() && path_or_symlink_exists( fs_path_for_sys( filename ) );
 }
 
 inline bool remove_file_utf8( const std::string& filename ) noexcept
@@ -191,7 +200,68 @@ inline bool remove_file_utf8( const std::string& filename ) noexcept
 	}
 	try {
 		std::error_code ec;
-		return std::filesystem::remove( path_from_utf8( filename ), ec ) && !ec;
+		return std::filesystem::remove( fs_path_for_sys( filename ), ec ) && !ec;
+	} catch ( ... ) {
+		return false;
+	}
+}
+
+struct FileIdentity {
+	std::uint64_t dev    = 0;
+	std::uint64_t ino_hi = 0;
+	std::uint64_t ino_lo = 0;
+
+	bool operator==( const FileIdentity& o ) const noexcept {
+		return ( dev == o.dev ) && ( ino_hi == o.ino_hi ) && ( ino_lo == o.ino_lo );
+	}
+};
+
+struct FileIdentityHash {
+	std::size_t operator()( const FileIdentity& id ) const noexcept {
+		std::uint64_t h = id.dev * 0x9E3779B97F4A7C15ULL ^ ( id.ino_hi << 1 ) ^ id.ino_lo;
+		h = ( h ^ ( h >> 30 ) ) * 0xBF58476D1CE4E5B9ULL;
+		return static_cast<std::size_t>( h ^ ( h >> 27 ) );
+	}
+};
+
+inline bool query_existing_file_identity( const std::string& path_utf8, FileIdentity& out ) noexcept
+{
+	if ( path_utf8.empty() ) {
+		return false;
+	}
+	try {
+#if defined(_WIN32) || defined(WIN32)
+		const std::wstring wpath = widen_win32_path( path_utf8 );
+		if ( wpath.empty() ) {
+			return false;
+		}
+		HANDLE h = CreateFileW(
+			wpath.c_str(),
+			0,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			nullptr,
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS,
+			nullptr );
+		if ( h == INVALID_HANDLE_VALUE ) {
+			return false;
+		}
+		BY_HANDLE_FILE_INFORMATION info{};
+		const BOOL ok = GetFileInformationByHandle( h, &info );
+		CloseHandle( h );
+		if ( !ok || ( info.nFileIndexHigh == 0 && info.nFileIndexLow == 0 ) ) {
+			return false;
+		}
+		out = { info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow };
+		return true;
+#else
+		struct stat st{};
+		if ( ::stat( path_utf8.c_str(), &st ) != 0 ) {
+			return false;
+		}
+		out = { static_cast<std::uint64_t>( st.st_dev ), 0, static_cast<std::uint64_t>( st.st_ino ) };
+		return true;
+#endif
 	} catch ( ... ) {
 		return false;
 	}
@@ -204,7 +274,7 @@ inline bool paths_refer_to_same_existing_file( const std::string& a, const std::
 	}
 	try {
 		std::error_code ec;
-		const bool same = std::filesystem::equivalent( path_from_utf8( a ), path_from_utf8( b ), ec );
+		const bool same = std::filesystem::equivalent( fs_path_for_sys( a ), fs_path_for_sys( b ), ec );
 		return !ec && same;
 	} catch ( ... ) {
 		return false;
@@ -216,17 +286,41 @@ inline std::filesystem::path resolve_symlink_chain_checked( std::filesystem::pat
 	loop_detected = false;
 	std::error_code ec;
 	for ( int depth = 0; depth < 32; ++depth ) {
-		const auto st = std::filesystem::symlink_status( cur, ec );
+#if defined(_WIN32) || defined(WIN32)
+		const std::filesystem::path probe = fs_path_for_sys( path_to_utf8( cur ) );
+#else
+		const std::filesystem::path& probe = cur;
+#endif
+		const auto st = std::filesystem::symlink_status( probe, ec );
 		if ( ec || !std::filesystem::is_symlink( st ) ) {
 			return cur;
 		}
-		const std::filesystem::path target = std::filesystem::read_symlink( cur, ec );
+		const std::filesystem::path target = std::filesystem::read_symlink( probe, ec );
 		if ( ec || target.empty() ) {
 			return cur;
 		}
-		cur = target.is_absolute() ? target : ( cur.parent_path() / target );
+		if ( target.is_absolute() ) {
+			cur = target;
+		}
+		else {
+			std::filesystem::path base_dir = cur.parent_path();
+			if ( !base_dir.empty() ) {
+				std::error_code canon_ec;
+				const auto canon_dir = std::filesystem::weakly_canonical(
+					fs_path_for_sys( path_to_utf8( base_dir ) ), canon_ec );
+				if ( !canon_ec && !canon_dir.empty() ) {
+					base_dir = path_from_utf8( path_to_utf8( canon_dir ) );
+				}
+			}
+			cur = base_dir.empty() ? target : ( base_dir / target );
+		}
 	}
-	const auto final_st = std::filesystem::symlink_status( cur, ec );
+#if defined(_WIN32) || defined(WIN32)
+	const std::filesystem::path final_probe = fs_path_for_sys( path_to_utf8( cur ) );
+#else
+	const std::filesystem::path& final_probe = cur;
+#endif
+	const auto final_st = std::filesystem::symlink_status( final_probe, ec );
 	loop_detected = !ec && std::filesystem::is_symlink( final_st );
 	return cur;
 }
@@ -250,8 +344,9 @@ inline bool resolve_overwrite_target_utf8(
 	}
 	try {
 		const std::filesystem::path p = path_from_utf8( raw_target_utf8 );
+		const std::filesystem::path probe = fs_path_for_sys( raw_target_utf8 );
 		std::error_code ec;
-		if ( std::filesystem::is_symlink( std::filesystem::symlink_status( p, ec ) ) && !ec ) {
+		if ( std::filesystem::is_symlink( std::filesystem::symlink_status( probe, ec ) ) && !ec ) {
 			bool loop_detected = false;
 			const std::filesystem::path resolved = resolve_symlink_chain_checked( p, loop_detected );
 			if ( loop_detected ) {
@@ -298,7 +393,10 @@ inline bool paths_refer_to_same_target_location( const std::string& a, const std
 		const std::filesystem::path dir_a = pa.parent_path().empty() ? std::filesystem::path( "." ) : pa.parent_path();
 		const std::filesystem::path dir_b = pb.parent_path().empty() ? std::filesystem::path( "." ) : pb.parent_path();
 		std::error_code ec;
-		return std::filesystem::equivalent( dir_a, dir_b, ec ) && !ec &&
+		return std::filesystem::equivalent(
+			       fs_path_for_sys( path_to_utf8( dir_a ) ),
+			       fs_path_for_sys( path_to_utf8( dir_b ) ),
+			       ec ) && !ec &&
 		       ( fold_filename_for_platform( pa.filename() ) == fold_filename_for_platform( pb.filename() ) );
 	} catch ( ... ) {
 		return false;
@@ -311,15 +409,25 @@ inline std::string normalize_path_key( const std::string& raw )
 		return {};
 	}
 	const std::filesystem::path resolved = resolve_symlink_chain( path_from_utf8( raw ) );
+	const std::filesystem::path parent = resolved.parent_path().empty()
+		? std::filesystem::path( "." )
+		: resolved.parent_path();
 	std::error_code ec;
-	std::filesystem::path norm = std::filesystem::weakly_canonical( resolved, ec );
-	if ( ec ) {
+	std::filesystem::path norm_dir = std::filesystem::weakly_canonical(
+		fs_path_for_sys( path_to_utf8( parent ) ), ec );
+	if ( !ec && !norm_dir.empty() ) {
+		norm_dir = path_from_utf8( path_to_utf8( norm_dir ) );
+	}
+	else {
 		ec.clear();
-		norm = std::filesystem::absolute( resolved, ec ).lexically_normal();
+		norm_dir = std::filesystem::absolute( parent, ec ).lexically_normal();
 		if ( ec ) {
-			norm = resolved.lexically_normal();
+			norm_dir = parent.lexically_normal();
 		}
 	}
+	const std::filesystem::path norm = resolved.filename().empty()
+		? norm_dir
+		: ( norm_dir / path_from_utf8( fold_filename_for_platform( resolved.filename() ) ) );
 #if defined(_WIN32) || defined(WIN32)
 	std::wstring wkey = norm.wstring();
 	for ( wchar_t& wc : wkey ) {
@@ -379,8 +487,12 @@ inline std::string make_output_base(
 	const std::filesystem::path in_path = path_from_utf8( input_file );
 	std::filesystem::path dest_dir = path_from_utf8( out_dir );
 	if ( !rel_root.empty() ) {
+		std::filesystem::path root_norm = path_from_utf8( rel_root ).lexically_normal();
+		if ( root_norm.filename().empty() && ( root_norm != root_norm.root_path() ) ) {
+			root_norm = root_norm.parent_path();
+		}
 		const std::filesystem::path rel_parent =
-			in_path.parent_path().lexically_relative( path_from_utf8( rel_root ) );
+			in_path.parent_path().lexically_normal().lexically_relative( root_norm );
 		if ( !rel_parent.empty() && ( rel_parent != "." ) && ( path_to_utf8( *rel_parent.begin() ) != ".." ) ) {
 			dest_dir /= rel_parent;
 		}
@@ -399,9 +511,12 @@ inline bool is_non_regular_stream_target( const std::string& target_utf8 ) noexc
 		if ( wp.rfind( L"\\\\.\\", 0 ) == 0 ) {
 			return true;
 		}
-		const std::filesystem::path p( wp );
-		if ( p.parent_path().empty() ) {
-			std::string stem = path_to_utf8( p.stem() );
+		if ( wp.rfind( L"\\\\?\\", 0 ) != 0 ) {
+			const std::wstring full = widen_win32_path( target_utf8 );
+			if ( full.rfind( L"\\\\.\\", 0 ) == 0 ) {
+				return true;
+			}
+			std::string stem = path_to_utf8( std::filesystem::path( wp ).stem() );
 			for ( char& c : stem ) c = static_cast<char>( std::toupper( static_cast<unsigned char>( c ) ) );
 			if ( stem == "NUL" || stem == "CON" || stem == "PRN" || stem == "AUX" ) {
 				return true;
@@ -448,10 +563,11 @@ inline bool ensure_parent_directory( const std::string& file_path ) noexcept
 		if ( is_non_regular_stream_target( file_path ) ) {
 			return true;
 		}
-		const std::filesystem::path parent = path_from_utf8( file_path ).parent_path();
-		if ( parent.empty() ) {
+		const std::filesystem::path raw_parent = path_from_utf8( file_path ).parent_path();
+		if ( raw_parent.empty() ) {
 			return true;
 		}
+		const std::filesystem::path parent = fs_path_for_sys( path_to_utf8( raw_parent ) );
 		std::error_code ec;
 		if ( std::filesystem::is_directory( parent, ec ) ) {
 			return true;
@@ -476,7 +592,7 @@ inline bool can_overwrite_or_create_target(
 	}
 	try {
 		std::string effective_target;
-		if ( !resolve_overwrite_target_utf8( target_utf8, effective_target, err ) ) {
+		if ( !resolve_overwrite_target_utf8( target_utf8, effective_target, err, &shown ) ) {
 			return false;
 		}
 		if ( is_non_regular_stream_target( effective_target ) ) {
@@ -609,8 +725,8 @@ inline FILE* open_exclusive_file_utf8(
 			}
 			return nullptr;
 		}
-		if ( has_existing_mode ) {
-			(void)::fchmod( fd, static_cast<mode_t>( existing_mode & 07777u ) );
+		if ( has_existing_mode && ( ::fchmod( fd, static_cast<mode_t>( existing_mode & 07777u ) ) != 0 ) ) {
+			(void)::fchmod( fd, static_cast<mode_t>( existing_mode & 0777u ) );
 		}
 		FILE* fp = ::fdopen( fd, "wb" );
 		if ( fp == nullptr ) {
@@ -687,6 +803,18 @@ enum class CommitStatus {
 	Error
 };
 
+#if !defined(_WIN32) && !defined(WIN32)
+inline bool is_nonfatal_noreplace_errno( int err_no ) noexcept
+{
+	return ( err_no == ENOSYS ) || ( err_no == EINVAL ) || ( err_no == EPERM ) ||
+	       ( err_no == EACCES ) || ( err_no == EOPNOTSUPP )
+#ifdef ENOTSUP
+	       || ( err_no == ENOTSUP )
+#endif
+	       ;
+}
+#endif
+
 inline CommitStatus commit_staging_file(
 	const std::string& staging_utf8,
 	const std::string& target_utf8,
@@ -748,7 +876,7 @@ inline CommitStatus commit_staging_file(
 			if ( errno == EEXIST ) {
 				return CommitStatus::TargetExists;
 			}
-			if ( errno != ENOSYS && errno != EINVAL && errno != EOPNOTSUPP ) {
+			if ( !is_nonfatal_noreplace_errno( errno ) ) {
 				err = "failed to commit output file " + target_utf8;
 				return CommitStatus::Error;
 			}
@@ -759,7 +887,7 @@ inline CommitStatus commit_staging_file(
 			if ( errno == EEXIST ) {
 				return CommitStatus::TargetExists;
 			}
-			if ( errno != ENOTSUP && errno != ENOSYS && errno != EINVAL ) {
+			if ( !is_nonfatal_noreplace_errno( errno ) ) {
 				err = "failed to commit output file " + target_utf8;
 				return CommitStatus::Error;
 			}
@@ -775,7 +903,7 @@ inline CommitStatus commit_staging_file(
 			if ( errno == EEXIST ) {
 				return CommitStatus::TargetExists;
 			}
-			if ( errno != EPERM && errno != EOPNOTSUPP && errno != ENOSYS ) {
+			if ( !is_nonfatal_noreplace_errno( errno ) ) {
 				err = "failed to commit output file " + target_utf8;
 				return CommitStatus::Error;
 			}

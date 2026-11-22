@@ -54,7 +54,7 @@ public:
 	~BitReader() = default;
 
 	inline bool has_fast_16() const noexcept {
-		return cbyte + 2 < lbyte;
+		return cbyte < lbyte - 2;
 	}
 
 	inline unsigned int peek_9_fast() const noexcept {
@@ -73,7 +73,7 @@ public:
 		if ( nbits <= 0 ) {
 			return 0;
 		}
-		if ( ( cbyte + 2 < lbyte ) && ( nbits <= 16 ) ) {
+		if ( ( cbyte < lbyte - 2 ) && ( nbits <= 16 ) ) {
 			const unsigned int three = ( static_cast<unsigned int>( data[ cbyte ] ) << 16 )
 			                         | ( static_cast<unsigned int>( data[ cbyte + 1 ] ) << 8 )
 			                         | static_cast<unsigned int>( data[ cbyte + 2 ] );
@@ -413,13 +413,14 @@ private:
 	FILE* fptr_ = nullptr;
 	std::vector<char> file_buffer_;
 	const std::string file_path_;
+	std::size_t bytes_written_ = 0;
 	bool err_ = false;
 	bool closed_ = false;
 };
 
 class StreamWriter : public Writer {
 public:
-	explicit StreamWriter(FILE* stream = stdout);
+	explicit StreamWriter(FILE* stream = stdout, bool own_stream = false);
 	StreamWriter(const StreamWriter&) = delete;
 	StreamWriter& operator=(const StreamWriter&) = delete;
 	~StreamWriter();
@@ -433,6 +434,7 @@ public:
 
 	void reset() override;
 	bool flush() override;
+	bool close() override;
 	std::size_t num_bytes_written() override;
 	bool error() override;
 
@@ -440,6 +442,8 @@ private:
 	FILE* stream_ = stdout;
 	std::unique_ptr<MemoryWriter> writer_;
 	std::size_t flushed_offset_ = 0;
+	bool own_stream_ = false;
+	bool closed_ = false;
 	bool flushed_ = true;
 	bool error_ = false;
 };

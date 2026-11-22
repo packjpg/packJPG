@@ -516,7 +516,7 @@ private:
 class model_b
 {
 public:
-	model_b( int max_c, int max_o, int c_lim );
+	model_b( int max_c, int max_o, int c_lim, int max_c_leaf = -1 );
 
 	inline void update_model( int symbol )
 	{
@@ -538,14 +538,43 @@ public:
 		}
 
 		for ( int i = max_order; i > 1; i-- ) {
+			const int req_width = ( i == max_order ) ? leaf_link_width_ : max_context;
+			if ( c >= req_width ) {
+				throw std::runtime_error( "corrupted arithmetic stream" );
+			}
 			const std::int32_t parent_links = nodes_[ static_cast<std::size_t>( contexts_[ static_cast<std::size_t>( i - 1 ) ] ) ].links_offset;
 			std::int32_t child = links_pool_[ static_cast<std::size_t>( parent_links + c ) ];
 			if ( child < 0 ) {
-				child = alloc_node( i < max_order );
+				const int child_width = ( i < max_order )
+					? ( ( i + 1 == max_order ) ? leaf_link_width_ : max_context )
+					: 0;
+				child = alloc_node_sized( child_width );
 				links_pool_[ static_cast<std::size_t>( parent_links + c ) ] = child;
 			}
 			contexts_[ static_cast<std::size_t>( i ) ] = child;
 		}
+	}
+
+	inline void select_context_3( int c1, int c2, int c3 )
+	{
+		if ( ( max_order != 4 ) ||
+		     ( c1 < 0 ) || ( c1 >= max_context ) ||
+		     ( c2 < 0 ) || ( c2 >= max_context ) ||
+		     ( c3 < 0 ) || ( c3 >= leaf_link_width_ ) ) {
+			throw std::runtime_error( "corrupted arithmetic stream" );
+		}
+		auto step = [&]( std::int32_t parent_node, int sym, int child_width ) -> std::int32_t {
+			const std::int32_t links = nodes_[ static_cast<std::size_t>( parent_node ) ].links_offset;
+			std::int32_t child = links_pool_[ static_cast<std::size_t>( links + sym ) ];
+			if ( child < 0 ) {
+				child = alloc_node_sized( child_width );
+				links_pool_[ static_cast<std::size_t>( links + sym ) ] = child;
+			}
+			return child;
+		};
+		const std::int32_t n2 = step( contexts_[ 1 ], c1, max_context );
+		const std::int32_t n3 = step( n2, c2, leaf_link_width_ );
+		contexts_[ 4 ] = step( n3, c3, 0 );
 	}
 
 	void flush_model();
@@ -613,11 +642,12 @@ private:
 		}
 	};
 
-	std::int32_t alloc_node( bool with_links );
+	std::int32_t alloc_node_sized( int link_width );
 
 	const int max_context;
 	const int max_order;
 	const int max_count;
+	const int leaf_link_width_;
 
 	std::vector<BNode> nodes_;
 	std::vector<std::int32_t> links_pool_;

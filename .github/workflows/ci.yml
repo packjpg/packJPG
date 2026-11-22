@@ -98,13 +98,16 @@ jobs:
             LDFLAGS="-fsanitize=address,undefined" -j2
           make -C source clean
 
-      - name: Unsigned-char (ARM64 ABI) ASan/UBSan test suite (clang++)
+      - name: Unsigned-char (ARM64 ABI) ASan/UBSan test suite & fuzzer smoke pass (clang++)
         if: matrix.cxx == 'clang++'
         run: |
           make -C source clean
           make -C source test CXX=clang++ \
             CXXFLAGS="-O1 -g -Wall -pedantic -Werror=tautological-constant-out-of-range-compare -funsigned-char -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined" -j2
+          make -C source clean
+          make -C source fuzz FUZZ_CXX=clang++
+          ./source/fuzz_roundtrip -runs=64
           make -C source clean
 
   macos:
@@ -177,8 +180,7 @@ jobs:
 
       - name: Build and test IrfanView & Susie .pjg plug-in (contrib/irfanview)
         run: |
-          make -C contrib/irfanview clean
-          make -C contrib/irfanview all test -j2
+          make -C contrib/irfanview clean all test -j2
           make -C contrib/irfanview clean
 
       - name: Verify dev and clean targets

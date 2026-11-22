@@ -244,7 +244,7 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	pjg_test::TempTestDir tmp_dir("pjg_ut_p3_path");
 
 	// 1. Exclusive FileWriter creation succeeds on new path and rejects existing path
-	const std::string excl_path = (tmp_dir.path() / "exclusive.bin").string();
+	const std::string excl_path = path_to_utf8(tmp_dir.path() / "exclusive.bin");
 	{
 		FileWriter fw(excl_path, /*exclusive=*/true);
 		const std::uint8_t payload[] = {1, 2, 3, 4};
@@ -264,7 +264,7 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	REQUIRE(threw_on_existing);
 
 	// 2. Null-pointer non-zero writes set sticky error on FileWriter and StreamWriter
-	const std::string null_err_path = (tmp_dir.path() / "null_err.bin").string();
+	const std::string null_err_path = path_to_utf8(tmp_dir.path() / "null_err.bin");
 	{
 		FileWriter fw(null_err_path);
 		REQUIRE_EQ(fw.write(nullptr, 5), std::size_t(0));
@@ -281,8 +281,8 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	}
 
 	// 3. Non-replacing commit_staging_file returns TargetExists without clobbering existing file
-	const std::string keep_path = (tmp_dir.path() / "keep.pjg").string();
-	const std::string stage_path = (tmp_dir.path() / "stage.part").string();
+	const std::string keep_path = path_to_utf8(tmp_dir.path() / "keep.pjg");
+	const std::string stage_path = path_to_utf8(tmp_dir.path() / "stage.part");
 	{
 		FileWriter fw_keep(keep_path);
 		const std::uint8_t orig[] = {'K', 'E', 'E', 'P'};
@@ -302,7 +302,7 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 		REQUIRE_EQ(keep_bytes.size(), std::size_t(4));
 		REQUIRE_EQ(keep_bytes[0], std::uint8_t('K'));
 	}
-	const std::string fresh_dst = (tmp_dir.path() / "keep_.pjg").string();
+	const std::string fresh_dst = path_to_utf8(tmp_dir.path() / "keep_.pjg");
 	REQUIRE(commit_staging_file(stage_path, fresh_dst, /*allow_replace=*/false, commit_err) == CommitStatus::Ok);
 	REQUIRE(file_exists(fresh_dst));
 	REQUIRE(!file_exists(stage_path));
@@ -322,9 +322,9 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	std::filesystem::create_directories(sub_a);
 	std::filesystem::create_directories(sub_b);
 	{
-		FileWriter((tree_root / "top.jpg").string()).close();
-		FileWriter((sub_a / "nested.jpeg").string()).close();
-		FileWriter((sub_b / "other.pjg").string()).close();
+		FileWriter(path_to_utf8(tree_root / "top.jpg")).close();
+		FileWriter(path_to_utf8(sub_a / "nested.jpeg")).close();
+		FileWriter(path_to_utf8(sub_b / "other.pjg")).close();
 	}
 #if !defined(_WIN32) && !defined(WIN32)
 	const auto alias_dir = tmp_dir.path() / "alias_b";
@@ -333,37 +333,150 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 	if (!sym_ec) {
 		// Non-existent leaf inside symlinked directory must be recognized as the same target slot!
 		REQUIRE(paths_refer_to_same_target_location(
-			(sub_b / "future_out.pjg").string(),
-			(alias_dir / "future_out.pjg").string()));
+			path_to_utf8(sub_b / "future_out.pjg"),
+			path_to_utf8(alias_dir / "future_out.pjg")));
 	}
 	if (::geteuid() != 0) {
 		const auto locked_sub = tree_root / "a" / "locked";
 		std::filesystem::create_directories(locked_sub);
 		::chmod(locked_sub.c_str(), 0000);
 		bool had_glob = false;
-		const auto items = expand_cli_inputs({tree_root.string()}, /*recursive=*/true, {}, had_glob);
+		const auto items = expand_cli_inputs({path_to_utf8(tree_root)}, /*recursive=*/true, {}, had_glob);
 		::chmod(locked_sub.c_str(), 0700);
 		REQUIRE(had_glob);
 		REQUIRE_EQ(items.size(), std::size_t(3));
 	}
 #else
 	bool had_glob = false;
-	const auto items = expand_cli_inputs({tree_root.string()}, /*recursive=*/true, {}, had_glob);
+	const auto items = expand_cli_inputs({path_to_utf8(tree_root)}, /*recursive=*/true, {}, had_glob);
 	REQUIRE(had_glob);
 	REQUIRE_EQ(items.size(), std::size_t(3));
 #endif
 
 	// 6. Multi-part extension unique filename keeps underscore on base stem ("photo_.cmp0.pgm")
-	const auto pgm_first = (tmp_dir.path() / "photo.cmp0.pgm").string();
+	const auto pgm_first = path_to_utf8(tmp_dir.path() / "photo.cmp0.pgm");
 	FileWriter(pgm_first).close();
 	REQUIRE_EQ(
-		make_unique_filename((tmp_dir.path() / "photo.jpg").string(), "cmp0.pgm"),
-		(tmp_dir.path() / "photo_.cmp0.pgm").string());
+		make_unique_filename(path_to_utf8(tmp_dir.path() / "photo.jpg"), "cmp0.pgm"),
+		path_to_utf8(tmp_dir.path() / "photo_.cmp0.pgm"));
 
 	// 7. can_overwrite_or_create_target reports user-facing display_name when target is a directory
 	std::string dir_err;
 	const std::string display_link = "user_link.pjg";
-	REQUIRE(!can_overwrite_or_create_target(sub_b.string(), dir_err, &display_link));
+	REQUIRE(!can_overwrite_or_create_target(path_to_utf8(sub_b), dir_err, &display_link));
 	REQUIRE(dir_err.find(display_link) != std::string::npos);
 }
+
+TEST_CASE("fourth-pass bitops and path_utils: owned StreamWriter, non-regular FileWriter reset/count, symlinked-dir '../' symlink, nonfatal noreplace errno, and long paths") {
+	pjg_test::TempTestDir tmp_dir("pjg_ut_p4_io");
+
+	// 1. Bug #8: StreamWriter(fp, own_stream=true) buffers get_data(), flushes+closes on close(), and discards cleanly on reset()
+	const std::string owned_ok = path_to_utf8(tmp_dir.path() / "owned_ok.bin");
+	{
+		FILE* fp = fopen_utf8(owned_ok, "wb");
+		REQUIRE(fp != nullptr);
+		StreamWriter sw(fp, /*own_stream=*/true);
+		sw.write(std::vector<std::uint8_t>{0x11, 0x22, 0x33});
+		REQUIRE_EQ(sw.num_bytes_written(), std::size_t(3));
+		REQUIRE(sw.get_data() == (std::vector<std::uint8_t>{0x11, 0x22, 0x33}));
+		REQUIRE(sw.close());
+		REQUIRE(!sw.error());
+		REQUIRE(!sw.write_byte(0x44));
+		REQUIRE(sw.error());
+	}
+	REQUIRE(FileReader(owned_ok).get_data() == (std::vector<std::uint8_t>{0x11, 0x22, 0x33}));
+
+	const std::string owned_abort = path_to_utf8(tmp_dir.path() / "owned_abort.bin");
+	{
+		FILE* fp = fopen_utf8(owned_abort, "wb");
+		REQUIRE(fp != nullptr);
+		StreamWriter sw(fp, /*own_stream=*/true);
+		sw.write(std::vector<std::uint8_t>{0xDE, 0xAD, 0xBE, 0xEF});
+		sw.reset();
+	}
+	REQUIRE_EQ(FileReader(owned_abort).get_size(), std::size_t(0));
+
+	// 2. Bug #8 & #15: FileWriter on /dev/null or NUL tracks exact bytes_written_ and survives reset()
+#if defined(_WIN32) || defined(WIN32)
+	const std::string null_dev = "NUL";
+	REQUIRE(is_non_regular_stream_target("NUL"));
+	REQUIRE(is_non_regular_stream_target(path_to_utf8(tmp_dir.path() / "NUL")));
+	REQUIRE(is_non_regular_stream_target("\\\\.\\NUL"));
+#else
+	const std::string null_dev = "/dev/null";
+	REQUIRE(is_non_regular_stream_target("/dev/null"));
+#endif
+	{
+		FileWriter fw_null(null_dev);
+		fw_null.write(std::vector<std::uint8_t>{1, 2, 3, 4, 5});
+		REQUIRE_EQ(fw_null.num_bytes_written(), std::size_t(5));
+		REQUIRE(!fw_null.error());
+		fw_null.reset();
+		REQUIRE(!fw_null.error());
+		REQUIRE_EQ(fw_null.num_bytes_written(), std::size_t(0));
+		fw_null.write_byte(0x7F);
+		REQUIRE_EQ(fw_null.num_bytes_written(), std::size_t(1));
+		REQUIRE(fw_null.close());
+	}
+
+	// 3. Bug #9: Symlinked parent directory + "../target.pjg" relative symlink resolves relative to canonical parent!
+	{
+		const auto real_parent = tmp_dir.path() / "real_parent";
+		const auto real_sub    = real_parent / "sub";
+		const auto sym_dir     = tmp_dir.path() / "sym_sub";
+		std::filesystem::create_directories(real_sub);
+		std::error_code ec;
+		std::filesystem::create_directory_symlink(real_sub, sym_dir, ec);
+		if (!ec) {
+			const auto link_in_sym = sym_dir / "out.pjg";
+			std::filesystem::create_symlink(std::filesystem::path("..") / "target.pjg", link_in_sym, ec);
+			if (!ec) {
+				std::string resolved;
+				std::string err;
+				REQUIRE(resolve_overwrite_target_utf8(path_to_utf8(link_in_sym), resolved, err));
+				FileWriter(resolved).write(std::vector<std::uint8_t>{'O', 'K'});
+				REQUIRE(file_exists(path_to_utf8(real_parent / "target.pjg")));
+				REQUIRE(!file_exists(path_to_utf8(tmp_dir.path() / "target.pjg")));
+			}
+		}
+	}
+
+	// 4. Bug #10: Non-overwrite fallback errno predicate accepts exFAT/FAT32/SMB ENOTSUP & EACCES, rejects ENOSPC/EIO
+#if !defined(_WIN32) && !defined(WIN32)
+	REQUIRE(is_nonfatal_noreplace_errno(EPERM));
+	REQUIRE(is_nonfatal_noreplace_errno(ENOSYS));
+	REQUIRE(is_nonfatal_noreplace_errno(EINVAL));
+	REQUIRE(is_nonfatal_noreplace_errno(EACCES));
+#ifdef EOPNOTSUPP
+	REQUIRE(is_nonfatal_noreplace_errno(EOPNOTSUPP));
+#endif
+#ifdef ENOTSUP
+	REQUIRE(is_nonfatal_noreplace_errno(ENOTSUP));
+#endif
+	REQUIRE(!is_nonfatal_noreplace_errno(ENOSPC));
+	REQUIRE(!is_nonfatal_noreplace_errno(EIO));
+#endif
+
+	// 5. Bug #15: >= 245-char path round-trips through ensure_parent_directory, FileWriter, FileWriter::get_data, and FileReader
+	{
+		std::filesystem::path deep = tmp_dir.path();
+		while (path_to_utf8(deep).size() < 245) {
+			deep /= std::string(28, 'p');
+		}
+		const std::string long_file = path_to_utf8(deep / "long_leaf_\xCE\xBB.bin");
+		REQUIRE(ensure_parent_directory(long_file));
+		{
+			FileWriter fw_long(long_file);
+			fw_long.write(std::vector<std::uint8_t>{0xCA, 0xFE, 0xBA, 0xBE});
+			REQUIRE(fw_long.get_data() == (std::vector<std::uint8_t>{0xCA, 0xFE, 0xBA, 0xBE}));
+			REQUIRE(fw_long.close());
+		}
+		REQUIRE(FileReader(long_file).get_data() == (std::vector<std::uint8_t>{0xCA, 0xFE, 0xBA, 0xBE}));
+		REQUIRE(remove_file_utf8(long_file));
+	}
+
+	// 6. Bug #9: make_output_base handles trailing slash on explicit input path cleanly
+	REQUIRE_EQ(make_output_base("photos/sample.jpg", "out_dir/", ""), std::string("out_dir/sample.jpg"));
+}
+
 

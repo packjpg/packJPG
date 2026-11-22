@@ -27,7 +27,7 @@ struct LibrarySession {
 
 	void discard_streams_and_staging() noexcept
 	{
-		if ( ( ctx.str_out != nullptr ) && ( lib_out_type != 0 ) ) {
+		if ( ( ctx.str_out != nullptr ) && ( ( lib_out_type != 0 ) || staging_filepath.empty() ) ) {
 			try {
 				ctx.str_out->reset();
 			} catch ( ... ) {
@@ -413,8 +413,12 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 					return;
 				}
 				try {
-					ctx.str_out = std::make_unique<FileWriter>(
-						fp, staging_str.empty() ? resolved_out_target : staging_str );
+					if ( staging_str.empty() ) {
+						ctx.str_out = std::make_unique<StreamWriter>( fp, true );
+					}
+					else {
+						ctx.str_out = std::make_unique<FileWriter>( fp, staging_str );
+					}
 					sess.target_filepath  = std::move( resolved_out_target );
 					sess.staging_filepath = std::move( staging_str );
 				} catch ( const std::runtime_error& ) {
@@ -425,6 +429,11 @@ PJGLIB_API void pjglib_init_streams( void* in_src, int in_type, int in_size, voi
 					ctx.errorlevel = 2;
 					ctx.str_in.reset();
 					return;
+				} catch ( ... ) {
+					if ( !staging_str.empty() ) {
+						remove_file_utf8( staging_str );
+					}
+					throw;
 				}
 				break;
 			}

@@ -707,7 +707,7 @@ bool read_jpeg( CodecContext& ctx )
 
 	ctx.jpgfilesize = static_cast<std::int64_t>( ctx.str_in->get_size() );
 
-	if ( !jpg_setup_imginfo( ctx ) ) {
+	if ( !jpg_setup_imginfo( ctx, false ) ) {
 		return false;
 	}
 
@@ -861,12 +861,33 @@ bool decode_jpeg( CodecContext& ctx )
 		return true;
 	};
 
+	const int max_peof = ( ctx.err_tol <= 1 ) ? 0 : 65536;
+	auto finish_truncated_decode = [&]() -> bool {
+		ctx.errormessage = "coded image data truncated / too short";
+		ctx.errorlevel   = 1;
+		ctx.scnc++;
+		while ( hpos < ctx.hdrdata.size() ) {
+			if ( !ctx.read_header_segment( hpos, type, len ) ) return false;
+			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
+				if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ], false ) ) return false;
+				if ( type == 0xDA ) {
+					if ( !check_scan_huff_tables( ctx ) || !validate_scan_progression( ctx, prog_al ) ) {
+						return false;
+					}
+					ctx.scnc++;
+				}
+			}
+			hpos += len;
+		}
+		return true;
+	};
+
 	while ( true ) {
 		for ( type = 0x00; type != 0xDA; ) {
 			if ( hpos >= ctx.hdrdata.size() ) break;
 			if ( !ctx.read_header_segment( hpos, type, len ) ) return false;
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ] ) ) {
+				if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ], false ) ) {
 					return false;
 				}
 			}
@@ -931,10 +952,8 @@ bool decode_jpeg( CodecContext& ctx )
 							ctx.colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-							ctx.errormessage = "coded image data truncated / too short";
-							ctx.errorlevel = 1;
-							return true;
+						if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+							return finish_truncated_decode();
 						}
 					}
 				}
@@ -954,10 +973,8 @@ bool decode_jpeg( CodecContext& ctx )
 						lastdc[ cmp ] = dc_unscaled;
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-							ctx.errormessage = "coded image data truncated / too short";
-							ctx.errorlevel = 1;
-							return true;
+						if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+							return finish_truncated_decode();
 						}
 					}
 				}
@@ -973,10 +990,8 @@ bool decode_jpeg( CodecContext& ctx )
 						}
 
 						sta = jpg_next_mcupos( ctx, &mcu, &cmp, &csc, &sub, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-							ctx.errormessage = "coded image data truncated / too short";
-							ctx.errorlevel = 1;
-							return true;
+						if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+							return finish_truncated_decode();
 						}
 					}
 				}
@@ -1009,10 +1024,8 @@ bool decode_jpeg( CodecContext& ctx )
 							ctx.colldata[ cmp ][ bpos ][ dpos ] = block[ bpos ];
 
 						sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-						if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-							ctx.errormessage = "coded image data truncated / too short";
-							ctx.errorlevel = 1;
-							return true;
+						if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+							return finish_truncated_decode();
 						}
 					}
 				}
@@ -1033,10 +1046,8 @@ bool decode_jpeg( CodecContext& ctx )
 							lastdc[ cmp ] = dc_unscaled;
 
 							sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-								ctx.errormessage = "coded image data truncated / too short";
-								ctx.errorlevel = 1;
-								return true;
+							if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+								return finish_truncated_decode();
 							}
 						}
 					}
@@ -1052,10 +1063,8 @@ bool decode_jpeg( CodecContext& ctx )
 							}
 
 							sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-								ctx.errormessage = "coded image data truncated / too short";
-								ctx.errorlevel = 1;
-								return true;
+							if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+								return finish_truncated_decode();
 							}
 						}
 					}
@@ -1101,10 +1110,8 @@ bool decode_jpeg( CodecContext& ctx )
 
 							if ( sta == 0 )
 								sta = jpg_next_mcuposn( ctx, &cmp, &dpos, &rstw );
-							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-								ctx.errormessage = "coded image data truncated / too short";
-								ctx.errorlevel = 1;
-								return true;
+							if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+								return finish_truncated_decode();
 							}
 						}
 					}
@@ -1159,10 +1166,8 @@ bool decode_jpeg( CodecContext& ctx )
 								sta = -1;
 								break;
 							}
-							if ( ( sta == 0 ) && ( ( ctx.err_tol <= 1 ) ? ( huffr->peof() > 0 ) : ( huffr->peof() > 65536 ) ) ) {
-								ctx.errormessage = "coded image data truncated / too short";
-								ctx.errorlevel = 1;
-								return true;
+							if ( ( sta == 0 ) && ( huffr->peof() > max_peof ) ) {
+								return finish_truncated_decode();
 							}
 						}
 					}
@@ -1250,6 +1255,11 @@ bool recode_jpeg( CodecContext& ctx )
 	int   lastdc[ 4 ];
 	short block[ 64 ];
 
+	std::array<std::array<int, 64>, 4> prog_al;
+	for ( auto& row : prog_al ) {
+		row.fill( -1 );
+	}
+
 	const std::uint8_t effective_padbit = ( ctx.padbit == 0 ) ? 0u : 1u;
 	BitWriter huffw_obj( effective_padbit );
 	huffw_obj.reserve( static_cast<std::size_t>( std::max( 1, ctx.mcuc ) ) * 32 );
@@ -1269,7 +1279,7 @@ bool recode_jpeg( CodecContext& ctx )
 			if ( hpos >= ctx.hdrdata.size() ) break;
 			if ( !ctx.read_header_segment( hpos, type, len ) ) return false;
 			if ( ( type == 0xC4 ) || ( type == 0xDA ) || ( type == 0xDD ) ) {
-				if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ] ) ) {
+				if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ], true ) ) {
 					return false;
 				}
 			}
@@ -1280,7 +1290,7 @@ bool recode_jpeg( CodecContext& ctx )
 
 		if ( !check_scan_huff_tables( ctx ) )
 			return false;
-		if ( !validate_scan_layout( ctx ) )
+		if ( !validate_scan_progression( ctx, prog_al ) )
 			return false;
 
 		ctx.scnp.resize( static_cast<std::size_t>( ctx.scnc + 2 ), 0 );
@@ -1438,6 +1448,11 @@ bool recode_jpeg( CodecContext& ctx )
 			}
 
 			huffw->pad();
+			if ( huffw->num_bytes_written() > ( 512u << 20 ) ) {
+				ctx.errormessage = "coded image data exceeds maximum supported size";
+				ctx.errorlevel   = 2;
+				return false;
+			}
 
 			if ( sta == -1 ) {
 				ctx.set_errormessage( "encode error in scan%i / mcu%i",
@@ -1478,7 +1493,7 @@ bool recode_jpeg( CodecContext& ctx )
 /* -----------------------------------------------
 	Parses header for imageinfo
 	----------------------------------------------- */
-bool jpg_setup_imginfo( CodecContext& ctx )
+bool jpg_setup_imginfo( CodecContext& ctx, bool from_pjg )
 {
 	unsigned char type        = 0x00;
 	unsigned int  len         = 0;
@@ -1490,25 +1505,19 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 	while ( hpos < ctx.hdrdata.size() ) {
 		if ( !ctx.read_header_segment( hpos, type, len ) ) return false;
 		if ( ( type != 0xDA ) && ( type != 0xC4 ) && ( type != 0xDD ) ) {
-			if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ] ) )
+			if ( !jpg_parse_jfif( ctx, type, len, &ctx.hdrdata[ hpos ], from_pjg ) )
 				return false;
 		}
-		else if ( ( type == 0xDA ) && ( len >= 8u ) ) {
+		else if ( ( type == 0xDA ) && ( len >= 10u ) ) {
 			const unsigned int ns = ctx.hdrdata[ hpos + 4 ];
-			if ( ( ns >= 1u ) && ( ns <= 4u ) && ( len >= 8u + 2u * ( ns - 1u ) ) ) {
+			if ( ( ns >= 1u ) && ( ns <= 4u ) && ( len >= 8u + 2u * ns ) ) {
 				const unsigned char ss = ctx.hdrdata[ hpos + 5u + 2u * ns ];
 				const unsigned char ah = static_cast<unsigned char>(
 					( ctx.hdrdata[ hpos + 7u + 2u * ns ] >> 4 ) & 0x0Fu );
 				if ( ( ss == 0u ) && ( ah == 0u ) ) {
 					for ( unsigned int k = 0; k < ns; ++k ) {
-						const unsigned char jid = ctx.hdrdata[ hpos + 5u + 2u * k ];
 						if ( sos_dc_cnt < sizeof( sos_dc_list ) ) {
-							sos_dc_list[ sos_dc_cnt++ ] = jid;
-						}
-						for ( int cmp = 0; cmp < ctx.cmpc; ++cmp ) {
-							if ( ctx.cmpnfo[ cmp ].jid == jid ) {
-								sos_dc_jids |= ( 1u << cmp );
-							}
+							sos_dc_list[ sos_dc_cnt++ ] = ctx.hdrdata[ hpos + 5u + 2u * k ];
 						}
 					}
 				}
@@ -1557,7 +1566,7 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 			std::max<std::uint64_t>(
 				4096ULL,
 				( stream_bytes <= ( 16777216ULL / 1536ULL ) ) ? ( stream_bytes * 1536ULL ) : 16777216ULL ) );
-	if ( ctx.filetype == F_JPG ) {
+	if ( !from_pjg ) {
 		const auto huff_bytes = static_cast<std::uint64_t>( ctx.huffdata.size() );
 		const std::uint64_t huff_scaled = ( huff_bytes <= ( 16777216ULL / 64ULL ) )
 			? ( huff_bytes * 64ULL )
@@ -1651,7 +1660,7 @@ bool jpg_setup_imginfo( CodecContext& ctx )
 /* -----------------------------------------------
 	Parse routines for JFIF segments
 	----------------------------------------------- */
-bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, const unsigned char* segment )
+bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, const unsigned char* segment, bool from_pjg )
 {
 	unsigned int hpos = 4;
 
@@ -1678,7 +1687,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 				if ( ( i < 16 ) || ( skip - 16 > 256 ) || ( hpos + static_cast<unsigned int>( skip ) > len ) )
 					break;
 
-				if ( ctx.filetype != F_PJG ) {
+				if ( !from_pjg ) {
 					std::array<unsigned char, 256> seen{};
 					for ( int k = 0; k < skip - 16; k++ ) {
 						const unsigned char sym = segment[ hpos + 16 + k ];
@@ -1751,7 +1760,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 			return true;
 
 		case 0xDD: // DRI segment
-			if ( hpos + 2 > len ) {
+			if ( hpos + 2 != len ) {
 				ctx.errormessage = "size mismatch in dri marker";
 				ctx.errorlevel = 2;
 				return false;
@@ -1772,7 +1781,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 				return false;
 			}
 			hpos++;
-			if ( hpos + static_cast<unsigned int>( ctx.cs_cmpc ) * 2 + 3 > len ) {
+			if ( hpos + static_cast<unsigned int>( ctx.cs_cmpc ) * 2 + 3 != len ) {
 				ctx.errormessage = "size mismatch in sos marker";
 				ctx.errorlevel = 2;
 				return false;
@@ -1949,7 +1958,7 @@ bool jpg_parse_jfif( CodecContext& ctx, unsigned char type, unsigned int len, co
 			return false;
 
 		default:
-			if ( ctx.filetype != F_PJG ) {
+			if ( !from_pjg ) {
 				ctx.set_errormessage( "unknown marker found: FF %2X", type );
 				ctx.errorlevel = 1;
 			}
