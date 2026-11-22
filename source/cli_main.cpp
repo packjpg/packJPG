@@ -1,5 +1,5 @@
 /*
-packJPG v2.5k (01/22/2016)
+packJPG v2.5l (11/21/2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 packJPG is a compression program specially designed for further
@@ -238,6 +238,13 @@ v2.5j (01/15/14) (public)
 v2.5k (01/22/16) (public)
  - Updated contact info
  - fixed a minor bug
+
+v2.5l (11/21/26) (public)
+ - fixed memory safety, Huffman/RST, and malformed-stream bugs
+ - modular C++17 reentrant codec & thread-safe library API
+ - ~1.6x-1.7x codec & streaming I/O speedup
+ - added -out, -r, wildcard, and -j parallel batch CLI options
+ - cross-platform Linux, macOS, and Windows builds & test suite
 
 
 Acknowledgements

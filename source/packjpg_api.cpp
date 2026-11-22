@@ -250,7 +250,13 @@ EXPORT void pjglib_init_streams( void* in_src, int in_type, int in_size, void* o
 	----------------------------------------------- */
 EXPORT const char* pjglib_version_info( void )
 {
-	return "--> packJPG library v2.5k (01/22/2016) by Matthias Stirner / Se <--";
+	static const std::string info = []() {
+		char buf[ 256 ];
+		std::snprintf( buf, sizeof( buf ), "--> %s library v%i.%i%s (%s) by %s <--",
+			kAppTitle, kAppVersion / 10, kAppVersion % 10, kSubVersion, kVersionDate, kAuthor );
+		return std::string( buf );
+	}();
+	return info.c_str();
 }
 
 
@@ -259,5 +265,11 @@ EXPORT const char* pjglib_version_info( void )
 	----------------------------------------------- */
 EXPORT const char* pjglib_short_name( void )
 {
-	return "packJPG v2.5k";
+	static const std::string name = []() {
+		char buf[ 64 ];
+		std::snprintf( buf, sizeof( buf ), "%s v%i.%i%s",
+			kAppTitle, kAppVersion / 10, kAppVersion % 10, kSubVersion );
+		return std::string( buf );
+	}();
+	return name.c_str();
 }
