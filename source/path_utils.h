@@ -570,7 +570,7 @@ inline FILE* open_exclusive_file_utf8(
 		HANDLE h = CreateFileW(
 			wpath.c_str(),
 			GENERIC_WRITE,
-			0,
+			FILE_SHARE_READ,
 			nullptr,
 			CREATE_NEW,
 			FILE_ATTRIBUTE_NORMAL,

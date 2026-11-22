@@ -250,6 +250,7 @@ TEST_CASE("path_utils and FileWriter: exclusive create, close/write error state,
 		const std::uint8_t payload[] = {1, 2, 3, 4};
 		REQUIRE_EQ(fw.write(payload, sizeof(payload)), sizeof(payload));
 		REQUIRE(!fw.error());
+		REQUIRE_EQ(fw.get_data().size(), sizeof(payload));
 		REQUIRE(fw.close());
 		REQUIRE(!fw.error());
 		REQUIRE_EQ(fw.num_bytes_written(), sizeof(payload));
